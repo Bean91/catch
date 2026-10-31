@@ -1,0 +1,9 @@
+.env
+data/
+*.db
+*.db-*
+__pycache__/
+.venv/
+node_modules/
+web/dist/
+catch/api/static/
