@@ -203,7 +203,8 @@ to rotate it under Logbook > Edit Profile > Applications.
       straight from `recovery_score`'s own `baseline_7d*`/`spread_60d` (not re-derived in
       TS), and `latest_erg`/`predicted_2k` are embedded so Today needs exactly one call.
       Documented in `docs/analytics.md` §8; covered by a new test in
-      `tests/test_api_analytics.py`; `uv run pytest` — 91 passed.
+      `tests/test_api_analytics.py`; `uv run pytest` — 93 passed (includes
+      `tests/test_main_static.py`, added for the path-traversal fix below).
 - [x] `catch/main.py` now mounts `catch/api/static` (Vite's `outDir`) with an SPA fallback,
       registered after every API router so it can't shadow `/api/*`/`/auth/*`; a no-op
       when the directory doesn't exist (dev/test run without a build).
@@ -229,19 +230,68 @@ to rotate it under Logbook > Edit Profile > Applications.
       Concept2 results, Withings never connected) — auth is bypassed in mock mode so the
       UI is reviewable with no backend running at all.
 - [x] Screenshotted at 390px and 1280px in both themes via Playwright MCP, critiqued and
-      fixed twice: round 1 caught the capture running in light theme by accident (fixed
-      by forcing `prefers-color-scheme` rather than relying on the system default), sleep
-      stage colors reusing the reserved red/green status hues for non-status data (fixed:
-      stages now ramp through one accent hue, status colors stay reserved), and a 390px
-      desktop layout that was just a stretched phone column (fixed: sidebar nav + a real
-      3-column dashboard grid at `lg:`). Round 2 also caught and fixed a sub-44px mobile
-      logout button. WCAG AA contrast was checked numerically (script, not eyeballed)
-      before any token was locked in; 44px touch targets and `prefers-reduced-motion`
-      were checked programmatically (`browser_evaluate` over every interactive element;
-      a screenshot taken 400ms after data load with reduced-motion on, confirming the
-      ring/sparklines render at their final state with no animation). Final screenshots
-      in `docs/screenshots/`.
+      fixed across two rounds plus an advisor review (below): capture running in light
+      theme by accident (fixed by forcing `prefers-color-scheme` rather than relying on
+      the system default), sleep stage colors reusing the reserved red/green status hues
+      for non-status data (fixed: stages now ramp through one accent hue, status colors
+      stay reserved), a 1280px desktop layout that was just a stretched phone column
+      (fixed: sidebar nav + a real 3-column dashboard grid at `lg:`), a sub-44px mobile
+      logout button, dead space in the 1280px recovery-ring and recommendation cards, and
+      a strain-gauge target band that visually disappeared once the fill passed through
+      or past it (fixed: boundary ticks drawn above the fill, not a band under it — see
+      the bug log below). WCAG AA contrast was checked numerically (script, not
+      eyeballed) against the surfaces each text color actually sits on, before and after
+      an advisor review caught two pairings checked only against `--bg`; 44px touch
+      targets and `prefers-reduced-motion` were checked programmatically
+      (`browser_evaluate` over every interactive element; a screenshot taken 400ms after
+      data load with reduced-motion on, confirming the ring/sparklines render at their
+      final state with no animation). Final screenshots in `docs/screenshots/`.
 - [x] `CLAUDE.md` updated (`web/` is no longer empty; frontend commands added).
+
+## Bugs an advisor review caught before this session's work was declared done
+
+- **Path-traversal / auth hole in the SPA fallback** (`catch/main.py`). The catch-all
+  `spa()` route built `_STATIC_DIR / full_path` and served it with `FileResponse` with no
+  check that the resolved path stayed under `_STATIC_DIR` — `GET /../../../.env` or an
+  encoded equivalent would have served the real `.env` (password hash, Fernet key, every
+  API token) or the SQLite DB to anyone, unauthenticated, since this route has no
+  `require_auth`. Fixed with `safe_static_file()`, which resolves the path and requires
+  `candidate.is_relative_to(_STATIC_DIR)` before ever touching the filesystem, plus an
+  explicit 404 for any mistyped `/api/`or `/auth/` path so a broken route can't fall
+  through to a 200 HTML response. Covered by `tests/test_main_static.py` (asserts
+  traversal inputs return `None`); then verified live against the real build with
+  `uv run uvicorn` + `curl -o /dev/null -w '%{http_code} %{content_type} %{size_download}'`
+  — traversal attempts now return exactly `index.html`'s byte count (939) rather than
+  `.env`'s or the DB's, confirmed with the response body never piped to output (the thing
+  that leaked a Concept2 token in session 2).
+- **"Sync now" ran all three sources in parallel** via `Promise.all`. `recompute_scores`
+  takes a non-blocking lock and skips itself if another recompute is already running, so
+  two sources finishing close together could leave one unscored until the next scheduled
+  sync — and three concurrent syncs is real memory pressure on a 1GB Pi. Changed to
+  sequential (`RecommendationAndSync.tsx`).
+- **Desktop screenshots were only critiqued once**, not twice as the quality bar asks:
+  the ring card's content wasn't vertically centered in its taller card, and the
+  recommendation card had dead space under a short line of text while its sibling erg
+  card ran much taller. Fixed (`h-full` + `justify-center` on the ring; a flex spacer that
+  pushes the sync row to the card's bottom) and a second desktop round was actually shot.
+- **Predicted-2k time wasn't `m:ss.t`** — `predicted_time_s` went through `formatDuration`
+  (whole seconds) instead of the same round-to-tenths-then-split logic already used for
+  splits, so `393.6s` rendered as `6:34` instead of `6:33.6`; the range next to it was
+  also in `/500m` pace while the headline was a total time, two different units side by
+  side. Fixed: `formatSplit`'s logic was generalized into `formatTimeTenths` and reused
+  for both the headline (`predicted_time_s`) and the range (`pace * 4`, i.e. also a 2k
+  time now, not a 500m pace).
+- **A 401 mid-session (expired cookie) left every card stuck on "Couldn't load" + Retry**,
+  which can never succeed without re-authenticating. `request()` now fires a
+  `catch:unauthorized` window event on any 401; `AuthProvider` listens and drops the user
+  back to the login screen.
+- **Contrast had only been checked against `--bg`**, not the surfaces text actually sits
+  on. Re-checking against `--surface`/`--surface-2` found one real failure: the
+  high-risk-load warning's red text on its own 10%-opacity tint fell under 4.5:1 in the
+  light theme at `text-xs` size (4.42, "AA-large-only," not enough for small text). Fixed
+  with a dedicated `--band-red-text` token (darker than `--band-red` in light mode only;
+  dark mode's `--band-red` already cleared 4.5:1 there) rather than changing `--band-red`
+  itself, which is tuned for dots/badges on `--bg`/`--surface` and already passed there.
 
 ## Gotchas / deviations from the literal task spec
 
@@ -256,6 +306,17 @@ to rotate it under Logbook > Edit Profile > Applications.
   Static assets served by FastAPI's `StaticFiles`, not loaded into Pi memory per request,
   so this is a download-size concern, not a 1GB-RAM concern — fine for a single-user LAN
   app, revisit with route-level code-splitting only if it's ever actually slow on the Pi.
+- **The Today screen was never rendered against real `.env`/DB data in a browser** — only
+  against `?mock=` fixtures and the fixture-backed pytest suite. The real `/api/today`
+  JSON shape was dumped and used to build the TypeScript types and mocks (session 3's
+  live account has 0 Concept2 results and no Withings connection, so `latest_erg` and
+  `predicted_2k` were confirmed null there, matching the `empty`-ish real state), but a
+  real authenticated page load was not screenshotted, to avoid the session-cookie/secret
+  ever landing in terminal output. Worth doing once real Concept2 data exists.
+- **The task named a `frontend-design` skill and a `webapp-testing` skill** for this
+  session; neither exists in this environment's skill listing. Design direction/critique
+  was done directly (documented in `DESIGN.md`) and the Playwright MCP tools were used
+  directly for screenshots instead.
 
 ## Next steps (session 4)
 

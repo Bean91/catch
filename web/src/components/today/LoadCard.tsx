@@ -42,7 +42,7 @@ export function LoadCard({ load }: { load: Load | null }) {
         </dl>
       )}
       {highRisk && (
-        <p className="mt-3 rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-xs text-band-red">
+        <p className="mt-3 rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-xs text-band-red-text">
           Acute:chronic ratio is in the high-risk band — add load cautiously.
         </p>
       )}

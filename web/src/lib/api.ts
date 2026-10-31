@@ -12,10 +12,16 @@ export class ApiError extends Error {
   }
 }
 
+// A session cookie can expire mid-visit (30-day max age, but still). AuthProvider listens
+// for this so a stale session drops the user back to the login screen instead of leaving
+// every card stuck on "Couldn't load" with a Retry button that will never succeed.
+export const UNAUTHORIZED_EVENT = "catch:unauthorized";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "include", ...init });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     throw new ApiError(res.status, body.detail ?? res.statusText);
   }
   return res.json() as Promise<T>;

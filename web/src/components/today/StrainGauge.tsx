@@ -21,21 +21,30 @@ export function StrainGauge({ strain, targetRange }: { strain: Strain | null; ta
         {hasValue ? (
           <CountUp value={value} decimals={1} className="text-3xl font-semibold text-text-primary" />
         ) : (
-          <span className="text-3xl font-semibold text-text-tertiary">—</span>
+          <span className="font-mono-nums text-3xl font-semibold text-text-tertiary">—</span>
         )}
         <span className="text-sm text-text-tertiary font-mono-nums">/ {MAX}</span>
       </div>
-      <div className="relative mt-4 h-3 w-full rounded-full bg-surface-2">
+      <div className="relative mt-4 h-3 w-full">
+        <div className="absolute inset-0 overflow-hidden rounded-full bg-surface-2">
+          <motion.div
+            className="absolute inset-y-0 left-0 rounded-full bg-accent"
+            initial={{ width: reduced ? `${pct}%` : "0%" }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
+          />
+        </div>
+        {/* Target-range boundary ticks sit above the fill (not a translucent band under it) so
+            they stay visible even once the fill passes through or past the target range. */}
         <div
-          className="absolute inset-y-0 rounded-full bg-text-tertiary/20"
-          style={{ left: `${(lo / MAX) * 100}%`, width: `${((hi - lo) / MAX) * 100}%` }}
+          className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-text-primary/70"
+          style={{ left: `${(lo / MAX) * 100}%` }}
           aria-hidden
         />
-        <motion.div
-          className="absolute inset-y-0 left-0 rounded-full bg-accent"
-          initial={{ width: reduced ? `${pct}%` : "0%" }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
+        <div
+          className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-text-primary/70"
+          style={{ left: `${(hi / MAX) * 100}%` }}
+          aria-hidden
         />
       </div>
       <div className="mt-2 flex justify-between text-xs text-text-tertiary">

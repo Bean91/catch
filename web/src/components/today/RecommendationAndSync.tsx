@@ -9,8 +9,16 @@ export function RecommendationAndSync({ recommendation }: { recommendation: stri
 
   const syncAll = useMutation({
     mutationFn: async () => {
+      // Sequential, not Promise.all: recompute_scores takes a non-blocking lock and skips
+      // itself if another sync is already recomputing, so two sources finishing at once
+      // can leave one of them unscored until the next scheduled sync. Also kinder to the
+      // Pi's 1GB RAM than three syncs' worth of concurrent memory pressure.
       const sources = statusQuery.data?.map((s) => s.source) ?? ["garmin", "withings", "concept2"];
-      return Promise.all(sources.map((s) => triggerSync(s)));
+      const results = [];
+      for (const source of sources) {
+        results.push(await triggerSync(source));
+      }
+      return results;
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["sync-status"] });
@@ -19,10 +27,15 @@ export function RecommendationAndSync({ recommendation }: { recommendation: stri
   });
 
   return (
-    <Card>
-      <p className="text-base font-medium text-text-primary">{recommendation}</p>
+    <Card className="flex h-full flex-col">
+      <p className="text-lg font-medium text-text-primary lg:text-xl">{recommendation}</p>
 
-      <div className="mt-4 flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Absorbs the extra height the grid stretches this card to (at lg:, it sits next to
+          the taller erg card) so the sync row anchors to the bottom instead of leaving a
+          gap under the recommendation text. */}
+      <div className="mt-4 flex-1" aria-hidden />
+
+      <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
         <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-text-tertiary">
           {(statusQuery.data ?? []).map((s) => (
             <li key={s.source} className="inline-flex items-center gap-1.5">

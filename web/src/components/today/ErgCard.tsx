@@ -1,5 +1,5 @@
 import type { ErgPiece, Predicted2k } from "../../lib/types";
-import { bandLabel, formatDistance, formatDuration, formatSplit } from "../../lib/format";
+import { bandLabel, formatDistance, formatDuration, formatSplit, formatTimeTenths } from "../../lib/format";
 import { BandBadge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
@@ -34,11 +34,14 @@ export function ErgCard({ erg, predicted2k }: { erg: ErgPiece | null; predicted2
         {predicted2k.value != null ? (
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-mono-nums text-2xl font-semibold text-text-primary">
-              {formatDuration(predicted2k.predicted_time_s)}
+              {formatTimeTenths(predicted2k.predicted_time_s)}
             </span>
             {predicted2k.range && (
+              // Range shown as 2k times (pace * 4), matching the headline number's unit —
+              // not /500m paces sitting next to a total time, which reads as two different
+              // quantities at a glance.
               <span className="font-mono-nums text-xs text-text-tertiary">
-                ({formatSplit(predicted2k.range[0])}–{formatSplit(predicted2k.range[1])} /500m)
+                ({formatTimeTenths(predicted2k.range[0] * 4)}–{formatTimeTenths(predicted2k.range[1] * 4)})
               </span>
             )}
           </div>

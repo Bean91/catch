@@ -43,7 +43,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
       <Dialog.Trigger asChild>
         <button
           type="button"
-          className="flex w-full flex-col items-center gap-3 rounded-lg border border-border bg-surface p-5 transition-colors hover:border-accent/40"
+          className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-surface p-5 transition-colors hover:border-accent/40"
           aria-label="Recovery details"
         >
           <div className="relative" style={{ width: SIZE, height: SIZE }}>
@@ -76,7 +76,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
                   <CountUp value={value} decimals={0} suffix="%" className="text-4xl font-semibold text-text-primary" />
                 </>
               ) : (
-                <span className="text-lg font-medium text-text-tertiary">—</span>
+                <span className="font-mono-nums text-lg font-medium text-text-tertiary">—</span>
               )}
               <span className="mt-1 text-xs uppercase tracking-wide text-text-tertiary">Recovery</span>
             </div>

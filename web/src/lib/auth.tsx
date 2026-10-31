@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ApiError, fetchSyncStatus, isMock, login as apiLogin, logout as apiLogout } from "./api";
+import { UNAUTHORIZED_EVENT, fetchSyncStatus, isMock, login as apiLogin, logout as apiLogout } from "./api";
 
 type AuthStatus = "checking" | "authed" | "anon";
 
@@ -20,7 +20,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // duplicating session-cookie verification logic in the frontend.
     fetchSyncStatus()
       .then(() => setStatus("authed"))
-      .catch((err) => setStatus(err instanceof ApiError && err.status === 401 ? "anon" : "anon"));
+      .catch(() => setStatus("anon"));
+  }, []);
+
+  useEffect(() => {
+    if (isMock) return;
+    // A session cookie expiring mid-visit shouldn't leave every card stuck on a Retry
+    // button that can never succeed — drop back to the login screen instead.
+    const onUnauthorized = () => setStatus("anon");
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
   async function login(password: string) {

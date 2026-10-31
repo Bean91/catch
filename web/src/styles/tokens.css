@@ -14,6 +14,11 @@
   --band-green: #49b382;
   --band-yellow: #e0b23c;
   --band-red: #e2614f;
+  /* A darker red than --band-red specifically for small text sitting on a --band-red tint
+     (e.g. the high-risk load warning) — --band-red itself is tuned for dots/badges on
+     --bg/--surface and falls short of 4.5:1 on its own 10%-opacity tint at small text sizes
+     in the light theme. Dark theme's --band-red already clears 4.5:1 there, so it's reused. */
+  --band-red-text: var(--band-red);
   --band-calibrating: var(--text-tertiary);
 
   --focus-ring: var(--accent);
@@ -55,6 +60,7 @@
   --band-green: #1a7a50;
   --band-yellow: #8a6a14;
   --band-red: #c7402c;
+  --band-red-text: #b8371f;
 }
 
 @media (prefers-color-scheme: light) {
@@ -71,6 +77,7 @@
     --band-green: #1a7a50;
     --band-yellow: #8a6a14;
     --band-red: #c7402c;
+    --band-red-text: #b8371f;
   }
 }
 

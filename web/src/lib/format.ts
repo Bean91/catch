@@ -1,11 +1,19 @@
 // Round to tenths *before* splitting into minutes/seconds — otherwise 119.96 renders as
 // "1:60.0" instead of "2:00.0" (the seconds component rounding up past 60 independently).
-export function formatSplit(secondsPer500: number | null | undefined): string {
-  if (secondsPer500 == null || !Number.isFinite(secondsPer500)) return "—:—.—";
-  const rounded = Math.round(secondsPer500 * 10) / 10;
+// Generic clock-with-tenths formatting: used for /500m splits (formatSplit below) and
+// equally for any other duration that should read as m:ss.t, e.g. a predicted 2k time —
+// the task spec's "splits always m:ss.t" rule applies to on-the-water time generally, not
+// only to the word "split."
+export function formatTimeTenths(totalSeconds: number | null | undefined): string {
+  if (totalSeconds == null || !Number.isFinite(totalSeconds)) return "—:—.—";
+  const rounded = Math.round(totalSeconds * 10) / 10;
   const minutes = Math.floor(rounded / 60);
   const seconds = rounded - minutes * 60;
   return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
+}
+
+export function formatSplit(secondsPer500: number | null | undefined): string {
+  return formatTimeTenths(secondsPer500);
 }
 
 export function formatDuration(totalSeconds: number | null | undefined): string {

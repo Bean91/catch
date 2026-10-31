@@ -24,6 +24,7 @@
   --color-band-green: var(--band-green);
   --color-band-yellow: var(--band-yellow);
   --color-band-red: var(--band-red);
+  --color-band-red-text: var(--band-red-text);
   --color-band-calibrating: var(--band-calibrating);
 
   --font-sans: var(--font-ui);
