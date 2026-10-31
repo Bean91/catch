@@ -1,0 +1,88 @@
+{
+  "activityId": 24918902966,
+  "activityUUID": {
+    "uuid": "cb6b957e-7d69-49c9-88b4-b9d74e032dfe"
+  },
+  "activityName": "Indoor Cycling",
+  "userProfileId": null,
+  "isMultiSportParent": false,
+  "activityTypeDTO": {
+    "typeId": 25,
+    "typeKey": "indoor_cycling",
+    "parentTypeId": 2
+  },
+  "eventTypeDTO": {
+    "typeId": 9,
+    "typeKey": "uncategorized"
+  },
+  "accessControlRuleDTO": {
+    "typeId": 3,
+    "typeKey": "subscribers"
+  },
+  "timeZoneUnitDTO": {
+    "timeZone": "America/New_York"
+  },
+  "metadataDTO": {
+    "isOriginal": true,
+    "fileFormat": {
+      "formatId": 7,
+      "formatKey": "fit"
+    },
+    "lastUpdateDate": "2026-10-31T15:47:02.0",
+    "uploadedDate": "2026-10-31T15:47:02.0",
+    "videoUrl": null,
+    "userInfoDto": {
+      "userProfilePk": null,
+      "displayname": "0fb9befb-7b71-4b8e-be55-9b4cf73dd906",
+      "fullname": "Ben Kiev",
+      "profileImageUrlLarge": null,
+      "profileImageUrlMedium": null,
+      "profileImageUrlSmall": null,
+      "userPro": false
+    },
+    "childIds": [],
+    "childActivityTypes": [],
+    "sensors": null,
+    "activityImages": [],
+    "manufacturer": "GARMIN",
+    "lapCount": 1,
+    "hasRunPowerWindData": null,
+    "calendarEventInfo": null,
+    "hasMultiDayActivities": false,
+    "autoCalcCalories": false,
+    "favorite": false,
+    "trimmed": false,
+    "elevationCorrected": false,
+    "manualActivity": false,
+    "runPowerWindDataEnabled": null,
+    "personalRecord": false,
+    "gcj02": false
+  },
+  "summaryDTO": {
+    "startTimeLocal": "2026-10-31T10:27:33.0",
+    "startTimeGMT": "2026-10-31T14:27:33.0",
+    "distance": 0.0,
+    "duration": 4738.56,
+    "movingDuration": 0.0,
+    "elapsedDuration": 4738.56,
+    "averageSpeed": 0.0,
+    "calories": 617.0,
+    "bmrCalories": 109.0,
+    "averageHR": 144.0,
+    "maxHR": 159.0,
+    "minHR": 76.0,
+    "trainingEffect": 2.700000047683716,
+    "anaerobicTrainingEffect": 0.10000000149011612,
+    "aerobicTrainingEffectMessage": "MAINTAINING_AEROBIC_BASE_7",
+    "anaerobicTrainingEffectMessage": "NO_ANAEROBIC_BENEFIT_0",
+    "waterEstimated": 1091.0,
+    "trainingEffectLabel": "AEROBIC_BASE",
+    "activityTrainingLoad": 67.67822265625,
+    "minActivityLapDuration": 4738.56,
+    "directWorkoutFeel": 75,
+    "directWorkoutRpe": 30,
+    "moderateIntensityMinutes": 47,
+    "vigorousIntensityMinutes": 31,
+    "differenceBodyBattery": -15
+  }
+}
