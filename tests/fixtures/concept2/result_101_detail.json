@@ -1,0 +1,32 @@
+{
+  "data": {
+    "id": 101,
+    "user_id": 1,
+    "date": "2026-10-20 07:15:00",
+    "timezone": "America/New_York",
+    "date_utc": null,
+    "distance": 5000,
+    "type": "rower",
+    "time": 12000,
+    "time_formatted": "20:00.0",
+    "workout_type": "JustRow",
+    "source": "Logbook",
+    "weight_class": "H",
+    "verified": false,
+    "ranked": false,
+    "comments": null,
+    "privacy": "private",
+    "drag_factor": 128,
+    "stroke_rate": 28,
+    "stroke_count": 220,
+    "calories_total": 450,
+    "wattminutes_total": 3600,
+    "heart_rate": {"average": 150, "max": 165, "ending": 150},
+    "stroke_data": [
+      {"t": 300, "d": 833, "p": 1050, "spm": 28, "hr": 140},
+      {"t": 600, "d": 1667, "p": 1030, "spm": 29, "hr": 148},
+      {"t": 900, "d": 2500, "p": 1010, "spm": 30, "hr": 152},
+      {"t": 1200, "d": 3333, "p": 990, "spm": 30, "hr": 155}
+    ]
+  }
+}

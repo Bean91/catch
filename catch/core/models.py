@@ -47,6 +47,14 @@ class Activity(SQLModel, table=True):
     calories: Optional[float] = None
     raw_json: Optional[str] = None
     fit_path: Optional[str] = None
+    # Concept2-specific, left NULL for other sources.
+    workout_type: Optional[str] = None
+    drag_factor: Optional[int] = None
+    stroke_rate: Optional[float] = None
+    intervals_json: Optional[str] = None
+    # Cross-source dedup: points at the paired row (Garmin<->Concept2) for the same physical
+    # session, set on both sides. Scoring must only count the Concept2 side of a linked pair.
+    linked_activity_id: Optional[int] = Field(default=None, foreign_key="activities.id")
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -55,12 +63,34 @@ class Stroke(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     activity_id: int = Field(foreign_key="activities.id")
+    seq: int = 0
+    interval_index: Optional[int] = None
+    # Concept2's own t/d are cumulative *within the current interval* and reset to 0 at each
+    # new interval/split — t stays in those units (seconds here, converted from tenths).
     t: float
     distance: Optional[float] = None
     pace_500m: Optional[float] = None
     watts: Optional[float] = None
     stroke_rate: Optional[float] = None
     hr: Optional[float] = None
+
+
+class AppSettings(SQLModel, table=True):
+    __tablename__ = "settings"
+
+    id: int = Field(default=1, primary_key=True)
+    data_json: str = "{}"
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class DailyScore(SQLModel, table=True):
+    __tablename__ = "daily_scores"
+
+    date: date_ = Field(primary_key=True)
+    recovery_json: Optional[str] = None
+    strain_json: Optional[str] = None
+    load_json: Optional[str] = None
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 class BodyComp(SQLModel, table=True):

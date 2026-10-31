@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from catch.core.models import Activity, BodyComp, DailyWellness
+from catch.core.models import Activity, BodyComp, DailyWellness, Stroke
 
 
 def upsert_daily_wellness(session: Session, day: date_, **fields: Any) -> DailyWellness:
@@ -38,6 +38,18 @@ def upsert_activity(session: Session, source: str, external_id: str, **fields: A
     session.commit()
     session.refresh(row)
     return row
+
+
+def upsert_strokes(session: Session, activity_id: int, strokes: list[dict]) -> int:
+    """Strokes have no natural per-row key, so a re-sync replaces a result's strokes wholesale
+    instead of trying to diff individual rows."""
+    existing = session.exec(select(Stroke).where(Stroke.activity_id == activity_id)).all()
+    for row in existing:
+        session.delete(row)
+    for fields in strokes:
+        session.add(Stroke(activity_id=activity_id, **fields))
+    session.commit()
+    return len(strokes)
 
 
 def upsert_body_comp(session: Session, source: str, external_id: str, **fields: Any) -> BodyComp:

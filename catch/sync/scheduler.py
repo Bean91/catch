@@ -14,7 +14,7 @@ from catch.sync import state
 
 logger = logging.getLogger("catch.scheduler")
 
-SOURCES = ("garmin", "withings")
+SOURCES = ("garmin", "withings", "concept2")
 FIT_DIR = Path(settings.db_file).parent / "fit"
 
 _locks = {source: threading.Lock() for source in SOURCES}
@@ -48,9 +48,22 @@ def run_sync(source: str, days: int = 3) -> dict:
                     cursor = int(row.cursor) if row and row.cursor else None
                     n = withings_sync(session, lastupdate=cursor)
                     result = {"measures": n}
+                elif source == "concept2":
+                    from catch.sync.concept2_client import sync as concept2_sync
+
+                    from catch.core.models import SyncState
+
+                    row = session.get(SyncState, "concept2")
+                    updated_after = (
+                        datetime.fromtimestamp(int(row.cursor), tz=timezone.utc) if row and row.cursor else None
+                    )
+                    result = concept2_sync(session, updated_after=updated_after, days=days)
                 else:
                     raise ValueError(f"unknown source: {source}")
                 state.record_success(session, source, cursor=str(int(datetime.now(timezone.utc).timestamp())))
+                from catch.sync.scoring import recompute_scores
+
+                recompute_scores(session)
                 return {"source": source, **result}
             except Exception as exc:
                 logger.exception("sync failed for %s", source)

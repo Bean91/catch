@@ -1,0 +1,15 @@
+{
+  "data": {
+    "id": 1,
+    "username": "testuser",
+    "first_name": "Test",
+    "last_name": "User",
+    "gender": "M",
+    "dob": "2000-01-01",
+    "email": "test@example.com",
+    "country": "USA",
+    "max_heart_rate": 194,
+    "weight": 7900,
+    "logbook_privacy": "partners"
+  }
+}

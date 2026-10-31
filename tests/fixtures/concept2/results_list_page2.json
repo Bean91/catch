@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": 103,
+      "user_id": 1,
+      "date": "2026-10-25 08:00:00",
+      "timezone": null,
+      "date_utc": "2026-10-25 08:00:00",
+      "distance": 2000,
+      "type": "rower",
+      "time": 4800,
+      "time_formatted": "8:00.0",
+      "workout_type": "JustRow",
+      "source": "Logbook",
+      "weight_class": "H",
+      "verified": false,
+      "ranked": false,
+      "comments": null,
+      "privacy": "private"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 3,
+      "count": 1,
+      "per_page": 2,
+      "current_page": 2,
+      "total_pages": 2,
+      "links": {}
+    }
+  }
+}

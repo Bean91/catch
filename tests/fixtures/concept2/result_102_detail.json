@@ -1,0 +1,41 @@
+{
+  "data": {
+    "id": 102,
+    "user_id": 1,
+    "date": "2026-10-22 06:00:00",
+    "timezone": null,
+    "date_utc": "2026-10-22 10:00:00",
+    "distance": 2000,
+    "type": "rower",
+    "time": 4200,
+    "rest_time": 1800,
+    "time_formatted": "7:00.0",
+    "workout_type": "FixedDistanceInterval",
+    "source": "Logbook",
+    "weight_class": "H",
+    "verified": false,
+    "ranked": false,
+    "comments": null,
+    "privacy": "private",
+    "drag_factor": 130,
+    "stroke_rate": 32,
+    "calories_total": 210,
+    "heart_rate": {"average": 165, "max": 180},
+    "workout": {
+      "intervals": [
+        {"distance": 500, "time": 1050, "stroke_rate": 32, "type": "distance", "rest_time": 600},
+        {"distance": 500, "time": 1050, "stroke_rate": 33, "type": "distance", "rest_time": 600},
+        {"distance": 500, "time": 1050, "stroke_rate": 33, "type": "distance", "rest_time": 600},
+        {"distance": 500, "time": 1050, "stroke_rate": 34, "type": "distance", "rest_time": 600}
+      ]
+    },
+    "stroke_data": [
+      {"t": 0, "d": 0, "p": 1050, "spm": 32, "hr": 160},
+      {"t": 525, "d": 2500, "p": 1040, "spm": 33, "hr": 168},
+      {"t": 1050, "d": 5000, "p": 1030, "spm": 33, "hr": 172},
+      {"t": 0, "d": 0, "p": 1045, "spm": 32, "hr": 170},
+      {"t": 525, "d": 2500, "p": 1035, "spm": 33, "hr": 175},
+      {"t": 1050, "d": 5000, "p": 1025, "spm": 34, "hr": 178}
+    ]
+  }
+}

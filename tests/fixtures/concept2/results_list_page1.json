@@ -1,0 +1,51 @@
+{
+  "data": [
+    {
+      "id": 101,
+      "user_id": 1,
+      "date": "2026-10-20 07:15:00",
+      "timezone": "America/New_York",
+      "date_utc": null,
+      "distance": 5000,
+      "type": "rower",
+      "time": 12000,
+      "time_formatted": "20:00.0",
+      "workout_type": "JustRow",
+      "source": "Logbook",
+      "weight_class": "H",
+      "verified": false,
+      "ranked": false,
+      "comments": null,
+      "privacy": "private"
+    },
+    {
+      "id": 102,
+      "user_id": 1,
+      "date": "2026-10-22 06:00:00",
+      "timezone": null,
+      "date_utc": "2026-10-22 10:00:00",
+      "distance": 2000,
+      "type": "rower",
+      "time": 4200,
+      "rest_time": 1800,
+      "time_formatted": "7:00.0",
+      "workout_type": "FixedDistanceInterval",
+      "source": "Logbook",
+      "weight_class": "H",
+      "verified": false,
+      "ranked": false,
+      "comments": null,
+      "privacy": "private"
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "total": 3,
+      "count": 2,
+      "per_page": 2,
+      "current_page": 1,
+      "total_pages": 2,
+      "links": {"next": "http://log.concept2.com/api/users/me/results?number=2&page=2"}
+    }
+  }
+}

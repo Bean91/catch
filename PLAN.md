@@ -6,8 +6,8 @@ alongside PiAware.
 
 ## Roadmap (6 sessions)
 
-1. **Scaffold + Garmin + Withings sync** ← this session
-2. Concept2 sync + rowing analytics engine
+1. Scaffold + Garmin + Withings sync
+2. **Concept2 sync + rowing analytics engine** ← this session
 3. Design system + Today screen
 4. Workout detail, trends, body comp, settings
 5. AI coach chat (bring-your-own Anthropic key) + MCP server
@@ -95,7 +95,99 @@ alongside PiAware.
   server, and the existing `.env` password hash is already `$argon2id$`, which the plain
   `cryptography` package can't verify.
 
-## Next steps (session 2)
+## Session 2 checklist
 
-- Concept2 Logbook API/export integration for stroke-level data into `strokes`.
-- Rowing-specific analytics: splits, pace/watts curves, training load.
+- [x] Concept2 Logbook API client (`catch/sync/concept2_client.py`): long-lived personal
+      access token as a static bearer token (no exchange/refresh, unlike Garmin/Withings),
+      list results since last sync, fetch per-result detail with `?include=strokes,metadata`,
+      upsert into `activities`/`strokes` (drag factor, workout type, intervals/splits JSON,
+      stroke rate kept). `docs/concept2-endpoints.md` written from the live API docs.
+- [x] De-dup against Garmin: `link_garmin_activity` links a Concept2 result to a Garmin
+      `rowing_v2`/`indoor_rowing` activity within a 2-minute window (both sides get
+      `linked_activity_id`); Concept2 stays the source of truth for erg metrics, Garmin's
+      avg/max HR is copied in only when Concept2 has none. `relink_unmatched` (called at the
+      top of every `recompute_scores`) catches pairs where Concept2 synced before Garmin did
+      — linking only at insert time would otherwise double-count that session in strain/load
+      forever, since Concept2's `updated_after` cursor has already moved past it.
+- [x] Scheduler + CLI: `concept2` added to `SOURCES`/`uv run catch sync --source concept2`;
+      `cli.cmd_sync` now routes through `scheduler.run_sync` instead of duplicating it.
+- [x] Lightweight SQLite migration (`catch/core/db.py`): `activities`/`strokes` got new
+      nullable columns via `ALTER TABLE` (not just `create_all`, which only makes missing
+      tables) — needed since session 1 already shipped a live `activities` table with real
+      data in it.
+- [x] Analytics engine (`catch/analytics/`, pure functions, no I/O) — erg math, 2k prediction
+      (Paul's law), training zones (HR- and power-based), session strain (Banister TRIMP /
+      sRPE fallback, mapped to a 0-21 Whoop-style log-saturation scale), load (7d/42d EWMA,
+      form, acute:chronic bands), recovery (0-100%, HRV/RHR/sleep/prior-strain, "calibrating"
+      before 7 nights of HRV history), erg technique per piece (split consistency, watts/
+      stroke, rate-power slope, fade). All formulas + sources in `docs/analytics.md`.
+- [x] Configurable thresholds: singleton `settings` table (JSON blob of overrides merged onto
+      `catch/analytics/defaults.py` at read time) via `catch/core/settings_store.py`,
+      `GET`/`PUT /api/settings` (unknown keys rejected, `PUT` triggers a recompute so
+      `/api/today` doesn't go stale until the next sync).
+- [x] `catch/sync/scoring.py`: the one place that reads the DB, builds analytics functions'
+      inputs, and caches results into `daily_scores` — runs after every sync/backfill/settings
+      change, recomputing full history each time (cheap at single-user scale, avoids staleness
+      bugs). A linked Garmin<->Concept2 pair is only scored once (the Concept2 side). Days are
+      bucketed by the **system's local calendar date** — only correct if the Pi's timezone is
+      set to the athlete's own.
+- [x] Endpoints: `GET /api/today`, `GET /api/trends?metric=...` (whitelisted), `GET
+      /api/erg/results` (includes nearest-Withings-weight `w_per_kg` per row), `GET
+      /api/erg/{id}/strokes` (raw strokes + per-interval technique + time-in-zone),
+      `GET`/`PUT /api/settings`.
+- [x] Tests: fixture-based Concept2 client tests (8), analytics unit tests with hand-checked
+      numbers (37, across `tests/analytics/`), scoring pipeline tests (5), settings-store
+      tests (5), API endpoint tests (15) — 90 total, all passing.
+- [x] One live sync against the real `.env`/Concept2 account, migration verified against the
+      live (non-empty) DB from session 1.
+- [x] PLAN.md + commit.
+
+## Live Concept2 check (2026-10-31, real `.env`, real Concept2 account)
+
+`GET /api/users/me` succeeded (confirms the access token and base URL): real profile came
+back with `max_heart_rate: 194`, `weight: 7900` decigrams (79.0kg). **This Concept2 account
+has zero logged results** (`GET /api/users/me/results` returned `total: 0`) — there was
+nothing to record a fixture from, so `tests/fixtures/concept2/*.json` are synthetic, built
+directly from the documented request/response examples (same approach session 1 used for
+Withings, whose OAuth also couldn't be completed live). The result/stroke JSON shapes are
+therefore unverified against a real result — revisit if Concept2 ever disagrees with the docs
+once real results exist.
+
+`uv run catch sync --source concept2 --days 30` against the real `.env`, run against the
+**live, non-empty DB from session 1** (34 Garmin activities, real FIT files):
+- The `activities`/`strokes` schema migration applied cleanly to the existing SQLite file —
+  all 34 Garmin activities and their `fit_path`s came through untouched afterward.
+- `settings.max_hr` was seeded to `194` from the live Concept2 profile (confirms
+  `_seed_max_hr`).
+- `recompute_scores` produced 31 `daily_scores` rows from the real Garmin/Withings-less
+  history, with plausible recovery bands (yellow, mid-50s) and strain values (TRIMP-based,
+  "moderate"/"light"/"light" for the three most recent rowing days) — a reasonable sanity
+  check that the whole pipeline holds together against real data, not just fixtures.
+- `uv run catch backfill --days 5`: Garmin and Concept2 both ran cleanly; Withings failed with
+  the same pre-existing, expected message from session 1 (OAuth not completed).
+
+**The Concept2 access token leaked into this session's shell output once** (an early `grep`
+printed the raw `.env` value, violating CLAUDE.md's "key names only" rule) — the user was told
+to rotate it under Logbook > Edit Profile > Applications.
+
+## Gotchas / deviations from the literal task spec
+
+- **W/kg** uses the nearest `body_comp` (Withings) row to an activity's start, not a fixed
+  profile weight — returns `None` until Withings OAuth is completed (still true as of this
+  session).
+- **2k prediction** only draws from continuous workout types (`JustRow`/`FixedDistanceSplits`/
+  `FixedTimeSplits`/no `workout_type`) within a configurable `predict_lookback_days` (default
+  180) — interval/piece sets mix work+rest into `Activity.duration` while `distance` stays
+  work-only, which would corrupt the pace Paul's law needs.
+- **Time in zone** only works for sessions with per-sample HR, which today means Concept2
+  strokes only (Garmin has no sample-level HR without parsing the FIT file — a new dependency,
+  out of scope this session).
+- **Session RPE** is attached to a session by matching `notes.date` to the session's local
+  calendar date — the schema has no per-activity RPE field, so two sessions on the same day
+  both get that day's single RPE value.
+- A Concept2 `date` with neither `date_utc` nor a `timezone` name falls back to treating it as
+  UTC — a documented guess, unconfirmed since no live result exists yet to check it against.
+
+## Next steps (session 3)
+
+- Design system + Today screen (frontend, `web/`).

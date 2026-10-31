@@ -39,6 +39,7 @@ class Settings:
     withings_client_id: str
     withings_client_secret: str
     withings_redirect_uri: str
+    concept2_access_token: str
     sync_interval_hours: float
     backfill_days: int
 
@@ -64,6 +65,7 @@ def load_settings() -> Settings:
         withings_client_id=_get("WITHINGS_CLIENT_ID"),
         withings_client_secret=_get("WITHINGS_CLIENT_SECRET"),
         withings_redirect_uri=_get("WITHINGS_REDIRECT_URI"),
+        concept2_access_token=_get("CONCEPT2_ACCESS_TOKEN"),
         sync_interval_hours=float(_get("SYNC_INTERVAL_HOURS", "2")),
         backfill_days=int(_get("BACKFILL_DAYS", "30")),
     )
