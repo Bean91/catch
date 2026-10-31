@@ -16,7 +16,7 @@ export function Sidebar() {
   const { logout, status } = useAuth();
 
   return (
-    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col justify-between border-r border-border px-4 py-5 lg:flex">
+    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col justify-between border-r border-border px-4 py-5 lg:flex">
       <div>
         <span className="font-mono-nums block px-2 text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
         <ul className="mt-6 flex flex-col gap-1">

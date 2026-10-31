@@ -22,7 +22,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg px-4 text-text-primary">
+    <div className="flex min-h-dvh items-center justify-center bg-bg px-4 text-text-primary">
       <form onSubmit={onSubmit} className="w-full max-w-sm rounded-lg border border-border bg-surface p-6">
         <div className="mb-6 text-center">
           <p className="font-mono-nums text-lg font-semibold tracking-wide">CATCH</p>

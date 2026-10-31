@@ -10,10 +10,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { logout, status } = useAuth();
 
   return (
-    <div className="flex min-h-screen bg-bg text-text-primary">
+    <div className="flex min-h-dvh bg-bg text-text-primary">
       <Sidebar />
 
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-dvh flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6 lg:hidden">
           <span className="font-mono-nums text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
           <div className="flex items-center gap-1">
@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-5 sm:px-6 sm:pb-10 lg:max-w-5xl lg:px-8 lg:pb-10 lg:pt-8">
+        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-10 lg:max-w-5xl lg:px-8 lg:pb-10 lg:pt-8">
           {children}
         </main>
 

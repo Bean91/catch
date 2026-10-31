@@ -13,6 +13,7 @@ export function BottomNav() {
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur sm:static sm:border-t-0 sm:bg-transparent"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       aria-label="Primary"
     >
       <ul className="mx-auto flex max-w-3xl items-stretch justify-between sm:justify-center sm:gap-2">
