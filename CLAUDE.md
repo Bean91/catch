@@ -26,12 +26,22 @@ catch/
 web/
   src/
     components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
-                shell/ (AppShell, Sidebar, BottomNav)
+                workouts/ (WorkoutRow, IntervalTable, ZoneTable, NotesBox, PbTable),
+                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart — hand-rolled SVG, no
+                chart library; lazy-loaded with the page that uses them), shell/ (AppShell,
+                Sidebar, BottomNav)
     lib/        api.ts (fetch + mock switch), types.ts (hand-kept in sync with the API —
                 no codegen), mock.ts (?mock=1/calibrating/empty/error/loading fixtures),
-                format.ts, auth.tsx, theme.tsx
-    pages/      Today.tsx; Workouts/Trends/Coach/Settings are placeholders until session 4
+                format.ts, auth.tsx, theme.tsx, zoneColors.ts/hrZone.ts (zone color ramp +
+                a small TS port of catch/analytics/zones.py's zone_for_hr for client-side
+                chart coloring), dateRanges.ts (Trends' 4w/12w/season/all -> from/to)
+    pages/      Today.tsx (eager); Workouts, WorkoutDetail, Trends, Body, Settings
+                (React.lazy, one chunk per route — keeps the initial bundle under budget);
+                Coach is still a placeholder until session 5
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
+  public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
+                here — vite.config.ts's serviceWorkerPlugin writes it at build time with
+                the real hashed asset list, so it can't be a static passthrough file
 tests/          fixtures/ has recorded JSON; no live network calls in the suite
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json, analytics.md
 DESIGN.md       palette/type/motion decisions for the web frontend

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from sqlmodel import Session, select
 
+from catch.analytics.classify import GARMIN_ERG_TYPES
 from catch.analytics.erg_math import watts_from_pace
 from catch.core.config import settings
 from catch.core.models import Activity
@@ -21,9 +22,6 @@ BASE_URL = "https://log.concept2.com"
 ACCEPT_HEADER = "application/vnd.c2logbook.v1+json"
 SOURCE = "concept2"
 
-# Garmin activity typeKeys that represent an indoor rowing session (confirmed from a live
-# Garmin sync in session 1: both keys show up for erg workouts logged there).
-ROWING_TYPE_KEYS = {"rowing_v2", "indoor_rowing"}
 LINK_WINDOW = timedelta(minutes=2)
 
 # The pace->watts formula (see catch/analytics/erg_math.py) is Concept2's RowErg/SkiErg
@@ -210,7 +208,7 @@ def link_garmin_activity(session: Session, c2_activity: Activity) -> bool:
             Activity.start <= c2_activity.start + LINK_WINDOW,
         )
     ).all()
-    match = next((a for a in candidates if (a.type or "") in ROWING_TYPE_KEYS), None)
+    match = next((a for a in candidates if (a.type or "") in GARMIN_ERG_TYPES), None)
     if match is None:
         return False
     c2_activity.linked_activity_id = match.id

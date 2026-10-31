@@ -8,10 +8,10 @@ alongside PiAware.
 
 1. Scaffold + Garmin + Withings sync
 2. Concept2 sync + rowing analytics engine
-3. **Design system + Today screen** ← this session
-4. Workout detail, trends, body comp, settings
+3. Design system + Today screen
+4. **Workout detail, trends, body comp, settings, installable PWA** ← this session
 5. AI coach chat (bring-your-own Anthropic key) + MCP server
-6. Deploy to the Pi 3, PWA, backups, optional Whoop
+6. Deploy to the Pi 3, backups, optional Whoop
 
 ## Session 1 checklist
 
@@ -318,8 +318,159 @@ to rotate it under Logbook > Edit Profile > Applications.
   was done directly (documented in `DESIGN.md`) and the Playwright MCP tools were used
   directly for screenshots instead.
 
-## Next steps (session 4)
+## Session 4 checklist
 
-- Workout detail, trends (first real call on whether a chart library is worth it for
-  history views — rings/gauges stay hand-rolled SVG either way), body comp, settings
-  (including the "no `/api/me`" gap above).
+- [x] **Workouts list** (`/workouts`): merged Garmin + Concept2 feed, cursor-paginated
+      (keyset on `(start, id)`, not `OFFSET` — a background sync inserting rows between
+      page fetches can't skip or duplicate rows), category filter (erg/on_water/other),
+      infinite scroll via `IntersectionObserver`. Each row's strain is read back from the
+      already-cached `DailyScore.strain_json` component for that activity, not recomputed.
+- [x] **Workout detail** (`/workouts/:id`): branches on category and on whether per-stroke
+      data exists (`source === "concept2"`), not just category — a Garmin-only "erg" or
+      "on_water" session (no PM5) has no strokes and falls back to the HR-zones/duration/
+      strain layout with an explanatory note, same as a non-rowing "other" session. Erg
+      detail with strokes: split/watts-over-distance chart with stroke rate as light dots
+      (not a third connected line — see bug log) and an HR-zone band beneath; interval
+      table (split/rate/watts/HR/drift-vs-rep-1 per rep); technique metrics per rep (split
+      consistency, watts/stroke, rate/power slope, fade); drag factor. Notes + RPE box
+      (shared across all workout types) saves to the new `/api/notes`.
+- [x] **Trends** (`/trends`): metric picker (recovery/HRV/resting HR/sleep/strain/
+      load-form/weight/W-per-kg/predicted-2k) x range picker (4w/12w/season/all — "season"
+      is an undocumented-elsewhere convention, most recent past Sept 1, `lib/dateRanges.ts`);
+      weekly volume bars by zone; personal-bests table (500m/1k/2k/5k/6k/30min/60min).
+- [x] **Body** (`/body`, new nav item — sixth slot fit fine at 390px, checked): weight
+      trend (raw + 7-day-smoothed-median dashed line, backend-computed), fat %/muscle mass
+      (latest value + sparkline, reusing Today's `Sparkline` component), W/kg over time.
+- [x] **Settings** (`/settings`): connected sources with last sync + reconnect (Garmin/
+      Concept2 = trigger a sync; Withings = link to `/auth/withings/start`, a real OAuth
+      redirect, not a fetch) + token expiry; zone mode + editable HR/power zone thresholds;
+      max HR; units; theme toggle; a user-entered Garmin-key-expiry reminder (see bug log —
+      the API exposes no such field); AI-coach placeholder. One explicit Save button, not
+      per-field autosave (`PUT /api/settings` triggers a full-history recompute).
+- [x] **Installable PWA**: `manifest.webmanifest`, an original generated icon (a "C"-shaped
+      ring — doubles as the recovery-ring motif and Catch's initial; pure-Python PNG
+      encoder, no new dependency, `web/public/icons/`), hand-rolled `sw.js` (no Workbox/
+      vite-plugin-pwa — generated at build time by a small inline Vite plugin so it can
+      know the real hashed asset filenames), offline shell verified **live** end-to-end
+      (below), not just read through.
+- [x] Backend: new/extended endpoints, all with tests (37 new, 131 total passing) —
+      `GET /api/activities` (rewritten: pagination/category/dedup/strain), `GET
+      /api/activities/{id}` (zones/strain/note/category), `GET /api/erg/{id}/strokes`
+      (added `interval_summary`/drift/`distance_cum`/`t_cum`), `GET`/`POST /api/notes`
+      (new), `GET /api/trends` (added `weight`/`w_per_kg`/`predicted_2k`, `load_acr` now
+      carries acute/chronic/form), `GET /api/trends/volume` (new), `GET /api/pbs` (new),
+      `GET /api/sync/status` (added `token_expires_at`). New pure modules: `classify.py`
+      (erg/on_water/other), `body.py` (weight smoothing). `docs/analytics.md` §8-16.
+- [x] Frontend quality bar: `App.tsx` converted to `React.lazy` per route (Today stays
+      eager); initial bundle **153.9 KB + 16.2 KB modulepreload = ~170 KB gzip JS**
+      (budget 250 KB), each new route its own chunk (0.9-3.8 KB gzip). Screenshotted at
+      390px/1280px x dark/light for every new screen, critiqued, fixed, reshot (bug log
+      below). Charts are hand-rolled SVG extending `Sparkline`'s pattern, not a new chart
+      library — avoids the CSS-variable/canvas theming friction a library like uPlot would
+      add and keeps the bundle small.
+- [x] PLAN.md + CLAUDE.md (layout section) updated + commit.
+
+## Bugs an advisor review and screenshot QA caught before this session's work was declared done
+
+- **Offline Today would never have worked as first designed** — caught by an advisor
+  review *before* writing any PWA code, not after: (1) `AuthProvider` treated any fetch
+  failure as a 401 and dropped to the login screen, so a network error while offline (not
+  an auth error) would hide the cached data behind a login wall with no way back online-only
+  to clear it. Fixed: only a real `ApiError` with `status === 401` means "anon"; a network
+  failure falls back to a `localStorage` "was last authed" flag instead, set on every
+  successful auth check/login and cleared on logout/401. (2) TanStack Query v5 defaults to
+  `networkMode: "online"`, which *pauses* queries while the browser is offline — the
+  `today` query would never even run to consult the service worker's cache. Fixed:
+  `networkMode: "offlineFirst"` on the query client's defaults.
+- **The service worker's own cache writes silently never happened** — found by live-testing
+  the offline path with Playwright (`context.setOffline(true)`, not just reasoning about
+  the code): `cache.put()` calls inside the `fetch` handler weren't wrapped in
+  `event.waitUntil()`, so the browser was free to tear the worker down the instant
+  `respondWith`'s promise resolved, racing (and usually losing) the detached cache write.
+  First attempt left `catch-api-v1` empty after a real page load. Fixed by wrapping both
+  cache-write call sites in `waitUntil`; reverified the same way — a second live offline
+  reload (after one prior online page load to let the SW populate its cache) rendered the
+  real cached recovery/strain/sleep data, authenticated, with zero console errors.
+- **Garmin's `rowing_v2` typeKey is on-water, not indoor** — the opposite of session 2's
+  `ROWING_TYPE_KEYS = {"rowing_v2", "indoor_rowing"}` comment, which claimed (unverified —
+  the Concept2 account had 0 results at the time) that both were erg typeKeys. Querying
+  this session's live DB (`SELECT type, SUM(raw_json LIKE '%startLatitude%') ... GROUP BY
+  type`) found 29/29 real `rowing_v2` rows carry GPS fields and 0/2 `indoor_rowing` rows do.
+  Fixed in a new `catch/analytics/classify.py` (`GARMIN_ERG_TYPES = {"indoor_rowing"}`,
+  `GARMIN_ON_WATER_TYPES = {"rowing_v2"}`), which `sync/concept2_client.py`'s Garmin<->
+  Concept2 link-matching now imports instead of keeping its own (wrong) copy — this was a
+  real, live latent bug in session 2's dedup logic, not just a session-4 classification
+  question, caught only because building the Workouts screen required actually checking it.
+- **A flexbox `min-width: auto` bug stretched every page past the viewport at 390px** once
+  any card held a horizontally-scrollable table (the Settings zones table, the workout-
+  detail interval table) — the table's `min-w-[...]` bubbled up through nested flex
+  ancestors that never got `min-width: 0`, so `document.documentElement.scrollWidth` (426px)
+  exceeded `clientWidth` (390px) site-wide, most visibly as the Settings page's sticky
+  "Save" button appearing to hang 20px off the right edge of the screen. Fixed with
+  `min-w-0` on `AppShell`'s inner flex column and `<main>`; verified by asserting
+  `scrollWidth === clientWidth` after the fix, not just eyeballing a screenshot.
+- **`formatShortDate` produced "Invalid Date" on every Workouts-list row** — the function
+  assumed a bare `"YYYY-MM-DD"` input (true for every session-3 caller: sparkline/trend
+  points) and unconditionally appended `"T00:00:00"`; the new Workouts rows pass
+  `workout.start`, a full ISO datetime, so the string became
+  `"2026-10-29T07:30:00.000ZT00:00:00"`. Fixed by only appending the time-of-day when the
+  input doesn't already contain a `"T"`.
+- **The erg chart's stroke-rate line was an unreadable zigzag** — stroke rate is a
+  whole-number spm value that often only takes 2-3 distinct integers across a whole piece;
+  independently auto-scaling it to fill the full chart height (same per-series scaling the
+  split/watts lines use) turned small integer steps into a harsh sawtooth that visually
+  dominated the chart. Fixed by rendering rate as small discrete dots instead of a
+  connected line — same information, no longer reads as a competing signal with split/watts.
+- **Both reps' technique-metric tiles rendered identical values** in mock mode (a static
+  mock fixture returning the same hardcoded object twice) — caught by screenshot review
+  (two "Technique — rep N" cards with suspiciously identical numbers), not a real-backend
+  bug, but fixed since a misleading screenshot QA pass is worse than no screenshot at all.
+
+## Gotchas / deviations from the literal task spec
+
+- **PWA was pulled forward from session 6 into this session**, per explicit task
+  instructions this session rather than a planning error — session 6's roadmap line above
+  has been updated to drop it.
+- **No chart library added.** The task's "lazy-load chart code per route" phrasing was
+  weighed against adding one (uPlot was the leading candidate — tiny, canvas-based) versus
+  hand-rolled SVG extending `Sparkline`. Chose hand-rolled: a canvas library can't read CSS
+  custom properties directly (would need `getComputedStyle` + a redraw on every theme
+  toggle), and the route-level `React.lazy` split already achieves "lazy-loaded per route"
+  for the chart *code*, library or not. Revisit only if a future screen needs chart
+  features hand-rolled SVG can't reasonably do (zoom/pan over thousands of points).
+  `docs/analytics.md`/`DESIGN.md` reasoning recorded here since PLAN.md previously deferred
+  this exact decision to this session.
+- **"Season" range has no single standard definition** for rowing training — picked "most
+  recent past September 1" (Northern-hemisphere indoor/winter-block convention) as a pure
+  frontend display choice (`lib/dateRanges.ts`), not a backend setting, since nothing else
+  needs that definition.
+- **Predicted-2k trend is not the same number as Today's `predicted_2k`** — the trend is
+  one point per qualifying piece, each independently extrapolated to 2000m; Today's
+  headline number averages several recent pieces into one ensemble estimate. Documented in
+  `docs/analytics.md` §13 specifically so the two numbers sitting near each other on
+  different screens don't look like a bug.
+- **"Garmin key expiry" is two different things, shown separately** — the API exposes no
+  key-expiry field at all (checked `docs/garmin-openapi.json`); `token_expires_at` is the
+  24h JWT's real, auto-refreshed expiry (always ~24h out after a successful sync), while
+  the Settings-screen date field the task asked for is a new user-entered reminder
+  (`garmin_key_expires_on`) for a fact only the athlete knows. See `docs/analytics.md` §14.
+- **Weekly zone volume falls back to a whole-duration estimate** for any session without
+  per-sample HR (every Garmin-only activity, as of this session's live account — 0
+  Concept2 results exist there) — flagged `"estimated": true` per week rather than silently
+  mixing exact and estimated seconds with no indication.
+- **The offline shell was never exercised against `?mock=` fixtures** (mock mode never
+  calls `fetch`, so there's nothing for a service worker to intercept) — verified instead
+  against a real, disposable backend instance in `/private/tmp` (throwaway password/
+  Fernet key/DB, never touching the real `.env`/`data/catch.db`), logged in and driven
+  through Playwright, confirmed offline-reload renders real cached data with zero console
+  errors. That scratch instance and its DB were discarded after verification.
+- **Secure-context requirement not yet relevant, but will be on the Pi**: service workers
+  (and installability) only work on `localhost` or HTTPS. A bare `http://<pi-lan-ip>:8000`
+  deployment won't install as a PWA or register a service worker at all — noted here as a
+  session-6 deploy concern (TLS, even just a self-signed cert on the LAN, or a Tailscale/
+  reverse-proxy HTTPS front).
+
+## Next steps (session 5)
+
+- AI coach chat (bring-your-own Anthropic key) + MCP server. The Settings screen's AI
+  section is a placeholder card ("Coming in session 5") already wired into the page.

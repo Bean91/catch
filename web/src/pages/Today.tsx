@@ -31,8 +31,16 @@ export function TodayPage() {
     return <ErrorState message="Couldn't load today's data." onRetry={() => refetch()} />;
   }
 
+  const isStale = data.date !== new Date().toISOString().slice(0, 10);
+
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
+      {isStale && (
+        <div className="rounded-md border border-border bg-surface-2 px-4 py-2.5 text-sm text-text-secondary">
+          Showing data from {data.date} — looks like you're offline (or the service worker's cache is serving a stale
+          copy). Reconnect and reload to refresh.
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-[220px_1fr] lg:grid-cols-[260px_1fr] lg:gap-5">
         <RecoveryRing recovery={data.recovery} />
         <div className="flex flex-col gap-4 lg:gap-5">

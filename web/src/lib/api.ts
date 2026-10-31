@@ -1,5 +1,35 @@
-import { mockScenarioFromQuery, mockSyncStatus, mockToday } from "./mock";
-import type { SyncResult, SyncSourceStatus, Today } from "./types";
+import {
+  mockBody,
+  mockErgStrokes,
+  mockNote,
+  mockPbs,
+  mockScenarioFromQuery,
+  mockSettings,
+  mockSyncStatus,
+  mockToday,
+  mockTrend,
+  mockVolume,
+  mockWorkoutDetail,
+  mockWorkoutsPage,
+  saveMockNote,
+  saveMockSettings,
+} from "./mock";
+import type {
+  BodyCompReading,
+  ErgStrokesResponse,
+  Note,
+  PersonalBests,
+  Settings,
+  SyncResult,
+  SyncSourceStatus,
+  Today,
+  TrendMetric,
+  TrendPoint,
+  VolumeWeek,
+  WorkoutCategory,
+  WorkoutDetail,
+  WorkoutsPage,
+} from "./types";
 
 export const MOCK_SCENARIO = mockScenarioFromQuery();
 export const isMock = MOCK_SCENARIO !== null;
@@ -62,4 +92,87 @@ export async function login(password: string): Promise<void> {
 export async function logout(): Promise<void> {
   if (isMock) return delay(undefined, 100);
   await request<{ ok: true }>("/api/logout", { method: "POST" });
+}
+
+// --- Workouts ----------------------------------------------------------
+
+export async function fetchWorkouts(params: {
+  category?: WorkoutCategory;
+  cursor?: string | null;
+}): Promise<WorkoutsPage> {
+  if (isMock) return delay(mockWorkoutsPage(params.category, params.cursor ?? null));
+  const search = new URLSearchParams();
+  if (params.category) search.set("category", params.category);
+  if (params.cursor) search.set("cursor", params.cursor);
+  return request<WorkoutsPage>(`/api/activities?${search.toString()}`);
+}
+
+export async function fetchWorkoutDetail(id: number): Promise<WorkoutDetail> {
+  if (isMock) return delay(mockWorkoutDetail(id));
+  return request<WorkoutDetail>(`/api/activities/${id}`);
+}
+
+export async function fetchErgStrokes(id: number): Promise<ErgStrokesResponse> {
+  if (isMock) return delay(mockErgStrokes(id));
+  return request<ErgStrokesResponse>(`/api/erg/${id}/strokes`);
+}
+
+// --- Notes ---------------------------------------------------------------
+
+export async function fetchNote(date: string): Promise<Note | null> {
+  if (isMock) return delay(mockNote(date));
+  return request<Note | null>(`/api/notes?date=${date}`);
+}
+
+export async function saveNote(date: string, text: string, rpe: number | null): Promise<Note> {
+  if (isMock) return delay(saveMockNote(date, text, rpe), 200);
+  return request<Note>("/api/notes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, text, rpe }),
+  });
+}
+
+// --- Trends / Body -------------------------------------------------------
+
+export async function fetchTrends(metric: TrendMetric, from?: string, to?: string): Promise<TrendPoint[]> {
+  if (isMock) return delay(mockTrend(metric));
+  const search = new URLSearchParams({ metric });
+  if (from) search.set("from", from);
+  if (to) search.set("to", to);
+  return request<TrendPoint[]>(`/api/trends?${search.toString()}`);
+}
+
+export async function fetchVolume(weeks: number): Promise<VolumeWeek[]> {
+  if (isMock) return delay(mockVolume(weeks));
+  return request<VolumeWeek[]>(`/api/trends/volume?weeks=${weeks}`);
+}
+
+export async function fetchBody(from?: string, to?: string): Promise<BodyCompReading[]> {
+  if (isMock) return delay(mockBody());
+  const search = new URLSearchParams();
+  if (from) search.set("from", from);
+  if (to) search.set("to", to);
+  return request<BodyCompReading[]>(`/api/body?${search.toString()}`);
+}
+
+export async function fetchPbs(): Promise<PersonalBests> {
+  if (isMock) return delay(mockPbs());
+  return request<PersonalBests>("/api/pbs");
+}
+
+// --- Settings --------------------------------------------------------------
+
+export async function fetchSettings(): Promise<Settings> {
+  if (isMock) return delay(mockSettings());
+  return request<Settings>("/api/settings");
+}
+
+export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
+  if (isMock) return delay(saveMockSettings(patch), 200);
+  return request<Settings>("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
 }

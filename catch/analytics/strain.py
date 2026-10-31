@@ -72,6 +72,22 @@ def session_strain(
     }
 
 
+def hr_sample_durations(ordered_t_hr: list[tuple[float, float | None]]) -> list[tuple[float, float]]:
+    """ordered_t_hr: [(t, hr_or_None), ...] for one interval, already in recorded order
+    (t resets to 0 at each interval boundary — caller groups by interval first). Each HR
+    reading's duration is `t` minus the *previous stroke's* `t` (the first stroke in the
+    interval gets its own t) — walks every stroke to track t correctly even when some in
+    between have no hr reading. Returns [(duration_s, hr), ...] for samples that have an hr."""
+    out = []
+    prev_t: float | None = None
+    for t, hr in ordered_t_hr:
+        duration = t if prev_t is None else max(0.0, t - prev_t)
+        if hr is not None:
+            out.append((duration, hr))
+        prev_t = t
+    return out
+
+
 def time_in_zone(samples: list[tuple[float, float]], max_hr: float | None, settings: dict | None = None) -> dict[str, float]:
     """samples: [(seconds_at_this_hr, hr), ...]. Needs per-sample HR — only available for
     strokes with hr data (Concept2); Garmin-only sessions have no sample-level HR without

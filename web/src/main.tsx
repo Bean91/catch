@@ -8,8 +8,19 @@ import { AuthProvider } from "./lib/auth.tsx";
 import { ThemeProvider } from "./lib/theme.tsx";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  // offlineFirst (not the v5 default "online"): a query still tries the network first, but
+  // doesn't *pause* when the browser is offline — it runs, lets fetch() fail, and the service
+  // worker's cached /api/today response (or ApiError) resolves it instead of spinning forever.
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000, networkMode: "offlineFirst" } },
 });
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Dev server / HTTP-without-TLS / no SW support — offline caching just doesn't apply.
+    });
+  });
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

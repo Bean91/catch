@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlmodel import Session
 
@@ -10,6 +10,8 @@ from catch.analytics.defaults import DEFAULT_SETTINGS
 from catch.core.models import AppSettings
 
 SETTINGS_ID = 1
+
+_ALLOWED_VALUES = {"zone_mode": {"hr", "power"}, "units": {"metric", "imperial"}}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -39,6 +41,13 @@ def _validate_patch(patch: dict) -> None:
             unknown_nested = set(value) - set(DEFAULT_SETTINGS[key])
             if unknown_nested:
                 raise ValueError(f"Unknown key(s) under {key}: {sorted(unknown_nested)}")
+        elif key in _ALLOWED_VALUES and value not in _ALLOWED_VALUES[key]:
+            raise ValueError(f"{key} must be one of {sorted(_ALLOWED_VALUES[key])}")
+        elif key == "garmin_key_expires_on" and value is not None:
+            try:
+                date.fromisoformat(str(value))
+            except ValueError:
+                raise ValueError("garmin_key_expires_on must be an ISO date (YYYY-MM-DD) or null")
 
 
 def update_settings(session: Session, patch: dict) -> dict:

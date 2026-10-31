@@ -109,6 +109,7 @@ export interface SyncSourceStatus {
   last_attempt_at?: string | null;
   last_success_at: string | null;
   last_error: string | null;
+  token_expires_at?: string | null;
 }
 
 export interface SyncResult {
@@ -116,4 +117,198 @@ export interface SyncResult {
   error?: string;
   skipped?: string;
   [key: string]: unknown;
+}
+
+// --- Workouts (session 4) ---------------------------------------------------
+
+export type WorkoutCategory = "erg" | "on_water" | "other";
+
+export interface ActivityStrain {
+  activity_id: number;
+  value: number | null;
+  band: StrainBand;
+  components?: unknown[];
+  explanation?: string;
+}
+
+export interface WorkoutListItem {
+  id: number;
+  source: string;
+  external_id: string;
+  type: string | null;
+  start: string | null;
+  duration: number | null;
+  distance: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_power: number | null;
+  calories: number | null;
+  workout_type: string | null;
+  drag_factor: number | null;
+  stroke_rate: number | null;
+  linked_activity_id: number | null;
+  category: WorkoutCategory;
+  strain: ActivityStrain | null;
+}
+
+export interface WorkoutsPage {
+  items: WorkoutListItem[];
+  next_cursor: string | null;
+}
+
+export interface ZoneRow {
+  zone: string;
+  hr_pct_lo: number;
+  hr_pct_hi: number | null;
+  hr_lo: number | null;
+  hr_hi: number | null;
+  power_pct_lo: number;
+  power_pct_hi: number | null;
+  power_lo: number | null;
+  power_hi: number | null;
+}
+
+export interface TrainingZones {
+  zones: ZoneRow[];
+  note: string;
+}
+
+export interface Note {
+  id: number;
+  date: string;
+  text: string;
+  rpe: number | null;
+  created_at: string;
+}
+
+export interface WorkoutDetail extends WorkoutListItem {
+  intervals: unknown | null;
+  local_date: string | null;
+  zones: TrainingZones;
+  hr_zone: string | null;
+  note: Note | null;
+}
+
+export interface Stroke {
+  id: number;
+  activity_id: number;
+  seq: number;
+  interval_index: number | null;
+  t: number;
+  distance: number | null;
+  pace_500m: number | null;
+  watts: number | null;
+  stroke_rate: number | null;
+  hr: number | null;
+  distance_cum: number | null;
+  t_cum: number;
+}
+
+export interface TechniqueMetric {
+  value: number | null;
+  band: string;
+  components: unknown[];
+  explanation: string;
+}
+
+export interface ErgTechnique {
+  split_consistency: TechniqueMetric;
+  watts_per_stroke: TechniqueMetric;
+  rate_power_slope: TechniqueMetric;
+  fade: TechniqueMetric;
+}
+
+export interface IntervalSummary {
+  distance_m: number | null;
+  duration_s: number | null;
+  avg_split_500m: number | null;
+  avg_stroke_rate: number | null;
+  avg_watts: number | null;
+  avg_hr: number | null;
+  drift_vs_rep1_pct: number | null;
+}
+
+export interface ErgStrokesResponse {
+  activity_id: number;
+  strokes: Stroke[];
+  technique_by_interval: Record<string, ErgTechnique>;
+  interval_summary: Record<string, IntervalSummary>;
+  time_in_zone_by_interval: Record<string, Record<string, number> | null>;
+}
+
+// --- Trends / Body (session 4) ----------------------------------------------
+
+export type TrendMetric =
+  | "recovery"
+  | "hrv_rmssd"
+  | "resting_hr"
+  | "sleep_score"
+  | "strain"
+  | "load_acr"
+  | "weight"
+  | "w_per_kg"
+  | "predicted_2k";
+
+export interface TrendPoint {
+  date: string;
+  value: number | null;
+  acute_7d?: number;
+  chronic_42d?: number;
+  form?: number;
+  smoothed?: number | null;
+}
+
+export const ZONE_NAMES = ["UT2", "UT1", "AT", "TR", "AN"] as const;
+export type ZoneName = (typeof ZONE_NAMES)[number];
+
+export interface VolumeWeek {
+  week_start: string;
+  zones: Record<ZoneName, number>;
+  estimated: boolean;
+}
+
+export interface BodyCompReading {
+  id: number;
+  source: string;
+  external_id: string;
+  ts: string;
+  weight_kg: number | null;
+  fat_pct: number | null;
+  fat_kg: number | null;
+  muscle_kg: number | null;
+  bone_kg: number | null;
+  hydration_kg: number | null;
+}
+
+export interface PbEntry {
+  activity_id: number;
+  date: string | null;
+  distance_m: number | null;
+  duration_s: number | null;
+  pace_s_per_500: number | null;
+}
+
+export type PersonalBests = Record<string, PbEntry | null>;
+
+// --- Settings (session 4) ---------------------------------------------------
+
+export interface Settings {
+  zones: { hr_pct: Record<string, number>; power_pct: Record<string, number> };
+  trimp_exponent: number;
+  srpe_to_trimp_scale: number;
+  strain_log_a: number;
+  load_acute_days: number;
+  load_chronic_days: number;
+  acr_bands: { undertraining: number; optimal_high: number; caution_high: number };
+  max_hr: number | null;
+  recovery_weights: Record<string, number>;
+  recovery_green: number;
+  recovery_yellow: number;
+  sleep_need_seconds: number;
+  min_hrv_nights_for_baseline: number;
+  predict_lookback_days: number;
+  strain_targets: Record<string, [number, number]>;
+  zone_mode: "hr" | "power";
+  units: "metric" | "imperial";
+  garmin_key_expires_on: string | null;
 }

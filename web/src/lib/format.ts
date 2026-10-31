@@ -58,7 +58,10 @@ export function formatRelativeTime(iso: string | null | undefined): string {
 }
 
 export function formatShortDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00");
+  // Accepts a bare "YYYY-MM-DD" (most callers, e.g. trend/sparkline points) or a full ISO
+  // datetime (workout.start) — only append a time-of-day when one isn't already there, or
+  // "2026-10-29T07:30:00.000Z" + "T00:00:00" would produce an unparseable string.
+  const d = iso.includes("T") ? new Date(iso) : new Date(iso + "T00:00:00");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -81,4 +84,33 @@ const BAND_LABELS: Record<string, string> = {
 export function bandLabel(band: string | null | undefined): string {
   if (!band) return "No data";
   return BAND_LABELS[band] ?? band;
+}
+
+const CATEGORY_LABELS: Record<string, string> = { erg: "Erg", on_water: "On-water", other: "Other" };
+
+export function categoryLabel(category: string | null | undefined): string {
+  if (!category) return "Other";
+  return CATEGORY_LABELS[category] ?? category;
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  rowing_v2: "On-water row",
+  indoor_rowing: "Erg",
+  strength_training: "Strength",
+  indoor_cycling: "Indoor bike",
+  rower: "Erg (row)",
+  skierg: "Erg (ski)",
+  bike: "Erg (bike)",
+  dynamic: "Erg (dynamic)",
+  slides: "Erg (slides)",
+  multierg: "Erg (multi)",
+  water: "On-water",
+  paddle: "On-water (paddle)",
+  snow: "Snow",
+  rollerski: "Roller ski",
+};
+
+export function activityTypeLabel(type: string | null | undefined): string {
+  if (!type) return "Workout";
+  return TYPE_LABELS[type] ?? type.replace(/_/g, " ");
 }

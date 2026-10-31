@@ -7,10 +7,12 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
+from catch.analytics.body import smooth_weight
 from catch.analytics.erg_math import w_per_kg
 from catch.analytics.predict import predict_2k
-from catch.analytics.strain import time_in_zone
-from catch.analytics.technique import erg_technique
+from catch.analytics.strain import hr_sample_durations, time_in_zone
+from catch.analytics.technique import erg_technique, interval_summary
+from catch.analytics.zones import ZONE_ORDER, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.core.models import Activity, BodyComp, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
@@ -173,10 +175,94 @@ def trends(
         if to:
             stmt = stmt.where(DailyScore.date <= to)
         rows = db.exec(stmt.order_by(DailyScore.date)).all()
-        return [{"date": r.date, "value": (_score_dict(getattr(r, field)) or {}).get("value")} for r in rows]
+        out = []
+        for r in rows:
+            d = _score_dict(getattr(r, field)) or {}
+            point = {"date": r.date, "value": d.get("value")}
+            if metric == "load_acr" and d.get("components"):
+                # Trends' load/form view needs the acute/chronic/form series, not just the
+                # ratio — these already exist per-day on the cached component, no recompute.
+                point.update({k: v for k, v in d["components"][0].items()})
+            out.append(point)
+        return out
 
-    allowed = sorted(_WELLNESS_METRICS | set(_SCORE_METRICS))
+    if metric == "weight":
+        return _weight_trend(db, from_, to)
+    if metric == "w_per_kg":
+        return _w_per_kg_trend(db, from_, to)
+    if metric == "predicted_2k":
+        return _predicted_2k_trend(db, from_, to)
+
+    allowed = sorted(_WELLNESS_METRICS | set(_SCORE_METRICS) | {"weight", "w_per_kg", "predicted_2k"})
     raise HTTPException(status_code=400, detail=f"Unknown metric '{metric}'. Allowed: {allowed}")
+
+
+def _date_bounds(from_: date | None, to: date | None) -> tuple[datetime | None, datetime | None]:
+    start = datetime.combine(from_, datetime.min.time(), tzinfo=timezone.utc) if from_ else None
+    end = datetime.combine(to, datetime.max.time(), tzinfo=timezone.utc) if to else None
+    return start, end
+
+
+def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
+    # Smoothed over *all* history, not just the requested range — otherwise the smoothed
+    # line at the start of a narrow range (e.g. "4w") would have no trailing context and
+    # read as noisier than it should.
+    start, end = _date_bounds(from_, to)
+    all_rows = db.exec(select(BodyComp).where(BodyComp.weight_kg.is_not(None)).order_by(BodyComp.ts)).all()
+    smoothed_by_day = dict(smooth_weight([(r.ts.date(), r.weight_kg) for r in all_rows]))
+    out = []
+    for r in all_rows:
+        if start and r.ts < start:
+            continue
+        if end and r.ts > end:
+            continue
+        out.append({"date": r.ts.date(), "value": r.weight_kg, "smoothed": smoothed_by_day.get(r.ts.date())})
+    return out
+
+
+def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
+    start, end = _date_bounds(from_, to)
+    stmt = select(Activity).where(Activity.source == "concept2", Activity.avg_power.is_not(None))
+    if start:
+        stmt = stmt.where(Activity.start >= start)
+    if end:
+        stmt = stmt.where(Activity.start <= end)
+    rows = db.exec(stmt.order_by(Activity.start)).all()
+    out = []
+    for a in rows:
+        weight_kg = _nearest_weight_kg(db, a.start)
+        value = w_per_kg(a.avg_power, weight_kg)
+        if value is not None and a.start is not None:
+            out.append({"date": a.start.date(), "value": value})
+    return out
+
+
+def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
+    """One point per qualifying effort: that single piece's own Paul's-law extrapolation to
+    2000m (same formula `/api/predict/2k` uses, but per-piece rather than averaged across
+    several recent pieces) — a trend of "what would today's piece alone predict," distinct
+    from the Today screen's multi-piece ensemble estimate."""
+    start, end = _date_bounds(from_, to)
+    stmt = select(Activity).where(
+        Activity.source == "concept2",
+        Activity.type == "rower",
+        Activity.distance.is_not(None),
+        Activity.duration.is_not(None),
+    )
+    if start:
+        stmt = stmt.where(Activity.start >= start)
+    if end:
+        stmt = stmt.where(Activity.start <= end)
+    rows = db.exec(stmt.order_by(Activity.start)).all()
+    out = []
+    for a in rows:
+        if a.workout_type not in _CONTINUOUS_WORKOUT_TYPES or not a.distance or a.distance < 1000 or a.start is None:
+            continue
+        pace = (a.duration / a.distance) * 500.0
+        result = predict_2k([{"distance_m": a.distance, "pace_s_per_500": pace, "label": a.start.date().isoformat()}])
+        if result["value"] is not None:
+            out.append({"date": a.start.date(), "value": result["predicted_time_s"]})
+    return out
 
 
 def _nearest_weight_kg(db: Session, when: datetime | None) -> float | None:
@@ -218,20 +304,6 @@ def erg_results(
     return out
 
 
-def _hr_samples(strokes: list[Stroke]) -> list[tuple[float, float]]:
-    """Duration of each HR reading = t minus the previous stroke's t (first stroke in the
-    interval gets its own t). Walks every stroke to track t correctly even when some strokes
-    in between have no hr reading."""
-    samples = []
-    prev_t: float | None = None
-    for s in strokes:
-        duration = s.t if prev_t is None else max(0.0, s.t - prev_t)
-        if s.hr is not None:
-            samples.append((duration, s.hr))
-        prev_t = s.t
-    return samples
-
-
 @router.get("/api/erg/{activity_id}/strokes")
 def erg_strokes(activity_id: int, db: Session = Depends(get_db)):
     activity = db.get(Activity, activity_id)
@@ -247,21 +319,52 @@ def erg_strokes(activity_id: int, db: Session = Depends(get_db)):
     max_hr = settings.get("max_hr")
     technique_by_interval = {}
     time_in_zone_by_interval = {}
-    for idx, group in by_interval.items():
+    interval_summaries: dict[int, dict] = {}
+    for idx, group in sorted(by_interval.items()):
         pieces = [
-            {"t": s.t, "distance": s.distance, "watts": s.watts, "stroke_rate": s.stroke_rate, "pace_500m": s.pace_500m}
+            {"t": s.t, "distance": s.distance, "watts": s.watts, "stroke_rate": s.stroke_rate, "pace_500m": s.pace_500m, "hr": s.hr}
             for s in group
         ]
         technique_by_interval[idx] = erg_technique(pieces)
-        hr_samples = _hr_samples(group)
+        interval_summaries[idx] = interval_summary(pieces)
+        hr_samples = hr_sample_durations([(s.t, s.hr) for s in group])
         # Per-sample HR only exists for strokes that recorded one (Concept2 w/ a paired HR
         # strap); Garmin-only sessions have no sample-level HR without FIT parsing (not done).
         time_in_zone_by_interval[idx] = time_in_zone(hr_samples, max_hr, settings) if hr_samples else None
 
+    # Drift vs rep 1, by avg split — positive means slower than the first rep.
+    rep1_split = interval_summaries[min(interval_summaries)]["avg_split_500m"] if interval_summaries else None
+    for summary in interval_summaries.values():
+        split = summary["avg_split_500m"]
+        summary["drift_vs_rep1_pct"] = ((split - rep1_split) / rep1_split * 100) if (rep1_split and split) else None
+
+    # t/distance reset to 0 at each interval boundary (docs/concept2-endpoints.md); add the
+    # running offset from prior intervals so a distance-based chart doesn't saw-tooth back to
+    # zero at every rep.
+    stroke_dicts = []
+    offset_distance = 0.0
+    offset_t = 0.0
+    last_interval = None
+    for s in strokes:
+        idx = s.interval_index or 0
+        if last_interval is not None and idx != last_interval:
+            prev_summary = interval_summaries.get(last_interval, {})
+            offset_distance += prev_summary.get("distance_m") or 0.0
+            offset_t += prev_summary.get("duration_s") or 0.0
+        last_interval = idx
+        stroke_dicts.append(
+            {
+                **s.model_dump(),
+                "distance_cum": (s.distance + offset_distance) if s.distance is not None else None,
+                "t_cum": s.t + offset_t,
+            }
+        )
+
     return {
         "activity_id": activity_id,
-        "strokes": strokes,
+        "strokes": stroke_dicts,
         "technique_by_interval": technique_by_interval,
+        "interval_summary": interval_summaries,
         "time_in_zone_by_interval": time_in_zone_by_interval,
     }
 
@@ -316,4 +419,113 @@ def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
     from catch.sync.scoring import recompute_scores
 
     recompute_scores(db)
+    return result
+
+
+def _estimated_zone_totals(activity: Activity, max_hr: float | None, settings: dict) -> dict[str, float] | None:
+    """Fallback for sessions with no per-sample HR (every Garmin-only activity, and any
+    Concept2 result synced without a paired HR strap): bucket the *whole* duration into the
+    zone for avg_hr, rather than contributing nothing to weekly volume. Callers must flag
+    weeks that used this as "estimated" — it's a coarser number than real time-in-zone."""
+    zone = zone_for_hr(activity.avg_hr, max_hr, settings)
+    if zone is None or not activity.duration:
+        return None
+    totals = {z: 0.0 for z in ZONE_ORDER}
+    totals[zone] = activity.duration
+    return totals
+
+
+@router.get("/api/trends/volume")
+def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get_db)):
+    settings = get_settings(db)
+    max_hr = settings.get("max_hr")
+    today = date.today()
+    this_week_start = today - timedelta(days=today.weekday())
+    week_starts = [this_week_start - timedelta(weeks=i) for i in range(weeks)][::-1]
+    range_start, range_end = week_starts[0], this_week_start + timedelta(days=7)
+
+    stmt = select(Activity).where(
+        Activity.start.is_not(None),
+        ~((Activity.source == "garmin") & Activity.linked_activity_id.is_not(None)),
+    )
+    activities = db.exec(stmt).all()
+
+    buckets: dict[date, dict[str, float]] = {w: {z: 0.0 for z in ZONE_ORDER} for w in week_starts}
+    estimated_weeks: set[date] = set()
+    for a in activities:
+        local_date = a.start.astimezone().date()
+        if local_date < range_start or local_date >= range_end:
+            continue
+        bucket_week = local_date - timedelta(days=local_date.weekday())
+
+        exact = None
+        if a.source == "concept2":
+            # Only the columns time_in_zone actually needs — not whole Stroke rows — to stay
+            # memory-bounded on the Pi even with a long training history in range.
+            rows = db.exec(
+                select(Stroke.t, Stroke.hr, Stroke.interval_index).where(Stroke.activity_id == a.id)
+            ).all()
+            if rows:
+                by_interval: dict[int, list[tuple[float, float | None]]] = {}
+                for t, hr, idx in rows:
+                    by_interval.setdefault(idx or 0, []).append((t, hr))
+                exact = {z: 0.0 for z in ZONE_ORDER}
+                for group in by_interval.values():
+                    zone_secs = time_in_zone(hr_sample_durations(group), max_hr, settings)
+                    for z, secs in zone_secs.items():
+                        exact[z] += secs
+
+        if exact is not None:
+            for z, secs in exact.items():
+                buckets[bucket_week][z] += secs
+        else:
+            estimated = _estimated_zone_totals(a, max_hr, settings)
+            if estimated:
+                estimated_weeks.add(bucket_week)
+                for z, secs in estimated.items():
+                    buckets[bucket_week][z] += secs
+
+    return [{"week_start": w, "zones": buckets[w], "estimated": w in estimated_weeks} for w in week_starts]
+
+
+_PB_DISTANCES_M = (500, 1000, 2000, 5000, 6000)
+_PB_DURATIONS_S = {1800: "30min", 3600: "60min"}
+
+
+def _pb_entry(activity: Activity | None) -> dict | None:
+    if activity is None:
+        return None
+    pace = (activity.duration / activity.distance) * 500.0 if activity.distance else None
+    return {
+        "activity_id": activity.id,
+        "date": activity.start.date().isoformat() if activity.start else None,
+        "distance_m": activity.distance,
+        "duration_s": activity.duration,
+        "pace_s_per_500": pace,
+    }
+
+
+@router.get("/api/pbs")
+def personal_bests(db: Session = Depends(get_db)):
+    # type=="rower" only — a SkiErg/BikeErg 2k isn't the same PB, and only continuous
+    # workouts (same restriction _predict_2k uses) since interval/piece sets mix rest into
+    # duration.
+    stmt = select(Activity).where(
+        Activity.source == "concept2",
+        Activity.type == "rower",
+        Activity.distance.is_not(None),
+        Activity.duration.is_not(None),
+    )
+    continuous = [a for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
+
+    result: dict[str, dict | None] = {}
+    for target in _PB_DISTANCES_M:
+        tolerance = max(25.0, target * 0.02)
+        candidates = [a for a in continuous if a.distance and abs(a.distance - target) <= tolerance]
+        best = min(candidates, key=lambda a: a.duration) if candidates else None
+        result[f"{target}m"] = _pb_entry(best)
+    for target, label in _PB_DURATIONS_S.items():
+        candidates = [a for a in continuous if a.duration and abs(a.duration - target) <= 30.0]
+        best = max(candidates, key=lambda a: a.distance) if candidates else None
+        result[label] = _pb_entry(best)
     return result

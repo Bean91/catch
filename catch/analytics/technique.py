@@ -148,3 +148,27 @@ def erg_technique(strokes: list[dict]) -> dict:
         "rate_power_slope": rate_power_slope(strokes),
         "fade": fade(strokes),
     }
+
+
+def interval_summary(strokes: list[dict]) -> dict:
+    """Per-rep averages for the interval table: avg split/rate/watts/HR plus this rep's own
+    distance/duration. `t`/`distance` are interval-relative (reset to 0 at each rep boundary
+    — see docs/concept2-endpoints.md), so the last stroke's cumulative point is this rep's
+    total; drift vs rep 1 is computed by the caller, which has every rep's summary at once."""
+    cum = _cumulative_points(strokes)
+    distance = cum[-1][0] if cum else None
+    duration = cum[-1][1] if cum else None
+    avg_split_500m = (duration / distance * 500.0) if (duration and distance) else None
+
+    def _mean(key: str) -> float | None:
+        values = [s[key] for s in strokes if s.get(key) is not None]
+        return statistics.mean(values) if values else None
+
+    return {
+        "distance_m": distance,
+        "duration_s": duration,
+        "avg_split_500m": avg_split_500m,
+        "avg_stroke_rate": _mean("stroke_rate"),
+        "avg_watts": _mean("watts"),
+        "avg_hr": _mean("hr"),
+    }

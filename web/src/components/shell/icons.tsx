@@ -44,6 +44,15 @@ export function CoachIcon({ className }: IconProps) {
   );
 }
 
+export function BodyIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="6" r="2.6" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 8.6v7M8.5 12h7M9 19l3-3.4 3 3.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>

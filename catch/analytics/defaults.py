@@ -45,4 +45,14 @@ DEFAULT_SETTINGS: dict = {
         "yellow": [6, 12],
         "red": [0, 8],
     },
+    # Which table the zone/workout-detail screens default to showing — doesn't change how
+    # zones are computed (both are always available), just the default view.
+    "zone_mode": "hr",
+    "units": "metric",
+    # Garmin's personal-API-key swagger spec exposes no key-expiry field (checked
+    # docs/garmin-openapi.json — the only "expir*" hit is an unrelated profile-image URL), so
+    # this is a user-entered reminder, not data from the API. `GET /api/sync/status`'s
+    # `token_expires_at` is the real, API-derived value (the 24h re-exchanged JWT), which is a
+    # different thing and labelled separately in the UI.
+    "garmin_key_expires_on": None,
 }

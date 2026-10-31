@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from catch.core.models import Activity, BodyComp, DailyWellness, Stroke
+from catch.core.models import Activity, BodyComp, DailyWellness, Note, Stroke
 
 
 def upsert_daily_wellness(session: Session, day: date_, **fields: Any) -> DailyWellness:
@@ -50,6 +50,22 @@ def upsert_strokes(session: Session, activity_id: int, strokes: list[dict]) -> i
         session.add(Stroke(activity_id=activity_id, **fields))
     session.commit()
     return len(strokes)
+
+
+def upsert_note(session: Session, day: date_, text: str, rpe: int | None) -> Note:
+    """One note per calendar date — a later save on the same date overwrites it rather than
+    appending another row, so strain's _note_rpe (catch/sync/scoring.py) always picks the one
+    note that date, not an arbitrary one among several."""
+    row = session.exec(select(Note).where(Note.date == day)).first()
+    if row is None:
+        row = Note(date=day, text=text, rpe=rpe)
+        session.add(row)
+    else:
+        row.text = text
+        row.rpe = rpe
+    session.commit()
+    session.refresh(row)
+    return row
 
 
 def upsert_body_comp(session: Session, source: str, external_id: str, **fields: Any) -> BodyComp:

@@ -1,10 +1,11 @@
 import { NavLink } from "react-router-dom";
-import { CoachIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
+  { to: "/body", label: "Body", Icon: BodyIcon },
   { to: "/coach", label: "Coach", Icon: CoachIcon },
   { to: "/settings", label: "Settings", Icon: SettingsIcon },
 ];

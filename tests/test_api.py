@@ -40,7 +40,7 @@ def test_activities_from_to_accepts_naive_dates(client):
     client.post("/api/login", json={"password": TEST_PASSWORD})
     resp = client.get("/api/activities", params={"from": "2026-01-01", "to": "2026-12-31"})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() == {"items": [], "next_cursor": None}
 
 
 def test_body_from_to_accepts_naive_dates(client):

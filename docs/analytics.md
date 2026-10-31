@@ -138,12 +138,86 @@ groups an activity's strokes by `Stroke.interval_index` before calling these:
 - **Fade**: % slower average pace in the last quarter of strokes vs. the first quarter.
   Bands: held pace (≤1%), mild fade (≤3%), faded (>3%).
 
-## 8. Endpoints
+## 8. Workout classification (`classify.py`), session 4
+
+`workout_category(source, type)` buckets every activity into `erg` / `on_water` / `other`
+for the Workouts list filter. **Querying the live DB this session** (`SELECT type,
+SUM(raw_json LIKE '%startLatitude%') FROM activities GROUP BY type`) found every real
+`rowing_v2` row (29/29) carries GPS fields and every `indoor_rowing` row (2/2) carries none —
+the opposite of session 2's `ROWING_TYPE_KEYS = {"rowing_v2", "indoor_rowing"}` comment, which
+claimed both were indoor/erg. That comment was written when the Concept2 account had 0
+results, so it was never checked against real data. Fixed: `GARMIN_ERG_TYPES =
+{"indoor_rowing"}`, `GARMIN_ON_WATER_TYPES = {"rowing_v2"}`; `sync/concept2_client.py`'s
+Garmin<->Concept2 link-matching now imports `GARMIN_ERG_TYPES` from here instead of defining
+its own (wrong) set. Concept2's documented `type` values split the same way: `water`/`paddle`
+-> on_water, `snow`/`rollerski` -> other, everything else (`rower`/`skierg`/`bike`/`dynamic`/
+`slides`/`multierg`) -> erg.
+
+## 9. Interval table and chart x-axis (`technique.interval_summary`), session 4
+
+Per-rep average split/rate/watts/HR for the workout-detail interval table — same cumulative
+`(distance, t)` points `split_consistency` already builds, just the last point (= this rep's
+own total, since both reset to 0 at each interval boundary) instead of 500m bins. `GET
+/api/erg/{id}/strokes` adds `drift_vs_rep1_pct` per rep (`(this_rep_split - rep1_split) /
+rep1_split * 100`, positive = slower than rep 1) and `distance_cum`/`t_cum` on every raw
+stroke (running offset from prior reps' totals), so a distance-based chart doesn't saw-tooth
+back to zero at each rep boundary.
+
+## 10. Weekly zone volume (`GET /api/trends/volume`), session 4
+
+Sums `time_in_zone` per ISO week (Monday-start) across every non-duplicate activity in range.
+Real per-sample HR only exists for Concept2 strokes; a session with none (every Garmin-only
+activity, or a Concept2 result with no paired HR strap) instead puts its *entire* duration
+into the zone for `avg_hr` — coarser, so any week that used this fallback is flagged
+`"estimated": true`. Queries only `(t, hr, interval_index)` per Concept2 activity, not whole
+`Stroke` rows, to stay memory-bounded.
+
+## 11. Personal bests (`GET /api/pbs`), session 4
+
+Best (fastest) continuous `type=="rower"` piece within a tolerance band per distance (500m/
+1k/2k/5k/6k, tolerance `max(25m, 2%)`) and best (furthest) piece within ±30s of each duration
+(30/60 min) — same `workout_type` continuity restriction `_predict_2k` uses, and `rower` only
+so a SkiErg/BikeErg 2k never counts as a rowing PB. `null` for any bucket with no match yet.
+
+## 12. Body weight smoothing (`body.smooth_weight`), session 4
+
+Same-day readings averaged first (multiple Withings syncs in a day), then a trailing
+7-calendar-day rolling **median** (not mean) over whatever readings actually fall in that
+window — median is what keeps a single-day outlier (bad scale reading, a post-long-row
+dehydration dip) from moving the smoothed line, which a mean would. Used by the Body screen's
+smoothed weight line; `GET /api/trends?metric=weight` itself still returns the raw points.
+
+## 13. Predicted-2k trend vs. the Today-screen estimate, session 4
+
+`GET /api/trends?metric=predicted_2k` is **not** the same number as `/api/predict/2k`/Today's
+`predicted_2k`: the trend is one point per qualifying piece, each extrapolated to 2000m on its
+own (same Paul's-law formula, single piece); Today's headline number averages several recent
+best pieces into one ensemble estimate. Documented here specifically so the two numbers next
+to each other don't look like a bug.
+
+## 14. "Garmin key expiry," session 4
+
+`docs/garmin-openapi.json` has no key-expiry field (the only "expir" hit is an unrelated
+profile-image URL's `expirationTimestamp`) — Garmin's personal-API-key program doesn't expose
+how long a key is valid for via this API. `GET /api/sync/status`'s `token_expires_at` is a
+*different* thing: the 24h JWT re-exchanged automatically on every sync (see
+`docs/garmin-endpoints.md`), not the underlying key's own validity window. The Settings screen
+shows both, separately labelled: `token_expires_at` as "token valid until" (real, API-derived,
+always ~24h out), and a new user-entered `garmin_key_expires_on` setting (date, optional, with
+a warning inside 14 days) for the key's real expiry, which only the user — not this API —
+knows.
+
+## 15. Endpoints
 
 `GET /api/today`, `GET /api/trends?metric=...&from=...&to=...` (whitelisted metric names —
-daily_wellness columns plus `recovery`/`strain`/`load_acr` pulled from the cached
-`daily_scores` JSON), `GET /api/erg/results`, `GET /api/erg/{id}/strokes` (raw strokes +
-per-interval technique), `GET /api/predict/2k`, `GET`/`PUT /api/settings`.
+`daily_wellness` columns, `recovery`/`strain`/`load_acr` from cached `daily_scores`, plus
+session 4's `weight`/`w_per_kg`/`predicted_2k`), `GET /api/trends/volume?weeks=...` (session
+4, weekly zone bars), `GET /api/pbs` (session 4), `GET /api/erg/results`, `GET
+/api/erg/{id}/strokes` (raw strokes + per-interval technique + session 4's per-rep
+`interval_summary`/drift/cumulative offsets), `GET /api/predict/2k`, `GET`/`POST /api/notes`
+(session 4), `GET`/`PUT /api/settings`. Workouts list/detail (`GET /api/activities[/{id}]`,
+cursor-paginated, category-filterable, per-activity strain, zones) live in
+`catch/api/routes_activities.py`, not this router — see §8 above for the category logic.
 
 `GET /api/today` is the Today screen's single call (session 3): alongside `recovery`/
 `strain_today`/`load`/`recommendation` it adds `sleep_last_night` (stage seconds +
@@ -157,10 +231,11 @@ back out of ln-space for HRV), `latest_erg` (most recent Concept2 activity, `raw
 `predicted_2k` (same logic `/api/predict/2k` uses, factored into `_predict_2k()` so both
 routes share it).
 
-## 9. Caching
+## 16. Caching
 
-`catch/sync/scoring.recompute_scores()` runs after every sync (any source) and every
-`PUT /api/settings`, and recomputes **every** day from the earliest known
+`catch/sync/scoring.recompute_scores()` runs after every sync (any source), every
+`PUT /api/settings`, and (session 4) every `POST /api/notes` — since RPE feeds the no-HR
+strain fallback — and recomputes **every** day from the earliest known
 `daily_wellness`/`activity` date through today into `daily_scores` — simpler and safer than an
 incremental path (a settings change or backfilled day would otherwise leave stale cached
 numbers), and cheap at single-user scale (plain-Python arithmetic over a few thousand days at

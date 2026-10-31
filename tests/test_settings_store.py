@@ -33,3 +33,23 @@ def test_update_settings_rejects_unknown_top_level_key(session):
 def test_update_settings_rejects_unknown_nested_key(session):
     with pytest.raises(ValueError, match="Unknown key"):
         update_settings(session, {"recovery_weights": {"bogus": 1}})
+
+
+def test_update_settings_rejects_bad_zone_mode(session):
+    with pytest.raises(ValueError, match="zone_mode must be one of"):
+        update_settings(session, {"zone_mode": "bogus"})
+
+
+def test_update_settings_accepts_valid_units(session):
+    update_settings(session, {"units": "imperial"})
+    assert get_settings(session)["units"] == "imperial"
+
+
+def test_update_settings_rejects_bad_garmin_key_expiry(session):
+    with pytest.raises(ValueError, match="garmin_key_expires_on"):
+        update_settings(session, {"garmin_key_expires_on": "not-a-date"})
+
+
+def test_update_settings_accepts_valid_garmin_key_expiry(session):
+    update_settings(session, {"garmin_key_expires_on": "2027-03-01"})
+    assert get_settings(session)["garmin_key_expires_on"] == "2027-03-01"
