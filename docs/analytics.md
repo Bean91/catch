@@ -145,6 +145,18 @@ daily_wellness columns plus `recovery`/`strain`/`load_acr` pulled from the cache
 `daily_scores` JSON), `GET /api/erg/results`, `GET /api/erg/{id}/strokes` (raw strokes +
 per-interval technique), `GET /api/predict/2k`, `GET`/`PUT /api/settings`.
 
+`GET /api/today` is the Today screen's single call (session 3): alongside `recovery`/
+`strain_today`/`load`/`recommendation` it adds `sleep_last_night` (stage seconds +
+`need_seconds`), `strain_target_range` (a `[lo, hi]` 0-21 band from the new
+`strain_targets` setting, keyed by today's recovery band — illustrative coaching defaults,
+not validated, same caveat as the zone table), `hrv`/`resting_hr` (today's value, a 14-day
+`sparkline_14d` from `daily_wellness`, and a `baseline_band` — reusing the `baseline_7d*`/
+`spread_60d` already computed by `recovery_score` rather than re-deriving it, exponentiated
+back out of ln-space for HRV), `latest_erg` (most recent Concept2 activity, `raw_json`/
+`intervals_json` stripped, with `weight_kg`/`w_per_kg` same as `/api/erg/results`), and
+`predicted_2k` (same logic `/api/predict/2k` uses, factored into `_predict_2k()` so both
+routes share it).
+
 ## 9. Caching
 
 `catch/sync/scoring.recompute_scores()` runs after every sync (any source) and every

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -53,6 +54,52 @@ def _recommendation(recovery: dict | None, load: dict | None) -> str:
     return "Recovery is green — you're clear for a harder session if it's on the plan."
 
 
+def _component(components: list[dict] | None, metric: str) -> dict | None:
+    for c in components or []:
+        if c.get("metric") == metric:
+            return c
+    return None
+
+
+def _sparkline(db: Session, field: str, days: int, through: date) -> list[dict]:
+    since = through - timedelta(days=days - 1)
+    stmt = select(DailyWellness).where(DailyWellness.date >= since, DailyWellness.date <= through)
+    rows = db.exec(stmt.order_by(DailyWellness.date)).all()
+    return [{"date": r.date, "value": getattr(r, field)} for r in rows]
+
+
+def _baseline_band(component: dict | None, log_space: bool) -> dict | None:
+    """Reuses the baseline/spread already computed by recovery_score rather than
+    re-deriving the 7d-mean/60d-pstdev in the frontend. HRV's baseline/spread are in
+    ln-space (recovery.py comment: lognormal), so the ±1-spread band is exponentiated
+    back to ms for display; resting HR's are already in raw bpm."""
+    if component is None:
+        return None
+    baseline = component.get("baseline_7d_ln") if log_space else component.get("baseline_7d")
+    spread = component.get("spread_60d")
+    if baseline is None:
+        return None
+    if spread is None:
+        low = high = baseline
+    else:
+        low, high = baseline - spread, baseline + spread
+    if log_space:
+        baseline, low, high = math.exp(baseline), math.exp(low), math.exp(high)
+    return {"baseline": baseline, "low": low, "high": high}
+
+
+def _latest_erg(db: Session) -> dict | None:
+    stmt = select(Activity).where(Activity.source == "concept2").order_by(Activity.start.desc())
+    row = db.exec(stmt).first()
+    if row is None:
+        return None
+    weight_kg = _nearest_weight_kg(db, row.start)
+    data = row.model_dump(exclude={"raw_json", "intervals_json"})
+    data["weight_kg"] = weight_kg
+    data["w_per_kg"] = w_per_kg(row.avg_power, weight_kg)
+    return data
+
+
 @router.get("/api/today")
 def today(db: Session = Depends(get_db)):
     today_date = date.today()
@@ -61,12 +108,43 @@ def today(db: Session = Depends(get_db)):
     recovery = _score_dict(score_row.recovery_json) if score_row else None
     strain = _score_dict(score_row.strain_json) if score_row else None
     load = _score_dict(score_row.load_json) if score_row else None
+    settings = get_settings(db)
+
+    components = recovery.get("components") if recovery else None
+    band_for_targets = (recovery or {}).get("band") or "calibrating"
+    strain_target = settings["strain_targets"].get(band_for_targets, settings["strain_targets"]["calibrating"])
+
     return {
         "date": today_date,
         "recovery": recovery,
-        "sleep_last_night": {"seconds": wellness.sleep_seconds, "score": wellness.sleep_score} if wellness else None,
+        "sleep_last_night": (
+            {
+                "seconds": wellness.sleep_seconds,
+                "score": wellness.sleep_score,
+                "need_seconds": settings["sleep_need_seconds"],
+                "deep_seconds": wellness.deep_sleep_seconds,
+                "light_seconds": wellness.light_sleep_seconds,
+                "rem_seconds": wellness.rem_sleep_seconds,
+                "awake_seconds": wellness.awake_sleep_seconds,
+            }
+            if wellness
+            else None
+        ),
         "strain_today": strain,
+        "strain_target_range": strain_target,
         "load": load,
+        "hrv": {
+            "today": wellness.hrv_rmssd if wellness else None,
+            "sparkline_14d": _sparkline(db, "hrv_rmssd", 14, today_date),
+            "baseline_band": _baseline_band(_component(components, "hrv"), log_space=True),
+        },
+        "resting_hr": {
+            "today": wellness.resting_hr if wellness else None,
+            "sparkline_14d": _sparkline(db, "resting_hr", 14, today_date),
+            "baseline_band": _baseline_band(_component(components, "resting_hr"), log_space=False),
+        },
+        "latest_erg": _latest_erg(db),
+        "predicted_2k": _predict_2k(db, settings),
         "recommendation": _recommendation(recovery, load),
     }
 
@@ -188,9 +266,7 @@ def erg_strokes(activity_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/api/predict/2k")
-def predict_2k_endpoint(db: Session = Depends(get_db)):
-    settings = get_settings(db)
+def _predict_2k(db: Session, settings: dict) -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings["predict_lookback_days"])
     stmt = select(Activity).where(
         Activity.source == "concept2",
@@ -218,6 +294,12 @@ def predict_2k_endpoint(db: Session = Depends(get_db)):
             }
     pieces = sorted(best_by_bucket.values(), key=lambda p: p["distance_m"])[-6:]
     return predict_2k(pieces)
+
+
+@router.get("/api/predict/2k")
+def predict_2k_endpoint(db: Session = Depends(get_db)):
+    settings = get_settings(db)
+    return _predict_2k(db, settings)
 
 
 @router.get("/api/settings")

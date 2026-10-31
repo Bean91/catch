@@ -1,0 +1,80 @@
+/* Design tokens — see /DESIGN.md for the palette rationale and contrast checks.
+   Dark is the default/first-class theme; [data-theme="light"] overrides it. */
+
+:root {
+  --bg: #0d0f11;
+  --surface: #161a1d;
+  --surface-2: #1e2327;
+  --border: #2b3135;
+  --text-primary: #f2f0ec;
+  --text-secondary: #a4abb0;
+  --text-tertiary: #7d8489;
+  --accent: #a79cff;
+  --accent-contrast: #0d0f11;
+  --band-green: #49b382;
+  --band-yellow: #e0b23c;
+  --band-red: #e2614f;
+  --band-calibrating: var(--text-tertiary);
+
+  --focus-ring: var(--accent);
+
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --touch-target: 44px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 900ms;
+}
+
+:root[data-theme="light"] {
+  --bg: #f7f5f1;
+  --surface: #ffffff;
+  --surface-2: #efede8;
+  --border: #dedad2;
+  --text-primary: #1b1d1f;
+  --text-secondary: #53585c;
+  --text-tertiary: #6b7075;
+  --accent: #5e4fd9;
+  --accent-contrast: #ffffff;
+  --band-green: #1a7a50;
+  --band-yellow: #8a6a14;
+  --band-red: #c7402c;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f7f5f1;
+    --surface: #ffffff;
+    --surface-2: #efede8;
+    --border: #dedad2;
+    --text-primary: #1b1d1f;
+    --text-secondary: #53585c;
+    --text-tertiary: #6b7075;
+    --accent: #5e4fd9;
+    --accent-contrast: #ffffff;
+    --band-green: #1a7a50;
+    --band-yellow: #8a6a14;
+    --band-red: #c7402c;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+}

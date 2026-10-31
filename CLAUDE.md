@@ -7,8 +7,10 @@ recovery/strain, AI coach later. Runs 24/7 on a Raspberry Pi 3 (1GB RAM, ARM) al
 
 Python 3.12 via `uv`, FastAPI + uvicorn, SQLModel on SQLite (WAL mode), httpx, APScheduler
 3.x, pytest, `cryptography` (Fernet), `argon2-cffi` (verify the password hash already in
-`.env`). Frontend (later): React + Vite + TS, built to static files, served by FastAPI.
-No Docker, no Postgres, no Redis, no Node at runtime.
+`.env`). Frontend: React + Vite + TS, Tailwind v4 (CSS-first config, tokens as CSS vars),
+Radix primitives, Framer Motion, TanStack Query, React Router — built to `catch/api/static`
+(gitignored), served by FastAPI. No Docker, no Postgres, no Redis, no Node at runtime (Node
+is a build-time-only dependency; the Pi never runs `npm`).
 
 ## Layout
 
@@ -21,9 +23,18 @@ catch/
   mcp_server/   (empty — session 5)
   cli.py        argparse entry point (`uv run catch ...`)
   main.py       FastAPI app factory
-web/            (empty — frontend comes later)
+web/
+  src/
+    components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
+                shell/ (AppShell, Sidebar, BottomNav)
+    lib/        api.ts (fetch + mock switch), types.ts (hand-kept in sync with the API —
+                no codegen), mock.ts (?mock=1/calibrating/empty/error/loading fixtures),
+                format.ts, auth.tsx, theme.tsx
+    pages/      Today.tsx; Workouts/Trends/Coach/Settings are placeholders until session 4
+    styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
 tests/          fixtures/ has recorded JSON; no live network calls in the suite
-docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json
+docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json, analytics.md
+DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 
 ## Commands
@@ -33,6 +44,13 @@ docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json
 - `uv run catch backfill` — backfill `BACKFILL_DAYS` from `.env`
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)
 - `uv run pytest` — tests (fixtures only, never hits live APIs)
+- `cd web && npm install` — install frontend deps
+- `cd web && npm run dev` — Vite dev server, proxies `/api` and `/auth` to the FastAPI port
+  from `.env`; append `?mock=1` (or `?mock=calibrating|empty|error|loading`) to run the UI
+  against fixtures with no backend at all
+- `cd web && npm run build` — builds to `catch/api/static`, which FastAPI serves at `/`
+  (gitignored; not committed — the Pi has no Node, so the build must run elsewhere and the
+  `catch/api/static` output deployed alongside the backend)
 
 ## Conventions
 

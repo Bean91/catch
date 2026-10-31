@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timedelta, timezone
+
+import pytest
 
 from catch.core.models import Activity, BodyComp, DailyScore, DailyWellness, Stroke
 from conftest import TEST_PASSWORD
@@ -38,6 +41,50 @@ def test_today_reflects_cached_daily_score(client, session):
     assert body["recovery"]["band"] == "green"
     assert body["sleep_last_night"]["seconds"] == 25000
     assert "clear for a harder session" in body["recommendation"]
+
+
+def test_today_includes_sleep_strain_target_hrv_and_erg(client, session):
+    today = date.today()
+    session.add(
+        DailyWellness(
+            date=today,
+            hrv_rmssd=55.0,
+            resting_hr=50,
+            sleep_seconds=25000,
+            sleep_score=85,
+            deep_sleep_seconds=4000,
+            rem_sleep_seconds=5000,
+        )
+    )
+    session.add(
+        DailyScore(
+            date=today,
+            recovery_json=(
+                '{"value": 80.0, "band": "green", "components": '
+                '[{"metric": "hrv", "baseline_7d_ln": 4.0, "spread_60d": 0.1, "value": 90}], '
+                '"explanation": "x"}'
+            ),
+            strain_json='{"value": 5.0, "band": "light", "components": [], "explanation": "x"}',
+            load_json='{"value": 1.0, "band": "optimal", "components": [], "explanation": "x"}',
+        )
+    )
+    session.add(
+        Activity(source="concept2", external_id="c1", type="rower", start=datetime.now(timezone.utc), distance=2000, duration=420.0)
+    )
+    session.commit()
+
+    _login(client)
+    resp = client.get("/api/today")
+    body = resp.json()
+    assert body["sleep_last_night"]["need_seconds"] == 8 * 3600
+    assert body["sleep_last_night"]["deep_seconds"] == 4000
+    assert body["strain_target_range"] == [10, 16]  # green band default
+    assert body["hrv"]["today"] == 55.0
+    assert len(body["hrv"]["sparkline_14d"]) == 1
+    assert body["hrv"]["baseline_band"]["baseline"] == pytest.approx(math.exp(4.0))
+    assert body["latest_erg"]["external_id"] == "c1"
+    assert "raw_json" not in body["latest_erg"]
+    assert body["predicted_2k"]["value"] is not None
 
 
 def test_trends_rejects_unknown_metric(client):

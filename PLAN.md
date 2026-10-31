@@ -7,8 +7,8 @@ alongside PiAware.
 ## Roadmap (6 sessions)
 
 1. Scaffold + Garmin + Withings sync
-2. **Concept2 sync + rowing analytics engine** ← this session
-3. Design system + Today screen
+2. Concept2 sync + rowing analytics engine
+3. **Design system + Today screen** ← this session
 4. Workout detail, trends, body comp, settings
 5. AI coach chat (bring-your-own Anthropic key) + MCP server
 6. Deploy to the Pi 3, PWA, backups, optional Whoop
@@ -188,6 +188,77 @@ to rotate it under Logbook > Edit Profile > Applications.
 - A Concept2 `date` with neither `date_utc` nor a `timezone` name falls back to treating it as
   UTC — a documented guess, unconfirmed since no live result exists yet to check it against.
 
-## Next steps (session 3)
+## Session 3 checklist
 
-- Design system + Today screen (frontend, `web/`).
+- [x] Two visual directions proposed and one picked with reasoning — "Boathouse Mono"
+      (tabular-numeral mono for every data value, one indigo-violet accent chosen
+      specifically to avoid colliding with the yellow recovery band) over "Regatta Sans".
+      Full rationale and the validated palette (every pairing checked against WCAG AA
+      with a contrast script, not eyeballed) in `DESIGN.md`; tokens as CSS vars in
+      `web/src/styles/tokens.css`.
+- [x] `GET /api/today` extended for the Today screen's needs: `sleep_last_night` now
+      carries stage seconds + `need_seconds`, a new `strain_targets` setting (keyed by
+      recovery band, in `catch/analytics/defaults.py`) drives `strain_target_range`,
+      `hrv`/`resting_hr` each carry a 14-day sparkline and a `baseline_band` reused
+      straight from `recovery_score`'s own `baseline_7d*`/`spread_60d` (not re-derived in
+      TS), and `latest_erg`/`predicted_2k` are embedded so Today needs exactly one call.
+      Documented in `docs/analytics.md` §8; covered by a new test in
+      `tests/test_api_analytics.py`; `uv run pytest` — 91 passed.
+- [x] `catch/main.py` now mounts `catch/api/static` (Vite's `outDir`) with an SPA fallback,
+      registered after every API router so it can't shadow `/api/*`/`/auth/*`; a no-op
+      when the directory doesn't exist (dev/test run without a build).
+- [x] React + Vite + TS scaffold in `web/`: Tailwind v4 (CSS-first, tokens mapped via
+      `@theme`), Radix (`Dialog` for the recovery breakdown), Framer Motion (once-only
+      arc/count-up/sparkline-draw animations, all gated on `prefers-reduced-motion`),
+      TanStack Query, React Router. Fonts self-hosted via `@fontsource` (latin subset
+      only) rather than a Google Fonts runtime dependency — this app is self-hosted and
+      often offline on the Pi's LAN.
+- [x] Today screen: recovery ring (tap → Radix dialog with the component breakdown + the
+      engine's own explanation string), strain gauge (today vs the per-band target
+      range), sleep card (hours vs need + stage breakdown), HRV/resting-HR cards (14-day
+      sparkline, today's dot, baseline band), load card (acute/chronic/form, high-risk
+      callout), erg card (latest Concept2 piece + predicted-2k range), one-line
+      recommendation + per-source sync status + manual "Sync now".
+- [x] App shell: bottom nav on mobile, a persistent sidebar at `lg:` (not a stretched
+      phone column — a real desktop dashboard grid), login screen (password POSTs to
+      `/api/login`; there's no `/api/me`, so auth state is probed via a lightweight
+      authenticated route), empty states on every card, loading skeletons, an error
+      state with retry.
+- [x] Mock-data mode: `?mock=1` (realistic fixtures), plus `?mock=calibrating|empty|
+      error|loading` for the states that don't exist in the live account yet (zero
+      Concept2 results, Withings never connected) — auth is bypassed in mock mode so the
+      UI is reviewable with no backend running at all.
+- [x] Screenshotted at 390px and 1280px in both themes via Playwright MCP, critiqued and
+      fixed twice: round 1 caught the capture running in light theme by accident (fixed
+      by forcing `prefers-color-scheme` rather than relying on the system default), sleep
+      stage colors reusing the reserved red/green status hues for non-status data (fixed:
+      stages now ramp through one accent hue, status colors stay reserved), and a 390px
+      desktop layout that was just a stretched phone column (fixed: sidebar nav + a real
+      3-column dashboard grid at `lg:`). Round 2 also caught and fixed a sub-44px mobile
+      logout button. WCAG AA contrast was checked numerically (script, not eyeballed)
+      before any token was locked in; 44px touch targets and `prefers-reduced-motion`
+      were checked programmatically (`browser_evaluate` over every interactive element;
+      a screenshot taken 400ms after data load with reduced-motion on, confirming the
+      ring/sparklines render at their final state with no animation). Final screenshots
+      in `docs/screenshots/`.
+- [x] `CLAUDE.md` updated (`web/` is no longer empty; frontend commands added).
+
+## Gotchas / deviations from the literal task spec
+
+- **No `/api/me` endpoint exists.** The frontend's `AuthProvider` probes auth state with
+  `GET /api/sync/status` (any authenticated route would do) instead — works, but a real
+  `/api/me` would be cleaner if session 4's Settings page ends up wanting more than a
+  boolean.
+- **Chart library question deferred** — Today's rings/gauges/sparklines are all
+  hand-rolled SVG as instructed; Trends (session 4) is where a "do we need a chart
+  library" decision actually arises, not this session.
+- **JS bundle is ~510KB (164KB gzip)**, mostly React + Router + Query + Framer + Radix.
+  Static assets served by FastAPI's `StaticFiles`, not loaded into Pi memory per request,
+  so this is a download-size concern, not a 1GB-RAM concern — fine for a single-user LAN
+  app, revisit with route-level code-splitting only if it's ever actually slow on the Pi.
+
+## Next steps (session 4)
+
+- Workout detail, trends (first real call on whether a chart library is worth it for
+  history views — rings/gauges stay hand-rolled SVG either way), body comp, settings
+  (including the "no `/api/me`" gap above).

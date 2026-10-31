@@ -1,0 +1,64 @@
+import { useQuery } from "@tanstack/react-query";
+import { fetchToday } from "../lib/api";
+import { ErgCard } from "../components/today/ErgCard";
+import { LoadCard } from "../components/today/LoadCard";
+import { RecommendationAndSync } from "../components/today/RecommendationAndSync";
+import { RecoveryRing } from "../components/today/RecoveryRing";
+import { SleepCard } from "../components/today/SleepCard";
+import { StrainGauge } from "../components/today/StrainGauge";
+import { VitalsCard } from "../components/today/VitalsCard";
+import { CardSkeleton } from "../components/ui/Skeleton";
+import { ErrorState } from "../components/ui/EmptyState";
+
+export function TodayPage() {
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["today"], queryFn: fetchToday });
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-4">
+        <CardSkeleton lines={1} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return <ErrorState message="Couldn't load today's data." onRetry={() => refetch()} />;
+  }
+
+  return (
+    <div className="flex flex-col gap-4 lg:gap-5">
+      <div className="grid gap-4 sm:grid-cols-[220px_1fr] lg:grid-cols-[260px_1fr] lg:gap-5">
+        <RecoveryRing recovery={data.recovery} />
+        <div className="flex flex-col gap-4 lg:gap-5">
+          <StrainGauge strain={data.strain_today} targetRange={data.strain_target_range} />
+          <div className="hidden lg:block">
+            <SleepCard sleep={data.sleep_last_night} />
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:hidden">
+        <SleepCard sleep={data.sleep_last_night} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
+        <VitalsCard title="HRV" unit="ms" decimals={0} trend={data.hrv} />
+        <VitalsCard title="Resting HR" unit="bpm" decimals={0} trend={data.resting_hr} />
+        <div className="sm:col-span-2 lg:col-span-1">
+          <LoadCard load={data.load} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr] lg:gap-5">
+        <ErgCard erg={data.latest_erg} predicted2k={data.predicted_2k} />
+        <RecommendationAndSync recommendation={data.recommendation} />
+      </div>
+    </div>
+  );
+}

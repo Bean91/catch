@@ -37,4 +37,12 @@ DEFAULT_SETTINGS: dict = {
     "sleep_need_seconds": 8 * 3600,
     "min_hrv_nights_for_baseline": 7,
     "predict_lookback_days": 180,
+    # Today-screen strain gauge target range per recovery band — illustrative coaching
+    # defaults (encourage more strain when green, less when red), not a validated standard.
+    "strain_targets": {
+        "calibrating": [0, 21],
+        "green": [10, 16],
+        "yellow": [6, 12],
+        "red": [0, 8],
+    },
 }
