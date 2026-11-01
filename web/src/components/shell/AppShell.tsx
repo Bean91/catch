@@ -19,7 +19,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           (e.g. the Settings zones table, or the workout-detail interval table) would
           otherwise bubble its min-content width up through every flex ancestor and stretch
           the whole page past the viewport instead of just scrolling within its own card. */}
-      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+      {/* paddingTop here (not just on <header>) so whichever element renders first — the
+          header, or the Garmin-key banner above it when that's showing — clears the status
+          bar/notch on an iPhone (viewport-fit=cover in index.html draws edge-to-edge). Without
+          this the top row only appeared during an iOS rubber-band overscroll bounce. */}
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <GarminKeyBanner />
 
         <header className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6 lg:hidden">

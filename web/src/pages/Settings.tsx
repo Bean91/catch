@@ -56,7 +56,7 @@ export function SettingsPage() {
   const warnDays = daysUntilGarminKeyExpires(form.garmin_key_expires_on);
 
   return (
-    <div className="flex flex-col gap-4 lg:gap-5">
+    <div className="flex flex-col gap-4 pb-24 sm:pb-0 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
 
       <Card title="Connected sources">
@@ -222,19 +222,23 @@ export function SettingsPage() {
 
       <CoachSettingsCard />
 
-      {/* pointer-events-none on the row, -auto on the button: the AI coach card below grew
-          long enough that this floating bar's empty space (full-width, invisible) now
-          scrolls over other buttons like Test connection — without this, the empty area
-          would still intercept their clicks even though nothing is painted there. */}
-      <div className="sticky bottom-[calc(5rem+env(safe-area-inset-bottom))] flex justify-end pointer-events-none sm:static sm:bottom-auto">
-        <button
-          type="button"
-          onClick={() => save.mutate(form)}
-          disabled={!dirty || save.isPending}
-          className="pointer-events-auto min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
-        >
-          {save.isPending ? "Saving…" : "Save settings"}
-        </button>
+      {/* A real opaque footer bar (same fixed-above-BottomNav pattern as BottomNav itself),
+          not a floating pill on a transparent row — the earlier transparent-sticky version
+          let content (e.g. the coach-memory link at the end of the page) show through and
+          get visually/click-wise overlapped as it scrolled underneath. The page's own
+          pb-24 above reserves clearance so scrolling to the true end never hides content
+          behind this bar. Static/inline again from `sm:` up, same as before. */}
+      <div className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-20 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur sm:static sm:inset-auto sm:z-auto sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
+        <div className="mx-auto flex max-w-3xl justify-end lg:max-w-5xl">
+          <button
+            type="button"
+            onClick={() => save.mutate(form)}
+            disabled={!dirty || save.isPending}
+            className="min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
+          >
+            {save.isPending ? "Saving…" : "Save settings"}
+          </button>
+        </div>
       </div>
     </div>
   );
