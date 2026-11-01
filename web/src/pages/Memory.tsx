@@ -20,9 +20,14 @@ const EVENT_TYPES = ["race", "2k_test", "camp", "selection"] as const;
 const PRIORITIES = ["A", "B", "C"] as const;
 const GOAL_STATUSES = ["active", "done", "abandoned"] as const;
 
-const inputCls = "min-h-9 w-full rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary";
+// overflow-hidden on the input/select, min-w-0 on the label: native <input type="date">
+// controls on iOS Safari don't reliably clip their own rendering to a CSS width the way a
+// text input does — in a grid/flex row, a label's default min-width:auto otherwise lets that
+// native content push past its track and visually overlap the next field (seen live: Date
+// bleeding into Type in the "Add event" row at 390px).
+const inputCls = "min-h-9 w-full min-w-0 overflow-hidden rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary";
 const rowCls = "grid grid-cols-2 gap-x-2 gap-y-2.5 border-b border-border py-3 last:border-0 sm:flex sm:flex-wrap sm:items-end";
-const labelCls = "flex flex-col gap-1 text-[11px] uppercase tracking-wide text-text-tertiary";
+const labelCls = "flex min-w-0 flex-col gap-1 text-[11px] uppercase tracking-wide text-text-tertiary";
 
 function Field({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
   return (
