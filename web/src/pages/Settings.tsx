@@ -56,7 +56,7 @@ export function SettingsPage() {
   const warnDays = daysUntilGarminKeyExpires(form.garmin_key_expires_on);
 
   return (
-    <div className="flex flex-col gap-4 pb-24 sm:pb-0 lg:gap-5">
+    <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
 
       <Card title="Connected sources">
@@ -222,24 +222,28 @@ export function SettingsPage() {
 
       <CoachSettingsCard />
 
-      {/* A real opaque footer bar (same fixed-above-BottomNav pattern as BottomNav itself),
-          not a floating pill on a transparent row — the earlier transparent-sticky version
-          let content (e.g. the coach-memory link at the end of the page) show through and
-          get visually/click-wise overlapped as it scrolled underneath. The page's own
-          pb-24 above reserves clearance so scrolling to the true end never hides content
-          behind this bar. Static/inline again from `sm:` up, same as before. */}
-      <div className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-20 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur sm:static sm:inset-auto sm:z-auto sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
-        <div className="mx-auto flex max-w-3xl justify-end lg:max-w-5xl">
+      {/* Plain in-flow button, not floating. Both `fixed` and `sticky` versions of this bar
+          ended up visibly overlapping mid-page content (the Zones/AI-coach cards) on this
+          page's particular content-to-viewport ratio at 390px — `fixed` because it's glued
+          to the viewport for the page's entire height regardless of scroll, and `sticky`
+          because it engages far earlier than "near the true end" once this page has more
+          than roughly a screen of content left below it, then stays engaged for the rest of
+          the scroll. Rendering it as normal content guarantees it can never overlap anything,
+          at the cost of needing to scroll to it rather than it always being visible — a
+          standard, unsurprising tradeoff for a settings form. Only mounted once there's
+          something to save. */}
+      {dirty && (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => save.mutate(form)}
-            disabled={!dirty || save.isPending}
+            disabled={save.isPending}
             className="min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
           >
             {save.isPending ? "Saving…" : "Save settings"}
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
