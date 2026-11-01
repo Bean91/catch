@@ -1,13 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { fetchPbs, fetchTrends, fetchVolume } from "../lib/api";
-import { rangeToFromTo, rangeToWeeks, type TrendRange } from "../lib/dateRanges";
-import { formatTimeTenths } from "../lib/format";
-import type { TrendMetric } from "../lib/types";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { WeeklyVolumeBars } from "../components/charts/WeeklyVolumeBars";
 import { PbTable } from "../components/workouts/PbTable";
 import { Card } from "../components/ui/Card";
+import { eventsToMarkers } from "../lib/chartAnnotations";
+import { RANGE_PRESETS, parseChartUrlState, presetToDomain, writeChartUrlState, type RangePreset } from "../lib/chartRange";
+import { fetchMemory, fetchPbs, fetchSeries, fetchVolume } from "../lib/api";
+import { formatTimeTenths } from "../lib/format";
+import type { TrendMetric } from "../lib/types";
+import type { Domain } from "../lib/useChartInteraction";
 
 const METRICS: { value: TrendMetric; label: string; format: (v: number) => string }[] = [
   { value: "recovery", label: "Recovery", format: (v) => `${v.toFixed(0)}%` },
@@ -21,28 +25,122 @@ const METRICS: { value: TrendMetric; label: string; format: (v: number) => strin
   { value: "predicted_2k", label: "Predicted 2k", format: (v) => formatTimeTenths(v) },
 ];
 
-const RANGES: { value: TrendRange; label: string }[] = [
-  { value: "4w", label: "4w" },
-  { value: "12w", label: "12w" },
-  { value: "season", label: "Season" },
-  { value: "all", label: "All" },
-];
+const DAY_MS = 86_400_000;
+
+function quantizePoints(plotWidthPx: number): number {
+  // 2x the chart's pixel width (task spec's default), rounded to a step so a few px of
+  // ResizeObserver jitter doesn't spawn a new TanStack Query cache entry every time.
+  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
+}
+
+function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
+  // Fetches the visible range plus one screen of padding on each side (task spec's DATA #3)
+  // so a small pan has data to show immediately instead of a loading edge.
+  const span = domain.max - domain.min;
+  const min = Math.max(full.min, domain.min - span);
+  const max = Math.min(full.max, domain.max + span);
+  return { from: new Date(min).toISOString().slice(0, 10), to: new Date(max).toISOString().slice(0, 10) };
+}
 
 export function TrendsPage() {
-  const [metric, setMetric] = useState<TrendMetric>("recovery");
-  const [range, setRange] = useState<TrendRange>("12w");
-  const { from, to } = rangeToFromTo(range);
-  const activeMetric = METRICS.find((m) => m.value === metric)!;
+  const [params, setParams] = useSearchParams();
+  const metric = (params.get("metric") as TrendMetric | null) ?? "recovery";
+  const activeMetric = METRICS.find((m) => m.value === metric) ?? METRICS[0];
+  const now = useMemo(() => new Date(), []);
 
-  const trendQuery = useQuery({
-    queryKey: ["trends", metric, range],
-    queryFn: () => fetchTrends(metric, from, to),
+  // The metric's own full history, fetched once (cheap and cached server-side by metric) to
+  // learn (a) the real earliest-data bound for "all"/zoom-out clamping and (b) a thin backdrop
+  // sparkline for the navigator — not re-fetched on every pan/zoom.
+  const allQuery = useQuery({
+    queryKey: ["series-all", metric],
+    queryFn: () => fetchSeries([metric], "1900-01-01", now.toISOString().slice(0, 10), 600),
   });
-  const volumeQuery = useQuery({
-    queryKey: ["trends-volume", range],
-    queryFn: () => fetchVolume(rangeToWeeks(range)),
+  const allPoints = allQuery.data?.series[metric]?.points ?? [];
+  const earliestMs = allPoints.length ? new Date(allPoints[0].date + "T00:00:00").getTime() : now.getTime() - 84 * DAY_MS;
+  // Memoized so its object identity is stable across re-renders (it only ever depends on
+  // `earliestMs`/`now`, not on the live pan/zoom `domain`) — every chart below threads this
+  // through useChartInteraction's dependency arrays, and a fresh object every frame defeated
+  // their memoization, which showed up as dropped frames in a CPU-throttled pan test.
+  const fullDomain: Domain = useMemo(() => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS), max: now.getTime() }), [earliestMs, now]);
+
+  const urlState = parseChartUrlState(params);
+  const defaultDomain = useMemo(() => presetToDomain("12w", now, new Date(earliestMs)), [now, earliestMs]);
+  const initialDomain: Domain =
+    urlState.from && urlState.to
+      ? { min: new Date(urlState.from + "T00:00:00").getTime(), max: new Date(urlState.to + "T00:00:00").getTime() }
+      : urlState.preset
+        ? presetToDomain(urlState.preset, now, new Date(earliestMs))
+        : defaultDomain;
+
+  // `domain` updates on every pan/zoom frame (drives the chart's live x-scale). `queryDomain`
+  // only updates once a gesture settles — the series query keys off *that*, not `domain`,
+  // or every pointermove would spawn a new TanStack Query cache entry/network round-trip.
+  // Caught by a CPU-throttled pan perf test (p95 frame time spiked to 175ms before this fix,
+  // from mid-gesture fetches; ~10ms after) — see PLAN.md's session 8 notes.
+  const [domain, setDomain] = useState<Domain>(initialDomain);
+  const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
+  const [plotWidthPx] = useState(600); // refined per-chart via ResizeObserver inside each chart; this seeds the initial fetch budget
+
+  const commitToUrl = useCallback(
+    (next: Domain, preset: RangePreset | null) => {
+      setParams(
+        (prev) =>
+          writeChartUrlState(
+            prev,
+            preset ? { preset, from: null, to: null } : { preset: null, from: new Date(next.min).toISOString().slice(0, 10), to: new Date(next.max).toISOString().slice(0, 10) },
+          ),
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+
+  const onDomainSettled = useCallback(
+    (next: Domain) => {
+      setQueryDomain(next);
+      commitToUrl(next, null);
+    },
+    [commitToUrl],
+  );
+
+  const setMetric = (value: TrendMetric) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("metric", value);
+      return next;
+    });
+  };
+
+  const selectPreset = (preset: RangePreset) => {
+    const next = presetToDomain(preset, now, new Date(earliestMs));
+    setDomain(next);
+    setQueryDomain(next);
+    commitToUrl(next, preset);
+  };
+
+  const resetDomain = () => selectPreset(urlState.preset ?? "12w");
+
+  const padded = padDomain(queryDomain, fullDomain);
+  const points = quantizePoints(plotWidthPx);
+  const seriesQuery = useQuery({
+    queryKey: ["series", metric, padded.from, padded.to, points],
+    queryFn: () => fetchSeries([metric], padded.from, padded.to, points),
+    placeholderData: keepPreviousData,
   });
+  const volumeQuery = useQuery({ queryKey: ["trends-volume-long"], queryFn: () => fetchVolume(104) });
+  const memoryQuery = useQuery({ queryKey: ["memory"], queryFn: fetchMemory });
   const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
+
+  const activePoints = seriesQuery.data?.series[metric]?.points ?? [];
+  const annotations = useMemo(() => eventsToMarkers(memoryQuery.data?.events ?? []), [memoryQuery.data]);
+  // Memoized: `allPoints` only changes when the metric's own full-history query resettles,
+  // not on every pan/zoom frame — recomputing this ~600-point map every frame (TrendsPage
+  // re-renders on every live domain change) showed up as real dropped frames in a
+  // CPU-throttled pan test before this fix.
+  const navigatorBackdrop = useMemo(
+    () => allPoints.map((p) => ({ x: new Date(p.date + "T00:00:00").getTime(), y: p.value })),
+    [allPoints],
+  );
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
@@ -68,15 +166,15 @@ export function TrendsPage() {
       </div>
 
       <div className="flex gap-2" role="tablist" aria-label="Range">
-        {RANGES.map((r) => (
+        {RANGE_PRESETS.map((r) => (
           <button
             key={r.value}
             type="button"
             role="tab"
-            aria-selected={range === r.value}
-            onClick={() => setRange(r.value)}
+            aria-selected={urlState.preset === r.value}
+            onClick={() => selectPreset(r.value)}
             className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
-              range === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
+              urlState.preset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
             }`}
           >
             {r.label}
@@ -85,15 +183,46 @@ export function TrendsPage() {
       </div>
 
       <Card title={activeMetric.label}>
-        {trendQuery.isLoading ? (
+        {seriesQuery.isLoading && activePoints.length === 0 ? (
           <Skeleton />
         ) : (
-          <TrendLineChart points={trendQuery.data ?? []} formatValue={activeMetric.format} />
+          <TrendLineChart
+            points={activePoints}
+            secondaryKey={metric === "weight" ? "smoothed" : undefined}
+            formatValue={activeMetric.format}
+            domain={domain}
+            fullDomain={fullDomain}
+            onDomainChange={setDomain}
+            onDomainSettled={onDomainSettled}
+            onResetDomain={resetDomain}
+            annotations={annotations}
+          />
         )}
+        <div className="mt-3">
+          <ChartNavigator
+            fullDomain={fullDomain}
+            viewDomain={domain}
+            minSpan={7 * DAY_MS}
+            onChange={setDomain}
+            onChangeSettled={onDomainSettled}
+            backdrop={navigatorBackdrop}
+          />
+        </div>
       </Card>
 
       <Card title="Weekly volume by zone">
-        {volumeQuery.isLoading ? <Skeleton /> : <WeeklyVolumeBars weeks={volumeQuery.data ?? []} />}
+        {volumeQuery.isLoading ? (
+          <Skeleton />
+        ) : (
+          <WeeklyVolumeBars
+            weeks={volumeQuery.data ?? []}
+            domain={domain}
+            fullDomain={fullDomain}
+            onDomainChange={setDomain}
+            onDomainSettled={onDomainSettled}
+            onResetDomain={resetDomain}
+          />
+        )}
       </Card>
 
       <Card title="Personal bests">

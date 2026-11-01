@@ -1,7 +1,15 @@
 import type { IntervalSummary } from "../../lib/types";
 import { formatNumber, formatPercent, formatSplit } from "../../lib/format";
 
-export function IntervalTable({ intervals }: { intervals: Record<string, IntervalSummary> }) {
+export function IntervalTable({
+  intervals,
+  hoveredInterval,
+  onHoverInterval,
+}: {
+  intervals: Record<string, IntervalSummary>;
+  hoveredInterval?: number | null;
+  onHoverInterval?: (index: number | null) => void;
+}) {
   const sorted = Object.entries(intervals).sort((a, b) => Number(a[0]) - Number(b[0]));
 
   return (
@@ -19,7 +27,12 @@ export function IntervalTable({ intervals }: { intervals: Record<string, Interva
         </thead>
         <tbody>
           {sorted.map(([idx, s]) => (
-            <tr key={idx} className="text-text-primary">
+            <tr
+              key={idx}
+              className={`text-text-primary ${hoveredInterval === Number(idx) ? "bg-surface-2" : ""}`}
+              onPointerEnter={() => onHoverInterval?.(Number(idx))}
+              onPointerLeave={() => onHoverInterval?.(null)}
+            >
               <td className="py-1.5 font-mono-nums">{Number(idx) + 1}</td>
               <td className="py-1.5 font-mono-nums">{s.avg_split_500m != null ? `${formatSplit(s.avg_split_500m)}/500m` : "—"}</td>
               <td className="py-1.5 font-mono-nums">{s.avg_stroke_rate != null ? formatNumber(s.avg_stroke_rate) : "—"}</td>

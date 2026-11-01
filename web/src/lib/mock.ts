@@ -17,6 +17,8 @@ import type {
   Note,
   PersonalBests,
   Settings,
+  SeriesForMetric,
+  SeriesResponse,
   SparklinePoint,
   Stroke,
   SyncSourceStatus,
@@ -310,14 +312,19 @@ function mockTechnique(rep: number): ErgTechnique {
   };
 }
 
-export function mockErgStrokes(id: number): ErgStrokesResponse {
-  const strokesPerInterval = 48;
+export function mockErgStrokes(
+  id: number,
+  opts?: { points?: number; distanceMin?: number; distanceMax?: number },
+): ErgStrokesResponse {
+  // 850 strokes/rep x 2 reps, ~2.1s/stroke -> ~60 minutes total — long enough to exercise
+  // real per-zoom-level stroke downsampling (interaction spec #8), not just a short demo piece.
+  const strokesPerInterval = 850;
   const interval0 = Array.from({ length: strokesPerInterval }, (_, i) => mockStroke(i, 0, 0, 0, 108));
   const rep0End = interval0[interval0.length - 1];
   const interval1 = Array.from({ length: strokesPerInterval }, (_, i) =>
     mockStroke(i, 1, rep0End.distance_cum ?? 0, rep0End.t_cum, 112),
   );
-  const strokes = [...interval0, ...interval1].map((s) => ({ ...s, activity_id: id }));
+  const allStrokes = [...interval0, ...interval1].map((s) => ({ ...s, activity_id: id }));
 
   const summary = (strokesForRep: Stroke[], rep: number): IntervalSummary => {
     const last = strokesForRep[strokesForRep.length - 1];
@@ -336,9 +343,18 @@ export function mockErgStrokes(id: number): ErgStrokesResponse {
   const rep1Summary = summary(interval1, 1);
   rep1Summary.drift_vs_rep1_pct = ((rep1Summary.avg_split_500m! - rep0Summary.avg_split_500m!) / rep0Summary.avg_split_500m!) * 100;
 
+  const windowed = allStrokes.filter(
+    (s) =>
+      (opts?.distanceMin == null || (s.distance_cum ?? 0) >= opts.distanceMin) &&
+      (opts?.distanceMax == null || (s.distance_cum ?? 0) <= opts.distanceMax),
+  );
+  const returnedStrokes = opts?.points && windowed.length > opts.points ? lttbLikeDownsample(windowed, opts.points) : windowed;
+
   return {
     activity_id: id,
-    strokes,
+    strokes: returnedStrokes,
+    stroke_count: allStrokes.length,
+    returned_stroke_count: returnedStrokes.length,
     technique_by_interval: { "0": mockTechnique(0), "1": mockTechnique(1) },
     interval_summary: { "0": rep0Summary, "1": rep1Summary },
     time_in_zone_by_interval: {
@@ -364,56 +380,81 @@ export function saveMockNote(date: string, text: string, rpe: number | null): No
 
 // --- Trends / Body -------------------------------------------------------
 
-export function mockTrend(metric: TrendMetric): TrendPoint[] {
-  const days = metric === "weight" || metric === "w_per_kg" ? 40 : 84;
-  const step = metric === "weight" || metric === "w_per_kg" ? 3 : 1;
-  const points: TrendPoint[] = [];
-  for (let i = days; i >= 0; i -= step) {
-    const d = shiftDate(TODAY, -i);
-    let value: number | null;
-    switch (metric) {
-      case "recovery":
-        value = 55 + 20 * Math.sin(i / 6);
-        break;
-      case "hrv_rmssd":
-        value = 60 + 6 * Math.sin(i / 5);
-        break;
-      case "resting_hr":
-        value = 49 - Math.sin(i / 7) * 2;
-        break;
-      case "sleep_score":
-        value = 80 + 10 * Math.sin(i / 4);
-        break;
-      case "strain":
-        value = 8 + 6 * Math.abs(Math.sin(i / 3));
-        break;
-      case "load_acr":
-        value = 1.0 + 0.25 * Math.sin(i / 10);
-        break;
-      case "weight":
-        value = 79 + Math.sin(i / 9) * 0.8;
-        break;
-      case "w_per_kg":
-        value = 2.6 + Math.sin(i / 11) * 0.15;
-        break;
-      case "predicted_2k":
-        value = 400 - i * 0.05;
-        break;
-      default:
-        value = null;
-    }
-    const point: TrendPoint = { date: d, value };
-    if (metric === "load_acr") {
-      point.acute_7d = 60 + 8 * Math.sin(i / 10);
-      point.chronic_42d = 58;
-      point.form = point.chronic_42d - point.acute_7d;
-    }
-    if (metric === "weight") {
-      point.smoothed = 79 + Math.sin((i - step) / 9) * 0.6;
-    }
-    points.push(point);
+// `i` is days-ago from today; every formula is a plain periodic/linear function of it, so it
+// generalizes to any range for free — used by mockSeries()'s multi-year synthetic history
+// (session 8: interactive charts need enough history to actually test pan/zoom/downsampling
+// against, which the live account doesn't have yet — same situation PLAN.md's session 2/3
+// notes for Concept2/Withings fixtures).
+function metricValueAt(metric: TrendMetric, i: number): number | null {
+  switch (metric) {
+    case "recovery":
+      return 55 + 20 * Math.sin(i / 6) + 3 * Math.sin(i / 97);
+    case "hrv_rmssd":
+      return 60 + 6 * Math.sin(i / 5) + 2 * Math.sin(i / 131);
+    case "resting_hr":
+      return 49 - Math.sin(i / 7) * 2 - Math.sin(i / 211) * 1.5;
+    case "sleep_score":
+      return 80 + 10 * Math.sin(i / 4);
+    case "strain":
+      return 8 + 6 * Math.abs(Math.sin(i / 3));
+    case "load_acr":
+      return 1.0 + 0.25 * Math.sin(i / 10);
+    case "weight":
+      return 79 + Math.sin(i / 9) * 0.8 - (i / 1000) * 1.2; // a slow year-over-year drift
+    case "w_per_kg":
+      return 2.6 + Math.sin(i / 11) * 0.15 + (i / 1000) * 0.08;
+    case "predicted_2k":
+      return 400 - i * 0.02 + Math.sin(i / 17) * 3;
+    default:
+      return null;
   }
-  return points;
+}
+
+function metricExtrasAt(metric: TrendMetric, i: number, step: number): Partial<TrendPoint> {
+  if (metric === "load_acr") {
+    const acute_7d = 60 + 8 * Math.sin(i / 10);
+    const chronic_42d = 58;
+    return { acute_7d, chronic_42d, form: chronic_42d - acute_7d };
+  }
+  if (metric === "weight") {
+    return { smoothed: (metricValueAt("weight", i - step) ?? 0) - 0.2 };
+  }
+  return {};
+}
+
+// ~4 years of daily history — enough to exercise "all" range, the navigator brush, and the
+// server's real LTTB downsampling contract (points-budget in, exactly that many points out)
+// against mock data without a live account's actual (much shorter) history.
+const MOCK_SERIES_HISTORY_DAYS = 1460;
+
+function lttbLikeDownsample<T>(points: T[], n: number): T[] {
+  // Approximate stride-sampling, not the real LTTB — good enough for mock-mode visuals and
+  // for exercising the frontend's points-budget plumbing; the exact algorithm only needs to
+  // be right once, server-side (catch/analytics/downsample.py), and is unit-tested there.
+  if (points.length <= n || n < 3) return points;
+  const out: T[] = [points[0]];
+  const step = (points.length - 2) / (n - 2);
+  for (let i = 1; i < n - 1; i++) out.push(points[Math.min(points.length - 2, Math.round(i * step))]);
+  out.push(points[points.length - 1]);
+  return out;
+}
+
+export function mockSeries(metrics: TrendMetric[], from: string, to: string, points: number): SeriesResponse {
+  const series: Record<string, SeriesForMetric> = {};
+  for (const metric of metrics) {
+    const all: TrendPoint[] = [];
+    for (let i = MOCK_SERIES_HISTORY_DAYS; i >= 0; i--) {
+      all.push({ date: shiftDate(TODAY, -i), value: metricValueAt(metric, i), ...metricExtrasAt(metric, i, 1) });
+    }
+    const windowed = all.filter((p) => p.date >= from && p.date <= to && p.value != null);
+    const sampled = lttbLikeDownsample(windowed, points);
+    series[metric] = {
+      points: sampled.map((p) => ({ ...p, value: p.value as number, value_min: p.value as number, value_max: p.value as number })),
+      raw_count: windowed.length,
+      returned_count: sampled.length,
+    };
+  }
+  return { series };
 }
 
 export function mockBody(): BodyCompReading[] {

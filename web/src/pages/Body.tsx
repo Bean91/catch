@@ -1,16 +1,107 @@
-import { useQuery } from "@tanstack/react-query";
-import { fetchBody, fetchTrends } from "../lib/api";
-import { formatNumber } from "../lib/format";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { Sparkline } from "../components/today/Sparkline";
 import { Card } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { fetchBody, fetchSeries } from "../lib/api";
+import { RANGE_PRESETS, parseChartUrlState, presetToDomain, writeChartUrlState, type RangePreset } from "../lib/chartRange";
+import { formatNumber } from "../lib/format";
+import type { Domain } from "../lib/useChartInteraction";
+
+const DAY_MS = 86_400_000;
+
+function quantizePoints(plotWidthPx: number): number {
+  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
+}
+
+function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
+  const span = domain.max - domain.min;
+  const min = Math.max(full.min, domain.min - span);
+  const max = Math.min(full.max, domain.max + span);
+  return { from: new Date(min).toISOString().slice(0, 10), to: new Date(max).toISOString().slice(0, 10) };
+}
 
 export function BodyPage() {
-  const weightQuery = useQuery({ queryKey: ["trends", "weight"], queryFn: () => fetchTrends("weight") });
-  const wPerKgQuery = useQuery({ queryKey: ["trends", "w_per_kg"], queryFn: () => fetchTrends("w_per_kg") });
-  const bodyQuery = useQuery({ queryKey: ["body"], queryFn: () => fetchBody() });
+  const [params, setParams] = useSearchParams();
+  const now = useMemo(() => new Date(), []);
 
+  // weight and w_per_kg are "stacked together" on this page the same way Trends' main chart
+  // and weekly-volume bars are — one shared view domain, interaction spec #6.
+  const allQuery = useQuery({
+    queryKey: ["series-all", "weight", "w_per_kg"],
+    queryFn: () => fetchSeries(["weight", "w_per_kg"], "1900-01-01", now.toISOString().slice(0, 10), 600),
+  });
+  const weightAll = allQuery.data?.series.weight?.points ?? [];
+  const earliestMs = weightAll.length ? new Date(weightAll[0].date + "T00:00:00").getTime() : now.getTime() - 60 * DAY_MS;
+  // Memoized for the same reason Trends.tsx's fullDomain is — see that comment.
+  const fullDomain: Domain = useMemo(() => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS), max: now.getTime() }), [earliestMs, now]);
+
+  const urlState = parseChartUrlState(params);
+  const defaultDomain = useMemo(() => presetToDomain("12w", now, new Date(earliestMs)), [now, earliestMs]);
+  const initialDomain: Domain =
+    urlState.from && urlState.to
+      ? { min: new Date(urlState.from + "T00:00:00").getTime(), max: new Date(urlState.to + "T00:00:00").getTime() }
+      : urlState.preset
+        ? presetToDomain(urlState.preset, now, new Date(earliestMs))
+        : defaultDomain;
+
+  // `domain` updates every pan/zoom frame (live x-scale); `queryDomain` only updates once a
+  // gesture settles, which is what the series query keys off — see Trends.tsx's identical
+  // split for why (a CPU-throttled pan perf test caught mid-gesture refetches otherwise).
+  const [domain, setDomain] = useState<Domain>(initialDomain);
+  const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
+
+  const commitToUrl = useCallback(
+    (next: Domain, preset: RangePreset | null) => {
+      setParams(
+        (prev) =>
+          writeChartUrlState(
+            prev,
+            preset
+              ? { preset, from: null, to: null }
+              : { preset: null, from: new Date(next.min).toISOString().slice(0, 10), to: new Date(next.max).toISOString().slice(0, 10) },
+          ),
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+
+  const onDomainSettled = useCallback(
+    (next: Domain) => {
+      setQueryDomain(next);
+      commitToUrl(next, null);
+    },
+    [commitToUrl],
+  );
+
+  const selectPreset = (preset: RangePreset) => {
+    const next = presetToDomain(preset, now, new Date(earliestMs));
+    setDomain(next);
+    setQueryDomain(next);
+    commitToUrl(next, preset);
+  };
+  const resetDomain = () => selectPreset(urlState.preset ?? "12w");
+
+  const padded = padDomain(queryDomain, fullDomain);
+  const points = quantizePoints(600);
+  const seriesQuery = useQuery({
+    queryKey: ["series", "weight,w_per_kg", padded.from, padded.to, points],
+    queryFn: () => fetchSeries(["weight", "w_per_kg"], padded.from, padded.to, points),
+    placeholderData: keepPreviousData,
+  });
+  const weightPoints = seriesQuery.data?.series.weight?.points ?? [];
+  const wPerKgPoints = seriesQuery.data?.series.w_per_kg?.points ?? [];
+  // Memoized for the same reason Trends.tsx's navigatorBackdrop is — see that comment.
+  const navigatorBackdrop = useMemo(
+    () => weightAll.map((p) => ({ x: new Date(p.date + "T00:00:00").getTime(), y: p.value })),
+    [weightAll],
+  );
+
+  const bodyQuery = useQuery({ queryKey: ["body"], queryFn: () => fetchBody() });
   const readings = bodyQuery.data ?? [];
   const latest = readings[readings.length - 1];
   const fatSpark = readings.map((r) => ({ date: r.ts.slice(0, 10), value: r.fat_pct }));
@@ -20,16 +111,48 @@ export function BodyPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Body</h1>
 
+      <div className="flex gap-2" role="tablist" aria-label="Range">
+        {RANGE_PRESETS.map((r) => (
+          <button
+            key={r.value}
+            type="button"
+            role="tab"
+            aria-selected={urlState.preset === r.value}
+            onClick={() => selectPreset(r.value)}
+            className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
+              urlState.preset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
       <Card title="Weight">
-        {weightQuery.isLoading ? (
+        {seriesQuery.isLoading && weightPoints.length === 0 ? (
           <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />
-        ) : weightQuery.data && weightQuery.data.length > 0 ? (
+        ) : weightPoints.length > 0 ? (
           <>
             <TrendLineChart
-              points={weightQuery.data}
-              secondary={weightQuery.data.map((p) => ({ date: p.date, value: p.smoothed ?? null }))}
+              points={weightPoints}
+              secondaryKey="smoothed"
               formatValue={(v) => `${v.toFixed(1)}kg`}
+              domain={domain}
+              fullDomain={fullDomain}
+              onDomainChange={setDomain}
+              onDomainSettled={onDomainSettled}
+              onResetDomain={resetDomain}
             />
+            <div className="mt-3">
+              <ChartNavigator
+                fullDomain={fullDomain}
+                viewDomain={domain}
+                minSpan={7 * DAY_MS}
+                onChange={setDomain}
+                onChangeSettled={onDomainSettled}
+                backdrop={navigatorBackdrop}
+              />
+            </div>
             <p className="mt-2 text-xs text-text-tertiary">
               Solid = raw readings. Dashed = 7-day smoothed (a single-day outlier doesn't move it).
             </p>
@@ -67,10 +190,19 @@ export function BodyPage() {
       </div>
 
       <Card title="W/kg over time">
-        {wPerKgQuery.isLoading ? (
+        {seriesQuery.isLoading && wPerKgPoints.length === 0 ? (
           <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />
-        ) : wPerKgQuery.data && wPerKgQuery.data.length > 0 ? (
-          <TrendLineChart points={wPerKgQuery.data} formatValue={(v) => v.toFixed(2)} />
+        ) : wPerKgPoints.length > 0 ? (
+          <TrendLineChart
+            points={wPerKgPoints}
+            formatValue={(v) => v.toFixed(2)}
+            domain={domain}
+            fullDomain={fullDomain}
+            onDomainChange={setDomain}
+            onDomainSettled={onDomainSettled}
+            onResetDomain={resetDomain}
+            showBand={false}
+          />
         ) : (
           <EmptyState message="No erg power + weight pairing yet." />
         )}

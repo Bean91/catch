@@ -136,7 +136,12 @@ def _earliest_date(session: Session) -> date | None:
 def recompute_scores(session: Session) -> int:
     """Recomputes every cached daily_scores row from scratch. Cheap at single-user scale
     (plain-Python arithmetic over a few thousand days at most) so there's no incremental
-    path — simpler and avoids subtle staleness bugs when settings or history change."""
+    path — simpler and avoids subtle staleness bugs when settings or history change.
+
+    This is the one choke point already run after every sync (scheduler.py), backfill
+    (cli.py), settings PUT, note POST, and coach-memory write (coach/tools.py) — so it's also
+    where GET /api/series's per-metric cache (routes_analytics.py) gets invalidated, rather
+    than duplicating "what changed history" logic at each of those call sites."""
     if not _lock.acquire(blocking=False):
         return 0
     try:
@@ -175,6 +180,10 @@ def recompute_scores(session: Session) -> int:
             day += timedelta(days=1)
 
         session.commit()
+
+        from catch.api.routes_analytics import invalidate_series_cache
+
+        invalidate_series_cache()
         return count
     finally:
         _lock.release()

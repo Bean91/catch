@@ -239,6 +239,8 @@ export interface IntervalSummary {
 export interface ErgStrokesResponse {
   activity_id: number;
   strokes: Stroke[];
+  stroke_count: number;
+  returned_stroke_count: number;
   technique_by_interval: Record<string, ErgTechnique>;
   interval_summary: Record<string, IntervalSummary>;
   time_in_zone_by_interval: Record<string, Record<string, number> | null>;
@@ -264,6 +266,29 @@ export interface TrendPoint {
   chronic_42d?: number;
   form?: number;
   smoothed?: number | null;
+}
+
+// --- Interactive series (session 8) -----------------------------------------
+
+export interface SeriesPoint {
+  date: string;
+  value: number;
+  value_min: number;
+  value_max: number;
+  acute_7d?: number;
+  chronic_42d?: number;
+  form?: number;
+  smoothed?: number | null;
+}
+
+export interface SeriesForMetric {
+  points: SeriesPoint[];
+  raw_count: number;
+  returned_count: number;
+}
+
+export interface SeriesResponse {
+  series: Record<string, SeriesForMetric>;
 }
 
 export const ZONE_NAMES = ["UT2", "UT1", "AT", "TR", "AN"] as const;

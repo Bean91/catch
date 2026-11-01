@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchErgStrokes, fetchSettings, fetchWorkoutDetail } from "../lib/api";
 import { activityTypeLabel, bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
+import type { Domain } from "../lib/useChartInteraction";
 import { ErgChart } from "../components/charts/ErgChart";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
@@ -11,6 +13,15 @@ import { BandBadge } from "../components/ui/Badge";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
+
+function quantizePoints(plotWidthPx: number): number {
+  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
+}
+
+function padDomain(domain: Domain, full: Domain): { min: number; max: number } {
+  const span = domain.max - domain.min;
+  return { min: Math.max(full.min, domain.min - span), max: Math.min(full.max, domain.max + span) };
+}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -34,11 +45,47 @@ export function WorkoutDetailPage() {
   const isRowing = workout?.category === "erg" || workout?.category === "on_water";
   const hasStrokes = workout?.source === "concept2";
 
-  const { data: strokesData } = useQuery({
-    queryKey: ["erg-strokes", activityId],
+  // Full-resolution fetch, once: technique/interval_summary are always computed server-side
+  // over every stroke regardless of `points` (tests/test_api_erg_downsample.py), so this one
+  // call also supplies the stable interval table and technique cards — only the chart's own
+  // `strokes` array needs re-fetching per zoom level, below.
+  const { data: fullStrokesData } = useQuery({
+    queryKey: ["erg-strokes-full", activityId],
     queryFn: () => fetchErgStrokes(activityId),
     enabled: !!workout && isRowing && hasStrokes,
   });
+
+  // Memoized for the same reason Trends.tsx's fullDomain is — a stable object identity across
+  // pan/zoom re-renders, since every chart below threads this through useChartInteraction's
+  // dependency arrays.
+  const fullDomain: Domain | null = useMemo(
+    () => (fullStrokesData ? { min: 0, max: Math.max(...fullStrokesData.strokes.map((s) => s.distance_cum ?? 0), 1) } : null),
+    [fullStrokesData],
+  );
+  // `domain` updates every pan/zoom frame (live x-scale); `queryDomain` only updates once a
+  // gesture settles, which is what the stroke-window query keys off — same split as
+  // Trends.tsx/Body.tsx, for the same reason (a CPU-throttled pan perf test caught
+  // mid-gesture refetches spiking frame time otherwise).
+  const [domain, setDomain] = useState<Domain | null>(null);
+  const [queryDomain, setQueryDomain] = useState<Domain | null>(null);
+  const effectiveDomain = domain ?? fullDomain ?? { min: 0, max: 1 };
+  const effectiveQueryDomain = queryDomain ?? fullDomain ?? { min: 0, max: 1 };
+  const resetDomain = () => {
+    setDomain(fullDomain);
+    setQueryDomain(fullDomain);
+  };
+  const onDomainSettled = (next: Domain) => setQueryDomain(next);
+
+  const padded = fullDomain ? padDomain(effectiveQueryDomain, fullDomain) : null;
+  const points = quantizePoints(640);
+  const { data: windowedStrokesData } = useQuery({
+    queryKey: ["erg-strokes-window", activityId, padded?.min, padded?.max, points],
+    queryFn: () => fetchErgStrokes(activityId, { points, distanceMin: padded!.min, distanceMax: padded!.max }),
+    enabled: !!padded,
+    placeholderData: keepPreviousData,
+  });
+
+  const [hoveredInterval, setHoveredInterval] = useState<number | null>(null);
 
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
@@ -88,18 +135,29 @@ export function WorkoutDetailPage() {
         )}
       </Card>
 
-      {isRowing && hasStrokes && strokesData && (
+      {isRowing && hasStrokes && fullStrokesData && fullDomain && (
         <>
           <Card title="Split, watts & rate over distance">
-            <ErgChart strokes={strokesData.strokes} maxHr={settings?.max_hr ?? null} hrPct={settings?.zones.hr_pct ?? {}} />
+            <ErgChart
+              strokes={windowedStrokesData?.strokes ?? fullStrokesData.strokes}
+              maxHr={settings?.max_hr ?? null}
+              hrPct={settings?.zones.hr_pct ?? {}}
+              domain={effectiveDomain}
+              fullDomain={fullDomain}
+              onDomainChange={setDomain}
+              onDomainSettled={onDomainSettled}
+              onResetDomain={resetDomain}
+              hoveredInterval={hoveredInterval}
+              onHoverInterval={setHoveredInterval}
+            />
           </Card>
           <Card title="Intervals">
-            <IntervalTable intervals={strokesData.interval_summary} />
+            <IntervalTable intervals={fullStrokesData.interval_summary} hoveredInterval={hoveredInterval} onHoverInterval={setHoveredInterval} />
           </Card>
-          {Object.entries(strokesData.technique_by_interval)
+          {Object.entries(fullStrokesData.technique_by_interval)
             .sort((a, b) => Number(a[0]) - Number(b[0]))
             .map(([idx, technique]) => (
-              <Card key={idx} title={Object.keys(strokesData.technique_by_interval).length > 1 ? `Technique — rep ${Number(idx) + 1}` : "Technique"}>
+              <Card key={idx} title={Object.keys(fullStrokesData.technique_by_interval).length > 1 ? `Technique — rep ${Number(idx) + 1}` : "Technique"}>
                 <TechniqueGrid technique={technique} />
               </Card>
             ))}

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from catch.analytics.body import smooth_weight
+from catch.analytics.downsample import bucket_value_bounds, lttb_indices
 from catch.analytics.erg_math import w_per_kg
 from catch.analytics.predict import predict_2k
 from catch.analytics.strain import hr_sample_durations, time_in_zone
@@ -153,13 +155,14 @@ def today(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/api/trends")
-def trends(
-    metric: str = Query(...),
-    from_: date | None = Query(None, alias="from"),
-    to: date | None = Query(None),
-    db: Session = Depends(get_db),
-):
+_ALL_SERIES_METRICS = _WELLNESS_METRICS | set(_SCORE_METRICS) | {"weight", "w_per_kg", "predicted_2k"}
+
+
+def _metric_series(db: Session, metric: str, from_: date | None, to: date | None) -> list[dict]:
+    """One `{date, value, ...}` dict per day/piece for `metric`, shared by GET /api/trends
+    (unbounded, from_/to applied at the DB layer) and GET /api/series (fetched once per
+    metric with from_=to=None, cached, then range-filtered + LTTB-downsampled in Python —
+    see `_cached_full_series` below)."""
     if metric in _WELLNESS_METRICS:
         stmt = select(DailyWellness)
         if from_:
@@ -195,8 +198,91 @@ def trends(
     if metric == "predicted_2k":
         return _predicted_2k_trend(db, from_, to)
 
-    allowed = sorted(_WELLNESS_METRICS | set(_SCORE_METRICS) | {"weight", "w_per_kg", "predicted_2k"})
-    raise HTTPException(status_code=400, detail=f"Unknown metric '{metric}'. Allowed: {allowed}")
+    raise HTTPException(status_code=400, detail=f"Unknown metric '{metric}'. Allowed: {sorted(_ALL_SERIES_METRICS)}")
+
+
+@router.get("/api/trends")
+def trends(
+    metric: str = Query(...),
+    from_: date | None = Query(None, alias="from"),
+    to: date | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    if metric not in _ALL_SERIES_METRICS:
+        raise HTTPException(status_code=400, detail=f"Unknown metric '{metric}'. Allowed: {sorted(_ALL_SERIES_METRICS)}")
+    return _metric_series(db, metric, from_, to)
+
+
+# --- Interactive charts (session 8): GET /api/series -----------------------------------
+#
+# Caches each metric's *full* history (from_=to=None) — the expensive part is the DB
+# scan/join, not the cheap range-filter + downsample done per request below. Keyed on metric
+# name only, so a 1GB Pi never holds more than len(_ALL_SERIES_METRICS) series in memory at
+# once. Cleared from one place, `invalidate_series_cache()`, called at the end of
+# `recompute_scores` (catch/sync/scoring.py) — the single choke point already run after every
+# sync, backfill, settings PUT, and note POST (see that file's docstring).
+_series_cache_lock = threading.Lock()
+_series_cache: dict[str, list[dict]] = {}
+
+
+def invalidate_series_cache() -> None:
+    with _series_cache_lock:
+        _series_cache.clear()
+
+
+def _cached_full_series(db: Session, metric: str) -> list[dict]:
+    with _series_cache_lock:
+        cached = _series_cache.get(metric)
+    if cached is not None:
+        return cached
+    full = _metric_series(db, metric, None, None)
+    with _series_cache_lock:
+        _series_cache[metric] = full
+    return full
+
+
+@router.get("/api/series")
+def series(
+    metrics: str = Query(..., description="Comma-separated metric names, same whitelist as /api/trends"),
+    from_: date | None = Query(None, alias="from"),
+    to: date | None = Query(None),
+    points: int = Query(400, ge=10, le=5000, description="Max points per series; longer ranges are LTTB-downsampled"),
+    db: Session = Depends(get_db),
+):
+    requested = [m.strip() for m in metrics.split(",") if m.strip()]
+    unknown = [m for m in requested if m not in _ALL_SERIES_METRICS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown metric(s) {unknown}. Allowed: {sorted(_ALL_SERIES_METRICS)}")
+
+    out: dict[str, dict] = {}
+    for metric in requested:
+        full = _cached_full_series(db, metric)
+        windowed = [p for p in full if (from_ is None or p["date"] >= from_) and (to is None or p["date"] <= to)]
+        defined = [p for p in windowed if p.get("value") is not None]
+
+        if not defined:
+            out[metric] = {"points": [], "raw_count": 0, "returned_count": 0}
+            continue
+
+        xs = [p["date"].toordinal() for p in defined]
+        ys = [float(p["value"]) for p in defined]
+        indices = lttb_indices(xs, ys, points)
+        bounds = bucket_value_bounds(ys, indices)
+        extra_keys = sorted({k for p in defined for k in p if k not in ("date", "value")})
+
+        series_points = []
+        for pos, idx in enumerate(indices):
+            source = defined[idx]
+            lo, hi = bounds[pos]
+            point = {"date": source["date"].isoformat(), "value": source["value"], "value_min": lo, "value_max": hi}
+            for key in extra_keys:
+                if key in source:
+                    point[key] = source[key]
+            series_points.append(point)
+
+        out[metric] = {"points": series_points, "raw_count": len(defined), "returned_count": len(series_points)}
+
+    return {"series": out}
 
 
 def _date_bounds(from_: date | None, to: date | None) -> tuple[datetime | None, datetime | None]:
@@ -307,7 +393,19 @@ def erg_results(
 
 
 @router.get("/api/erg/{activity_id}/strokes")
-def erg_strokes(activity_id: int, db: Session = Depends(get_db)):
+def erg_strokes(
+    activity_id: int,
+    # Plain `int | None = None` rather than `Query(...)`: catch/coach/tools.py's get_workout
+    # calls this function directly (not through a request), bypassing FastAPI's parameter
+    # resolution — a Query() object's unresolved default would otherwise be passed through
+    # as the literal value of `points` whenever this path is hit without the arg supplied.
+    points: int | None = None,
+    distance_min: float | None = None,
+    distance_max: float | None = None,
+    db: Session = Depends(get_db),
+):
+    if points is not None:
+        points = max(20, min(points, 5000))
     activity = db.get(Activity, activity_id)
     if activity is None or activity.source != "concept2":
         raise HTTPException(status_code=404, detail="Concept2 result not found")
@@ -362,9 +460,31 @@ def erg_strokes(activity_id: int, db: Session = Depends(get_db)):
             }
         )
 
+    windowed = [
+        s
+        for s in stroke_dicts
+        if (distance_min is None or (s["distance_cum"] or 0) >= distance_min)
+        and (distance_max is None or (s["distance_cum"] or 0) <= distance_max)
+    ]
+    returned_strokes = windowed
+    if points is not None and len(windowed) > points:
+        # Downsample on pace_500m (the primary line; split/watts/rate stay x-aligned on the
+        # same chosen strokes) — a stroke missing distance_cum can't be placed on the chart's
+        # x-axis at all, so it's excluded before LTTB rather than given a fake position.
+        placeable = [s for s in windowed if s["distance_cum"] is not None and s["pace_500m"] is not None]
+        if len(placeable) > points:
+            xs = [s["distance_cum"] for s in placeable]
+            ys = [s["pace_500m"] for s in placeable]
+            indices = lttb_indices(xs, ys, points)
+            returned_strokes = [placeable[i] for i in indices]
+        else:
+            returned_strokes = placeable
+
     return {
         "activity_id": activity_id,
-        "strokes": stroke_dicts,
+        "strokes": returned_strokes,
+        "stroke_count": len(stroke_dicts),
+        "returned_stroke_count": len(returned_strokes),
         "technique_by_interval": technique_by_interval,
         "interval_summary": interval_summaries,
         "time_in_zone_by_interval": time_in_zone_by_interval,

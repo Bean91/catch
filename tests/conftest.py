@@ -48,6 +48,13 @@ def client(session, monkeypatch):
     hashed = PasswordHasher().hash(TEST_PASSWORD)
     monkeypatch.setattr(security, "settings", dataclasses.replace(real_settings, password_hash=hashed))
 
+    # GET /api/series caches each metric's full history in a module-level dict (session 8,
+    # catch/api/routes_analytics.py) — cleared per-test so one test's cached series can't leak
+    # into the next test's fresh in-memory engine.
+    from catch.api.routes_analytics import invalidate_series_cache
+
+    invalidate_series_cache()
+
     main_module.app.dependency_overrides[get_db] = lambda: session
     with TestClient(main_module.app) as c:
         yield c

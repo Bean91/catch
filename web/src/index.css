@@ -45,10 +45,34 @@ body,
   min-height: 100%;
 }
 
+html,
+body {
+  /* Blocks pinch-zoom on the page while still allowing normal scrolling — belt-and-suspenders
+     with the viewport meta's user-scalable=no, which iOS Safari ignores in a plain browser
+     tab (only honored once installed as a PWA). Chart surfaces override this to `pan-y` or
+     `none` inline so they can claim pinch/horizontal-drag gestures for themselves — see
+     DESIGN.md's "Chart touch-action" note for why that's `pan-y`, not `none`. */
+  touch-action: pan-x pan-y;
+}
+
 body {
   margin: 0;
   font-family: var(--font-ui);
   font-feature-settings: "tnum" 1;
+}
+
+button,
+a {
+  /* No double-tap-to-zoom delay/flash on interactive elements. */
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea {
+  /* iOS Safari auto-zooms the page on focus if a field's computed font-size is under 16px —
+     rem-based sizing already keeps this true as the user's OS text-size setting changes. */
+  font-size: 1rem;
 }
 
 .font-mono-nums {

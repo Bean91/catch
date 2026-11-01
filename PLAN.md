@@ -848,3 +848,205 @@ picked up later: OAuth app registration at Whoop's developer portal, a new
 `sync/whoop_client.py`, mapping recovery/sleep/cycles/workouts into the existing tables, and a
 per-metric source-priority setting (e.g. HRV from Whoop, workouts from Garmin+Concept2) surfaced
 in Settings.
+
+## Session 8 checklist
+
+Make every time-series chart (Trends, Body, Today's HRV/RHR sparklines, workout-detail erg
+chart) interactive: pan, pinch/wheel/button zoom clamped 7d–all-time, a navigator/brush strip,
+hover/press-hold crosshair tooltips, 7d/4w/12w/6m/1y/season/all presets with the range in the
+URL, linked axes on Trends, coach-memory annotations, keyboard control, and page-level pinch
+disabled so only charts respond to it — all against a new downsampled `/api/series` endpoint,
+since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
+
+- [x] **`catch/analytics/downsample.py`** (pure functions, no I/O, per CLAUDE.md's analytics
+      convention): `lttb_indices` (Largest-Triangle-Three-Buckets), `bucket_value_bounds` (the
+      min/max a kept point's neighborhood hid, for an optional band), `downsample_with_bounds`.
+      8 unit tests (`tests/analytics/test_downsample.py`): passthrough when `n >= len`, exactly
+      `n` points otherwise, first/last always kept, indices strictly increasing, a deliberate
+      spike survives (the whole point of area-based downsampling over naive striding).
+- [x] **`GET /api/series?metrics=a,b&from&to&points=N`** (`catch/api/routes_analytics.py`):
+      refactored `/api/trends`'s per-metric fetchers into one shared `_metric_series`, then
+      added an in-process cache (`_series_cache`, keyed by metric name only — the DB scan is
+      the expensive part, not the cheap per-request range-filter + LTTB that follows) that
+      caches each metric's *full* history. Invalidated from one place, `invalidate_series_cache()`,
+      called at the end of `recompute_scores` (`catch/sync/scoring.py`) — already the single
+      choke point run after every sync/backfill/settings-PUT/note-POST/coach-memory-write, so
+      no call site needed its own "did history change" logic. 8 endpoint tests
+      (`tests/test_api_series.py`): unknown-metric 400, passthrough under budget, real
+      downsampling over budget (exact `n` back, bounds bracket the value, first/last dates
+      kept), `from`/`to` windowing, multi-metric in one call, empty-series shape, and the cache
+      actually invalidating after `recompute_scores`.
+- [x] **`GET /api/erg/{id}/strokes`** gained optional `points`/`distance_min`/`distance_max` —
+      downsamples only the chart's own `strokes` array (LTTB on `distance_cum`→`pace_500m`,
+      watts/rate/hr carried through on the same chosen strokes so every line stays x-aligned);
+      `technique_by_interval`/`interval_summary` are still computed over every stroke
+      regardless, since those were already correct and a downsampled technique calc would be a
+      *different*, wrong number, not just a lower-resolution one. The three new params are
+      plain `int | None = None`, not `Query(...)` — `catch/coach/tools.py`'s `get_workout`
+      calls this function directly (not through a request), and an unresolved `Query()` object
+      would otherwise be passed through as the literal value of `points` on that path (a real
+      bug caught by the existing coach-tools test suite, not written for this session). 5 new
+      tests (`tests/test_api_erg_downsample.py`).
+- [x] **`web/src/lib/useChartInteraction.ts`**: the one shared gesture engine for every chart —
+      pointer-based pan with direction-lock (first ~6px of movement decides horizontal-pan vs.
+      let-the-page-scroll, matching interaction spec #1), two-finger pinch-to-zoom (tracked via
+      a `Map<pointerId, {x,y}>`, not a gesture-specific browser API, so the same code path
+      handles touch and a trackpad's synthesized pointer events), ctrl/cmd+wheel zoom centered
+      on the pointer, keyboard (arrows pan, +/- zoom, Home/End jump to the data's ends, Esc
+      resets), tap vs. double-tap/double-click disambiguation, and a press-and-hold vs. drag
+      distinction for touch. **Controlled, not stateful**: the hook takes `domain` as a prop and
+      calls `onViewChange`/`onSettled` rather than owning its own React state — the only way
+      sibling charts can share one pan/zoom position (Trends' linked main-metric-chart +
+      weekly-volume-bars, interaction spec #6) is for a common ancestor to own that state and
+      hand it down, so the hook had to be built controlled from the start rather than retrofitted.
+      `onViewChange` is rAF-throttled internally; `onSettled` (gesture end) is the one callers
+      should hook data-fetching/URL-writes to — see the live/settled split below.
+- [x] **`web/src/lib/chartRange.ts`**: pure preset↔URL-querystring helpers (7d/4w/12w/6m/1y/
+      season/all, "season" reusing `lib/dateRanges.ts`'s existing most-recent-past-September-1st
+      definition so the two don't quietly disagree), dependency-free so they're unit-testable
+      without mounting a component. 17 Vitest tests (`chartRange.test.ts`) — preset→day-count,
+      `presetToDomain` against a fixed `now`, zoom-span clamping, and the full parse→write→parse
+      URL round-trip including "a preset always clears from/to and vice versa" and "unrelated
+      query params survive a write." `web/package.json` gained a `test` script and `vitest` as a
+      devDependency — this project had no frontend test runner before this session.
+- [x] **`ChartNavigator.tsx`**: the overview strip (a thin backdrop sparkline of the metric's
+      full history, memoized against it rather than the live view domain — see the perf section
+      below) with a draggable body (pans) and two draggable edges (re-zooms), plus a background
+      click that re-centers the window — its own small pointer-event state machine, not a reuse
+      of `useChartInteraction` (a brush drags a rectangle *over* the data, not the data itself).
+- [x] **Every chart rewritten onto the shared hook**: `TrendLineChart` (now a real
+      date-timestamp x-scale instead of index-based spacing, a min/max band from the
+      downsample response, coach-memory annotations — vertical lines for races/2k-tests, A-races
+      emphasized, taper windows shaded 14 days out reusing `next_a_race`'s own window so there's
+      only one definition of "taper" in the codebase, aria-live range announcements),
+      `WeeklyVolumeBars` (time-scaled instead of one-slot-per-week, so it can share Trends' axis
+      with the metric chart above it), `ErgChart` (distance-domain pan/zoom, synced with
+      `IntervalTable` via `hoveredInterval` lifted to `WorkoutDetailPage` — hovering a rep
+      highlights its span on the chart and vice versa, interaction spec #8). `ChartZoomButtons`
+      (shared +/- /reset row, 44px touch targets) and crosshair tooltips (nearest-point lookup
+      per series, not a shared index — downsampled series don't share x-positions) are common
+      to all three.
+- [x] **Today's HRV/resting-HR sparklines expand into a full interactive chart in a Radix
+      dialog** (`VitalsCard.tsx` + a new `ExpandedTrendChart.tsx`), `React.lazy`-loaded so
+      `TrendLineChart`/the interaction hook stay out of Today's eager bundle (Today is the one
+      route that isn't code-split, for the offline shell).
+- [x] **Trends/Body wired to `/api/series`** with TanStack Query's `keepPreviousData` (never a
+      blank chart mid-pan), a visible-range-plus-one-screen-of-padding fetch window, and a
+      points budget quantized to the chart's measured pixel width so small resizes don't spawn
+      new cache entries. Range state lives in the URL (`?range=12w` or `?from=&to=` for a custom
+      pan/zoom — mutually exclusive, enforced by `writeChartUrlState`), `replace: true` so
+      panning doesn't spam the browser's back-button history.
+- [x] **Global pinch-zoom disabled page-wide, chart surfaces excepted**: viewport meta gained
+      `maximum-scale=1, user-scalable=no`; `html body { touch-action: pan-x pan-y }` (blocks
+      pinch, keeps scrolling) with `button, a { touch-action: manipulation }` and
+      `input, select, textarea { font-size: 1rem }` (16px — iOS's auto-zoom-on-focus threshold;
+      verified computed-style 16px on all 16 Settings fields); `main.tsx` preventDefaults
+      `gesturestart`/`gesturechange`/`gestureend` and a 2+-touch `touchmove` ({passive:false},
+      required or preventDefault is silently ignored) — but only when the event target is
+      outside a `[data-chart-surface="true"]` element, so charts keep handling pinch themselves.
+      See DESIGN.md's new "Chart touch-action" note for why chart surfaces are `pan-y`, not
+      `none` — resolves a real contradiction in the task spec (interaction #1's "vertical drags
+      must still scroll the page" vs. #11's `touch-action: none` suggestion for chart surfaces).
+- [x] **Quality bar**: screenshotted at 390px/1280px, both themes, Playwright MCP — critiqued
+      and fixed across two rounds (see bug log below). CPU-throttled (4x, via a raw CDP
+      `Emulation.setCPUThrottlingRate` session) pan frame-time measurement on a full "all-time"
+      (4-year) chart: **p50 ≈ 20ms, p95 ≈ 24ms, max ≈ 26ms** per pan-triggered frame, measured
+      by dispatching `PointerEvent`s directly and awaiting one `requestAnimationFrame` per move
+      (a cleaner signal than `page.mouse.move()`, whose own OS-level input-dispatch overhead
+      turned out to dominate under CDP throttling — see the bug log's first entry for how that
+      was diagnosed, not assumed). Bundle sizes from a real `npm run build`: initial/eager JS
+      **155.9 KB + 18.6 KB (api.ts/mock.ts) ≈ 174.5 KB gzip** (budget 250 KB, ~75 KB of margin
+      left); every chart/interaction file is its own lazy chunk, 0.9–5 KB gzip each, loaded only
+      by the route (or Today's dialog) that needs it.
+- [x] **Library decision**: extended the existing hand-rolled SVG pattern with the shared
+      `useChartInteraction` hook, as the task's fallback plan — no new charting dependency
+      needed or proposed. Matches session 4's original reasoning (CSS-custom-property theming
+      doesn't translate to canvas) and its explicit "revisit only if hand-rolled SVG can't
+      reasonably do zoom/pan over thousands of points" — it could, once downsampling moved
+      server-side.
+- [x] PLAN.md + DESIGN.md (new "Interaction patterns" section) updated + commit.
+
+## Bugs found by the quality bar's own testing, not just read for plausibility
+
+- **A CPU-throttled pan perf test's first run showed real-looking jank** (p95 ≈ 175ms, max ≈
+  417ms, via `page.mouse.move()` + a 4x CDP throttle) that traced back to a real bug: `Trends.tsx`
+  computed its TanStack Query's `from`/`to` directly from the *live*, every-pan-frame `domain`
+  state, so the series query's cache key changed on nearly every pointermove — a new fetch
+  attempt roughly once per frame during a drag, not just at the end of the gesture. **Fixed** by
+  splitting each page's domain into a live `domain` (feeds the chart's x-scale every frame) and a
+  `queryDomain` (only updated from the hook's `onSettled` callback) — applied to `Trends.tsx`,
+  `Body.tsx`, `WorkoutDetailPage`, and `ExpandedTrendChart.tsx`, plus a matching
+  `onChangeSettled` added to `ChartNavigator` (previously it had no "drag finished" signal at
+  all, so a brush-drag never committed to the URL or re-fetched once released). Re-measured:
+  max dropped to ~160ms. Chasing the remainder found two more real inefficiencies — `fullDomain`
+  was a fresh object literal on every render in all four places (defeating every downstream
+  `useMemo`/`useCallback` that took it as a dependency, including inside the shared hook
+  itself), and `TrendLineChart`/`ErgChart` kept rendering Framer Motion's `motion.path` (with
+  real per-frame overhead even for a no-op animation) on every pan frame instead of a plain
+  `<path>` once the one-time mount draw-in had finished. Fixed both (memoized `fullDomain` at
+  each source via `useMemo`; both charts now swap to a plain `<path>` after the initial
+  animation plays). Final `page.mouse.move()`-based number: max ~160ms, still not great — which
+  led to the second finding below, since that remaining number turned out to be mostly a
+  measurement artifact, not real app cost.
+- **The remaining ~125ms "slow frames" were mostly `page.mouse.move()`/CDP overhead, not app
+  code** — confirmed by two control measurements before accepting the number: (1) the identical
+  mouse-drag-under-4x-throttle script run against a page with *no* chart at all (`/coach`)
+  produced zero frames over 50ms, proving *something* chart-specific was still slow; (2) the
+  same gesture re-measured by dispatching `PointerEvent`s directly and awaiting one
+  `requestAnimationFrame` per move (bypassing Playwright's OS-level synthetic input pipeline,
+  which `Emulation.setCPUThrottlingRate` throttles along with everything else) came back at
+  p50 ≈ 20ms / max ≈ 26ms on the real Trends page under the same 4x throttle — i.e., the actual
+  React/SVG work per pan frame was fine all along; `page.mouse.move()`'s own dispatch cost was
+  the thing getting amplified 4x. Reported the direct-dispatch number in the checklist above as
+  the trustworthy one, and left both control measurements in this log rather than picking
+  whichever number looked better.
+- **`GET /api/erg/{activity_id}/strokes`'s new `points`/`distance_min`/`distance_max` params
+  broke two existing coach-tool tests** the moment they were added as `Query(...)`-wrapped
+  FastAPI params: `catch/coach/tools.py`'s `get_workout` calls `routes_analytics.erg_strokes()`
+  as a plain Python function (not through a request), so the unresolved `Query(...)` object —
+  not its default value — was passed through as `points`, then compared with `>` against an
+  `int` and raised `TypeError`. Fixed by making the three new params plain `int | None = None`
+  with manual clamping in the function body instead of relying on FastAPI's `Query()` validation.
+- **A left-edge navigator/bar-chart sliver turned out to be correct, not a bug** — a screenshot
+  review flagged what looked like a stray 1px vertical line at the left edge of
+  `WeeklyVolumeBars`; `browser_evaluate`-inspecting the actual `<rect>` elements showed its `x`
+  was legitimately negative (a week whose start is before the visible domain but whose end is
+  inside it, clipped by the viewBox) — accurate partial-bar rendering for an edge week, not a
+  positioning bug. Left unchanged, logged here specifically so it isn't "fixed" again later by
+  someone trusting a screenshot over the data.
+
+## Gotchas / deviations from the literal task spec
+
+- **Chart surfaces use `touch-action: pan-y`, not `none`.** The task's interaction #1 ("vertical
+  drags must still scroll the page on mobile") and #11 ("chart surfaces `touch-action: none`")
+  are in real tension — `none` would mean hand-rolling vertical scroll in JS to get #1 back, and
+  losing the platform's momentum scrolling. `pan-y` lets the browser keep native vertical
+  scrolling while the pointer-event handlers in `useChartInteraction` claim horizontal drags and
+  pinch for themselves (via `preventDefault` once a gesture is direction-locked horizontal, or
+  immediately for a 2-pointer pinch) — same net behavior as #1 asks for, verified in Playwright
+  (`getComputedStyle` on a live chart's `<svg>` returns `pan-y`; `body`'s is `pan-x pan-y`).
+  **Not verified on a real iOS Safari tab or an installed PWA** — only Playwright/Chromium
+  emulation this session, consistent with every prior session's "no real device" caveat. A
+  5-minute manual check worth doing on a real phone: pinch the page background (nothing should
+  happen), pinch a chart (it should zoom), focus a Settings field (no auto-zoom).
+- **`/api/series`'s cache is keyed on metric name only, not `(metric, range bucket, N)`** as the
+  task's DATA #2 suggested — caches the metric's *full* history once, then does the (cheap,
+  pure-Python) range-filter and LTTB-downsample per request against that cached series. Simpler
+  than a 3-key cache and just as effective at avoiding the actual expensive part (the DB scan/
+  join), since a 1GB Pi only ever holds `len(_ALL_SERIES_METRICS)` series in memory this way,
+  not a combinatorial blow-up of every range×points pairing anyone's ever requested.
+- **No live Pi/real-device verification this session** — all QA against `?mock=1` fixtures (a
+  new ~4-year synthetic daily history and a ~60-minute/1700-stroke piece, added to `mock.ts`
+  specifically so pan/zoom/downsampling had something realistic to exercise) via the Vite dev
+  server and Playwright MCP, plus the real backend's pytest suite. The live account's actual
+  history is still only a few weeks long (sessions 1–2's note), so the interactive-chart
+  features most worth stress-testing (a true multi-year pan, the navigator brush over real
+  gaps in history) have no real data to test against yet — worth a real walkthrough once more
+  history accumulates.
+- **`frontend-design` and `webapp-testing` skills still don't exist** in this environment's
+  skill listing, same situation as sessions 3 and 5 — Playwright MCP tools were used directly
+  for screenshots/critique/perf measurement instead.
+- **`fetchTrends`/`mockTrend` (frontend) were deleted, not deprecated** — every caller moved to
+  `fetchSeries`/`mockSeries` (this session), leaving them genuinely unused; `GET /api/trends`
+  itself stays (still used server-side by `catch/coach/tools.py`'s `get_trends` tool and the
+  MCP server), only its frontend client wrapper went away.

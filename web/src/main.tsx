@@ -22,6 +22,41 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// Belt #3 (after the viewport meta and CSS touch-action) against page-level pinch-zoom: iOS
+// Safari's gesturestart/gesturechange/gestureend fire even with user-scalable=no in a plain
+// browser tab, and a two-finger touchmove can still zoom unless preventDefault'd — but only
+// outside a chart surface, which sets its own touch-action and runs useChartInteraction's
+// pinch handling instead. touchmove's listener must be { passive: false }, or preventDefault
+// is silently ignored.
+function isInsideChart(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-chart-surface="true"]') != null;
+}
+
+document.addEventListener(
+  "gesturestart",
+  (e) => {
+    if (!isInsideChart(e.target)) e.preventDefault();
+  },
+  { passive: false },
+);
+document.addEventListener(
+  "gesturechange",
+  (e) => {
+    if (!isInsideChart(e.target)) e.preventDefault();
+  },
+  { passive: false },
+);
+document.addEventListener("gestureend", (e) => {
+  if (!isInsideChart(e.target)) e.preventDefault();
+});
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (e.touches.length > 1 && !isInsideChart(e.target)) e.preventDefault();
+  },
+  { passive: false },
+);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

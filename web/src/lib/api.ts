@@ -19,12 +19,12 @@ import {
   mockNote,
   mockPbs,
   mockScenarioFromQuery,
+  mockSeries,
   mockSettings,
   mockSyncStatus,
   mockTestConnection,
   mockToday,
   mockTokens,
-  mockTrend,
   mockVolume,
   mockWorkoutDetail,
   mockWorkoutsPage,
@@ -53,11 +53,11 @@ import type {
   Note,
   PersonalBests,
   Settings,
+  SeriesResponse,
   SyncResult,
   SyncSourceStatus,
   Today,
   TrendMetric,
-  TrendPoint,
   VolumeWeek,
   WorkoutCategory,
   WorkoutDetail,
@@ -145,9 +145,17 @@ export async function fetchWorkoutDetail(id: number): Promise<WorkoutDetail> {
   return request<WorkoutDetail>(`/api/activities/${id}`);
 }
 
-export async function fetchErgStrokes(id: number): Promise<ErgStrokesResponse> {
-  if (isMock) return delay(mockErgStrokes(id));
-  return request<ErgStrokesResponse>(`/api/erg/${id}/strokes`);
+export async function fetchErgStrokes(
+  id: number,
+  opts?: { points?: number; distanceMin?: number; distanceMax?: number },
+): Promise<ErgStrokesResponse> {
+  if (isMock) return delay(mockErgStrokes(id, opts));
+  const search = new URLSearchParams();
+  if (opts?.points) search.set("points", String(opts.points));
+  if (opts?.distanceMin != null) search.set("distance_min", String(opts.distanceMin));
+  if (opts?.distanceMax != null) search.set("distance_max", String(opts.distanceMax));
+  const qs = search.toString();
+  return request<ErgStrokesResponse>(`/api/erg/${id}/strokes${qs ? `?${qs}` : ""}`);
 }
 
 // --- Notes ---------------------------------------------------------------
@@ -168,17 +176,20 @@ export async function saveNote(date: string, text: string, rpe: number | null): 
 
 // --- Trends / Body -------------------------------------------------------
 
-export async function fetchTrends(metric: TrendMetric, from?: string, to?: string): Promise<TrendPoint[]> {
-  if (isMock) return delay(mockTrend(metric));
-  const search = new URLSearchParams({ metric });
-  if (from) search.set("from", from);
-  if (to) search.set("to", to);
-  return request<TrendPoint[]>(`/api/trends?${search.toString()}`);
-}
-
 export async function fetchVolume(weeks: number): Promise<VolumeWeek[]> {
   if (isMock) return delay(mockVolume(weeks));
   return request<VolumeWeek[]>(`/api/trends/volume?weeks=${weeks}`);
+}
+
+// Interactive charts (session 8): one or more metrics, a visible-range window plus a point
+// budget — the backend LTTB-downsamples anything longer than `points`. Every Trends/Body/
+// Today chart uses this now; the plain, undownsampled GET /api/trends still exists
+// server-side (catch/coach/tools.py's get_trends tool calls it directly), it's just no
+// longer fetched from the frontend.
+export async function fetchSeries(metrics: TrendMetric[], from: string, to: string, points: number): Promise<SeriesResponse> {
+  if (isMock) return delay(mockSeries(metrics, from, to, points));
+  const search = new URLSearchParams({ metrics: metrics.join(","), from, to, points: String(points) });
+  return request<SeriesResponse>(`/api/series?${search.toString()}`);
 }
 
 export async function fetchBody(from?: string, to?: string): Promise<BodyCompReading[]> {
