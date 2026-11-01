@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Catch nightly SQLite backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/New_York
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

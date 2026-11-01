@@ -4,15 +4,20 @@ Self-hosted, single-user rowing training app. Whoop-style recovery/strain from G
 Withings + Concept2, with an AI coach later. Runs 24/7 on a Raspberry Pi 3 (1GB RAM, ARM)
 alongside PiAware.
 
-## Roadmap (6 sessions)
+## Roadmap
 
 1. Scaffold + Garmin + Withings sync
 2. Concept2 sync + rowing analytics engine
 3. Design system + Today screen
 4. Workout detail, trends, body comp, settings, installable PWA
 5. AI coach chat (bring-your-own Anthropic key or local Ollama) + MCP server
-6. **Real coach verification against a live local Ollama instance** ← this session (Pi
-   deploy, Tailscale, backups, and Whoop were descoped by the user — see below)
+6. Real coach verification against a live local Ollama instance (Pi deploy, Tailscale,
+   backups, and Whoop were descoped by the user at the time — see that session's notes below)
+7. **Real Raspberry Pi deployment: systemd, Tailscale HTTPS, nightly backups, Garmin-key
+   banner, then a live click-through on the deployed Pi** ← this session. The session-6 scope
+   decision above was explicitly superseded by the user asking for exactly those items.
+   Whoop (originally "part C," contingent on a yes") was offered again at the end of this
+   session — see that section for the outcome.
 
 ## Session 1 checklist
 
@@ -716,3 +721,127 @@ just covered by new unit tests.
   no error in the server log, cancelled within seconds instead of ~90) after the real fix.
   New tests in `tests/test_sse.py` cover normal exhaustion, mid-wait cancellation (asserting
   the source's own cancellation and cleanup actually ran), and exception propagation.
+
+## Session 7 checklist
+
+Real deploy to the user's actual Raspberry Pi 3 (`opensky-pi`, aarch64, Debian 13 "trixie"),
+which also runs `piaware`, `fr24feed`, and `tar1090` 24/7. Every step below was verified live
+against that real box, not just read for plausibility.
+
+- [x] **Inspected before changing anything**: aarch64 (so the 32-bit uv-build stop condition
+      never applied), ~676MiB RAM available of 905MiB total, 9.9GB disk free, ports 80/
+      30001-30006/30104-30106/8504/8754 already claimed by PiAware/fr24feed/lighttpd — 8000
+      (the `.env.example` default) was free. Tailscale was already installed and running, no
+      `serve` config yet. No passwordless sudo and no TTY for a non-interactive one — this
+      shaped everything that follows.
+- [x] `deploy/pi-bootstrap.sh` — one root script, written to be re-run (the user ran it three
+      times total, each idempotent): creates a dedicated `catch` system user (no login shell,
+      no home dir), `/opt/catch/app` (code, world-readable, no secrets) and `/var/lib/catch`
+      (DB/FIT/secrets/backups, `750`, `.env` at `600`) kept **outside** the code directory so
+      `deploy.sh`'s `rsync --delete` can never touch them, installs `sqlite3`, the systemd
+      units below, a journald `SystemMaxUse=50M` drop-in (caps disk use system-wide without
+      touching `Storage=`, which PiAware's own logs also use), a sudoers rule scoped to
+      exactly `systemctl restart/is-active/status catch.service` (nothing else — verified
+      passwordless `sudo -n systemctl is-active catch.service` works, while a journalctl/
+      backup-service start attempt correctly still prompts), and `tailscale serve --bg 8000`
+      for tailnet-only HTTPS.
+- [x] **Real secrets/DB/FIT handoff without the password or secret values ever appearing in
+      chat or logs**: the laptop's `.env` and a fresh `sqlite3 .backup` snapshot of the real
+      DB were rsynced file-to-file into an opensky-writable staging dir
+      (`/opt/catch/.staging`, mode `700`); only the four non-secret fields (`CATCH_ENV`,
+      `CATCH_DB_PATH`, `CATCH_BASE_URL`, `WITHINGS_REDIRECT_URI`) were edited via `sed`
+      matching key *names*, never touching the secret lines. The bootstrap script's second
+      run adopted these into `/var/lib/catch` with correct ownership and deleted the staging
+      copies — confirmed by listing `/opt/catch/.staging` empty afterward and the adopted
+      files' perms (`catch.env` `600`, `catch.db` `640`, both `catch:catch`).
+- [x] `deploy/catch.service`: `User=catch`, binds `127.0.0.1:8000` only (not the tailnet IP —
+      `tailscale serve` is the only way in), `Nice=10` + `IOSchedulingClass=idle` +
+      `MemoryMax=300M`, `Restart=on-failure`, `ProtectSystem=strict` + `ProtectHome=true` +
+      `ReadWritePaths=/var/lib/catch` only.
+- [x] `deploy.sh` (laptop side): builds the frontend, rsyncs `catch/`/`pyproject.toml`/
+      `uv.lock` (never `.env`/data), runs `uv sync` on the Pi with
+      `UV_PYTHON_INSTALL_DIR`/`UV_CACHE_DIR` pointed at `/opt/catch/.uv-*` (**not** under
+      `/home/opensky`, which is mode `0700` — the `catch` user would otherwise get `EACCES`
+      on a symlinked interpreter at service start, a bug caught by reasoning through the
+      permission model before it ever happened, not live), restarts via the scoped sudo rule,
+      and polls `/api/health`. **Live-verified end to end**: `uv sync` pulled aarch64 wheels
+      for every native dependency (cryptography, argon2-cffi-bindings, pydantic-core) — no
+      piwheels index needed, no compiling on the Pi. First real deploy's health check failed
+      at the original 15s retry budget; the real cold-start was ~18-20s (confirmed via
+      `journalctl` timestamps between "Started" and "Application startup complete"), so the
+      retry window was widened to 40s — re-verified on the next deploy.
+- [x] **Real, verified-live bug: `MemoryMax=300M` was silently unenforced.** `/proc/cgroups`
+      showed no `memory` line at all — Raspberry Pi OS ships the kernel's memory cgroup
+      controller compiled in but off by default. Caught by checking
+      `/sys/fs/cgroup/system.slice/catch.service/memory.max` actually existed, not just
+      trusting `systemctl show`'s `MemoryMax=314572800` (which the unit file sets
+      successfully regardless of whether a real cgroup backs it — a gap between "systemd
+      accepted the setting" and "the kernel can enforce it"). Fixed by adding
+      `cgroup_memory=1 cgroup_enable=memory` to `/boot/firmware/cmdline.txt` (backed up
+      first) and rebooting — the user explicitly approved the reboot after being told it
+      would briefly interrupt PiAware/fr24feed/tar1090 (they're enabled units, so they came
+      back automatically). Re-verified post-reboot: `cgroup.controllers` now lists `memory`,
+      `catch.service`'s real `memory.current` read ~121MB against the real 300MB cap, and
+      PiAware/fr24feed/tar1090 were confirmed `active` again within ~30s.
+- [x] Nightly backup (`deploy/catch-backup.service`+`.timer`, `deploy/backup.sh`,
+      `deploy/pull-backups.sh`) — **live-verified**, not just read: triggered manually
+      (`systemctl start catch-backup.service`, since that's deliberately outside the scoped
+      sudo rule — the user ran it interactively), produced a real
+      `catch-20261101T125838Z.db` at `640`/`catch:catch` in `/var/lib/catch/backups/`, and
+      `./deploy/pull-backups.sh` successfully rsynced it to the laptop — confirming `opensky`
+      being added to the `catch` group in bootstrap actually grants the read access it's
+      supposed to.
+- [x] Withings callback docs updated (`docs/withings-endpoints.md`) for the Tailscale HTTPS
+      URL, including the tradeoff that `tailscale serve` (tailnet-only, what's enabled) won't
+      satisfy a Withings-side active-fetch validation the way `tailscale funnel` (public)
+      would — Funnel was not enabled, since that's a real public-exposure decision the user
+      didn't make. `docs/mcp.md` also updated: its Claude Desktop config example previously
+      pointed at `http://<tailnet-ip>:8000`, which is now wrong since uvicorn only binds
+      `127.0.0.1` — corrected to the HTTPS `.ts.net` hostname.
+- [x] **Garmin key-expiry banner — built twice.** First pass added a new `.env`-based
+      `GARMIN_KEY_EXPIRES` → `GET /api/garmin/key-status` → a new `GarminKeyBanner`
+      component, with tests and a mock fixture. Live Playwright testing against the Settings
+      page then surfaced that **this already existed** from an earlier session: a
+      `garmin_key_expires_on` field in the `settings` table, editable right there in
+      Settings, with its own inline 14-day warning — just missing the link to Garmin's key
+      page and not shown outside Settings. Rather than ship two disconnected "Garmin key
+      expiry" mechanisms (one `.env`-sourced requiring an SSH edit to update, one UI-sourced
+      and user-editable), the `.env`-based endpoint/field/tests were fully reverted
+      (`catch/api/routes_sync.py`, `catch/core/config.py`, `tests/test_api.py`, `.env.example`
+      all back to their pre-session state — confirmed back to exactly 200 passing tests) and
+      the existing `garmin_key_expires_on` mechanism was promoted into a new
+      `web/src/lib/garminKey.ts` (shared `daysUntilGarminKeyExpires` + the key-page URL, so
+      Settings.tsx's inline warning and the new app-wide `GarminKeyBanner` can't drift from
+      each other) with the missing link added to both. Caught entirely by live-testing against
+      the real deployed app rather than only unit tests — the kind of bug a fixture-based
+      suite alone wouldn't surface, since both mechanisms "pass" in isolation.
+- [x] **Live Playwright click-through at 390px against the real Pi deployment with real data**
+      (not mocks) — Today, Workouts, a Workout detail, Trends, Body, Coach, Settings, Coach
+      memory, plus a light-theme spot check. Login was done by the user typing their real
+      password directly (after an earlier plan — them typing it into the Playwright-driven
+      browser themselves — turned out to be impossible once they were on phone Remote
+      Control with no access to the laptop's screen; they chose to disclose it directly
+      instead, after independently confirming login + PWA install worked from their own
+      phone browser on the same tailnet). Found and fixed the Garmin-banner duplication
+      above; found no other bugs. All `/api/*` requests across the whole click-through
+      returned 200 (checked via `browser_network_requests`, not just eyeballing screenshots)
+      except the expected pre-login 401 and two transient 404s from a stale cached JS bundle
+      mid-redeploy (gone after the next page load). Screenshots in
+      `docs/screenshots/pi-live-*.png`.
+  - **An attempt to extract the Playwright session's cookie value to disk (to measure
+    `/api/today` timing purely server-side via SSH+curl, excluding network latency) was
+    blocked by Claude Code's own auto-mode classifier as "Credential Materialization."** Not
+    worked around. Measured instead via `fetch('/api/today')` timed with `performance.now()`
+    from inside the authenticated page itself (so the real cookie jar is used without ever
+    being read out of the browser): **47-63ms per call, ~53ms warm average**, end-to-end over
+    real Tailscale HTTPS from the laptop — roughly 10x under the 500ms budget, with enough
+    margin that the untested split between network and Pi-side processing time doesn't matter.
+- [x] `README.md` written from scratch (local setup, Pi deploy, backups, Withings callback
+      re-registration, Garmin key reminder, MCP pointer). `PLAN.md` updated (this section).
+
+## Part C (Whoop) — status
+
+Offered again at the end of this session per the task's "only if I say yes when you get here."
+See the conversation for the outcome; if declined or deferred, nothing Whoop-related was
+started — `catch/sync/` still has only `garmin_client.py`/`withings_client.py`/
+`concept2_client.py`.

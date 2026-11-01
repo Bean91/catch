@@ -1,0 +1,11 @@
+[Unit]
+Description=Catch nightly SQLite backup
+After=catch.service
+
+[Service]
+Type=oneshot
+User=catch
+Group=catch
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/catch-backup.sh

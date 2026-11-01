@@ -1,0 +1,6 @@
+# Installed by pi-bootstrap.sh at /etc/sudoers.d/catch-deploy, mode 0440.
+# Scoped to exactly the three read-only-ish service-control commands deploy.sh needs for
+# `catch.service` — nothing else, and no wildcard that could be abused for privilege
+# escalation. Lets deploy.sh restart the service over a plain (non -t) SSH session without
+# a password, while every other root action stays behind an interactive sudo prompt.
+opensky ALL=(root) NOPASSWD: /usr/bin/systemctl restart catch.service, /usr/bin/systemctl is-active catch.service, /usr/bin/systemctl status catch.service

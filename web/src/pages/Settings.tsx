@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchSettings, fetchSyncStatus, saveSettings, triggerSync } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
+import { daysUntilGarminKeyExpires, GARMIN_KEY_PAGE_URL } from "../lib/garminKey";
 import { useTheme } from "../lib/theme";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
@@ -11,12 +12,6 @@ import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2"] as const;
-
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  const diff = new Date(iso + "T00:00:00").getTime() - Date.now();
-  return Math.ceil(diff / 86_400_000);
-}
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -58,7 +53,7 @@ export function SettingsPage() {
     setDirty(true);
   }
 
-  const warnDays = daysUntil(form.garmin_key_expires_on);
+  const warnDays = daysUntilGarminKeyExpires(form.garmin_key_expires_on);
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
@@ -119,7 +114,11 @@ export function SettingsPage() {
           </p>
           {warnDays != null && warnDays <= 14 && (
             <p className="mt-2 rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-xs text-band-red-text">
-              {warnDays <= 0 ? "Garmin key has expired" : `Garmin key expires in ${warnDays} day(s)`} — create a new one.
+              {warnDays <= 0 ? "Garmin key has expired" : `Garmin key expires in ${warnDays} day(s)`} —{" "}
+              <a href={GARMIN_KEY_PAGE_URL} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                create a new one
+              </a>
+              .
             </p>
           )}
         </div>

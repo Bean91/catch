@@ -108,3 +108,23 @@ user login.
 `user.info,user.metrics,user.activity` — we only need `user.metrics` for weigh-ins, but the
 docs' own example requests all three together; narrowing to just `user.metrics` should work
 and is what we request, since activity/info aren't used by `body_comp` sync.
+
+## Callback URL on the Pi deployment
+
+`WITHINGS_REDIRECT_URI` must be `https://<pi-name>.<tailnet>.ts.net/auth/withings/callback`
+(the real Tailscale HTTPS hostname `tailscale serve` exposes — see `deploy/pi-bootstrap.sh`),
+not `localhost`. Two things that follow from that:
+
+- **Re-register the callback in the Withings developer dashboard** (Withings > My Apps >
+  this app > Callback URL) to the new `https://...ts.net/...` value whenever it changes —
+  Withings validates the redirect URI against what's registered, not just what's sent.
+- **The browser completing step 3 above must itself be on the tailnet** (same rule as
+  localhost vs. 127.0.0.1 — different origins get no session cookie), so do the manual OAuth
+  flow from a device running Tailscale, browsing to the `https://...ts.net` URL directly, not
+  through a LAN IP or `localhost` port-forward.
+
+`tailscale serve` here is **tailnet-only HTTPS**, not Funnel — the callback is reachable to
+your own devices, not the public internet. If Withings' dashboard ever tries to actively
+fetch the callback URL to validate it (rather than just storing the string), that fetch would
+come from the public internet and fail against a tailnet-only `serve`; that would need
+`tailscale funnel` instead, which is a real public-exposure change and wasn't enabled here.

@@ -11,3 +11,4 @@ catch/api/static/
 *.egg-info/
 .DS_Store
 .playwright-mcp/
+backups-from-pi/

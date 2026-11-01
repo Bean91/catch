@@ -53,7 +53,7 @@ Add this to `claude_desktop_config.json` (on macOS:
     "catch": {
       "command": "/absolute/path/to/Catch/.venv/bin/catch-mcp",
       "env": {
-        "CATCH_BASE_URL": "http://<pi-tailnet-hostname>:8000",
+        "CATCH_BASE_URL": "https://<pi-name>.<tailnet>.ts.net",
         "CATCH_MCP_TOKEN": "<the raw token from step 1>"
       }
     }
@@ -61,10 +61,13 @@ Add this to `claude_desktop_config.json` (on macOS:
 }
 ```
 
-`CATCH_BASE_URL` is wherever Catch is reachable from your laptop — its Tailscale hostname/IP
-if the Pi isn't on your LAN, or `http://localhost:8000` against a local dev instance. The
-`catch-mcp` entry point is installed into `.venv/bin` by `uv sync` (it's `project.scripts` in
-`pyproject.toml`); use the absolute path since Claude Desktop doesn't activate the venv.
+`CATCH_BASE_URL` is wherever Catch is reachable from your laptop. Against the Pi deployment
+(`deploy/pi-bootstrap.sh`), uvicorn only binds `127.0.0.1:8000` — the Pi's tailnet IP doesn't
+serve port 8000 directly — so the real reachable address is the HTTPS hostname `tailscale
+serve` exposes, `https://<pi-name>.<tailnet>.ts.net`, not `http://<ip>:8000`. Against a local
+dev instance it's `http://localhost:8000`. The `catch-mcp` entry point is installed into
+`.venv/bin` by `uv sync` (it's `project.scripts` in `pyproject.toml`); use the absolute path
+since Claude Desktop doesn't activate the venv.
 
 Restart Claude Desktop after editing the config. It should list `get_today`, `get_wellness`,
 `list_workouts`, `get_workout`, `get_trends`, `get_body_comp`, `get_load`, `predict_2k`,

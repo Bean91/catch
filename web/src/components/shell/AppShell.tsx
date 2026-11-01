@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
 import { BottomNav } from "./BottomNav";
+import { GarminKeyBanner } from "./GarminKeyBanner";
 import { Sidebar } from "./Sidebar";
 import { LogoutIcon, MoonIcon, SunIcon } from "./icons";
 
@@ -19,6 +20,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           otherwise bubble its min-content width up through every flex ancestor and stretch
           the whole page past the viewport instead of just scrolling within its own card. */}
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+        <GarminKeyBanner />
+
         <header className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6 lg:hidden">
           <span className="font-mono-nums text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
           <div className="flex items-center gap-1">
