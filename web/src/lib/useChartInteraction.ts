@@ -196,6 +196,16 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
       }
 
       if (g.pointers.size === 1) {
+        // A new gesture starting supersedes any delayed single-tap action still waiting from
+        // a *previous* tap (the double-tap window) — without this, starting a drag within
+        // that window left the earlier tap's onTap scheduled to fire mid-drag (or after),
+        // since only the double-tap branch in endGesture cleared it, and a drag never reaches
+        // that branch at all. Safe for a genuine double-tap too: that still gets detected via
+        // `lastTap`'s timestamp, independent of this timer.
+        if (g.pendingTapTimer != null) {
+          clearTimeout(g.pendingTapTimer);
+          g.pendingTapTimer = null;
+        }
         g.mode = "pending";
         g.startDomain = domainRef.current;
         g.startPointer = { x: e.clientX, y: e.clientY };

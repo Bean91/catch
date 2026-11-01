@@ -986,7 +986,8 @@ wrong and how it was confirmed — see "Bugs the advisor review caught" below th
       re-rendering during a pan) didn't move the number — the real cost lives in the chart's own
       per-frame work, not its siblings — so the deeper fix (the "move a `<g>` via CSS transform
       during the gesture, rebuild the real SVG path only on settle" pattern) is logged as a
-      known gap below rather than attempted under remaining time pressure. In practice this
+      known gap below — a deliberate scope call (a genuine rendering-architecture change, not a
+      bug fix) rather than an oversight. In practice this
       means a sustained multi-frame drag through a year+ of history may show brief stutter on a
       genuinely throttled device; a short pan, or the common case of panning within a
       preset-sized window, stays smooth (p50 ≈ 9ms throughout every measurement taken). Bundle
@@ -1195,7 +1196,35 @@ pointer events assumed to exercise the same code paths.
   exception to "Esc resets" rather than either silently leaving it unexplained or making the
   dialog harder to close.
 
-## Gotchas / deviations from the literal task spec
+## A fourth pass: `ChartNavigator`'s own content didn't fill its own box
+
+Two more concrete, falsifiable claims from a further review, both confirmed with a direct DOM
+measurement before touching code (not just plausible-sounding) and both fixed:
+
+- **The navigator/brush strip's visible content didn't actually fill its rendered box, at any
+  width.** `ChartNavigator` used `width="100%"` (so the `<svg>` element always rendered at the
+  card's real width) but a hardcoded `viewBox="0 0 600 36"` — mismatched aspect ratios, left to
+  the default `preserveAspectRatio="xMidYMid meet"`, which *letterboxes* rather than stretches.
+  Confirmed by comparing the SVG element's own `getBoundingClientRect()` against its backdrop
+  `<rect>`'s: at 1280px the SVG box was 918px wide but its content rendered 600px wide, centered
+  with ~159px of dead space on each side (clicking there did nothing useful, since the brush's
+  pointer math assumes the full measured width maps to data); at 390px the *whole strip*,
+  including its already-narrow resize handles, rendered at roughly 57% scale — about 20px tall
+  instead of the intended 36px, confirmed by measurement, not assumed. **Fixed** by giving
+  `ChartNavigator` the same `ResizeObserver`-measured-width pattern every other chart already
+  uses, so the viewBox's width always equals the SVG's real rendered width — no aspect-ratio
+  mismatch left for `meet` to reconcile. Also bumped the (invisible, transparent) resize-handle
+  hit area from 10px to 20px for better touch grabbing. Re-verified at both 1280px (backdrop
+  rect now exactly matches the SVG's own box: x=293, width=918 either way) and 390px (height
+  back to a real 36px, handle hit-area a real 20px).
+- **A tap's delayed `onTap` (added last pass specifically to let a second tap cancel it) could
+  still fire during or after an unrelated drag started within that same window.** The cancel
+  only lived in the double-tap branch of `endGesture`, which a drag never reaches —
+  `onPointerDown` never checked for or cleared a still-pending timer from a *previous* gesture.
+  Confirmed live: tap a w_per_kg point, wait 100ms (still inside the 350ms window), then drag —
+  before the fix this would have navigated away mid-drag or immediately after; after the fix,
+  the URL stays on Trends throughout and the pan commits normally. **Fixed**: starting any new
+  single-pointer gesture now clears a stale pending-tap timer first.
 
 - **Chart surfaces use `touch-action: pan-y`, not `none`.** The task's interaction #1 ("vertical
   drags must still scroll the page on mobile") and #11 ("chart surfaces `touch-action: none`")
