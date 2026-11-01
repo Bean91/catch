@@ -20,7 +20,9 @@ at runtime (Node is a build-time-only dependency; the Pi never runs `npm`).
 ```
 catch/
   api/          FastAPI routers (routes_coach.py: shared tool endpoints + coach settings/
-                conversations/memory/device tokens)
+                conversations/memory/device tokens; sse.py: cancels a streaming response's
+                generator on client disconnect — see PLAN.md's session 6 Findings for why
+                that needs its own polling helper, not just a per-event check)
   core/         SQLModel models, config, db, security
   sync/         garmin_client, withings_client, scheduler, upsert helpers
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O

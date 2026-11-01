@@ -9,9 +9,10 @@ alongside PiAware.
 1. Scaffold + Garmin + Withings sync
 2. Concept2 sync + rowing analytics engine
 3. Design system + Today screen
-4. **Workout detail, trends, body comp, settings, installable PWA** ← this session
-5. AI coach chat (bring-your-own Anthropic key) + MCP server
-6. Deploy to the Pi 3, backups, optional Whoop
+4. Workout detail, trends, body comp, settings, installable PWA
+5. AI coach chat (bring-your-own Anthropic key or local Ollama) + MCP server
+6. **Real coach verification against a live local Ollama instance** ← this session (Pi
+   deploy, Tailscale, backups, and Whoop were descoped by the user — see below)
 
 ## Session 1 checklist
 
@@ -625,13 +626,93 @@ to rotate it under Logbook > Edit Profile > Applications.
   Documented in `docs/mcp.md` and `.env.example` rather than worked around with a redirect,
   to avoid depending on every client following a 307 on a POST.
 
-## Next steps (session 6)
+## Session 6 checklist
 
-- Deploy to the Pi 3: TLS (even just self-signed, or a Tailscale/reverse-proxy HTTPS front —
-  the PWA's service worker and installability both require a secure context, noted since
-  session 4), backups, optional Whoop integration.
-- Not yet live-verified: the in-app coach's actual Anthropic/Ollama turns (only the chat
-  loop, both providers, and the tool layer were tested — with a real `anthropic` client
-  mocked and a real `httpx.MockTransport` for Ollama, per the task's instruction — against a
-  real Anthropic API key or a real local Ollama instance). Worth a real run once there's a
-  key to spend and/or a laptop Ollama instance on the tailnet.
+Scope, set by the user: Pi deploy, Tailscale, backups, and Whoop are all **out of scope**
+for this session (backups will be added via GitHub later; the others deferred indefinitely).
+The one thing session 5 flagged as unverified — the in-app coach's actual provider turns —
+was in scope, with a real local Ollama instance on the user's laptop (no Anthropic key
+available) instead of Anthropic.
+
+- [x] **Confirmed SSH access to the real Pi** (`ssh opensky-pi`, no deploy performed) — a
+      real aarch64 Debian box, matching the ARM-wheel check from session 5.
+- [x] **Live-verified the full in-app coach pipeline against a real local Ollama server**
+      (`http://localhost:11434`, reached directly since this session runs on the user's own
+      laptop via Remote Control) — on a disposable throwaway Catch instance (fresh secrets,
+      scratch SQLite DB under `/private/tmp`, deleted after; same pattern as every prior
+      session's live checks, never the real `.env`/`data/catch.db`), seeded with 15 days of
+      realistic `DailyWellness`/one `Activity`/one A-priority `Event` so the coach's answers
+      would be grounded in real-looking numbers, not nulls:
+  - `POST /api/coach/test-connection` and `GET /api/coach/models` against real Ollama —
+    correctly listed only the 9 of 11 installed models that report `"tools"` capability.
+  - A real `POST /api/coach/conversations/{id}/messages` turn: the model (first `qwen3:14b`,
+    then `gemma4:e2b-nvfp4`) correctly emitted a native Ollama `tool_calls` block for
+    `get_today`, `OllamaProvider` parsed it into the shared tool registry, `get_today` ran
+    against the real seeded data, the tool result was fed back, and the model's final answer
+    correctly cited the real HRV/resting-HR/baseline/sleep numbers and the seeded A-race's
+    name, date, and days-to-go — confirmed by reading the persisted conversation back via
+    `GET /api/coach/conversations/{id}`, not just eyeballing the stream. Usage/cost events
+    reported `cost_usd: 0.0` on every turn, as expected for a local model.
+  - A real memory-tool turn: telling the coach about a hamstring issue made it call
+    `remember(category="injury", ...)` on its own (per the system prompt's instruction,
+    unprompted), which created a real `AthleteFact` row, visible afterward via
+    `GET /api/coach/memory`.
+- [x] Two real bugs found by this verification were fixed and live-reverified against the
+      same repro (`catch/api/sse.py`, `catch/coach/providers/ollama_provider.py`) — see
+      "Findings," below. 6 new tests (193 -> 200 total).
+- [x] PLAN.md + commit.
+
+## Findings from live Ollama verification (2026-11-01), and the two fixed afterward
+
+The user asked for both real findings below to be fixed before moving on, rather than just
+documented — both were fixed, then **re-verified live against the real failure repro**, not
+just covered by new unit tests.
+
+- **Tool-calling reliability varies a lot by model, even among models Ollama itself tags
+  `"tools": true`.** `gemma4:e2b-nvfp4` and `qwen3:14b` both correctly used Ollama's native
+  `tool_calls` field. `qwen2.5-coder:14b` — also tagged tool-capable — instead streamed the
+  tool call as literal text in `message.content`, token by token, which
+  `OllamaProvider.stream_turn` had no way to distinguish from a real answer: a user picking
+  that model would see raw JSON leak into the chat instead of a tool chip. Worse, the same
+  model wasn't even consistent with itself: one turn emitted bare `{"name": "get_today",
+  "arguments": {}}`, a later turn wrapped the identical shape in a ```` ```json ```` fence —
+  two different malformations from one model, found by actually re-running the live repro
+  rather than trusting the first fix. **Fixed**: `OllamaProvider.stream_turn`
+  (`catch/coach/providers/ollama_provider.py`) now holds content back instead of streaming it
+  live the moment it opens with `{` or ` ``` ` , and once the turn ends, `_parse_raw_tool_call`
+  (via `_strip_code_fence`) tries to parse the buffered blob as `{"name": <a real tool>,
+  "arguments"/"parameters": {...}}`; a match becomes a normal `tool_call` event, a non-match
+  (real prose that happened to start with `{`) is flushed as one text block rather than
+  silently dropped. Normal answers are unaffected — the one-chunk lookahead cost is only paid
+  by content that opens with `{` or a code fence. Covered by two new tests replaying the exact
+  chunk sequences captured live (`tests/coach/test_provider_ollama.py`), and live-reverified:
+  re-asked the identical question against the fenced-JSON failure case, which now produced a
+  clean `tool_call` SSE event and a real coached answer instead of leaked markdown+JSON.
+- **`qwen3:14b` (a "thinking"-mode model) took ~88 seconds to answer even a trivial,
+  tool-free "say hello" once loaded with all 16 tool schemas** — almost entirely spent on
+  invisible `<think>`-style tokens the model emits as empty `content` deltas before any
+  visible text (measured directly: 149 empty chunks, then real text). `gemma4:e2b-nvfp4`
+  answered a tool-requiring question in ~14 seconds. This is a real hardware/model
+  characteristic, not a bug — not fixed, since there's no code issue to fix, but worth a
+  per-model "typically slow" hint in Settings someday so a user's first message doesn't
+  silently hang for a minute and a half with no explanation.
+- **A client disconnect did not stop the server-side turn.** Killing the `curl` client
+  mid-stream (simulating a closed browser tab) did not stop `chat.run_turn` — the Ollama
+  call, the tool execution, and the persisted messages all completed normally ~90 seconds
+  later, confirmed by them showing up in the conversation history afterward. Low-risk for a
+  single-user app on a free local model, but for the Anthropic path this means a user who
+  navigates away mid-answer still pays for the full generation. **Fixed**: a new
+  `catch/api/sse.py::stream_until_disconnected` wraps the SSE generator in
+  `routes_coach.py`'s `post_message`, polling `request.is_disconnected()` every second while
+  waiting for the turn's next event (not just once per event — the gap while a "thinking"
+  model generates nothing is exactly where the old per-event check would've missed it) and
+  cancelling the in-flight call the moment a disconnect is seen. The first version of this
+  fix had its own live-caught bug: it also called `source.aclose()` on the generator it had
+  just cancelled, which raises `RuntimeError: aclose(): asynchronous generator is already
+  running` — removing that redundant close (the cancellation alone already unwinds the
+  generator's own `async with`/`finally` blocks, including the underlying HTTP connection)
+  fixed it. Re-verified live twice: first confirming the turn stopped early but hit that
+  RuntimeError, then confirming a clean stop (user message persisted, no assistant message,
+  no error in the server log, cancelled within seconds instead of ~90) after the real fix.
+  New tests in `tests/test_sse.py` cover normal exhaustion, mid-wait cancellation (asserting
+  the source's own cancellation and cleanup actually ran), and exception propagation.

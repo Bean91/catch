@@ -33,6 +33,43 @@ def _to_ollama_messages(messages: list[dict]) -> list[dict]:
     return out
 
 
+def _strip_code_fence(text: str) -> str:
+    """Strips a leading/trailing markdown code fence (```` ``` ```` or ```` ```json ````) if
+    present. qwen2.5-coder:14b was observed, live, wrapping a raw tool-call blob this way on
+    one turn and emitting bare JSON (no fence at all) on another — same model, same kind of
+    question, two different shapes — so both are handled rather than just the first one seen."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    first_newline = stripped.find("\n")
+    body = stripped[first_newline + 1 :] if first_newline != -1 else stripped[3:]
+    if body.endswith("```"):
+        body = body[:-3]
+    return body.strip()
+
+
+def _parse_raw_tool_call(text: str) -> dict | None:
+    """Some models Ollama itself reports as `"tools": true` capable don't actually populate
+    the native `tool_calls` field — observed live with qwen2.5-coder:14b, which instead
+    streamed a `{"name": "get_today", "arguments": {}}`-shaped blob as plain `content`
+    (bare, or inside a ```` ```json ```` fence — see _strip_code_fence), token by token.
+    Only called on a buffered blob that never resolved to real text (see stream_turn) and
+    only trusted if `name` is a real tool — never acts on an arbitrary `{...}`-shaped answer."""
+    try:
+        obj = json.loads(_strip_code_fence(text))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    name = obj.get("name")
+    if name not in tools_module.TOOLS:
+        return None
+    arguments = obj.get("arguments", obj.get("parameters", {}))
+    if not isinstance(arguments, dict):
+        return None
+    return {"name": name, "input": arguments}
+
+
 class OllamaProvider:
     name = "ollama"
 
@@ -72,13 +109,37 @@ class OllamaProvider:
                     resp.raise_for_status()
                     tool_calls_seen: list[dict] = []
                     final_chunk: dict = {}
+                    # Holds content back instead of streaming it live until the first non-
+                    # whitespace character decides whether this looks like a raw tool-call JSON
+                    # blob — bare ("{") or markdown-fenced ("```") — rather than prose; see
+                    # _parse_raw_tool_call below. A normal answer decides "not buffering" on its
+                    # first character and streams live from then on, same as before; only
+                    # content opening with "{" or "```" pays the cost of being held back (and
+                    # only until the stream ends).
+                    content_buffer = ""
+                    decided = False
+                    buffering = False
                     async for line in resp.aiter_lines():
                         if not line.strip():
                             continue
                         chunk = json.loads(line)
                         message = chunk.get("message") or {}
-                        if message.get("content"):
-                            yield {"type": "text_delta", "text": message["content"]}
+                        piece = message.get("content") or ""
+                        if piece:
+                            if buffering:
+                                content_buffer += piece
+                            elif not decided:
+                                content_buffer += piece
+                                if content_buffer.strip():
+                                    decided = True
+                                    lstripped = content_buffer.lstrip()
+                                    buffering = lstripped.startswith("{") or lstripped.startswith("```")
+                                    if not buffering:
+                                        yield {"type": "text_delta", "text": content_buffer}
+                                        content_buffer = ""
+                                # else: still entirely whitespace — keep waiting before deciding
+                            else:
+                                yield {"type": "text_delta", "text": piece}
                         for tc in message.get("tool_calls") or []:
                             fn = tc.get("function", {})
                             arguments = fn.get("arguments", {})
@@ -91,6 +152,16 @@ class OllamaProvider:
         except httpx.HTTPError as exc:
             yield {"type": "error", "message": f"Ollama request failed: {exc}"}
             return
+
+        if content_buffer:
+            parsed = _parse_raw_tool_call(content_buffer) if not tool_calls_seen else None
+            if parsed is not None:
+                tool_calls_seen.append({"type": "tool_call", "id": self._synthetic_id(), **parsed})
+            else:
+                # Either it didn't parse as a tool call after all (just prose that happened to
+                # start with "{"), or the model already made a real tool call separately —
+                # either way, don't silently drop real content.
+                yield {"type": "text_delta", "text": content_buffer}
 
         for call in tool_calls_seen:
             yield call

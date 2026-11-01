@@ -4,12 +4,13 @@ import json
 import secrets
 from datetime import date
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from catch.api.deps import get_db, hash_token, require_auth, require_tool_auth
+from catch.api.sse import stream_until_disconnected
 from catch.coach import chat
 from catch.coach import cost as cost_module
 from catch.coach import memory
@@ -134,7 +135,7 @@ class MessageRequest(BaseModel):
 
 
 @coach_router.post("/api/coach/conversations/{conversation_id}/messages")
-def post_message(conversation_id: int, body: MessageRequest, db: Session = Depends(get_db)):
+def post_message(conversation_id: int, body: MessageRequest, request: Request, db: Session = Depends(get_db)):
     conv = db.get(CoachConversation, conversation_id)
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -146,7 +147,14 @@ def post_message(conversation_id: int, body: MessageRequest, db: Session = Depen
         # A fresh Session, not the request's Depends(get_db) one — its lifecycle relative to
         # a streamed response body isn't reliable (it may close before the generator is done).
         with get_session() as stream_session:
-            async for event in chat.run_turn(stream_session, conversation_id, body.text):
+            turn = chat.run_turn(stream_session, conversation_id, body.text)
+            # A closed client connection doesn't otherwise stop this turn — confirmed live:
+            # killing the client mid-stream against a slow local model left the provider call,
+            # the tool execution, and the DB writes all running to completion regardless.
+            # stream_until_disconnected polls request.is_disconnected() while waiting on each
+            # next event, not just once, so a long gap (the provider "thinking" with nothing
+            # to yield yet) still gets cancelled promptly instead of running to completion.
+            async for event in stream_until_disconnected(turn, request.is_disconnected):
                 yield f"data: {json.dumps(event, default=str)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
