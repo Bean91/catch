@@ -839,9 +839,12 @@ against that real box, not just read for plausibility.
 - [x] `README.md` written from scratch (local setup, Pi deploy, backups, Withings callback
       re-registration, Garmin key reminder, MCP pointer). `PLAN.md` updated (this section).
 
-## Part C (Whoop) — status
+## Part C (Whoop) — declined for this session
 
-Offered again at the end of this session per the task's "only if I say yes when you get here."
-See the conversation for the outcome; if declined or deferred, nothing Whoop-related was
-started — `catch/sync/` still has only `garmin_client.py`/`withings_client.py`/
-`concept2_client.py`.
+Offered again at the end of this session per the task's "only if I say yes when you get here"
+— the user chose to stop at `v1.0` without it. Nothing Whoop-related was started;
+`catch/sync/` still has only `garmin_client.py`/`withings_client.py`/`concept2_client.py`. If
+picked up later: OAuth app registration at Whoop's developer portal, a new
+`sync/whoop_client.py`, mapping recovery/sleep/cycles/workouts into the existing tables, and a
+per-metric source-priority setting (e.g. HRV from Whoop, workouts from Garmin+Concept2) surfaced
+in Settings.
