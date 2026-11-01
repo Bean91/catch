@@ -66,6 +66,10 @@ const TAP_MOVE_THRESHOLD_PX = 8;
 const DIRECTION_LOCK_THRESHOLD_PX = 6;
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_DIST_PX = 32;
+// A press held this long or more, then released without moving, is a press-and-hold inspect
+// (interaction spec #4) — not a tap. Without this, holding still to read the crosshair and
+// then lifting your finger would fire onTap, e.g. navigating away from a tappable chart.
+const HOLD_IS_NOT_A_TAP_MS = 350;
 
 function clampDomain(domain: Domain, full: Domain, minSpan: number): Domain {
   const span = Math.min(Math.max(domain.max - domain.min, minSpan), full.max - full.min);
@@ -99,6 +103,7 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     pinchStartMid: 0,
     lastTap: { time: 0, x: 0 },
     rafPending: false,
+    pendingTapTimer: null as ReturnType<typeof setTimeout> | null,
   });
 
   // The hook is "controlled": `domainRef` is normally just a same-frame mirror of the
@@ -272,16 +277,38 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         } else if (wasMode === "pending") {
           const dx = e.clientX - g.startPointer.x;
           const dy = e.clientY - g.startPointer.y;
+          const duration = performance.now() - g.startTime;
           if (Math.hypot(dx, dy) < TAP_MOVE_THRESHOLD_PX) {
-            const now = performance.now();
-            const isDoubleTap =
-              now - g.lastTap.time < DOUBLE_TAP_MS && Math.abs(e.clientX - g.lastTap.x) < DOUBLE_TAP_DIST_PX;
-            g.lastTap = { time: now, x: e.clientX };
-            if (isDoubleTap) {
-              onDoubleTap?.();
+            if (duration >= HOLD_IS_NOT_A_TAP_MS) {
+              // A press-and-hold-then-release (the touch equivalent of hover/inspect) — not a
+              // tap, and not eligible to start a double-tap sequence either.
             } else {
-              const rect = (e.currentTarget as Element).getBoundingClientRect();
-              onTap?.(pxToDomainValue(e.clientX, rect), e.clientX, e.clientY);
+              const now = performance.now();
+              const isDoubleTap =
+                now - g.lastTap.time < DOUBLE_TAP_MS && Math.abs(e.clientX - g.lastTap.x) < DOUBLE_TAP_DIST_PX;
+              if (isDoubleTap) {
+                if (g.pendingTapTimer != null) {
+                  clearTimeout(g.pendingTapTimer);
+                  g.pendingTapTimer = null;
+                }
+                g.lastTap = { time: 0, x: 0 }; // consumed — a third tap starts a fresh sequence
+                onDoubleTap?.();
+              } else {
+                g.lastTap = { time: now, x: e.clientX };
+                // Delayed, not fired immediately: this might still turn into the first half of
+                // a double-tap, which should reset/zoom instead of e.g. navigating away from a
+                // tappable chart (a real regression caught in testing — the original immediate
+                // dispatch meant the first tap of every double-tap already navigated before the
+                // second tap could ever arrive).
+                const rect = (e.currentTarget as Element).getBoundingClientRect();
+                const domainX = pxToDomainValue(e.clientX, rect);
+                const clientX = e.clientX;
+                const clientY = e.clientY;
+                g.pendingTapTimer = setTimeout(() => {
+                  g.pendingTapTimer = null;
+                  onTap?.(domainX, clientX, clientY);
+                }, DOUBLE_TAP_MS);
+              }
             }
           }
         }
@@ -378,6 +405,14 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     // the caller's own pan/zoom, not a reason to re-run the clamp-and-notify check.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullDomain.min, fullDomain.max, minSpan]);
+
+  // Cancels a pending delayed single-tap if the chart unmounts (e.g. switching metric/route)
+  // before the double-tap window elapses — otherwise onTap fires into a component that's gone.
+  useEffect(() => {
+    return () => {
+      if (gesture.current.pendingTapTimer != null) clearTimeout(gesture.current.pendingTapTimer);
+    };
+  }, []);
 
   return useMemo(
     () => ({

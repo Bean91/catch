@@ -10,6 +10,7 @@ import { ChartZoomButtons } from "./ChartZoomButtons";
 
 const HEIGHT = 240;
 const PAD_X = 36;
+const TAP_PROXIMITY_PX = 20;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 28;
 const DAY_MS = 86_400_000;
@@ -89,10 +90,18 @@ export function TrendLineChart({
     padLeft: PAD_X,
     onViewChange: onDomainChange,
     onSettled: onDomainSettled,
-    onTap: (domainX) => {
+    onTap: (domainX, clientX) => {
       if (!onPointTap) return;
       const point = nearestPoint(points, domainX);
-      if (point) onPointTap(point);
+      if (!point) return;
+      // Without a screen-distance check, tapping *anywhere* on the chart — including empty
+      // space between two widely-spaced points — would still "find" and open the nearest one.
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const tapPlotX = clientX - rect.left;
+      const pointPlotX = x(dateToMs(point.date));
+      if (Math.abs(tapPlotX - pointPlotX) > TAP_PROXIMITY_PX) return;
+      onPointTap(point);
     },
     onDoubleTap: onResetDomain,
   });
@@ -276,6 +285,9 @@ export function TrendLineChart({
         >
           <div className="text-text-tertiary">{formatShortDate(hoverPoint.date)}</div>
           <div className="font-mono-nums text-text-primary">{formatValue(hoverPoint.value)}</div>
+          {secondaryKey && hoverPoint[secondaryKey] != null && (
+            <div className="font-mono-nums text-text-secondary">smoothed {formatValue(hoverPoint[secondaryKey] as number)}</div>
+          )}
         </div>
       )}
 

@@ -1120,6 +1120,81 @@ button rows (so they stop re-rendering during a pan) was attempted as a perf fix
 no improvement — kept anyway since it's a correct, harmless simplification, but logged here so
 it isn't mistaken for *the* perf fix.
 
+## A third pass: real bugs in the fixes themselves, plus the first real touch testing
+
+A second advisor review of the second pass's own fixes — again verified empirically, not
+re-read — found that the tap-to-open feature added in the second pass (`activity_id` on
+w_per_kg/predicted_2k points) had its own real regression, and that a second bug existed in the
+metric-switch path the second pass had only partly addressed. It also pushed for the one
+category of testing genuinely missing up to this point: real touch gestures, not just mouse/
+pointer events assumed to exercise the same code paths.
+
+- **Tap-to-open broke double-tap-reset and press-and-hold-inspect on the same chart.**
+  `useChartInteraction`'s tap handling fired `onTap` immediately on any non-moving pointerup,
+  with no distinction between a quick tap, a held-then-released press, or the first half of a
+  double-tap. On a tappable chart (w_per_kg/predicted_2k) this meant: the first tap of every
+  double-tap navigated away before the second tap could ever register, making double-tap-to-
+  reset unreachable there; and holding still to read the crosshair, then lifting your finger,
+  also navigated away. Confirmed live: a real `page.mouse.dblclick()` on a w_per_kg point
+  navigated to `/workouts/…` instead of resetting zoom. **Fixed**: a press held ≥350ms before
+  release is now an inspect-hold, not a tap-candidate, at all; a short tap's `onTap` is delayed
+  350ms (the double-tap window) before firing, canceled if a second tap arrives in that window.
+  Re-verified all three cases live: double-click now resets (URL stays on Trends, aria-label
+  back to the 12w default) instead of navigating; a 600ms hold-then-release does nothing; a
+  genuine single tap still navigates, just ~350ms later than before (confirmed via two checks
+  100ms and 500ms after the click — URL unchanged at 100ms, `/workouts/1041` by 500ms). Also
+  added a screen-distance check (tap must land within 20px of the point's actual rendered
+  position) — before this, tapping *anywhere* on the chart, including empty space between two
+  widely-spaced points, still "found" and opened the nearest one.
+- **Switching metric while on a custom (panned) range broke the chart.** While the newly
+  selected metric's full-history query is loading, `earliestMs` temporarily falls back to
+  "now − 84d" — which can be *more recent* than wherever the user had already panned to.
+  `fullDomain` (memoized off `earliestMs`) would briefly shrink past the user's current
+  `domain`, and `useChartInteraction`'s own out-of-bounds-correction effect would then silently
+  snap the live `domain` back inside the shrunk bounds via `onViewChange` — which updates the
+  rendering domain but not `queryDomain` (the fetched data's window), desyncing the two.
+  Confirmed live: loading `?from=2024-01-01&to=2024-06-01`, then clicking the HRV tab, produced
+  a path with coordinates thousands of pixels outside the SVG's viewBox (the x-scale was
+  rendering "Aug 9–Nov 1" while the actual fetched points were still the Jan–Jun 2024 window).
+  **Fixed**: `fullDomain`'s lower bound now also includes `queryDomain.min` (the settled, not
+  live, domain) in its `Math.min` — so it can never shrink below wherever the user has actually
+  settled, even transiently during a metric-switch reload. Applied to `Trends.tsx`, `Body.tsx`
+  (no metric switcher, but the same `allQuery`-refetch hazard applies generically), and
+  `ExpandedTrendChart.tsx`. Re-verified live: the same repro now keeps the custom Jan–Jun 2024
+  window and renders a correct HRV wave, not a broken one.
+- **Real touch gestures had never actually been exercised — only mouse/pointer events,
+  assumed (not verified) to cover the same `PointerEvent`-based code paths.** Tested via CDP's
+  `Input.dispatchTouchEvent` (genuine touch synthesis, not `page.mouse.*`) at 390px:
+  two-finger pinch on a chart zoomed it from an 84-day window down to the 7-day minimum clamp;
+  a single-finger vertical drag on a chart scrolled the *page* (`window.scrollY` 0→403.5) while
+  the chart's own domain stayed unchanged; a single-finger horizontal drag on a chart panned it
+  (Aug 9–Nov 1 → May 26–Aug 18) while the page did not scroll. All three match the spec exactly
+  and all three are now genuinely touch-verified, not just reasoned about from the Pointer
+  Events abstraction. **Not independently re-verified on a real iOS/Android device** — this was
+  Chromium's CDP touch emulation, which is a real step up from "never tested" but still not the
+  same as a physical phone; see the existing "no real device" gotcha below.
+- **A weight-chart tooltip was missing the secondary (smoothed) series value**, visible on
+  inspection but not mentioned until checked directly against the spec's "every series' value"
+  wording for the Inspect interaction. **Fixed**: `TrendLineChart`'s tooltip now shows the
+  `secondaryKey` value (labeled "smoothed") alongside the primary one when present.
+- **200%-text-size survival was checked, and failed — but not from anything built this
+  session.** Setting `document.documentElement.style.fontSize = "200%"` on `/trends` at 390px
+  produces real horizontal overflow (`scrollWidth` 500 vs. `clientWidth` 390); a screenshot
+  traced it to the bottom navigation bar's row of icon+label items not wrapping or truncating,
+  clipping the last item ("Body") off-screen. This is `AppShell`'s `BottomNav` component from
+  session 3/4, unrelated to anything built this session (the metric/range picker pill rows
+  wrap fine on their own) — logged here rather than silently left unfixed, but out of this
+  session's scope to actually fix.
+- **Escape inside Today's expanded-sparkline dialog closes the dialog, not the chart's zoom** —
+  confirmed live (focus the chart, pan, press Escape via real `page.keyboard.press`, the dialog
+  closes). Radix's `Dialog.Content` owns Escape for accessible-modal-closing before the chart's
+  own `onKeyDown` gets a meaningful chance at it. **Deliberately not changed**: overriding
+  Escape to reset zoom instead of closing a modal would violate the standard, expected modal
+  convention (a user pressing Escape wants *out*), and reset is still reachable in that dialog
+  via double-tap/double-click or the explicit reset (⟲) button. Documented as an intentional
+  exception to "Esc resets" rather than either silently leaving it unexplained or making the
+  dialog harder to close.
+
 ## Gotchas / deviations from the literal task spec
 
 - **Chart surfaces use `touch-action: pan-y`, not `none`.** The task's interaction #1 ("vertical
@@ -1184,10 +1259,13 @@ it isn't mistaken for *the* perf fix.
     works (one shared domain), but hovering the metric chart doesn't show a crosshair on the
     weekly-volume chart below it or vice versa. `hoverX` lives inside each chart's own
     `useChartInteraction` instance, not lifted to `TrendsPage`.
+  - **Tapping an annotation marker for details doesn't work on touch** — races/2k-tests render
+    as a `<title>` element (a native SVG tooltip, desktop-hover-only) rather than an actual tap
+    target with a popover (name/date/priority/goal/result), so the spec's "tap a marker for
+    details" only works with a mouse.
   - **The full "transform via CSS during the gesture, re-path only on settle" pan architecture**
     wasn't built — see the perf entry above. The current approach (re-render React with the new
     domain every settled frame) is adequate for normal use but is the reason periodic frame-time
-    spikes remain under heavy CPU throttle on a long pan.
-  - **200%-text-size survival wasn't tested** — the quality bar's other items (touch targets,
-    reduced motion, contrast) were checked programmatically in this or earlier sessions; this
-    one wasn't.
+    spikes remain under heavy CPU throttle on a long pan. Not re-measured under touch input
+    specifically (only mouse-equivalent `PointerEvent` dispatch) — touch gestures were verified
+    *functionally correct* (see the third pass below) but not re-profiled for frame time.

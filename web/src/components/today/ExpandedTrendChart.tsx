@@ -20,15 +20,19 @@ export default function ExpandedTrendChart({ metric, formatValue }: { metric: Tr
   });
   const allPoints = allQuery.data?.series[metric]?.points ?? [];
   const earliestMs = allPoints.length ? new Date(allPoints[0].date + "T00:00:00").getTime() : now.getTime() - 84 * DAY_MS;
-  // Memoized for the same reason Trends.tsx's fullDomain is (see that component's comment) —
-  // a stable object identity across pan/zoom re-renders.
-  const fullDomain: Domain = useMemo(() => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS), max: now.getTime() }), [earliestMs, now]);
 
   // `domain` updates every pan/zoom frame (live x-scale); `queryDomain` only updates once a
   // gesture settles — see Trends.tsx's identical split for why (a CPU-throttled pan perf test
   // caught mid-gesture refetches spiking frame time otherwise).
   const [domain, setDomain] = useState<Domain>(() => presetToDomain(preset, now, new Date(earliestMs)));
   const [queryDomain, setQueryDomain] = useState<Domain>(() => presetToDomain(preset, now, new Date(earliestMs)));
+
+  // Memoized for the same reason Trends.tsx's fullDomain is, including the `queryDomain.min`
+  // term — see that component's comment for the bug this specifically guards against.
+  const fullDomain: Domain = useMemo(
+    () => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS, queryDomain.min), max: now.getTime() }),
+    [earliestMs, now, queryDomain.min],
+  );
 
   // Re-derives the domain once the real earliestMs loads (see Trends.tsx's identical effect
   // for the full explanation) — the mount-time default here happens to match "12w"'s fallback

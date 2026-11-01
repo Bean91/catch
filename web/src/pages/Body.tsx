@@ -37,8 +37,6 @@ export function BodyPage() {
   });
   const weightAll = allQuery.data?.series.weight?.points ?? [];
   const earliestMs = weightAll.length ? new Date(weightAll[0].date + "T00:00:00").getTime() : now.getTime() - 60 * DAY_MS;
-  // Memoized for the same reason Trends.tsx's fullDomain is — see that comment.
-  const fullDomain: Domain = useMemo(() => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS), max: now.getTime() }), [earliestMs, now]);
 
   const urlState = parseChartUrlState(params);
   const defaultDomain = useMemo(() => presetToDomain("12w", now, new Date(earliestMs)), [now, earliestMs]);
@@ -54,6 +52,15 @@ export function BodyPage() {
   // split for why (a CPU-throttled pan perf test caught mid-gesture refetches otherwise).
   const [domain, setDomain] = useState<Domain>(initialDomain);
   const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
+
+  // Memoized for the same reason Trends.tsx's fullDomain is, including the `queryDomain.min`
+  // term — see that component's comment for the metric-switch bug this specifically guards
+  // against (this page has no metric switcher, but the same `allQuery`-refetch-shrinks-
+  // fullDomain-while-on-a-custom-range hazard applies any time that query's data changes).
+  const fullDomain: Domain = useMemo(
+    () => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS, queryDomain.min), max: now.getTime() }),
+    [earliestMs, now, queryDomain.min],
+  );
 
   // Re-derives the domain once the real earliestMs loads — see Trends.tsx's identical effect
   // for the full explanation (a cold `?range=all`/`1y`/`6m` load would otherwise permanently

@@ -60,11 +60,6 @@ export function TrendsPage() {
   });
   const allPoints = allQuery.data?.series[metric]?.points ?? [];
   const earliestMs = allPoints.length ? new Date(allPoints[0].date + "T00:00:00").getTime() : now.getTime() - 84 * DAY_MS;
-  // Memoized so its object identity is stable across re-renders (it only ever depends on
-  // `earliestMs`/`now`, not on the live pan/zoom `domain`) — every chart below threads this
-  // through useChartInteraction's dependency arrays, and a fresh object every frame defeated
-  // their memoization, which showed up as dropped frames in a CPU-throttled pan test.
-  const fullDomain: Domain = useMemo(() => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS), max: now.getTime() }), [earliestMs, now]);
 
   const urlState = parseChartUrlState(params);
   const defaultDomain = useMemo(() => presetToDomain("12w", now, new Date(earliestMs)), [now, earliestMs]);
@@ -83,6 +78,25 @@ export function TrendsPage() {
   const [domain, setDomain] = useState<Domain>(initialDomain);
   const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
   const [plotWidthPx] = useState(600); // refined per-chart via ResizeObserver inside each chart; this seeds the initial fetch budget
+
+  // Memoized so its object identity is stable across re-renders (it only ever depends on
+  // earliestMs/now/queryDomain.min, not the live pan/zoom `domain`) — every chart below
+  // threads this through useChartInteraction's dependency arrays, and a fresh object every
+  // frame defeated their memoization (dropped frames in a CPU-throttled pan test).
+  //
+  // The `queryDomain.min` term matters on a metric switch: while the new metric's `allQuery`
+  // is loading, `earliestMs` briefly falls back to "now - 84d", which can be *more recent*
+  // than wherever the user had already panned to. Without this term, `fullDomain` would
+  // briefly shrink past the user's current `domain`, and useChartInteraction's own
+  // out-of-bounds correction effect would silently snap the view back to a ~12-week default —
+  // a real, confirmed bug (switching metric while on a custom range produced a chart with the
+  // x-scale and the actual fetched points pointing at two different windows, rendering a path
+  // with coordinates thousands of pixels outside the viewBox). Using `queryDomain.min` (settled,
+  // not live) rather than `domain.min` keeps this from recomputing every pan frame.
+  const fullDomain: Domain = useMemo(
+    () => ({ min: Math.min(earliestMs, now.getTime() - 7 * DAY_MS, queryDomain.min), max: now.getTime() }),
+    [earliestMs, now, queryDomain.min],
+  );
 
   // `initialDomain` above is computed from `earliestMs`, which falls back to "now - 84d" until
   // `allQuery` resolves with the metric's *real* earliest date — so a cold load of `?range=all`
