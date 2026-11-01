@@ -851,12 +851,25 @@ in Settings.
 
 ## Session 8 checklist
 
+The task that opened this session called it "session 7" — PLAN.md's own numbering already used
+that number for the real Pi deployment (above), so this continues the file's own sequence
+instead rather than creating a second "Session 7" heading.
+
 Make every time-series chart (Trends, Body, Today's HRV/RHR sparklines, workout-detail erg
 chart) interactive: pan, pinch/wheel/button zoom clamped 7d–all-time, a navigator/brush strip,
 hover/press-hold crosshair tooltips, 7d/4w/12w/6m/1y/season/all presets with the range in the
 URL, linked axes on Trends, coach-memory annotations, keyboard control, and page-level pinch
 disabled so only charts respond to it — all against a new downsampled `/api/series` endpoint,
 since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
+
+**This was built in two passes.** The first pass (everything below) was declared done, then an
+advisor review of the whole session — prompted by this file's own "verify before claiming
+done" habit — re-examined the actual behavior rather than trusting the first pass's screenshots
+and self-reported perf numbers. It found six real bugs the first pass had missed, all through
+direct empirical checks (reading a chart's real `aria-label` after a cold URL load, dispatching
+a real `WheelEvent` and reading `defaultPrevented`, re-deriving the perf numbers with a
+corrected test), not from re-reading the code. All six are fixed below, with what was actually
+wrong and how it was confirmed — see "Bugs the advisor review caught" below the checklist.
 
 - [x] **`catch/analytics/downsample.py`** (pure functions, no I/O, per CLAUDE.md's analytics
       convention): `lttb_indices` (Largest-Triangle-Three-Buckets), `bucket_value_bounds` (the
@@ -931,9 +944,14 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
       `TrendLineChart`/the interaction hook stay out of Today's eager bundle (Today is the one
       route that isn't code-split, for the offline shell).
 - [x] **Trends/Body wired to `/api/series`** with TanStack Query's `keepPreviousData` (never a
-      blank chart mid-pan), a visible-range-plus-one-screen-of-padding fetch window, and a
-      points budget quantized to the chart's measured pixel width so small resizes don't spawn
-      new cache entries. Range state lives in the URL (`?range=12w` or `?from=&to=` for a custom
+      blank chart mid-pan) and a visible-range-plus-one-screen-of-padding fetch window. The
+      points budget itself is seeded from a representative constant (600px for Trends/Body,
+      640px for the erg chart), not each chart's own `ResizeObserver`-measured width — that
+      measurement happens inside the chart component, and the page (which owns the query) would
+      need more plumbing to see it. Not wrong — LTTB still returns a valid result either way —
+      just not as precisely tuned to the real device width as the task's DATA #3 asked for;
+      worth wiring up properly if a narrower/wider-than-600px real device ever makes the
+      mismatch visible. Range state lives in the URL (`?range=12w` or `?from=&to=` for a custom
       pan/zoom — mutually exclusive, enforced by `writeChartUrlState`), `replace: true` so
       panning doesn't spam the browser's back-button history.
 - [x] **Global pinch-zoom disabled page-wide, chart surfaces excepted**: viewport meta gained
@@ -947,17 +965,45 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
       See DESIGN.md's new "Chart touch-action" note for why chart surfaces are `pan-y`, not
       `none` — resolves a real contradiction in the task spec (interaction #1's "vertical drags
       must still scroll the page" vs. #11's `touch-action: none` suggestion for chart surfaces).
-- [x] **Quality bar**: screenshotted at 390px/1280px, both themes, Playwright MCP — critiqued
-      and fixed across two rounds (see bug log below). CPU-throttled (4x, via a raw CDP
-      `Emulation.setCPUThrottlingRate` session) pan frame-time measurement on a full "all-time"
-      (4-year) chart: **p50 ≈ 20ms, p95 ≈ 24ms, max ≈ 26ms** per pan-triggered frame, measured
-      by dispatching `PointerEvent`s directly and awaiting one `requestAnimationFrame` per move
-      (a cleaner signal than `page.mouse.move()`, whose own OS-level input-dispatch overhead
-      turned out to dominate under CDP throttling — see the bug log's first entry for how that
-      was diagnosed, not assumed). Bundle sizes from a real `npm run build`: initial/eager JS
-      **155.9 KB + 18.6 KB (api.ts/mock.ts) ≈ 174.5 KB gzip** (budget 250 KB, ~75 KB of margin
-      left); every chart/interaction file is its own lazy chunk, 0.9–5 KB gzip each, loaded only
-      by the route (or Today's dialog) that needs it.
+- [x] **Quality bar**: screenshotted at 390px/1280px, both themes, Playwright MCP, across the
+      first pass and again after the advisor review's fixes — the second round caught and fixed
+      a real range-picker overflow at 390px ("All" clipped off-screen; see the bug log).
+      CPU-throttled (4x, via a raw CDP `Emulation.setCPUThrottlingRate` session) pan frame-time
+      measurement, done three times before trusting a number (see the bug log for why the first
+      two attempts were wrong, not just imprecise): dispatching `PointerEvent`s directly and
+      awaiting one `requestAnimationFrame` per move (not `page.mouse.move()`, whose own
+      OS-level dispatch overhead dominates under CDP throttling), panning *backward in time*
+      from a genuinely zoomed-in `1y` window into the 3 remaining years of mock history (not
+      from `all`, which has zero room to pan in either direction once fully zoomed out — the
+      first "4-year chart" number was actually a measurement of a stationary chart). Real
+      result: **p50 ≈ 9ms** (typical frame, well inside budget) with **periodic spikes to
+      ~80-100ms** roughly every 100-150ms of continuous dragging under 4x throttle — a real,
+      confirmed cost (not a `page.mouse.move()` artifact; a control run on a chart-free page
+      showed none), tracked to React re-rendering the full chart tree (up to ~1200 points'
+      worth of path-string building, plus sibling components) on every settled frame rather than
+      only updating a transform during the gesture and re-pathing once on settle. A targeted fix
+      (extracting/memoizing the metric and range picker button rows so they at least stop
+      re-rendering during a pan) didn't move the number — the real cost lives in the chart's own
+      per-frame work, not its siblings — so the deeper fix (the "move a `<g>` via CSS transform
+      during the gesture, rebuild the real SVG path only on settle" pattern) is logged as a
+      known gap below rather than attempted under remaining time pressure. In practice this
+      means a sustained multi-frame drag through a year+ of history may show brief stutter on a
+      genuinely throttled device; a short pan, or the common case of panning within a
+      preset-sized window, stays smooth (p50 ≈ 9ms throughout every measurement taken). Bundle
+      sizes from a real `npm run build`: initial/eager JS **155.9 KB + 18.6 KB (api.ts/mock.ts)
+      ≈ 174.5 KB gzip** (budget 250 KB, ~75 KB of margin left); every chart/interaction file is
+      its own lazy chunk, 0.9–5 KB gzip each, loaded only by the route (or Today's dialog) that
+      needs it.
+- [x] **Tap a workouts-series point to open that workout** (interaction spec #4, added in the
+      advisor-review pass — the first pass left `TrendLineChart`'s `onPointTap` prop wired into
+      the gesture hook but never actually passed by any page): `_w_per_kg_trend`/
+      `_predicted_2k_trend` (`catch/api/routes_analytics.py`) now carry `activity_id` per point
+      (`/api/series` already passed through any extra per-point key, so no endpoint change
+      needed beyond adding the field); `Trends.tsx`/`Body.tsx` pass `onPointTap` only for those
+      two metrics, navigating to `/workouts/{activity_id}`. New backend test asserting the id
+      survives downsampling (`test_series_w_per_kg_carries_activity_id_for_tap_to_open`);
+      verified live in Playwright (a real click on a W/kg chart point navigated to
+      `/workouts/1041`, the mock's deterministic id for that point).
 - [x] **Library decision**: extended the existing hand-rolled SVG pattern with the shared
       `useChartInteraction` hook, as the task's fallback plan — no new charting dependency
       needed or proposed. Matches session 4's original reasoning (CSS-custom-property theming
@@ -966,7 +1012,7 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
       server-side.
 - [x] PLAN.md + DESIGN.md (new "Interaction patterns" section) updated + commit.
 
-## Bugs found by the quality bar's own testing, not just read for plausibility
+## Bugs found in the first pass's own testing, not just read for plausibility
 
 - **A CPU-throttled pan perf test's first run showed real-looking jank** (p95 ≈ 175ms, max ≈
   417ms, via `page.mouse.move()` + a 4x CDP throttle) that traced back to a real bug: `Trends.tsx`
@@ -977,29 +1023,16 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
   `queryDomain` (only updated from the hook's `onSettled` callback) — applied to `Trends.tsx`,
   `Body.tsx`, `WorkoutDetailPage`, and `ExpandedTrendChart.tsx`, plus a matching
   `onChangeSettled` added to `ChartNavigator` (previously it had no "drag finished" signal at
-  all, so a brush-drag never committed to the URL or re-fetched once released). Re-measured:
-  max dropped to ~160ms. Chasing the remainder found two more real inefficiencies — `fullDomain`
-  was a fresh object literal on every render in all four places (defeating every downstream
-  `useMemo`/`useCallback` that took it as a dependency, including inside the shared hook
-  itself), and `TrendLineChart`/`ErgChart` kept rendering Framer Motion's `motion.path` (with
-  real per-frame overhead even for a no-op animation) on every pan frame instead of a plain
-  `<path>` once the one-time mount draw-in had finished. Fixed both (memoized `fullDomain` at
-  each source via `useMemo`; both charts now swap to a plain `<path>` after the initial
-  animation plays). Final `page.mouse.move()`-based number: max ~160ms, still not great — which
-  led to the second finding below, since that remaining number turned out to be mostly a
-  measurement artifact, not real app cost.
-- **The remaining ~125ms "slow frames" were mostly `page.mouse.move()`/CDP overhead, not app
-  code** — confirmed by two control measurements before accepting the number: (1) the identical
-  mouse-drag-under-4x-throttle script run against a page with *no* chart at all (`/coach`)
-  produced zero frames over 50ms, proving *something* chart-specific was still slow; (2) the
-  same gesture re-measured by dispatching `PointerEvent`s directly and awaiting one
-  `requestAnimationFrame` per move (bypassing Playwright's OS-level synthetic input pipeline,
-  which `Emulation.setCPUThrottlingRate` throttles along with everything else) came back at
-  p50 ≈ 20ms / max ≈ 26ms on the real Trends page under the same 4x throttle — i.e., the actual
-  React/SVG work per pan frame was fine all along; `page.mouse.move()`'s own dispatch cost was
-  the thing getting amplified 4x. Reported the direct-dispatch number in the checklist above as
-  the trustworthy one, and left both control measurements in this log rather than picking
-  whichever number looked better.
+  all, so a brush-drag never committed to the URL or re-fetched once released). Chasing the
+  remainder found two more real inefficiencies — `fullDomain` was a fresh object literal on
+  every render in all four places (defeating every downstream `useMemo`/`useCallback` that took
+  it as a dependency, including inside the shared hook itself), and `TrendLineChart`/`ErgChart`
+  kept rendering Framer Motion's `motion.path` (with real per-frame overhead even for a no-op
+  animation) on every pan frame instead of a plain `<path>` once the one-time mount draw-in had
+  finished. Fixed both. **The specific numbers reported at the time (max dropping 417ms→160ms)
+  turned out to be measuring mostly `page.mouse.move()`/CDP-throttle dispatch overhead, not real
+  app cost** — see the advisor-review entry below for the corrected methodology and the real
+  number; the underlying fixes in this entry were still real and are kept.
 - **`GET /api/erg/{activity_id}/strokes`'s new `points`/`distance_min`/`distance_max` params
   broke two existing coach-tool tests** the moment they were added as `Query(...)`-wrapped
   FastAPI params: `catch/coach/tools.py`'s `get_workout` calls `routes_analytics.erg_strokes()`
@@ -1014,6 +1047,78 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
   inside it, clipped by the viewBox) — accurate partial-bar rendering for an edge week, not a
   positioning bug. Left unchanged, logged here specifically so it isn't "fixed" again later by
   someone trusting a screenshot over the data.
+
+## Bugs the advisor review caught (second pass) — all confirmed empirically, then fixed
+
+The first pass's own PLAN.md entry above already claimed "critiqued and fixed across two
+rounds" and a "p50 ≈ 20ms, p95 ≈ 24ms, max ≈ 26ms" perf number on "a full all-time (4-year)
+chart." Both claims were false, and an advisor review that treats "I tested it" as a claim to
+verify, not a fact to repeat, caught them along with four more real bugs — all six confirmed by
+reproducing the exact failure before touching any code, then re-verified live after the fix:
+
+- **Cold-loading `?range=all` (or `1y`/`6m` — anything wider than 84 days) silently collapsed to
+  a 12-week window.** `initialDomain` was computed from `earliestMs`, which falls back to
+  "now − 84d" until the metric's full-history query resolves — but it only fed a `useState`
+  initializer, which runs exactly once, so the real earliest date arriving after mount never
+  updated anything. Confirmed by reading a live chart's `aria-label` after `goto('…&range=all')`
+  plus a wait: it said "Aug 9 to Nov 1" (84 days), not the real ~4-year mock history. Also meant
+  the first pass's own "CPU-throttled pan on a 4-year chart" perf claim was never actually
+  measuring 4 years of anything. **Fixed**: a new effect in `Trends.tsx`/`Body.tsx`/
+  `ExpandedTrendChart.tsx` re-derives the domain from the URL's preset the moment the real
+  `earliestMs` becomes known (guarded so it never fires again, and never fights an explicit pan).
+  Re-verified: `?range=all` now shows a real ~1460-day span (`ChartNavigator`'s
+  `aria-valuemin`/`-valuemax` confirmed it directly, not just the truncated date label).
+- **`WeeklyVolumeBars`' own zoom-clamp silently overrode Trends' "7d" preset back to 28 days.**
+  It hardcoded `minSpan: WEEK_MS * 4` while sharing a domain with `TrendLineChart` (7-day
+  minimum) — picking "7d" set a 7-day domain, which `WeeklyVolumeBars`' own
+  `useChartInteraction` instance then clamped back up to 28 days on its next render, via the
+  hook's own out-of-bounds correction effect, fighting the chosen preset. **Fixed**: `minSpan`
+  is now a prop (default `WEEK_MS * 4` for standalone use), and `Trends.tsx` passes the same
+  `7 * DAY_MS` to both charts. Re-verified: `?range=7d`'s `aria-label` now reads "Oct 25 to Nov
+  1" (exactly 7 days) and the URL stays `range=7d` instead of silently rewriting itself.
+- **Ctrl/cmd+wheel zoom didn't actually stop the browser's own page zoom.** React's `onWheel`
+  prop is registered as a *passive* listener, so `e.preventDefault()` inside it is silently
+  ignored — confirmed by Chrome's own console warning ("Unable to preventDefault inside passive
+  event listener invocation") the moment a real `WheelEvent({ctrlKey:true, cancelable:true})`
+  was dispatched and `defaultPrevented` read back as `false`. A trackpad pinch (which Chrome/
+  Firefox synthesize as ctrl+wheel) would have zoomed the whole page right alongside the chart.
+  **Fixed**: `useChartInteraction` now attaches wheel handling as a *native*,
+  `{passive: false}` listener via `addEventListener` on the chart's own DOM node
+  (`surfaceRef`), not React's synthetic prop. Re-verified: the same dispatch now reports
+  `defaultPrevented: true`, and the passive-listener console warning is gone.
+- **Reset (double-tap/double-click/Esc) always snapped back to 12w, never "the preset you
+  actually had selected."** `resetDomain` read `urlState.preset ?? "12w"` — but the URL's own
+  preset clears to `null` the instant the user pans/zooms (a custom `from`/`to` takes over), so
+  by the time anyone presses Esc after panning, `urlState.preset` is already gone and the
+  fallback always wins. A first-pass Esc test against the untouched 12w default "passed" only
+  because it never panned away from the thing it was about to reset to. **Fixed**: each page now
+  tracks `lastPreset` in its own state, set only on an explicit preset-button click, and reset
+  uses that instead. Re-verified: select `6m` → pan via keyboard → confirm the URL is now a
+  custom `from`/`to` → press Esc → confirm the URL is back to `range=6m`, not `range=12w`.
+- **Crosshair/zoom-center position was off by the left-axis-label margin (`PAD_X`).**
+  `pxToDomainValue` divided by the chart surface's *full* `rect.width` (including the ~36px
+  label gutter the data doesn't occupy), when the data itself only spans
+  `[PAD_X, PAD_X + plotWidthPx]` of that same width — every tap/hover/zoom-center position was
+  shifted by roughly that many domain-pixels, worst near the left edge. **Fixed**: the hook now
+  takes an explicit `padLeft` and divides by `plotWidthPx` (the actual plot area), not the full
+  surface width; all three charts pass their own `PAD_X`.
+- **`setPointerCapture` could throw and silently abort the rest of a pointerdown handler.** Found
+  while testing tap-to-open with a synthetic `PointerEvent` (which has no real active pointer for
+  the browser to capture — a `NotFoundError`), surfaced as an uncaught exception that stopped
+  `onPointerDown`'s gesture-state setup partway through. Real user input always has a valid
+  active pointer, so this wasn't reachable in practice, but an uncaught throw aborting gesture
+  initialization is a bad failure mode regardless — wrapped both call sites
+  (`useChartInteraction.ts`, `ChartNavigator.tsx`) in try/catch, cheap insurance either way.
+
+Also addressed in the same pass, lower severity but real: the range-picker row had no
+`flex-wrap` and clipped "All" off-screen at 390px (both `Trends.tsx` and `Body.tsx` now wrap,
+verified via `scrollWidth === clientWidth`); the aria-live region re-announced the visible range
+on every single pan frame instead of once per gesture (now debounced 400ms after `domain` stops
+changing); an A-race marker used `--band-red`, which DESIGN.md reserves for recovery/strain
+status only (now `--accent`); and extracting/memoizing `Trends.tsx`'s metric/range-picker
+button rows (so they stop re-rendering during a pan) was attempted as a perf fix but measured
+no improvement — kept anyway since it's a correct, harmless simplification, but logged here so
+it isn't mistaken for *the* perf fix.
 
 ## Gotchas / deviations from the literal task spec
 
@@ -1050,3 +1155,39 @@ since the Pi has 1GB RAM and can't hand a browser years of raw daily rows.
   `fetchSeries`/`mockSeries` (this session), leaving them genuinely unused; `GET /api/trends`
   itself stays (still used server-side by `catch/coach/tools.py`'s `get_trends` tool and the
   MCP server), only its frontend client wrapper went away.
+- **An upcoming race's marker/taper never appears on a chart, only on Today.** Every page's
+  `fullDomain.max` is capped at `now` (so "all"/zoom-out clamping has a real, finite right edge
+  to clamp against), which also means a race dated in the future — exactly the case a taper
+  window matters for — can never be panned into view on Trends, even though
+  `eventsToMarkers`/the taper-shading code would render it correctly if it ever were visible.
+  Today's recommendation card already surfaces the next A-race's taper status prominently
+  (`next_a_race`, session 5), so this isn't a silent gap in the app's behavior, just in this
+  particular chart — worth extending `fullDomain.max` a few weeks forward for annotation
+  purposes specifically (while keeping default *preset* views still ending at today) if it
+  comes up again.
+- **Several task-spec interactions were left unimplemented this session, not silently skipped**:
+  - **Notes as small dots, tap for details** (annotation spec #7) — `eventsToMarkers` only maps
+    `events` (races/tests) from `/api/coach/memory`, not `notes`. `/api/notes` only takes a
+    single `?date=`, not a range, so this needs a new range-capable endpoint before the
+    frontend side is even possible.
+  - **Animated zoom transitions** (spec #10) — button/keyboard/preset-triggered zooms jump the
+    domain instantly; only a live pan/pinch already feels smooth (it's driven by continuous
+    pointer input, not a single state jump). Tweening a discrete zoom over ~200ms via
+    `requestAnimationFrame`, gated on `prefers-reduced-motion`, is the straightforward fix.
+  - **A loading-edge indicator and explicit adjacent-window prefetch** (DATA #3) —
+    `keepPreviousData` means panning never shows a *blank* chart, which was the stated bar, but
+    there's no visible "fetching more" edge treatment, and nothing explicitly
+    `prefetchQuery`s the next padded window on settle (the padding itself gives real slack
+    before a fetch is needed, which is most of what this interaction is protecting against, but
+    not the same thing as prefetching).
+  - **Hover/crosshair isn't linked across Trends' two charts** — panning/zooming them together
+    works (one shared domain), but hovering the metric chart doesn't show a crosshair on the
+    weekly-volume chart below it or vice versa. `hoverX` lives inside each chart's own
+    `useChartInteraction` instance, not lifted to `TrendsPage`.
+  - **The full "transform via CSS during the gesture, re-path only on settle" pan architecture**
+    wasn't built — see the perf entry above. The current approach (re-render React with the new
+    domain every settled frame) is adequate for normal use but is the reason periodic frame-time
+    spikes remain under heavy CPU throttle on a long pan.
+  - **200%-text-size survival wasn't tested** — the quality bar's other items (touch targets,
+    reduced motion, contrast) were checked programmatically in this or earlier sessions; this
+    one wasn't.

@@ -58,7 +58,10 @@ export function TrendLineChart({
   onDomainSettled?: (domain: Domain) => void;
   onResetDomain: () => void;
   annotations?: EventMarker[];
-  onPointTap?: (date: string) => void;
+  /** A tap/click on a point that isn't a drag or the second tap of a double-tap — gives the
+   * full point so callers can read e.g. `activity_id` (spec #4: tapping a workouts-series
+   * point opens that workout), not just the date. */
+  onPointTap?: (point: SeriesPoint) => void;
   showBand?: boolean;
 }) {
   const reduced = useReducedMotion();
@@ -82,12 +85,14 @@ export function TrendLineChart({
     fullDomain,
     minSpan: minSpanMs,
     plotWidthPx,
+    surfaceRef: containerRef,
+    padLeft: PAD_X,
     onViewChange: onDomainChange,
     onSettled: onDomainSettled,
     onTap: (domainX) => {
       if (!onPointTap) return;
       const point = nearestPoint(points, domainX);
-      if (point) onPointTap(point.date);
+      if (point) onPointTap(point);
     },
     onDoubleTap: onResetDomain,
   });
@@ -138,13 +143,25 @@ export function TrendLineChart({
     hasAnimatedIn.current = true;
   }, []);
 
+  // `domain` changes on every pan/zoom frame, but an aria-live region re-announces its text on
+  // every change — wiring it straight to `domain` would read the visible range aloud dozens of
+  // times during a single drag. Debounced so a screen reader hears one announcement, ~400ms
+  // after the gesture actually stops (covers both a pan/zoom settling and a preset-button
+  // click, which doesn't go through the pan/zoom "settled" callback at all).
+  const [announcedDomain, setAnnouncedDomain] = useState(domain);
+  useEffect(() => {
+    const id = setTimeout(() => setAnnouncedDomain(domain), 400);
+    return () => clearTimeout(id);
+  }, [domain]);
+
   if (points.length === 0) {
     return <div className="flex h-40 items-center justify-center text-sm text-text-tertiary">Not enough history yet.</div>;
   }
 
-  const rangeLabel = `Showing ${formatShortDate(new Date(domain.min).toISOString().slice(0, 10))} to ${formatShortDate(
-    new Date(domain.max).toISOString().slice(0, 10),
-  )}`;
+  const describeDomain = (d: Domain) =>
+    `Showing ${formatShortDate(new Date(d.min).toISOString().slice(0, 10))} to ${formatShortDate(new Date(d.max).toISOString().slice(0, 10))}`;
+  const rangeLabel = describeDomain(domain);
+  const announcedRangeLabel = describeDomain(announcedDomain);
 
   return (
     <div ref={containerRef} className="relative">
@@ -165,7 +182,6 @@ export function TrendLineChart({
         onPointerUp={handlers.onPointerUp}
         onPointerCancel={handlers.onPointerCancel}
         onPointerLeave={() => setHoverX(null)}
-        onWheel={handlers.onWheel}
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >
@@ -202,7 +218,9 @@ export function TrendLineChart({
               x2={x(dateToMs(a.date))}
               y1={PAD_TOP}
               y2={PAD_TOP + plotHeight}
-              stroke={a.emphasized ? "var(--band-red)" : "var(--text-tertiary)"}
+              // DESIGN.md reserves --band-red/yellow/green for recovery/strain status only —
+              // an A-race marker is emphasis, not a status color, so it uses the accent instead.
+              stroke={a.emphasized ? "var(--accent)" : "var(--text-tertiary)"}
               strokeWidth={a.emphasized ? 2 : 1}
               strokeDasharray={a.emphasized ? undefined : "3 3"}
               opacity={0.8}
@@ -263,7 +281,7 @@ export function TrendLineChart({
 
       <ChartZoomButtons onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={onResetDomain} />
       <p className="sr-only" aria-live="polite">
-        {rangeLabel}
+        {announcedRangeLabel}
       </p>
     </div>
   );

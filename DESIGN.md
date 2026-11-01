@@ -103,6 +103,13 @@ array index — two downsampled series (e.g. a trend's primary value and its sec
 line) don't necessarily land on the same x-positions after LTTB picks different representative
 points for each, so indexing them in lockstep would show mismatched dates.
 
+**Ctrl/cmd+wheel zoom is a native `addEventListener('wheel', …, {passive: false})`, not React's
+`onWheel` prop.** React registers its delegated wheel listener as passive, so
+`e.preventDefault()` inside a JSX `onWheel` handler is silently ignored (confirmed via Chrome's
+own "Unable to preventDefault inside passive event listener invocation" warning) — a trackpad
+pinch would zoom the whole page right alongside the chart. `useChartInteraction` takes a
+`surfaceRef` specifically to attach this natively to the chart's own DOM node.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

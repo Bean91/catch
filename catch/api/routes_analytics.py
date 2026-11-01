@@ -321,7 +321,9 @@ def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[di
         weight_kg = _nearest_weight_kg(db, a.start)
         value = w_per_kg(a.avg_power, weight_kg)
         if value is not None and a.start is not None:
-            out.append({"date": a.start.date(), "value": value})
+            # activity_id lets the frontend chart open this exact workout on tap (interaction
+            # spec #4) — /api/series already passes any extra per-point keys through verbatim.
+            out.append({"date": a.start.date(), "value": value, "activity_id": a.id})
     return out
 
 
@@ -349,7 +351,7 @@ def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> lis
         pace = (a.duration / a.distance) * 500.0
         result = predict_2k([{"distance_m": a.distance, "pace_s_per_500": pace, "label": a.start.date().isoformat()}])
         if result["value"] is not None:
-            out.append({"date": a.start.date(), "value": result["predicted_time_s"]})
+            out.append({"date": a.start.date(), "value": result["predicted_time_s"], "activity_id": a.id})
     return out
 
 

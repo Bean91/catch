@@ -419,6 +419,11 @@ function metricExtrasAt(metric: TrendMetric, i: number, step: number): Partial<T
   if (metric === "weight") {
     return { smoothed: (metricValueAt("weight", i - step) ?? 0) - 0.2 };
   }
+  if (metric === "w_per_kg" || metric === "predicted_2k") {
+    // A deterministic fake id — mockWorkoutDetail(id) happily generates a plausible workout
+    // for any id, so tapping one of these points in mock mode (spec #4) opens something real.
+    return { activity_id: 1000 + (i % 400) };
+  }
   return {};
 }
 

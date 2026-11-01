@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { Sparkline } from "../components/today/Sparkline";
@@ -25,6 +25,7 @@ function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
 }
 
 export function BodyPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const now = useMemo(() => new Date(), []);
 
@@ -54,6 +55,20 @@ export function BodyPage() {
   const [domain, setDomain] = useState<Domain>(initialDomain);
   const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
 
+  // Re-derives the domain once the real earliestMs loads — see Trends.tsx's identical effect
+  // for the full explanation (a cold `?range=all`/`1y`/`6m` load would otherwise permanently
+  // stick at the ~60-day mount-time fallback span, since useState's initializer only runs once).
+  const lastAppliedEarliestMs = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastAppliedEarliestMs.current === earliestMs) return;
+    lastAppliedEarliestMs.current = earliestMs;
+    if (!urlState.preset) return;
+    const next = presetToDomain(urlState.preset, now, new Date(earliestMs));
+    setDomain(next);
+    setQueryDomain(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earliestMs]);
+
   const commitToUrl = useCallback(
     (next: Domain, preset: RangePreset | null) => {
       setParams(
@@ -78,13 +93,19 @@ export function BodyPage() {
     [commitToUrl],
   );
 
+  // See Trends.tsx's identical `lastPreset` for why this can't just be `urlState.preset ??
+  // "12w"` — the URL's preset clears to null the moment the user pans, so that would always
+  // reset to 12w instead of "whatever preset was active before this pan."
+  const [lastPreset, setLastPreset] = useState<RangePreset>(urlState.preset ?? "12w");
+
   const selectPreset = (preset: RangePreset) => {
     const next = presetToDomain(preset, now, new Date(earliestMs));
     setDomain(next);
     setQueryDomain(next);
+    setLastPreset(preset);
     commitToUrl(next, preset);
   };
-  const resetDomain = () => selectPreset(urlState.preset ?? "12w");
+  const resetDomain = () => selectPreset(lastPreset);
 
   const padded = padDomain(queryDomain, fullDomain);
   const points = quantizePoints(600);
@@ -111,7 +132,7 @@ export function BodyPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Body</h1>
 
-      <div className="flex gap-2" role="tablist" aria-label="Range">
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Range">
         {RANGE_PRESETS.map((r) => (
           <button
             key={r.value}
@@ -202,6 +223,9 @@ export function BodyPage() {
             onDomainSettled={onDomainSettled}
             onResetDomain={resetDomain}
             showBand={false}
+            onPointTap={(point) => {
+              if (point.activity_id != null) navigate(`/workouts/${point.activity_id}`);
+            }}
           />
         ) : (
           <EmptyState message="No erg power + weight pairing yet." />

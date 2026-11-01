@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { WeeklyVolumeBars } from "../components/charts/WeeklyVolumeBars";
@@ -42,7 +42,10 @@ function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
   return { from: new Date(min).toISOString().slice(0, 10), to: new Date(max).toISOString().slice(0, 10) };
 }
 
+const TAPPABLE_WORKOUT_METRICS = new Set<TrendMetric>(["w_per_kg", "predicted_2k"]);
+
 export function TrendsPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const metric = (params.get("metric") as TrendMetric | null) ?? "recovery";
   const activeMetric = METRICS.find((m) => m.value === metric) ?? METRICS[0];
@@ -81,6 +84,28 @@ export function TrendsPage() {
   const [queryDomain, setQueryDomain] = useState<Domain>(initialDomain);
   const [plotWidthPx] = useState(600); // refined per-chart via ResizeObserver inside each chart; this seeds the initial fetch budget
 
+  // `initialDomain` above is computed from `earliestMs`, which falls back to "now - 84d" until
+  // `allQuery` resolves with the metric's *real* earliest date — so a cold load of `?range=all`
+  // (or `1y`/`6m`, anything wider than that 84-day fallback) would otherwise permanently stick
+  // at the fallback span, since `useState`'s initializer only runs once. This effect re-derives
+  // the domain from the URL's preset whenever the real `earliestMs` becomes known (on mount,
+  // and again on a metric switch) — but only while still in preset mode (`urlState.preset` set,
+  // i.e. the user hasn't panned/zoomed into a custom range since), so it never fights an
+  // explicit user action. A real bug caught only by reading the chart's own aria-label after a
+  // cold `?range=all` load, not by trusting the preset button's visual selected state.
+  const lastAppliedEarliestMs = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastAppliedEarliestMs.current === earliestMs) return;
+    lastAppliedEarliestMs.current = earliestMs;
+    if (!urlState.preset) return;
+    const next = presetToDomain(urlState.preset, now, new Date(earliestMs));
+    setDomain(next);
+    setQueryDomain(next);
+    // urlState/now are derived fresh every render and would make this effect fire every
+    // render if included — only a real earliestMs change should re-trigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earliestMs]);
+
   const commitToUrl = useCallback(
     (next: Domain, preset: RangePreset | null) => {
       setParams(
@@ -103,22 +128,36 @@ export function TrendsPage() {
     [commitToUrl],
   );
 
-  const setMetric = (value: TrendMetric) => {
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("metric", value);
-      return next;
-    });
-  };
+  const setMetric = useCallback(
+    (value: TrendMetric) => {
+      setParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("metric", value);
+        return next;
+      });
+    },
+    [setParams],
+  );
 
-  const selectPreset = (preset: RangePreset) => {
-    const next = presetToDomain(preset, now, new Date(earliestMs));
-    setDomain(next);
-    setQueryDomain(next);
-    commitToUrl(next, preset);
-  };
+  // The URL's own preset clears to null the moment the user pans/zooms off it (a custom
+  // from/to takes over) — so using `urlState.preset ?? "12w"` for double-tap/Esc/the navigator
+  // reset would always snap back to 12w after any pan, not "whatever preset was active before
+  // that pan." This tracks the last *explicitly chosen* preset separately so reset means what
+  // interaction spec #5 asks for.
+  const [lastPreset, setLastPreset] = useState<RangePreset>(urlState.preset ?? "12w");
 
-  const resetDomain = () => selectPreset(urlState.preset ?? "12w");
+  const selectPreset = useCallback(
+    (preset: RangePreset) => {
+      const next = presetToDomain(preset, now, new Date(earliestMs));
+      setDomain(next);
+      setQueryDomain(next);
+      setLastPreset(preset);
+      commitToUrl(next, preset);
+    },
+    [now, earliestMs, commitToUrl],
+  );
+
+  const resetDomain = useCallback(() => selectPreset(lastPreset), [selectPreset, lastPreset]);
 
   const padded = padDomain(queryDomain, fullDomain);
   const points = quantizePoints(plotWidthPx);
@@ -129,7 +168,6 @@ export function TrendsPage() {
   });
   const volumeQuery = useQuery({ queryKey: ["trends-volume-long"], queryFn: () => fetchVolume(104) });
   const memoryQuery = useQuery({ queryKey: ["memory"], queryFn: fetchMemory });
-  const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
 
   const activePoints = seriesQuery.data?.series[metric]?.points ?? [];
   const annotations = useMemo(() => eventsToMarkers(memoryQuery.data?.events ?? []), [memoryQuery.data]);
@@ -146,41 +184,8 @@ export function TrendsPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Trends</h1>
 
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Metric">
-        {METRICS.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            role="tab"
-            aria-selected={metric === m.value}
-            onClick={() => setMetric(m.value)}
-            className={`min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors ${
-              metric === m.value
-                ? "border-accent bg-accent text-accent-contrast"
-                : "border-border bg-surface text-text-secondary hover:border-accent/40"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2" role="tablist" aria-label="Range">
-        {RANGE_PRESETS.map((r) => (
-          <button
-            key={r.value}
-            type="button"
-            role="tab"
-            aria-selected={urlState.preset === r.value}
-            onClick={() => selectPreset(r.value)}
-            className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
-              urlState.preset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      <MetricPicker metric={metric} onSelect={setMetric} />
+      <RangePicker activePreset={urlState.preset} onSelect={selectPreset} />
 
       <Card title={activeMetric.label}>
         {seriesQuery.isLoading && activePoints.length === 0 ? (
@@ -192,10 +197,18 @@ export function TrendsPage() {
             formatValue={activeMetric.format}
             domain={domain}
             fullDomain={fullDomain}
+            minSpanMs={7 * DAY_MS}
             onDomainChange={setDomain}
             onDomainSettled={onDomainSettled}
             onResetDomain={resetDomain}
             annotations={annotations}
+            onPointTap={
+              TAPPABLE_WORKOUT_METRICS.has(metric)
+                ? (point) => {
+                    if (point.activity_id != null) navigate(`/workouts/${point.activity_id}`);
+                  }
+                : undefined
+            }
           />
         )}
         <div className="mt-3">
@@ -218,6 +231,7 @@ export function TrendsPage() {
             weeks={volumeQuery.data ?? []}
             domain={domain}
             fullDomain={fullDomain}
+            minSpan={7 * DAY_MS}
             onDomainChange={setDomain}
             onDomainSettled={onDomainSettled}
             onResetDomain={resetDomain}
@@ -225,9 +239,7 @@ export function TrendsPage() {
         )}
       </Card>
 
-      <Card title="Personal bests">
-        {pbsQuery.isLoading ? <Skeleton /> : pbsQuery.data ? <PbTable pbs={pbsQuery.data} /> : null}
-      </Card>
+      <PersonalBestsCard />
     </div>
   );
 }
@@ -235,3 +247,57 @@ export function TrendsPage() {
 function Skeleton() {
   return <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />;
 }
+
+// Extracted and memoized so these don't re-render on every pan/zoom frame — TrendsPage's
+// `domain` state changes on every one of those, and without this split React would reconcile
+// all 16 of these buttons each time too, real measured cost in a CPU-throttled pan test
+// (the task's own 390px screenshots also showed the un-wrapped range row overflowing, fixed
+// here by the same `flex-wrap` the metric row already had).
+const MetricPicker = memo(function MetricPicker({ metric, onSelect }: { metric: TrendMetric; onSelect: (value: TrendMetric) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Metric">
+      {METRICS.map((m) => (
+        <button
+          key={m.value}
+          type="button"
+          role="tab"
+          aria-selected={metric === m.value}
+          onClick={() => onSelect(m.value)}
+          className={`min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors ${
+            metric === m.value
+              ? "border-accent bg-accent text-accent-contrast"
+              : "border-border bg-surface text-text-secondary hover:border-accent/40"
+          }`}
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+});
+
+const RangePicker = memo(function RangePicker({ activePreset, onSelect }: { activePreset: RangePreset | null; onSelect: (preset: RangePreset) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Range">
+      {RANGE_PRESETS.map((r) => (
+        <button
+          key={r.value}
+          type="button"
+          role="tab"
+          aria-selected={activePreset === r.value}
+          onClick={() => onSelect(r.value)}
+          className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
+            activePreset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
+          }`}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
+  );
+});
+
+const PersonalBestsCard = memo(function PersonalBestsCard() {
+  const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
+  return <Card title="Personal bests">{pbsQuery.isLoading ? <Skeleton /> : pbsQuery.data ? <PbTable pbs={pbsQuery.data} /> : null}</Card>;
+});

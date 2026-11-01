@@ -23,6 +23,7 @@ export function WeeklyVolumeBars({
   weeks,
   domain,
   fullDomain,
+  minSpan = WEEK_MS * 4,
   onDomainChange,
   onDomainSettled,
   onResetDomain,
@@ -30,6 +31,12 @@ export function WeeklyVolumeBars({
   weeks: VolumeWeek[];
   domain: Domain;
   fullDomain: Domain;
+  /** Defaults to 4 weeks (a volume chart has nothing to show inside a single week), but a
+   * caller linking this to a sibling chart with a *smaller* minimum zoom (e.g. Trends'
+   * 7-day-minimum metric chart) must pass that same value — otherwise this chart's own
+   * clamp-on-mount silently widens the shared domain back out, fighting the other chart's
+   * "7d" preset every time it's picked. */
+  minSpan?: number;
   onDomainChange: (domain: Domain) => void;
   onDomainSettled?: (domain: Domain) => void;
   onResetDomain: () => void;
@@ -52,8 +59,10 @@ export function WeeklyVolumeBars({
   const { handlers, zoomIn, zoomOut, hoverX, setHoverX } = useChartInteraction({
     domain,
     fullDomain,
-    minSpan: WEEK_MS * 4,
+    minSpan,
     plotWidthPx,
+    surfaceRef: containerRef,
+    padLeft: PAD_X,
     onViewChange: onDomainChange,
     onSettled: onDomainSettled,
     onDoubleTap: onResetDomain,
@@ -99,7 +108,6 @@ export function WeeklyVolumeBars({
         onPointerUp={handlers.onPointerUp}
         onPointerCancel={handlers.onPointerCancel}
         onPointerLeave={() => setHoverX(null)}
-        onWheel={handlers.onWheel}
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >

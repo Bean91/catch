@@ -99,6 +99,8 @@ export function ErgChart({
     fullDomain,
     minSpan: MIN_SPAN_M,
     plotWidthPx,
+    surfaceRef: containerRef,
+    padLeft: PAD_X,
     onViewChange: onDomainChange,
     onSettled: onDomainSettled,
     onDoubleTap: onResetDomain,
@@ -173,7 +175,6 @@ export function ErgChart({
           setHoverX(null);
           onHoverInterval?.(null);
         }}
-        onWheel={handlers.onWheel}
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >

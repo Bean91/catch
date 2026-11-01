@@ -57,7 +57,11 @@ export function ChartNavigator({
 
   const onHandlePointerDown = (mode: "move" | "left" | "right") => (e: React.PointerEvent) => {
     e.stopPropagation();
-    (e.target as Element).setPointerCapture(e.pointerId);
+    try {
+      (e.target as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // Drag tracking still works without capture — see useChartInteraction's identical guard.
+    }
     drag.current = { mode, startClientX: e.clientX, startView: viewDomain };
   };
 

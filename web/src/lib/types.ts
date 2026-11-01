@@ -266,6 +266,7 @@ export interface TrendPoint {
   chronic_42d?: number;
   form?: number;
   smoothed?: number | null;
+  activity_id?: number;
 }
 
 // --- Interactive series (session 8) -----------------------------------------
@@ -279,6 +280,8 @@ export interface SeriesPoint {
   chronic_42d?: number;
   form?: number;
   smoothed?: number | null;
+  /** Only on w_per_kg/predicted_2k — lets tapping a point open that workout (spec #4). */
+  activity_id?: number;
 }
 
 export interface SeriesForMetric {

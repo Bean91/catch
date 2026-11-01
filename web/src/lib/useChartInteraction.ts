@@ -19,6 +19,13 @@ export interface UseChartInteractionOptions {
   minSpan: number;
   /** Plot-area pixel width (excludes axis padding) — used to convert pointer px <-> domain. */
   plotWidthPx: number;
+  /** The chart's root DOM node — ctrl/cmd+wheel zoom is attached here as a native, non-passive
+   * listener (see the effect below for why it can't be React's onWheel prop). */
+  surfaceRef: React.RefObject<Element | null>;
+  /** Left-edge margin (axis-label gutter) inside the surface before the plot area starts, in
+   * the same units as the surface's own CSS pixel width — defaults to 0 for a surface with no
+   * such margin (e.g. ChartNavigator doesn't use this hook at all). */
+  padLeft?: number;
   /** Called continuously while panning/zooming (rAF-throttled internally) — the caller is
    * expected to feed this straight back in as `domain` on its next render. */
   onViewChange: (domain: Domain) => void;
@@ -39,7 +46,6 @@ export interface ChartInteractionHandlers {
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: (e: React.PointerEvent) => void;
   onPointerCancel: (e: React.PointerEvent) => void;
-  onWheel: (e: React.WheelEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onDoubleClick: (e: React.MouseEvent) => void;
 }
@@ -77,7 +83,7 @@ function clampDomain(domain: Domain, full: Domain, minSpan: number): Domain {
 }
 
 export function useChartInteraction(opts: UseChartInteractionOptions): UseChartInteractionResult {
-  const { domain, fullDomain, minSpan, plotWidthPx, onViewChange, onSettled, onTap, onDoubleTap, disabled } = opts;
+  const { domain, fullDomain, minSpan, plotWidthPx, surfaceRef, padLeft = 0, onViewChange, onSettled, onTap, onDoubleTap, disabled } = opts;
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [isPanning, setIsPanning] = useState(false);
 
@@ -125,11 +131,15 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
 
   const pxToDomainValue = useCallback(
     (clientX: number, rect: DOMRect) => {
+      // The data only occupies [padLeft, padLeft + plotWidthPx] of the surface's own width
+      // (the rest is axis-label margin) — using the surface's *full* rect.width as the
+      // denominator here would shift every crosshair/zoom-center position by ~padLeft worth
+      // of domain, most visible near the edges.
       const span = domainRef.current.max - domainRef.current.min;
-      const frac = (clientX - rect.left) / Math.max(rect.width, 1);
+      const frac = (clientX - rect.left - padLeft) / Math.max(plotWidthPx, 1);
       return domainRef.current.min + frac * span;
     },
-    [],
+    [padLeft, plotWidthPx],
   );
 
   const zoomAt = useCallback(
@@ -170,7 +180,15 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
       if (disabled) return;
       const g = gesture.current;
       g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      (e.target as Element).setPointerCapture?.(e.pointerId);
+      // Wrapped: an uncaught throw here (e.g. no genuinely active pointer with this id — seen
+      // from a synthetic PointerEvent in testing, but defensive for any real browser quirk
+      // too) would abort the rest of this handler and leave gesture state never initialized.
+      try {
+        (e.target as Element).setPointerCapture?.(e.pointerId);
+      } catch {
+        // Gesture tracking still works without capture; it just won't survive the pointer
+        // leaving this element's bounds mid-drag.
+      }
 
       if (g.pointers.size === 1) {
         g.mode = "pending";
@@ -280,20 +298,27 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     [onSettled, onTap, onDoubleTap, pxToDomainValue],
   );
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // A *native* listener, not React's onWheel prop: React registers its delegated wheel
+  // listener as passive, so e.preventDefault() inside a JSX onWheel handler is silently
+  // ignored (confirmed via Chrome's own "Unable to preventDefault inside passive event
+  // listener invocation" warning) — ctrl/cmd+wheel would zoom the whole page right alongside
+  // the chart instead of being claimed by it. {passive: false} here is what actually works.
+  useEffect(() => {
+    const el = surfaceRef.current;
+    if (!el) return;
+    const handler = (evt: Event) => {
+      const e = evt as WheelEvent;
       if (disabled) return;
-      // Only ctrl/cmd+wheel (desktop trackpad pinch dispatches this) zooms; a plain wheel/
-      // two-finger scroll is left alone so it doesn't fight the page's own scroll.
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      const rect = (e.currentTarget as Element).getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
       const centerDomainX = pxToDomainValue(e.clientX, rect);
       const factor = Math.exp(-e.deltaY * 0.01);
       zoomAt(factor, centerDomainX);
-    },
-    [disabled, pxToDomainValue, zoomAt],
-  );
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [surfaceRef, disabled, pxToDomainValue, zoomAt]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -361,7 +386,6 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         onPointerMove,
         onPointerUp: endGesture,
         onPointerCancel: endGesture,
-        onWheel,
         onKeyDown,
         onDoubleClick,
       },
@@ -373,6 +397,6 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
       setHoverX,
       isPanning,
     }),
-    [onPointerDown, onPointerMove, endGesture, onWheel, onKeyDown, onDoubleClick, zoomIn, zoomOut, panBy, reset, hoverX, isPanning],
+    [onPointerDown, onPointerMove, endGesture, onKeyDown, onDoubleClick, zoomIn, zoomOut, panBy, reset, hoverX, isPanning],
   );
 }

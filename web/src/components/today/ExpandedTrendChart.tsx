@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSeries } from "../../lib/api";
 import { RANGE_PRESETS, presetToDomain, type RangePreset } from "../../lib/chartRange";
 import type { TrendMetric } from "../../lib/types";
@@ -29,6 +29,20 @@ export default function ExpandedTrendChart({ metric, formatValue }: { metric: Tr
   // caught mid-gesture refetches spiking frame time otherwise).
   const [domain, setDomain] = useState<Domain>(() => presetToDomain(preset, now, new Date(earliestMs)));
   const [queryDomain, setQueryDomain] = useState<Domain>(() => presetToDomain(preset, now, new Date(earliestMs)));
+
+  // Re-derives the domain once the real earliestMs loads (see Trends.tsx's identical effect
+  // for the full explanation) — the mount-time default here happens to match "12w"'s fallback
+  // exactly, but a user picking "1y"/"all" before `allQuery` resolves would otherwise stick at
+  // the narrower fallback span forever.
+  const lastAppliedEarliestMs = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastAppliedEarliestMs.current === earliestMs) return;
+    lastAppliedEarliestMs.current = earliestMs;
+    const next = presetToDomain(preset, now, new Date(earliestMs));
+    setDomain(next);
+    setQueryDomain(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earliestMs]);
 
   const selectPreset = (next: RangePreset) => {
     setPreset(next);

@@ -93,6 +93,24 @@ def test_series_cache_invalidated_by_recompute_scores(client, session):
     assert second["series"]["resting_hr"]["raw_count"] == 10
 
 
+def test_series_w_per_kg_carries_activity_id_for_tap_to_open(client, session):
+    from datetime import datetime, timezone
+
+    from catch.core.models import Activity, BodyComp
+
+    session.add(BodyComp(source="withings", external_id="b1", ts=datetime(2026, 1, 1, tzinfo=timezone.utc), weight_kg=80.0))
+    session.add(
+        Activity(source="concept2", external_id="c1", type="rower", start=datetime(2026, 1, 1, 12, tzinfo=timezone.utc), avg_power=320.0)
+    )
+    session.commit()
+
+    _login(client)
+    resp = client.get("/api/series", params={"metrics": "w_per_kg", "points": 400})
+    points = resp.json()["series"]["w_per_kg"]["points"]
+    assert len(points) == 1
+    assert points[0]["activity_id"] is not None
+
+
 def test_series_load_acr_carries_component_fields(client, session):
     import json
 
