@@ -7,6 +7,7 @@ import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { MoonIcon, SunIcon } from "../components/shell/icons";
+import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2"] as const;
@@ -220,16 +221,18 @@ export function SettingsPage() {
         </button>
       </Card>
 
-      <Card title="AI coach">
-        <p className="text-sm text-text-tertiary">Coming in session 5 — bring-your-own Anthropic key, chat with your training data.</p>
-      </Card>
+      <CoachSettingsCard />
 
-      <div className="sticky bottom-[calc(5rem+env(safe-area-inset-bottom))] flex justify-end sm:static sm:bottom-auto">
+      {/* pointer-events-none on the row, -auto on the button: the AI coach card below grew
+          long enough that this floating bar's empty space (full-width, invisible) now
+          scrolls over other buttons like Test connection — without this, the empty area
+          would still intercept their clicks even though nothing is painted there. */}
+      <div className="sticky bottom-[calc(5rem+env(safe-area-inset-bottom))] flex justify-end pointer-events-none sm:static sm:bottom-auto">
         <button
           type="button"
           onClick={() => save.mutate(form)}
           disabled={!dirty || save.isPending}
-          className="min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
+          className="pointer-events-auto min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
         >
           {save.isPending ? "Saving…" : "Save settings"}
         </button>

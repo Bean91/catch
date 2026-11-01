@@ -122,7 +122,14 @@ def _earliest_date(session: Session) -> date | None:
     activity_min = session.exec(
         select(Activity.start).where(Activity.start.is_not(None)).order_by(Activity.start)
     ).first()
-    candidates = [d for d in (wellness_min, activity_min.date() if activity_min else None) if d]
+    # .date() alone takes the *UTC* calendar date, not the local one — for a few hours each
+    # evening in a negative-UTC-offset timezone, the newest activity's UTC date is already
+    # "tomorrow" while date.today() (local) is still "today". When that newest activity is
+    # also the *earliest* one (a fresh DB, or this exact scenario in a test), this previously
+    # computed an earliest date past today, so recompute_scores' day<=today loop silently
+    # processed zero days. .astimezone() matches every other local-day computation in this
+    # file (e.g. _local_day_utc_range) and in catch/api/routes_activities.py.
+    candidates = [d for d in (wellness_min, activity_min.astimezone().date() if activity_min else None) if d]
     return min(candidates) if candidates else None
 
 

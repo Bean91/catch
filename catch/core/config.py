@@ -42,6 +42,7 @@ class Settings:
     concept2_access_token: str
     sync_interval_hours: float
     backfill_days: int
+    mcp_http_enabled: bool
 
     @property
     def db_file(self) -> Path:
@@ -68,6 +69,9 @@ def load_settings() -> Settings:
         concept2_access_token=_get("CONCEPT2_ACCESS_TOKEN"),
         sync_interval_hours=float(_get("SYNC_INTERVAL_HOURS", "2")),
         backfill_days=int(_get("BACKFILL_DAYS", "30")),
+        # Off by default: the `mcp` package is only imported when this is set, so a Pi
+        # deployment that never uses Claude Desktop over Tailscale doesn't pay for it.
+        mcp_http_enabled=_get("CATCH_MCP_HTTP_ENABLED", "0") == "1",
     )
 
 

@@ -12,10 +12,12 @@ from catch.api import (
     routes_analytics,
     routes_auth,
     routes_body,
+    routes_coach,
     routes_notes,
     routes_sync,
     routes_wellness,
 )
+from catch.core.config import settings
 from catch.core.db import init_db
 from catch.sync.scheduler import start_scheduler, stop_scheduler
 
@@ -37,7 +39,16 @@ def safe_static_file(full_path: str) -> Path | None:
 async def lifespan(app: FastAPI):
     init_db()
     start_scheduler()
-    yield
+    if settings.mcp_http_enabled:
+        # Mounted sub-apps don't get their own lifespan from the parent ASGI app, so the MCP
+        # session manager has to be started from Catch's own lifespan instead (verified
+        # against the installed mcp SDK, which errors on any /mcp request without this).
+        from catch.mcp_server.http_app import mcp_server as _mcp_server
+
+        async with _mcp_server.session_manager.run():
+            yield
+    else:
+        yield
     stop_scheduler()
 
 
@@ -50,11 +61,21 @@ app.include_router(routes_body.router)
 app.include_router(routes_sync.router)
 app.include_router(routes_analytics.router)
 app.include_router(routes_notes.router)
+app.include_router(routes_coach.tool_router)
+app.include_router(routes_coach.coach_router)
 
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+if settings.mcp_http_enabled:
+    # Registered before the SPA catch-all below — Starlette matches mounts and routes in
+    # registration order, and `/{full_path:path}` would otherwise swallow every /mcp request.
+    from catch.mcp_server.http_app import mounted_mcp_app
+
+    app.mount("/mcp", mounted_mcp_app())
 
 
 # Vite builds here (vite.config.ts outDir); gitignored, absent in dev/test — the frontend

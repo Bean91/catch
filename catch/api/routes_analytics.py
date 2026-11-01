@@ -14,6 +14,7 @@ from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
+from catch.coach.memory import next_a_race as _next_a_race
 from catch.core.models import Activity, BodyComp, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
 
@@ -148,6 +149,7 @@ def today(db: Session = Depends(get_db)):
         "latest_erg": _latest_erg(db),
         "predicted_2k": _predict_2k(db, settings),
         "recommendation": _recommendation(recovery, load),
+        "next_a_race": _next_a_race(db, today_date),
     }
 
 

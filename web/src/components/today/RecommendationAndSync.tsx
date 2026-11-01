@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSyncStatus, triggerSync } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
+import type { NextARace } from "../../lib/types";
 import { Card } from "../ui/Card";
 
-export function RecommendationAndSync({ recommendation }: { recommendation: string }) {
+export function RecommendationAndSync({ recommendation, nextARace }: { recommendation: string; nextARace: NextARace | null }) {
   const queryClient = useQueryClient();
   const statusQuery = useQuery({ queryKey: ["sync-status"], queryFn: fetchSyncStatus, refetchInterval: 60_000 });
 
@@ -29,6 +30,16 @@ export function RecommendationAndSync({ recommendation }: { recommendation: stri
   return (
     <Card className="flex h-full flex-col">
       <p className="text-lg font-medium text-text-primary lg:text-xl">{recommendation}</p>
+
+      {nextARace && (
+        <p className="mt-2 text-sm text-text-secondary">
+          Next A race: <span className="text-text-primary">{nextARace.name}</span>
+          <span className="font-mono-nums"> · {nextARace.days_to_go}d</span>
+          {nextARace.taper && (
+            <span className="ml-2 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Taper</span>
+          )}
+        </p>
+      )}
 
       {/* Absorbs the extra height the grid stretches this card to (at lg:, it sits next to
           the taller erg card) so the sync row anchors to the bottom instead of leaving a

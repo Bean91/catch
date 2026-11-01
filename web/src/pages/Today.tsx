@@ -65,7 +65,7 @@ export function TodayPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr] lg:gap-5">
         <ErgCard erg={data.latest_erg} predicted2k={data.predicted_2k} />
-        <RecommendationAndSync recommendation={data.recommendation} />
+        <RecommendationAndSync recommendation={data.recommendation} nextARace={data.next_a_race} />
       </div>
     </div>
   );

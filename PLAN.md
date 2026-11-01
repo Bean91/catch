@@ -470,7 +470,168 @@ to rotate it under Logbook > Edit Profile > Applications.
   session-6 deploy concern (TLS, even just a self-signed cert on the LAN, or a Tailscale/
   reverse-proxy HTTPS front).
 
-## Next steps (session 5)
+## Session 5 checklist
 
-- AI coach chat (bring-your-own Anthropic key) + MCP server. The Settings screen's AI
-  section is a placeholder card ("Coming in session 5") already wired into the page.
+- [x] **Shared tool layer** (`catch/coach/tools.py`): one registry of 16 tools (`get_today`,
+      `get_wellness`, `list_workouts`, `get_workout`, `get_trends`, `get_body_comp`,
+      `get_load`, `predict_2k`, `get_zones`, `add_note`, plus the memory tools `remember`/
+      `add_event`/`update_event`/`set_goal`/`forget`/`recall`) with Anthropic- and
+      Ollama-shaped JSON schemas generated from one source, dispatched through a single
+      `call_tool(session, name, args, ctx)`. The in-app coach, `GET/POST /api/coach/tools*`,
+      and the MCP server's in-process backend all call this same function — no duplicated
+      tool logic anywhere. Every range tool (`get_wellness`/`get_trends`/`get_body_comp`) is
+      capped at 180 rows, evenly downsampled if wider; `get_workout`'s stroke data is capped
+      at 100 points plus the interval table. No tool touches `OAuthToken`/`CoachCredential`/
+      `ApiToken` at all, by construction — covered by a test that seeds secrets into those
+      tables and greps every read-only tool's JSON output for them.
+- [x] **In-app coach** (`catch/coach/`, `catch/api/routes_coach.py`): `chat.py`'s manual
+      tool-calling loop (not the Anthropic SDK's beta Tool Runner — needed fine control over
+      SSE events, the exact `usage` object for cost accounting, and parity with a second
+      provider that has no tool-runner equivalent) streams normalized events over
+      `POST /api/coach/conversations/{id}/messages` (`text/event-stream`), capped at 8
+      tool-iterations per turn, checking the daily spend cap before *every* provider call
+      inside the loop, not just once per user turn. Conversations/messages persist in a
+      provider-neutral block shape (`text`/`tool_call`/`tool_result`), not either provider's
+      wire format, so a conversation can switch providers mid-stream. Prompt caching: one
+      `cache_control` breakpoint on the static system-prompt block (covers it plus the tool
+      definitions, per the render order `tools -> system -> messages`); the per-turn memory
+      block (events/goals/facts with days-to-go) sits in a second, uncached system block so
+      it can change every turn without busting the cache. Cost uses all four Anthropic usage
+      fields (input/output/cache-write/cache-read) against user-entered `$/1M` rates in
+      Settings — never hardcoded; Ollama's rates are always `{}`, which correctly prices every
+      local turn at exactly `$0`. Coach screen: streaming message bubbles, tool calls as
+      small expandable chips (`catch/coach/chat.py`'s `_tool_label` templates, mirrored in
+      `web/src/lib/toolLabels.ts` for persisted history that doesn't carry the live label),
+      the three suggested prompts plus a Morning brief button, a conversation-history dialog,
+      and a $spend/$cap pill that refreshes after every turn.
+- [x] **Settings**: Anthropic key Fernet-encrypted server-side in its own `coach_credentials`
+      table (never round-trips to the browser — `GET` returns only `{configured, last4}`),
+      test-connection button (`models.list()`, zero token cost), model picker populated live
+      from the API and defaulting to the newest id containing "sonnet" (resolved once, then
+      cached into `coach_settings.anthropic_model` so it isn't re-resolved every turn), daily
+      spend cap. Ollama: base-URL + model fields, models filtered to tool-capable ones via
+      `/api/show`'s `capabilities` list (not `/api/tags`, which doesn't report them), a
+      2.5s-timeout health check before every chat so a sleeping laptop fails fast with an
+      "offer to switch to Anthropic" action in the Coach UI rather than hanging. Device
+      tokens (create/list/revoke) for the MCP server, shown once at creation. A new Memory
+      page (`/settings/memory`) lists/edits/deletes every event, goal, and fact — including
+      expired facts, flagged rather than hidden, since `recall()` only filters them at read
+      time and never deletes.
+- [x] **Coach memory** (`catch/coach/memory.py`): `events`/`goals`/`athlete_facts` tables;
+      `remember`/`add_event`/`update_event`/`set_goal`/`forget`/`recall` tools, with `forget`
+      taking a prefixed ref (`fact:12`/`event:3`/`goal:5`, disambiguating across three
+      tables) as `recall` returns them. `GET /api/today` gained `next_a_race` (name,
+      days-to-go, a `taper` flag for the last 14 days before an A-priority race) — computed
+      once in `routes_analytics.today()` so both the tool and the Today screen's new
+      recommendation-card line share one code path. System prompt (`catch/coach/
+      system_prompt.md`, user-editable) tells the model to save memory on its own, confirm
+      in one line, never invent a fact the athlete didn't say, and ask rather than guess a
+      vague date.
+- [x] **MCP server** (`catch/mcp_server/`): official `mcp` Python SDK (2.x — `FastMCP` was
+      renamed `MCPServer` in this version, a real drift from the name used in most
+      documentation and training data; caught by letting the first import fail and reading
+      the SDK's own redirect error rather than guessing). One `build_server()` registers all
+      16 tools (schemas inferred from type hints/docstrings — `Literal[...]` unions produce
+      real JSON-schema enums) plus 2 prompts (`daily_check_in`, `weekly_review`) against a
+      swappable backend: `RestBackend` (real `httpx` calls to `POST /api/coach/tools/{name}`
+      with a bearer device token) for the stdio transport Claude Desktop uses, and
+      `InProcessBackend` (dispatches straight into `catch.coach.tools.call_tool`) for the
+      optional `/mcp/` streamable-HTTP mount, since an HTTP call from inside Catch's own
+      single-worker uvicorn back to itself would deadlock. The HTTP mount is off by default
+      (`CATCH_MCP_HTTP_ENABLED=0`) so the Pi never imports `mcp` unless Tailscale access is
+      actually wanted; its tool calls go through the same `require_tool_auth`-equivalent
+      bearer check as everything else. `uv run catch token create --name <device>` mints a
+      device token (sha256-hashed at rest, raw value shown once). `docs/mcp.md` has the exact
+      `claude_desktop_config.json` snippet and the Inspector commands.
+- [x] Tests: 62 new (131 -> 193 total) — the tool layer (incl. the no-secrets-leak sweep and
+      the stroke-downsample cap), memory CRUD/recall/expiry/next-A-race, the chat loop (a
+      `FakeProvider` drives it — tool-call-then-text, cache-token cost math, the cap blocking
+      a request before any provider call *and* mid-loop between tool iterations, the
+      too-many-iterations guard, provider-resolution errors), both providers (Anthropic via a
+      fake `anthropic` module injected into `sys.modules`, asserting the exact `cache_control`
+      placement and the Anthropic<->provider-neutral block conversion; Ollama via
+      `httpx.MockTransport`, incl. synthesized tool-call ids and the "laptop asleep" path),
+      coach settings/credential masking, cost math, and the coach API routes (bearer-vs-cookie
+      auth scoping, SSE event parsing end-to-end with the chat loop mocked).
+- [x] PLAN.md + CLAUDE.md (layout/commands) updated + commit.
+
+## Real verification (2026-10-31/11-01)
+
+- **MCP, stdio**: ran a disposable Catch instance (fresh password/session-secret/Fernet key,
+  scratch SQLite DB under `/private/tmp`, deleted after — never the real `.env`/
+  `data/catch.db`, matching sessions 1/2/4's precedent) and the real `@modelcontextprotocol/
+  inspector@latest` (v2.13.0) CLI against `catch-mcp`. `tools/list` returned all 16 tools
+  with correctly-inferred schemas (enums came through from `Literal[...]` hints);
+  `prompts/list` returned both prompts; a real `tools/call --tool-name get_zones` round-
+  tripped stdio -> `RestBackend` -> `POST /api/coach/tools/get_zones` (confirmed in the
+  request log) -> the tool registry -> the same JSON a direct `curl` with the same device
+  token returns.
+- **MCP, HTTP mount**: a second disposable instance with `CATCH_MCP_HTTP_ENABLED=1`, tested
+  with raw `curl` (the Inspector's `--transport http` assumes full OAuth, which this
+  deliberately isn't). Found and documented a real gotcha: `POST /mcp` (no trailing slash)
+  405s, because Starlette's `Mount("/mcp", ...)` doesn't match a bare prefix, so the request
+  falls through to the SPA catch-all route instead — `POST /mcp/` (trailing slash) is
+  required and works (`401` with no token, `200` + a correct `initialize` handshake with
+  one). The server log's `StreamableHTTP session manager started` line confirmed the session
+  manager is actually running inside Catch's lifespan, not silently absent (the specific
+  failure mode of a mounted sub-app's lifespan never firing).
+- **Frontend**: Coach, Memory, and the Settings AI-coach card screenshotted at 390px/1280px
+  in both themes via Playwright MCP against `?mock=1` (incl. a full scripted streaming turn
+  — tool-call chip, tool-result, streamed text, attribution line). Two real bugs found and
+  fixed this way: the provider-toggle buttons had a stray `capitalize` class turning
+  "Anthropic (bring your own key)" into jarring mid-sentence title case, and the page-level
+  sticky "Save settings" button — once the AI-coach card grew long enough — floated an
+  invisible full-width hit-box over the "Test connection" button a few cards up, silently
+  swallowing its clicks; fixed with `pointer-events-none` on the row and `-auto` on the
+  button itself, then re-verified with a real Playwright click that the test-connection
+  result actually appeared.
+- **Pre-existing bug found and fixed along the way** (not a session-5 regression — confirmed
+  by reproducing it against an unmodified `main`): `catch/sync/scoring.py`'s `_earliest_date`
+  took `Activity.start`'s *UTC* calendar date instead of its local one. For a window each
+  evening in a negative-UTC-offset timezone (triggered here: EDT, ~8pm-midnight local), the
+  newest activity's UTC date is already "tomorrow" while `date.today()` (local) is still
+  "today" — when that activity is also the *earliest* one in the DB (a fresh instance, or
+  `tests/test_api_notes.py::test_post_note_triggers_recompute_affecting_strain`'s scenario),
+  `recompute_scores`'s `day <= today` loop silently processed zero days. Fixed with
+  `.astimezone().date()`, matching every other local-day computation in the file.
+
+## Gotchas / deviations from the literal task spec
+
+- **No `mcp-builder` skill exists in this environment's skill listing** (named in the task,
+  same situation as session 3's missing `frontend-design`/`webapp-testing` skills) — the MCP
+  server was built directly against the installed `mcp` SDK, introspected with Python
+  (`inspect.signature`) rather than guessed, since `mcp` 2.x renamed `FastMCP` to
+  `MCPServer` and restructured several APIs from what's commonly documented.
+- **Coach settings and the Anthropic key live in their own tables** (`coach_settings`,
+  `coach_credentials`), not folded into the existing `settings` JSON blob — a per-model price
+  dict would trip `settings_store`'s unknown-nested-key validation, and every `PUT /api/
+  settings` triggers a full `recompute_scores`, which has nothing to do with the coach.
+- **Device bearer tokens are scoped to the shared tool endpoints only**
+  (`GET/POST /api/coach/tools*`) via `require_tool_auth`, which accepts the session cookie
+  *or* a token; every other coach route (settings, the key, conversations, tokens
+  themselves, memory) stays on cookie-only `require_auth`, so a stolen laptop token can read
+  training data and write memory but can't read the Anthropic key, browse chat history, or
+  mint more tokens.
+- **No markdown rendering added for coach replies** (`whitespace-pre-wrap` plain text) —
+  consistent with session 4's "no new chart library" call: the model's answers are
+  conversational prose, not formatted documents, and a markdown dependency isn't worth it
+  for that.
+- **`anthropic` and `mcp` are both lazy-imported** (inside `AnthropicProvider.__init__` and
+  behind `CATCH_MCP_HTTP_ENABLED`/the `catch-mcp` entry point, respectively) and both checked
+  against PyPI before adding, per CLAUDE.md's Pi/ARM rule: both packages themselves ship as
+  pure-Python wheels, and their compiled transitive deps (`jiter`, `pydantic-core`) publish
+  both `aarch64` and `armv7l` wheels — safe on a 32- or 64-bit Pi OS either way.
+- **The `/mcp` HTTP mount needs a trailing slash** (`/mcp/`) — see Real verification above.
+  Documented in `docs/mcp.md` and `.env.example` rather than worked around with a redirect,
+  to avoid depending on every client following a 307 on a POST.
+
+## Next steps (session 6)
+
+- Deploy to the Pi 3: TLS (even just self-signed, or a Tailscale/reverse-proxy HTTPS front —
+  the PWA's service worker and installability both require a secure context, noted since
+  session 4), backups, optional Whoop integration.
+- Not yet live-verified: the in-app coach's actual Anthropic/Ollama turns (only the chat
+  loop, both providers, and the tool layer were tested — with a real `anthropic` client
+  mocked and a real `httpx.MockTransport` for Ollama, per the task's instruction — against a
+  real Anthropic API key or a real local Ollama instance). Worth a real run once there's a
+  key to spend and/or a laptop Ollama instance on the tailnet.

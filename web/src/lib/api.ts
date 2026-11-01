@@ -1,22 +1,55 @@
 import {
+  createMockConversation,
+  createMockEvent,
+  createMockFact,
+  createMockGoal,
+  createMockToken,
+  deleteMockAnthropicKey,
+  deleteMockConversation,
+  deleteMockMemory,
+  deleteMockToken,
   mockBody,
+  mockCoachModels,
+  mockCoachSettings,
+  mockConversationDetail,
+  mockConversations,
+  mockDailyUsage,
   mockErgStrokes,
+  mockMemory,
   mockNote,
   mockPbs,
   mockScenarioFromQuery,
   mockSettings,
   mockSyncStatus,
+  mockTestConnection,
   mockToday,
+  mockTokens,
   mockTrend,
   mockVolume,
   mockWorkoutDetail,
   mockWorkoutsPage,
+  saveMockCoachSettings,
   saveMockNote,
   saveMockSettings,
+  setMockAnthropicKey,
+  streamMockMessage,
+  updateMockEvent,
+  updateMockFact,
+  updateMockGoal,
 } from "./mock";
 import type {
   BodyCompReading,
+  CoachConversation,
+  CoachConversationDetail,
+  CoachEvent,
+  CoachModel,
+  CoachSettings,
+  DeviceToken,
   ErgStrokesResponse,
+  MemoryEvent,
+  MemoryFact,
+  MemoryGoal,
+  MemoryListing,
   Note,
   PersonalBests,
   Settings,
@@ -174,5 +207,205 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
+  });
+}
+
+// --- Coach: conversations ---------------------------------------------------
+
+export async function fetchConversations(): Promise<CoachConversation[]> {
+  if (isMock) return delay(mockConversations());
+  return request<CoachConversation[]>("/api/coach/conversations");
+}
+
+export async function createConversation(): Promise<CoachConversation> {
+  if (isMock) return delay(createMockConversation(), 100);
+  return request<CoachConversation>("/api/coach/conversations", { method: "POST" });
+}
+
+export async function fetchConversation(id: number): Promise<CoachConversationDetail> {
+  if (isMock) {
+    const detail = mockConversationDetail(id);
+    if (!detail) throw new ApiError(404, "Conversation not found");
+    return delay(detail);
+  }
+  return request<CoachConversationDetail>(`/api/coach/conversations/${id}`);
+}
+
+export async function deleteConversation(id: number): Promise<void> {
+  if (isMock) return delay(deleteMockConversation(id), 100);
+  await request<{ ok: true }>(`/api/coach/conversations/${id}`, { method: "DELETE" });
+}
+
+// EventSource can't send a POST body, so streaming goes over a plain fetch + a hand-rolled
+// SSE line parser instead — each `data: {...}\n\n` chunk becomes one yielded CoachEvent.
+export async function* streamMessage(conversationId: number, text: string): AsyncGenerator<CoachEvent> {
+  if (isMock) {
+    yield* streamMockMessage(conversationId, text);
+    return;
+  }
+  const res = await fetch(`/api/coach/conversations/${conversationId}/messages`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok || !res.body) {
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, "Failed to send message");
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const chunk = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+      if (line) yield JSON.parse(line.slice("data: ".length)) as CoachEvent;
+    }
+  }
+}
+
+// --- Coach: settings / models / credentials / usage --------------------------
+
+export async function fetchCoachSettings(): Promise<CoachSettings> {
+  if (isMock) return delay(mockCoachSettings());
+  return request<CoachSettings>("/api/coach/settings");
+}
+
+export async function saveCoachSettings(patch: Partial<CoachSettings>): Promise<CoachSettings> {
+  if (isMock) return delay(saveMockCoachSettings(patch), 150);
+  return request<CoachSettings>("/api/coach/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function setAnthropicKey(apiKey: string): Promise<CoachSettings["anthropic_key"]> {
+  if (isMock) return delay(setMockAnthropicKey(apiKey), 300);
+  return request<CoachSettings["anthropic_key"]>("/api/coach/key", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
+export async function deleteAnthropicKey(): Promise<void> {
+  if (isMock) return delay(deleteMockAnthropicKey(), 100);
+  await request<{ ok: true }>("/api/coach/key", { method: "DELETE" });
+}
+
+export async function testCoachConnection(): Promise<{ ok: boolean; error?: string; model_count?: number }> {
+  if (isMock) return delay(mockTestConnection(), 500);
+  return request("/api/coach/test-connection", { method: "POST" });
+}
+
+export async function fetchCoachModels(provider?: "anthropic" | "ollama"): Promise<CoachModel[]> {
+  if (isMock) return delay(mockCoachModels(provider ?? "anthropic"));
+  const search = provider ? `?provider=${provider}` : "";
+  return request<CoachModel[]>(`/api/coach/models${search}`);
+}
+
+export async function fetchDailyUsage(): Promise<{ spend_usd: number; cap_usd: number | null }> {
+  if (isMock) return delay(mockDailyUsage());
+  return request("/api/coach/usage/daily");
+}
+
+// --- Coach: device tokens -----------------------------------------------------
+
+export async function fetchTokens(): Promise<DeviceToken[]> {
+  if (isMock) return delay(mockTokens());
+  return request<DeviceToken[]>("/api/coach/tokens");
+}
+
+export async function createToken(name: string): Promise<DeviceToken & { token: string }> {
+  if (isMock) return delay(createMockToken(name), 150);
+  return request("/api/coach/tokens", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteToken(id: number): Promise<void> {
+  if (isMock) return delay(deleteMockToken(id), 100);
+  await request<{ ok: true }>(`/api/coach/tokens/${id}`, { method: "DELETE" });
+}
+
+// --- Coach: memory -------------------------------------------------------------
+
+export async function fetchMemory(): Promise<MemoryListing> {
+  if (isMock) return delay(mockMemory());
+  return request<MemoryListing>("/api/coach/memory");
+}
+
+export async function addMemoryFact(category: string, text: string, valid_until: string | null): Promise<MemoryFact> {
+  if (isMock) return delay(createMockFact(category, text, valid_until), 150);
+  return request<MemoryFact>("/api/coach/memory/facts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category, text, valid_until }),
+  });
+}
+
+export async function addMemoryEvent(fields: Omit<MemoryEvent, "ref" | "kind" | "days_to_go">): Promise<MemoryEvent> {
+  if (isMock) return delay(createMockEvent(fields), 150);
+  return request<MemoryEvent>("/api/coach/memory/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+export async function addMemoryGoal(text: string, target_date: string | null): Promise<MemoryGoal> {
+  if (isMock) return delay(createMockGoal(text, target_date), 150);
+  return request<MemoryGoal>("/api/coach/memory/goals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, target_date }),
+  });
+}
+
+export async function deleteMemoryItem(ref: string): Promise<void> {
+  if (isMock) return delay(deleteMockMemory(ref), 100);
+  await request<{ ok: true }>(`/api/coach/memory/${ref}`, { method: "DELETE" });
+}
+
+function memoryId(ref: string): number {
+  return Number(ref.split(":")[1]);
+}
+
+export async function updateMemoryFact(ref: string, patch: Partial<Pick<MemoryFact, "category" | "text" | "valid_until">>): Promise<MemoryFact> {
+  if (isMock) return delay(updateMockFact(ref, patch), 150);
+  return request<MemoryFact>(`/api/coach/memory/facts/${memoryId(ref)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function updateMemoryEvent(
+  ref: string,
+  patch: Partial<Pick<MemoryEvent, "name" | "date" | "type" | "distance" | "boat_class" | "priority" | "goal_time" | "result">>,
+): Promise<MemoryEvent> {
+  if (isMock) return delay(updateMockEvent(ref, patch), 150);
+  return request<MemoryEvent>(`/api/coach/memory/events/${memoryId(ref)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function updateMemoryGoal(ref: string, text: string, target_date: string | null, status: MemoryGoal["status"]): Promise<MemoryGoal> {
+  if (isMock) return delay(updateMockGoal(ref, { text, target_date, status }), 150);
+  return request<MemoryGoal>(`/api/coach/memory/goals/${memoryId(ref)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, target_date, status }),
   });
 }

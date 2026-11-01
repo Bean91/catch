@@ -4,7 +4,6 @@ import { AppShell } from "./components/shell/AppShell";
 import { CardSkeleton } from "./components/ui/Skeleton";
 import { useAuth } from "./lib/auth";
 import { LoginPage } from "./pages/Login";
-import { PlaceholderPage } from "./pages/Placeholder";
 import { TodayPage } from "./pages/Today";
 
 // Only Today (the landing screen, and the one page the offline shell needs) is eager —
@@ -14,7 +13,9 @@ const WorkoutsPage = lazy(() => import("./pages/Workouts").then((m) => ({ defaul
 const WorkoutDetailPage = lazy(() => import("./pages/WorkoutDetail").then((m) => ({ default: m.WorkoutDetailPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
+const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
+const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
 
 function RouteFallback() {
   return (
@@ -45,8 +46,9 @@ export function App() {
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/body" element={<BodyPage />} />
-          <Route path="/coach" element={<PlaceholderPage title="Coach" />} />
+          <Route path="/coach" element={<CoachPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/memory" element={<MemoryPage />} />
         </Routes>
       </Suspense>
     </AppShell>

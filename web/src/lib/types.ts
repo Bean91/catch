@@ -89,6 +89,13 @@ export interface Predicted2k {
   explanation: string;
 }
 
+export interface NextARace {
+  name: string;
+  date: string;
+  days_to_go: number;
+  taper: boolean;
+}
+
 export interface Today {
   date: string;
   recovery: Recovery | null;
@@ -101,6 +108,7 @@ export interface Today {
   latest_erg: ErgPiece | null;
   predicted_2k: Predicted2k;
   recommendation: string;
+  next_a_race: NextARace | null;
 }
 
 export interface SyncSourceStatus {
@@ -311,4 +319,125 @@ export interface Settings {
   zone_mode: "hr" | "power";
   units: "metric" | "imperial";
   garmin_key_expires_on: string | null;
+}
+
+// --- Coach (session 5) -------------------------------------------------------
+
+export type MessageBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; id: string; output: unknown; is_error: boolean };
+
+export interface UsageTokens {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+
+export interface CoachMessageRow {
+  id: number;
+  role: "user" | "assistant";
+  blocks: MessageBlock[];
+  provider: string | null;
+  model: string | null;
+  usage: UsageTokens | null;
+  cost_usd: number | null;
+  created_at: string;
+}
+
+export interface ConversationUsage extends UsageTokens {
+  cost_usd: number;
+}
+
+export interface CoachConversation {
+  id: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  usage: ConversationUsage;
+}
+
+export interface CoachConversationDetail extends CoachConversation {
+  messages: CoachMessageRow[];
+}
+
+// SSE events as emitted by POST /api/coach/conversations/{id}/messages — one per `data:` line.
+export type CoachEvent =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; id: string; name: string; input: Record<string, unknown>; label: string }
+  | { type: "tool_result"; id: string; output: unknown; is_error: boolean }
+  | { type: "usage"; usage: UsageTokens; cost_usd: number | null; daily_spend_usd: number; daily_cap_usd: number | null }
+  | { type: "done"; stop_reason: string | null }
+  | { type: "error"; message: string }
+  | { type: "provider_unavailable"; message: string; can_switch_to: string }
+  | { type: "cap_reached"; daily_spend_usd: number; daily_cap_usd: number };
+
+export type CoachProviderName = "anthropic" | "ollama";
+
+export interface ModelPrice {
+  input?: number;
+  output?: number;
+  cache_write?: number;
+  cache_read?: number;
+}
+
+export interface CoachSettings {
+  provider: CoachProviderName;
+  anthropic_model: string | null;
+  ollama_base_url: string | null;
+  ollama_model: string | null;
+  daily_cap_usd: number | null;
+  prices: Record<string, ModelPrice>;
+  anthropic_key: { configured: boolean; last4: string | null };
+}
+
+export interface CoachModel {
+  id: string;
+  display_name: string;
+}
+
+export interface DeviceToken {
+  id: number;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface MemoryFact {
+  ref: string;
+  kind: "fact";
+  category: string;
+  text: string;
+  valid_until: string | null;
+  created_at: string;
+  expired: boolean;
+}
+
+export interface MemoryEvent {
+  ref: string;
+  kind: "event";
+  name: string;
+  date: string;
+  type: string;
+  distance: string | null;
+  boat_class: string | null;
+  priority: string | null;
+  goal_time: string | null;
+  result: string | null;
+  days_to_go: number;
+}
+
+export interface MemoryGoal {
+  ref: string;
+  kind: "goal";
+  text: string;
+  target_date: string | null;
+  status: "active" | "done" | "abandoned";
+}
+
+export interface MemoryListing {
+  facts: MemoryFact[];
+  events: MemoryEvent[];
+  goals: MemoryGoal[];
 }

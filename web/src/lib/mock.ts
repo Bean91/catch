@@ -1,8 +1,19 @@
 import type {
   BodyCompReading,
+  CoachConversation,
+  CoachConversationDetail,
+  CoachEvent,
+  CoachMessageRow,
+  CoachModel,
+  CoachSettings,
+  DeviceToken,
   ErgStrokesResponse,
   ErgTechnique,
   IntervalSummary,
+  MemoryEvent,
+  MemoryFact,
+  MemoryGoal,
+  MemoryListing,
   Note,
   PersonalBests,
   Settings,
@@ -118,6 +129,7 @@ const FULL: Today = {
     explanation: "Paul's law extrapolated from 4 recent pieces.",
   },
   recommendation: "Recovery is green — you're clear for a harder session if it's on the plan.",
+  next_a_race: { name: "Head of the Charles", date: shiftDate(TODAY, 9), days_to_go: 9, taper: true },
 };
 
 const CALIBRATING: Today = {
@@ -150,6 +162,7 @@ const EMPTY: Today = {
   latest_erg: null,
   predicted_2k: { value: null, band: "insufficient_data", components: [], explanation: "No usable pieces yet." },
   recommendation: "Not enough data yet to make a recommendation — keep syncing.",
+  next_a_race: null,
 };
 
 function shiftDate(iso: string, days: number): string {
@@ -495,4 +508,263 @@ export function mockSettings(): Settings {
 export function saveMockSettings(patch: Partial<Settings>): Settings {
   MOCK_SETTINGS = { ...MOCK_SETTINGS, ...patch };
   return MOCK_SETTINGS;
+}
+
+// --- Coach (session 5) -------------------------------------------------------
+
+let MOCK_COACH_SETTINGS: CoachSettings = {
+  provider: "anthropic",
+  anthropic_model: "claude-sonnet-5",
+  ollama_base_url: null,
+  ollama_model: null,
+  daily_cap_usd: 2,
+  prices: { "claude-sonnet-5": { input: 2.0, output: 10.0, cache_write: 2.5, cache_read: 0.2 } },
+  anthropic_key: { configured: true, last4: "wxyz" },
+};
+
+export function mockCoachSettings(): CoachSettings {
+  return MOCK_COACH_SETTINGS;
+}
+
+export function saveMockCoachSettings(patch: Partial<CoachSettings>): CoachSettings {
+  MOCK_COACH_SETTINGS = { ...MOCK_COACH_SETTINGS, ...patch, prices: { ...MOCK_COACH_SETTINGS.prices, ...patch.prices } };
+  return MOCK_COACH_SETTINGS;
+}
+
+export function setMockAnthropicKey(key: string): CoachSettings["anthropic_key"] {
+  MOCK_COACH_SETTINGS.anthropic_key = { configured: true, last4: key.slice(-4) };
+  return MOCK_COACH_SETTINGS.anthropic_key;
+}
+
+export function deleteMockAnthropicKey(): void {
+  MOCK_COACH_SETTINGS.anthropic_key = { configured: false, last4: null };
+}
+
+export function mockCoachModels(provider: "anthropic" | "ollama"): CoachModel[] {
+  if (provider === "ollama") {
+    return [{ id: "llama3.1:70b", display_name: "llama3.1:70b" }, { id: "qwen2.5:32b", display_name: "qwen2.5:32b" }];
+  }
+  return [
+    { id: "claude-opus-5", display_name: "Claude Opus 5" },
+    { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+    { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
+  ];
+}
+
+export function mockTestConnection(): { ok: boolean; error?: string; model_count?: number } {
+  return { ok: true, model_count: 3 };
+}
+
+export function mockDailyUsage(): { spend_usd: number; cap_usd: number | null } {
+  return { spend_usd: 0.42, cap_usd: MOCK_COACH_SETTINGS.daily_cap_usd };
+}
+
+let MOCK_TOKENS: DeviceToken[] = [
+  { id: 1, name: "laptop", created_at: new Date(Date.now() - 20 * 86400000).toISOString(), last_used_at: new Date(Date.now() - 2 * 3600000).toISOString() },
+];
+let nextTokenId = 2;
+
+export function mockTokens(): DeviceToken[] {
+  return MOCK_TOKENS;
+}
+
+export function createMockToken(name: string): DeviceToken & { token: string } {
+  const row = { id: nextTokenId++, name, created_at: new Date().toISOString(), last_used_at: null };
+  MOCK_TOKENS = [...MOCK_TOKENS, row];
+  return { ...row, token: "mock-token-" + row.id };
+}
+
+export function deleteMockToken(id: number): void {
+  MOCK_TOKENS = MOCK_TOKENS.filter((t) => t.id !== id);
+}
+
+let MOCK_FACTS: MemoryFact[] = [
+  { ref: "fact:1", kind: "fact", category: "injury", text: "Tight left hamstring, easing back into volume", valid_until: shiftDate(TODAY, 20), created_at: shiftDate(TODAY, -3) + "T08:00:00Z", expired: false },
+  { ref: "fact:2", kind: "fact", category: "preference", text: "Prefers short warmups, dislikes long steady-state", valid_until: null, created_at: shiftDate(TODAY, -40) + "T08:00:00Z", expired: false },
+];
+let MOCK_EVENTS: MemoryEvent[] = [
+  { ref: "event:1", kind: "event", name: "Head of the Charles", date: shiftDate(TODAY, 9), type: "race", distance: "5000m", boat_class: "1x", priority: "A", goal_time: "19:30", result: null, days_to_go: 9 },
+  { ref: "event:2", kind: "event", name: "Club 2k test", date: shiftDate(TODAY, -14), type: "2k_test", distance: null, boat_class: null, priority: null, goal_time: null, result: "6:42.1", days_to_go: -14 },
+];
+let MOCK_GOALS: MemoryGoal[] = [{ ref: "goal:1", kind: "goal", text: "Break 6:40 for 2k", target_date: shiftDate(TODAY, 60), status: "active" }];
+let nextFactId = 3;
+let nextEventId = 3;
+let nextGoalId = 2;
+
+export function mockMemory(): MemoryListing {
+  return { facts: MOCK_FACTS, events: MOCK_EVENTS, goals: MOCK_GOALS };
+}
+
+export function createMockFact(category: string, text: string, valid_until: string | null): MemoryFact {
+  const row: MemoryFact = { ref: `fact:${nextFactId++}`, kind: "fact", category, text, valid_until, created_at: new Date().toISOString(), expired: false };
+  MOCK_FACTS = [...MOCK_FACTS, row];
+  return row;
+}
+
+export function createMockEvent(fields: Omit<MemoryEvent, "ref" | "kind" | "days_to_go">): MemoryEvent {
+  const daysToGo = Math.round((new Date(fields.date).getTime() - new Date(TODAY).getTime()) / 86400000);
+  const row: MemoryEvent = { ...fields, ref: `event:${nextEventId++}`, kind: "event", days_to_go: daysToGo };
+  MOCK_EVENTS = [...MOCK_EVENTS, row];
+  return row;
+}
+
+export function createMockGoal(text: string, target_date: string | null): MemoryGoal {
+  const row: MemoryGoal = { ref: `goal:${nextGoalId++}`, kind: "goal", text, target_date, status: "active" };
+  MOCK_GOALS = [...MOCK_GOALS, row];
+  return row;
+}
+
+export function updateMockFact(ref: string, patch: Partial<Omit<MemoryFact, "ref" | "kind">>): MemoryFact {
+  const row = MOCK_FACTS.find((f) => f.ref === ref);
+  if (!row) throw new Error("not found");
+  Object.assign(row, patch);
+  return row;
+}
+
+export function updateMockEvent(ref: string, patch: Partial<Omit<MemoryEvent, "ref" | "kind" | "days_to_go">>): MemoryEvent {
+  const row = MOCK_EVENTS.find((e) => e.ref === ref);
+  if (!row) throw new Error("not found");
+  Object.assign(row, patch);
+  if (patch.date) row.days_to_go = Math.round((new Date(patch.date).getTime() - new Date(TODAY).getTime()) / 86400000);
+  return row;
+}
+
+export function updateMockGoal(ref: string, patch: Partial<Omit<MemoryGoal, "ref" | "kind">>): MemoryGoal {
+  const row = MOCK_GOALS.find((g) => g.ref === ref);
+  if (!row) throw new Error("not found");
+  Object.assign(row, patch);
+  return row;
+}
+
+export function deleteMockMemory(ref: string): void {
+  MOCK_FACTS = MOCK_FACTS.filter((f) => f.ref !== ref);
+  MOCK_EVENTS = MOCK_EVENTS.filter((e) => e.ref !== ref);
+  MOCK_GOALS = MOCK_GOALS.filter((g) => g.ref !== ref);
+}
+
+const MOCK_CONVERSATION_MESSAGES = new Map<number, CoachMessageRow[]>([
+  [
+    1,
+    [
+      { id: 1, role: "user", blocks: [{ type: "text", text: "How should I train today?" }], provider: null, model: null, usage: null, cost_usd: null, created_at: new Date(Date.now() - 3600000).toISOString() },
+      {
+        id: 2,
+        role: "assistant",
+        blocks: [
+          { type: "tool_call", id: "t1", name: "get_today", input: {} },
+        ],
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        usage: null,
+        cost_usd: null,
+        created_at: new Date(Date.now() - 3598000).toISOString(),
+      },
+      {
+        id: 3,
+        role: "user",
+        blocks: [{ type: "tool_result", id: "t1", output: { recovery: { value: 78, band: "green" } }, is_error: false }],
+        provider: null,
+        model: null,
+        usage: null,
+        cost_usd: null,
+        created_at: new Date(Date.now() - 3597000).toISOString(),
+      },
+      {
+        id: 4,
+        role: "assistant",
+        blocks: [
+          {
+            type: "text",
+            text: "Your recovery is 78% (green), mostly thanks to HRV sitting right at your 7-day baseline. You're clear for a harder session today — your strain target is 10-16, so a solid AT/TR piece fits well.",
+          },
+        ],
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        usage: { input_tokens: 1800, output_tokens: 95, cache_creation_input_tokens: 1200, cache_read_input_tokens: 0 },
+        cost_usd: 0.0062,
+        created_at: new Date(Date.now() - 3595000).toISOString(),
+      },
+    ],
+  ],
+]);
+
+let MOCK_CONVERSATIONS: CoachConversation[] = [
+  {
+    id: 1,
+    title: "How should I train today?",
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+    updated_at: new Date(Date.now() - 3595000).toISOString(),
+    usage: { input_tokens: 1800, output_tokens: 95, cache_creation_input_tokens: 1200, cache_read_input_tokens: 0, cost_usd: 0.0062 },
+  },
+];
+let nextConversationId = 2;
+
+export function mockConversations(): CoachConversation[] {
+  return [...MOCK_CONVERSATIONS].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+}
+
+export function createMockConversation(): CoachConversation {
+  const row: CoachConversation = {
+    id: nextConversationId++,
+    title: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, cost_usd: 0 },
+  };
+  MOCK_CONVERSATIONS = [...MOCK_CONVERSATIONS, row];
+  MOCK_CONVERSATION_MESSAGES.set(row.id, []);
+  return row;
+}
+
+export function mockConversationDetail(id: number): CoachConversationDetail | null {
+  const conv = MOCK_CONVERSATIONS.find((c) => c.id === id);
+  if (!conv) return null;
+  return { ...conv, messages: MOCK_CONVERSATION_MESSAGES.get(id) ?? [] };
+}
+
+export function deleteMockConversation(id: number): void {
+  MOCK_CONVERSATIONS = MOCK_CONVERSATIONS.filter((c) => c.id !== id);
+  MOCK_CONVERSATION_MESSAGES.delete(id);
+}
+
+function delayed<T>(value: T, ms: number): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+}
+
+// Scripted, illustrative demo of a full turn (tool call -> tool result -> streamed text ->
+// usage -> done) so the Coach screen is fully reviewable under `?mock=1` with no backend.
+export async function* streamMockMessage(conversationId: number, text: string): AsyncGenerator<CoachEvent> {
+  const conv = MOCK_CONVERSATIONS.find((c) => c.id === conversationId);
+  const messages = MOCK_CONVERSATION_MESSAGES.get(conversationId) ?? [];
+  const nextId = () => messages.length + 1 + Math.floor(Math.random() * 1000);
+
+  messages.push({ id: nextId(), role: "user", blocks: [{ type: "text", text }], provider: null, model: null, usage: null, cost_usd: null, created_at: new Date().toISOString() });
+  if (conv && conv.title === null) conv.title = text.slice(0, 60);
+
+  await delayed(undefined, 350);
+  yield { type: "tool_call", id: "mock-1", name: "get_today", input: {}, label: "Read today's recovery and strain" };
+  messages.push({ id: nextId(), role: "assistant", blocks: [{ type: "tool_call", id: "mock-1", name: "get_today", input: {} }], provider: "anthropic", model: "claude-sonnet-5", usage: null, cost_usd: null, created_at: new Date().toISOString() });
+
+  await delayed(undefined, 400);
+  const toolOutput = { recovery: { value: 78.4, band: "green" }, strain_today: { value: 8.2, band: "light" } };
+  yield { type: "tool_result", id: "mock-1", output: toolOutput, is_error: false };
+  messages.push({ id: nextId(), role: "user", blocks: [{ type: "tool_result", id: "mock-1", output: toolOutput, is_error: false }], provider: null, model: null, usage: null, cost_usd: null, created_at: new Date().toISOString() });
+
+  const reply =
+    "Recovery is 78% (green) and strain so far today is light — you're clear for a harder session. " +
+    "Given you've got Head of the Charles in 9 days, I'd keep today purposeful but not maximal: a TR-zone piece " +
+    "with full recovery between reps, then ease into the taper from here.";
+  const words = reply.split(" ");
+  for (const word of words) {
+    await delayed(undefined, 18);
+    yield { type: "text", text: word + " " };
+  }
+
+  const usage = { input_tokens: 2100, output_tokens: 78, cache_creation_input_tokens: 0, cache_read_input_tokens: 1600 };
+  const cost_usd = 0.0041;
+  yield { type: "usage", usage, cost_usd, daily_spend_usd: 0.46, daily_cap_usd: MOCK_COACH_SETTINGS.daily_cap_usd };
+  messages.push({ id: nextId(), role: "assistant", blocks: [{ type: "text", text: reply }], provider: "anthropic", model: "claude-sonnet-5", usage, cost_usd, created_at: new Date().toISOString() });
+  if (conv) conv.updated_at = new Date().toISOString();
+
+  yield { type: "done", stop_reason: "end_turn" };
 }
