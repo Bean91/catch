@@ -31,3 +31,9 @@ def test_safe_static_file_accepts_real_asset(tmp_path, monkeypatch):
 
     result = main.safe_static_file("assets/app.js")
     assert result == (static_dir / "assets" / "app.js").resolve()
+
+
+def test_no_cache_headers_only_for_sw_and_index(tmp_path):
+    assert main._no_cache_headers_for(tmp_path / "sw.js") == {"Cache-Control": "no-cache"}
+    assert main._no_cache_headers_for(tmp_path / "index.html") == {"Cache-Control": "no-cache"}
+    assert main._no_cache_headers_for(tmp_path / "assets" / "index-abc123.js") is None

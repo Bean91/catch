@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App.tsx";
+import { UpdateToast } from "./components/shell/UpdateToast.tsx";
 import "./index.css";
 import { AuthProvider } from "./lib/auth.tsx";
 import { ThemeProvider } from "./lib/theme.tsx";
@@ -14,45 +15,23 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, networkMode: "offlineFirst" } },
 });
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Dev server / HTTP-without-TLS / no SW support — offline caching just doesn't apply.
-    });
-  });
-}
-
 // Belt #3 (after the viewport meta and CSS touch-action) against page-level pinch-zoom: iOS
 // Safari's gesturestart/gesturechange/gestureend fire even with user-scalable=no in a plain
-// browser tab, and a two-finger touchmove can still zoom unless preventDefault'd — but only
-// outside a chart surface, which sets its own touch-action and runs useChartInteraction's
-// pinch handling instead. touchmove's listener must be { passive: false }, or preventDefault
-// is silently ignored.
-function isInsideChart(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest('[data-chart-surface="true"]') != null;
-}
-
-document.addEventListener(
-  "gesturestart",
-  (e) => {
-    if (!isInsideChart(e.target)) e.preventDefault();
-  },
-  { passive: false },
-);
-document.addEventListener(
-  "gesturechange",
-  (e) => {
-    if (!isInsideChart(e.target)) e.preventDefault();
-  },
-  { passive: false },
-);
-document.addEventListener("gestureend", (e) => {
-  if (!isInsideChart(e.target)) e.preventDefault();
-});
+// browser tab, and a two-finger touchmove can still zoom unless preventDefault'd. Unlike
+// session 8's original version, this is now unconditional everywhere, including over a chart
+// — a chart's own pinch-to-zoom runs entirely on Pointer Events against a `touch-action: none`
+// HTML element (see useChartInteraction.ts / DESIGN.md's "Chart touch-action" note), never on
+// these legacy gesture events, so blocking the legacy events globally can't take anything away
+// from a chart's pinch; it only stops Safari's native page-zoom from ever engaging, which it
+// would otherwise still try to do concurrently with a chart's own pinch handling. touchmove's
+// listener must be { passive: false }, or preventDefault is silently ignored.
+document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
+document.addEventListener("gesturechange", (e) => e.preventDefault(), { passive: false });
+document.addEventListener("gestureend", (e) => e.preventDefault());
 document.addEventListener(
   "touchmove",
   (e) => {
-    if (e.touches.length > 1 && !isInsideChart(e.target)) e.preventDefault();
+    if (e.touches.length > 1) e.preventDefault();
   },
   { passive: false },
 );
@@ -67,6 +46,8 @@ createRoot(document.getElementById("root")!).render(
           </BrowserRouter>
         </AuthProvider>
       </ThemeProvider>
+      {/* Outside AuthProvider/App's routes on purpose — see UpdateToast.tsx's own comment. */}
+      <UpdateToast />
     </QueryClientProvider>
   </StrictMode>,
 );

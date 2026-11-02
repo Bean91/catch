@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
@@ -28,15 +29,26 @@ const API_CACHE = 'catch-api-v1';
 const PRECACHE_URLS = ${JSON.stringify(precache)};
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting()),
-  );
+  // No unconditional self.skipWaiting() here (session 8's original version had one) — a
+  // waiting worker is exactly what main.tsx's update-detection flow needs to find via
+  // registration.waiting and prompt the user about ("New version available — tap to reload").
+  // Skipping straight to activation on install would mean there's never anything waiting to
+  // detect, and a page already open would get its fetch handler swapped out from under it
+  // mid-session with no warning.
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)));
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
+  // Purges the old API_CACHE too, not just old shell caches — a new build's JS may expect
+  // response shapes an old cached /api/* response doesn't have; losing one deploy's worth of
+  // offline freshness is a better trade than a newer app crashing on stale cached JSON.
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== SHELL_CACHE && k !== API_CACHE).map((k) => caches.delete(k))),
+      Promise.all(keys.filter((k) => k !== SHELL_CACHE).map((k) => caches.delete(k))),
     ).then(() => self.clients.claim()),
   );
 });
@@ -114,5 +126,12 @@ export default defineConfig({
       '/api': `http://localhost:${catchPort()}`,
       '/auth': `http://localhost:${catchPort()}`,
     },
+  },
+  // Scoped to src/ — vitest's default file-matching would otherwise also pick up
+  // tests/touch/*.spec.ts, which are Playwright specs (playwright.config.ts's own testDir),
+  // not vitest ones; running them under the wrong runner fails immediately on
+  // `test.beforeEach`'s signature, which the two packages don't share.
+  test: {
+    include: ['src/**/*.test.ts'],
   },
 })

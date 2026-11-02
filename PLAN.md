@@ -1298,3 +1298,116 @@ measurement before touching code (not just plausible-sounding) and both fixed:
     spikes remain under heavy CPU throttle on a long pan. Not re-measured under touch input
     specifically (only mouse-equivalent `PointerEvent` dispatch) — touch gestures were verified
     *functionally correct* (see the third pass below) but not re-profiled for frame time.
+
+## Session 9 checklist
+
+The task: session 8's chart touch interactions worked under every test run so far, but did
+nothing at all on the user's real iPhone (Safari and the installed PWA, served from the Pi) —
+exactly the gap session 8's own PLAN.md entries kept flagging ("Not verified on a real iOS
+Safari tab or an installed PWA — only Playwright/Chromium emulation"). Fix it, add real-device
+regression coverage, add service-worker update detection so a future fix like this one actually
+reaches the phone, deploy, and hand back a verification checklist.
+
+- [x] **Root-caused, not guessed**: `web/src/lib/useChartInteraction.ts` was correct Pointer
+      Events code, but it depended on `touch-action: pan-y` plus a direction-locked
+      `preventDefault()` inside `pointermove` to claim horizontal drags/pinch away from native
+      scrolling — a real, documented WebKit gap, not a logic bug: iOS Safari does not reliably
+      honor `preventDefault()` inside `pointermove`/`touchmove` to cancel a native gesture
+      already under way the way Chromium does, which is exactly why session 8's Chromium-CDP
+      touch testing never caught it. **Fixed**: chart surfaces now use `touch-action: none` (full
+      script control from the first touch, on every engine, no runtime race), and the pointer
+      handlers + `touch-action` moved off the `<svg>` itself onto its wrapping HTML `<div>` —
+      WebKit's `touch-action` support on SVG root elements has its own separate real gaps, and a
+      plain HTMLElement is the one thing every engine reliably honors it on.
+- [x] **Reimplemented vertical scroll in JS** (`useChartInteraction.ts`), since `touch-action:
+      none` means the browser no longer does it for free: `window.scrollBy` per `pointermove`
+      while direction-locked vertical, plus a small decaying-velocity fling on release so a fast
+      swipe over a ~240px chart doesn't stop dead the instant the finger lifts. Touch-only —
+      mouse never loses native scroll, since `touch-action` only ever governed touch.
+- [x] **Press-and-hold (~300ms) is now a real third gesture mode**, not inferred from release
+      timing after the fact: a stationary touch enters "inspect" at the threshold (crosshair
+      follows the finger from then on), and release from inspect never fires a tap or a pan,
+      regardless of subsequent movement. Below the threshold, the existing direction-lock (first
+      ~6px) decides pan vs. the (now JS-driven) vertical scroll, same as before.
+- [x] Two more real, independently-confirmed bugs in the gesture engine, fixed:
+      **`setPointerCapture` was called on `e.target`**, which can be a different (and
+      possibly-unmounting, e.g. the hover circle) element than the one meant to hold capture —
+      changed to `e.currentTarget` everywhere (`useChartInteraction.ts`, `ChartNavigator.tsx`).
+      **`onPointerCancel` was routed straight to the same handler as `onPointerUp`**, so an
+      OS-level gesture interruption (e.g. an edge-swipe system gesture) could be misread as a tap
+      or a double-tap. Given its own dedicated handler that only ever settles an in-progress
+      pan/pinch and clears pending timers — never fires `onTap`/`onDoubleTap`.
+- [x] **`main.tsx`'s legacy `gesturestart`/`gesturechange`/`gestureend` prevention is now
+      unconditional**, not scoped around chart surfaces — a chart's own pinch runs entirely on
+      Pointer Events against `touch-action: none` and never relied on these events to begin
+      with, so exempting chart surfaces from them (session 8's design) only left room for
+      Safari's native page-pinch-zoom to still engage concurrently over a chart.
+- [x] **Real touch-device Playwright regression tests** (`web/tests/touch/`, `@playwright/test`
+      added as a devDependency — build-time only, consistent with CLAUDE.md's "no Node at
+      runtime" rule): a `mobile-gestures` project (Chromium + an iPhone 13 device profile,
+      `hasTouch`/`isMobile`) drives real multi-touch via CDP's `Input.dispatchTouchEvent`
+      (`tests/touch/cdpTouch.ts`) — Playwright's own WebKit bindings only expose a single-point
+      `touchscreen.tap()`, no move, no multi-touch, so pan/pinch/hold needed this instead. A
+      `mobile-webkit` project (real WebKit) covers what a tap alone can verify — computed
+      `touch-action: none` on every chart surface, a real tap landing without a dead zone. 9
+      gesture tests (`charts.spec.ts`): touch-action computed style, a horizontal drag pans
+      without scrolling the page, a vertical drag scrolls the page without panning the chart, a
+      pinch narrows the visible range, a ~500ms hold shows the crosshair tooltip without panning
+      or navigating, a quick tap on a tappable (W/kg) point navigates to that workout, a
+      cancelled tap (`touchcancel`) never navigates — run against the dev server's `?mock=1`
+      fixtures (no backend needed). `web/vite.config.ts` gained a scoped `test.include` (Vitest
+      would otherwise also try to run these Playwright specs under its own runner and fail
+      immediately on `test.beforeEach`'s different signature).
+- [x] **A real, reproducible test-infrastructure flake, root-caused as far as it goes**: the
+      metric-switch tap tests failed consistently (not occasionally) whenever point-selection
+      used `expect.poll`-based waiting, and passed reliably (15+ consecutive runs, including
+      bypassing the Playwright test runner entirely with raw `chromium.launch()` scripts) with a
+      fixed `waitForTimeout` in its place — confirmed by hand that the underlying tap mechanism
+      itself (`pointerdown` -> delayed `onTap` -> `navigate()`) is correct every time regardless
+      of which wait strategy was used, isolating the flakiness to something about repeated
+      `locator.getAttribute()` polling perturbing timing enough to matter, not a touch-handling
+      bug. The exact mechanism wasn't fully pinned down; `selectMetricAndWaitForStableChart` uses
+      the fixed wait, and the two metric-switch tap tests also carry Playwright's own per-test
+      retry (2) as cheap insurance, logged honestly rather than silently trusted.
+- [x] **Service-worker update detection** (`web/vite.config.ts`'s generated `sw.js`,
+      `web/src/lib/useServiceWorkerUpdate.ts`, `web/src/components/shell/UpdateToast.tsx`):
+      session 8's `sw.js` called `self.skipWaiting()` unconditionally on install, so a new
+      deploy silently took over an already-open tab's fetch handling with no warning and nothing
+      for a client to ever detect as "waiting." Fixed: install no longer skips waiting; a new
+      `message` listener skips only on an explicit `SKIP_WAITING` postMessage. The new hook
+      registers with `updateViaCache: 'none'`, watches `registration.waiting`/`updatefound`, and
+      shows `UpdateToast` ("New version available — tap to reload", mounted outside the auth
+      gate so it's visible even on the login screen) once a worker is installed-but-waiting
+      behind an existing controller; tapping it posts `SKIP_WAITING`, and `controllerchange`
+      reloads once (loop-guarded). A `visibilitychange` listener calls `registration.update()` —
+      an installed iOS PWA resumes from the background without ever navigating, so without this
+      it would never re-check for a new `sw.js` until the next cold launch from the springboard
+      icon. `activate` now purges the API cache too, not just old shell caches, so a newer
+      build's JS can't be handed an older build's cached JSON shape while offline.
+      `catch/main.py` gained `_no_cache_headers_for()`: `sw.js`/`index.html` are served with
+      `Cache-Control: no-cache` (the two files a client needs a genuinely fresh copy of to
+      notice a new deploy at all), everything under `/assets/*` stays normally cacheable (hashed
+      filenames already bust cache per build). New test (`tests/test_main_static.py`).
+- [x] `DESIGN.md`'s "Chart touch-action" note rewritten for the `pan-y` -> `none` reversal and
+      the new press-and-hold-as-a-mode behavior. `CLAUDE.md` layout/commands updated (chart/
+      shell/lib additions, the new `web/tests/touch/` tree, `npm run test:touch`, `./deploy.sh`).
+      PLAN.md + commit.
+- [x] **Deployed to the real Pi** (`./deploy.sh` against `opensky-pi`) — see "Real verification"
+      below.
+
+## Real verification (2026-11-01)
+
+- Confirmed via `ssh opensky-pi` before touching anything that session 8's interactive-charts
+  commits were already the live deployed build (`grep -l data-chart-surface
+  /opt/catch/app/catch/api/static/assets/*.js` matched), ruling out "stale build" as the
+  explanation for "does nothing on my phone" before spending any time on code.
+- `uv run pytest` — 223 passed. `cd web && npx tsc -b && npm run build` — clean, initial bundle
+  still 489KB raw / ~156KB gzip (within the 250KB gzip budget). `cd web && npm run test`
+  (Vitest) — 17 passed, now cleanly separated from the Playwright specs. `cd web && npx
+  playwright test` — 13 of 20 run (7 correctly skipped: WebKit can't drive the 7 multi-touch/move
+  tests), all 13 passing, reconfirmed across more than 10 repeated full runs (including under
+  `--workers=1`) with zero flakes once the `expect.poll` fix above landed.
+- `./deploy.sh` against the real Pi: frontend build, rsync, `uv sync --frozen` (aarch64 wheels,
+  no compiling — same as session 7), `systemctl restart catch.service`, health check passed.
+- [Fill in after the phone checklist is actually walked: real iPhone Safari-tab and
+  installed-PWA touch results.]

@@ -93,16 +93,15 @@ export function WeeklyVolumeBars({
 
   return (
     <div ref={containerRef} className="relative">
-      <svg
-        width="100%"
-        height={HEIGHT}
-        viewBox={`0 0 ${width} ${HEIGHT}`}
+      <div
+        className="touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        // See TrendLineChart's identical note: handlers + touch-action live on this HTML div,
+        // not the <svg> — WebKit's touch-action support on SVG root elements has real gaps
+        // that only surfaced testing on a real iPhone, not Chromium's CDP touch emulation.
+        data-chart-surface="true"
         role="img"
         aria-label="Weekly training volume by zone"
         tabIndex={0}
-        className="touch-pan-y select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        data-chart-surface="true"
-        style={{ touchAction: "pan-y" }}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
         onPointerUp={handlers.onPointerUp}
@@ -111,6 +110,7 @@ export function WeeklyVolumeBars({
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >
+      <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
         {visible.map((w) => {
           const total = ZONE_NAMES.reduce((sum, z) => sum + w.zones[z], 0);
           const barX = x(weekMs(w.week_start) + WEEK_MS / 2) - barWidth / 2;
@@ -151,6 +151,7 @@ export function WeeklyVolumeBars({
             </text>
           ))}
       </svg>
+      </div>
 
       {hovered && (
         <div className="pointer-events-none absolute top-1 left-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm">

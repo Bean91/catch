@@ -174,26 +174,29 @@ export function TrendLineChart({
 
   return (
     <div ref={containerRef} className="relative">
-      <svg
-        width="100%"
-        height={HEIGHT}
-        viewBox={`0 0 ${width} ${HEIGHT}`}
+      <div
+        className="touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        // Handlers + touch-action live on this HTML div, not the <svg> itself — WebKit's
+        // touch-action support on SVG root elements has real, documented gaps (confirmed the
+        // hard way: this chart's touches did nothing on a real iPhone despite working under
+        // Chromium's CDP touch emulation in session 8's own testing). A plain HTMLElement is
+        // the one thing every engine, including iOS Safari, reliably honors `touch-action:
+        // none` on. Deliberately doesn't wrap ChartZoomButtons below — those are real
+        // <button>s, and pointerdown on them would otherwise bubble into this gesture engine
+        // too. See DESIGN.md's "Chart touch-action" note.
+        data-chart-surface="true"
         role="img"
         aria-label={`Trend over time. ${rangeLabel}`}
         tabIndex={0}
-        className="touch-pan-y select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        data-chart-surface="true"
-        style={{ touchAction: "pan-y" }}
         onPointerDown={handlers.onPointerDown}
-        onPointerMove={(e) => {
-          handlers.onPointerMove(e);
-        }}
+        onPointerMove={handlers.onPointerMove}
         onPointerUp={handlers.onPointerUp}
         onPointerCancel={handlers.onPointerCancel}
         onPointerLeave={() => setHoverX(null)}
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >
+      <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
         {ticks.map((t, i) => (
           <g key={i}>
             <line x1={x(t.ms)} x2={x(t.ms)} y1={PAD_TOP} y2={PAD_TOP + plotHeight} stroke="var(--border)" strokeWidth={1} opacity={0.5} />
@@ -248,9 +251,10 @@ export function TrendLineChart({
             // motion.path on every pan/zoom frame (hundreds of times during a drag) carries
             // real Framer Motion overhead for an animation that's already a no-op by then;
             // measured as dropped frames in a CPU-throttled pan test before this split.
-            <path d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <path data-testid="chart-line" d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           ) : (
             <motion.path
+              data-testid="chart-line"
               d={linePath}
               fill="none"
               stroke={color}
@@ -277,9 +281,11 @@ export function TrendLineChart({
           </g>
         )}
       </svg>
+      </div>
 
       {hoverPoint && (
         <div
+          data-testid="chart-tooltip"
           className="pointer-events-none absolute top-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm"
           style={{ left: `clamp(4px, ${(x(dateToMs(hoverPoint.date)) / width) * 100}%, calc(100% - 100px))` }}
         >

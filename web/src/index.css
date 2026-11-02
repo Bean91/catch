@@ -49,10 +49,17 @@ html,
 body {
   /* Blocks pinch-zoom on the page while still allowing normal scrolling — belt-and-suspenders
      with the viewport meta's user-scalable=no, which iOS Safari ignores in a plain browser
-     tab (only honored once installed as a PWA). Chart surfaces override this to `pan-y` or
-     `none` inline so they can claim pinch/horizontal-drag gestures for themselves — see
-     DESIGN.md's "Chart touch-action" note for why that's `pan-y`, not `none`. */
+     tab (only honored once installed as a PWA). Chart surfaces override this to `none` so
+     they get full script control of every gesture (pan, pinch, press-and-hold) — see
+     DESIGN.md's "Chart touch-action" note for why `none`, not the original `pan-y`. */
   touch-action: pan-x pan-y;
+}
+
+[data-chart-surface="true"] {
+  /* iOS's long-press callout (the "Copy"/share bubble) would otherwise interrupt the
+     press-and-hold-to-inspect gesture partway through its ~300ms hold. */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {

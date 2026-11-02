@@ -35,6 +35,15 @@ def safe_static_file(full_path: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _no_cache_headers_for(target: Path) -> dict[str, str] | None:
+    """sw.js and index.html are the two files a client needs a *fresh* copy of to ever notice
+    a new deploy — index.html references the new build's hashed asset filenames, and sw.js's
+    own VERSION const is what the update-detection flow in main.tsx compares against. Every
+    hashed /assets/* file is immutable per build and fine to cache normally; these two must
+    never be served stale by an intermediate cache (or iOS Safari's own aggressive caching)."""
+    return {"Cache-Control": "no-cache"} if target.name in ("sw.js", "index.html") else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -90,6 +99,5 @@ if _STATIC_DIR.is_dir():
         if full_path.startswith("api/") or full_path.startswith("auth/"):
             raise HTTPException(status_code=404)
         safe = safe_static_file(full_path)
-        if safe is not None:
-            return FileResponse(safe)
-        return FileResponse(_STATIC_DIR / "index.html")
+        target = safe if safe is not None else _STATIC_DIR / "index.html"
+        return FileResponse(target, headers=_no_cache_headers_for(target))

@@ -157,16 +157,15 @@ export function ErgChart({
 
   return (
     <div ref={containerRef} className="relative">
-      <svg
-        width="100%"
-        height={HEIGHT}
-        viewBox={`0 0 ${width} ${HEIGHT}`}
+      <div
+        className="touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        // See TrendLineChart's identical note: handlers + touch-action live on this HTML div,
+        // not the <svg> — WebKit's touch-action support on SVG root elements has real gaps
+        // that only surfaced testing on a real iPhone, not Chromium's CDP touch emulation.
+        data-chart-surface="true"
         role="img"
         aria-label="Split, watts and stroke rate over distance"
         tabIndex={0}
-        className="touch-pan-y select-none outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-        data-chart-surface="true"
-        style={{ touchAction: "pan-y" }}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
         onPointerUp={handlers.onPointerUp}
@@ -178,6 +177,7 @@ export function ErgChart({
         onKeyDown={handlers.onKeyDown}
         onDoubleClick={handlers.onDoubleClick}
       >
+      <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="block">
         {hoveredInterval != null &&
           (() => {
             const { min, max } = intervalBounds(hoveredInterval);
@@ -245,6 +245,7 @@ export function ErgChart({
           />
         )}
       </svg>
+      </div>
 
       {hovered && (
         <div className="pointer-events-none absolute top-1 left-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm">

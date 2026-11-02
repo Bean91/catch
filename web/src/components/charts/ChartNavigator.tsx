@@ -79,7 +79,11 @@ export function ChartNavigator({
   const onHandlePointerDown = (mode: "move" | "left" | "right") => (e: React.PointerEvent) => {
     e.stopPropagation();
     try {
-      (e.target as Element).setPointerCapture(e.pointerId);
+      // currentTarget (the handle rect itself, since capture is set from within each handle's
+      // own onPointerDown), not target — same fix as useChartInteraction's identical guard;
+      // target can be a different element than the one the capture call is meant for once
+      // event delegation or a nested shape is involved.
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
     } catch {
       // Drag tracking still works without capture — see useChartInteraction's identical guard.
     }

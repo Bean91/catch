@@ -80,18 +80,35 @@ query's cache key from the live domain directly was a real bug caught by a CPU-t
 test this session (PLAN.md's session 8 bug log) — it turned nearly every pointermove into a new
 fetch attempt. Any new chart added later should follow the same split.
 
-**Chart touch-action: `pan-y`, not `none`.** A chart surface needs to claim horizontal drags
-and pinch for its own gesture handling, but the task's own brief also asks for vertical drags to
-still scroll the page natively on mobile — `touch-action: none` on the chart would mean
-reimplementing vertical scroll (and its momentum) in JS to get that back, so chart `<svg>`s use
-`pan-y` instead: the browser keeps native vertical scrolling, and `useChartInteraction`'s pointer
-handlers `preventDefault()` only once a gesture direction-locks horizontal (first ~6px of
-movement decides which) or immediately for a 2-pointer pinch. Page-level pinch is blocked
-separately (`html, body { touch-action: pan-x pan-y }` in `index.css`, plus a viewport-meta
-`user-scalable=no` and a `gesturestart`/`gesturechange`/`gestureend`/2-touch-`touchmove`
-preventDefault in `main.tsx`, scoped to outside `[data-chart-surface="true"]` elements) — see
-PLAN.md's session 8 gotchas for why both the meta tag and the JS belt-and-suspenders exist (iOS
-Safari ignores `user-scalable=no` in a plain browser tab).
+**Chart touch-action: `none`, not `pan-y` — reversed from session 8's original call.** Session 8
+chose `pan-y` (native vertical scroll kept, JS claims horizontal/pinch via direction-locked
+`preventDefault()`) specifically to avoid reimplementing scroll in JS. That worked under
+Chromium's CDP touch emulation but did nothing at all on a real iPhone (session 9) — a real,
+well-documented WebKit gap: iOS Safari does not reliably honor `preventDefault()` inside
+`pointermove`/`touchmove` to cancel a native gesture already in progress the way Chromium does;
+only CSS `touch-action` reliably governs what the browser claims versus leaves to script, and by
+the time a direction-locked drag calls `preventDefault()`, Safari may have already committed to
+its own native handling. `touch-action: none` sidesteps relying on that entirely: the browser
+never claims the gesture in the first place, full stop, on every engine. The cost is real —
+vertical scroll over a chart is no longer free — so `useChartInteraction.ts` reimplements it
+itself (`window.scrollBy` per pointermove, a small decaying-velocity fling on release), gated to
+touch input only (mouse never loses native scroll, since `touch-action` only governs touch).
+Handlers also moved from the `<svg>` itself onto its wrapping HTML `<div>` — WebKit's
+`touch-action` support on SVG root elements has its own real gaps, and a plain HTMLElement is
+the one thing every engine reliably honors it on. Page-level pinch is blocked separately
+(`html, body { touch-action: pan-x pan-y }` in `index.css`, plus a viewport-meta
+`user-scalable=no` and an *unconditional* `gesturestart`/`gesturechange`/`gestureend`/
+2-touch-`touchmove` preventDefault in `main.tsx` — no longer scoped around chart surfaces, since
+a chart's own pinch runs entirely on Pointer Events against `touch-action: none` and never relied
+on these legacy gesture events to begin with) — see PLAN.md's session 8 gotchas for why both the
+meta tag and the JS belt-and-suspenders exist (iOS Safari ignores `user-scalable=no` in a plain
+browser tab), and session 9 for the real-iPhone findings above.
+
+**Press-and-hold (~300ms) is a distinct third gesture mode, not a side effect of tap timing.**
+A still touch for that long enters "inspect" — the crosshair/tooltip follows the finger, and
+release never fires a tap or a pan, regardless of whether the finger then moves. Below the
+threshold, the usual direction-lock (first ~6px of movement) decides pan vs. the (now
+JS-driven) vertical scroll.
 
 **Annotations reuse, not redefine, "taper."** A race's taper-window shading on a trend chart is
 always 14 days, matching `catch/coach/memory.py`'s `next_a_race()` — the same number the Today

@@ -47,17 +47,24 @@ web/
   src/
     components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
                 workouts/ (WorkoutRow, IntervalTable, ZoneTable, NotesBox, PbTable),
-                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart — hand-rolled SVG, no
-                chart library; lazy-loaded with the page that uses them), shell/ (AppShell,
-                Sidebar, BottomNav), coach/ (Timeline, ToolCallChip, SuggestedPrompts,
-                CoachSettingsCard)
+                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart, ChartNavigator,
+                ChartZoomButtons — hand-rolled SVG, no chart library; lazy-loaded with the page
+                that uses them; pan/pinch/press-hold run through the shared
+                lib/useChartInteraction.ts hook against `touch-action: none` HTML wrapper divs,
+                never the `<svg>` itself — WebKit's touch-action support on SVG root elements
+                has real gaps, see DESIGN.md's "Chart touch-action" note), shell/ (AppShell,
+                Sidebar, BottomNav, UpdateToast — the "new version, tap to reload" banner),
+                coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading
                 fixtures, incl. a scripted streamMockMessage() turn), format.ts, auth.tsx,
                 theme.tsx, zoneColors.ts/hrZone.ts (zone color ramp + a small TS port of
                 catch/analytics/zones.py's zone_for_hr for client-side chart coloring),
-                dateRanges.ts (Trends' 4w/12w/season/all -> from/to), timeline.ts (merges a
+                dateRanges.ts (Trends' 4w/12w/season/all -> from/to), chartRange.ts (preset <->
+                URL querystring helpers), useChartInteraction.ts (the shared pan/pinch/press-hold
+                gesture engine every chart uses), useServiceWorkerUpdate.ts (registers sw.js,
+                watches for a waiting worker, drives UpdateToast), timeline.ts (merges a
                 conversation's tool_call/tool_result block pairs — stored on two separate
                 message rows — into one display entry), toolLabels.ts (mirrors
                 catch/coach/chat.py's chip-label templates for persisted history)
@@ -70,7 +77,13 @@ web/
                 the real hashed asset list, so it can't be a static passthrough file
 tests/          fixtures/ has recorded JSON; no live network calls in the suite; coach/ has
                 the tool-layer, chat-loop, and provider tests (Anthropic client mocked,
-                Ollama mocked via httpx.MockTransport)
+                Ollama mocked via httpx.MockTransport). `web/` has its own test trees:
+                `web/src/**/*.test.ts` (Vitest, pure-function unit tests, e.g. chartRange.ts) and
+                `web/tests/touch/` (Playwright, real touch-device gesture regression tests —
+                `playwright.config.ts` runs a Chromium+iPhone-profile project driven via CDP
+                multi-touch, since Playwright's own WebKit bindings only support a single tap
+                with no move/multi-touch; a real-WebKit project covers what a tap alone can
+                verify, e.g. computed `touch-action`)
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector)
 DESIGN.md       palette/type/motion decisions for the web frontend
@@ -94,6 +107,12 @@ DESIGN.md       palette/type/motion decisions for the web frontend
 - `cd web && npm run build` — builds to `catch/api/static`, which FastAPI serves at `/`
   (gitignored; not committed — the Pi has no Node, so the build must run elsewhere and the
   `catch/api/static` output deployed alongside the backend)
+- `cd web && npm run test` — Vitest (pure-function unit tests only)
+- `cd web && npm run test:touch` — Playwright real-touch-device gesture regression tests
+  (installs its own Chromium/WebKit via `npx playwright install` the first time; starts its own
+  dev server on port 5190, no backend needed since it runs against `?mock=1`)
+- `./deploy.sh` — build the frontend + rsync the backend to the Pi + restart + health-check
+  (needs `deploy/pi-bootstrap.sh` to have been run on the Pi at least once; see that file)
 
 ## Conventions
 

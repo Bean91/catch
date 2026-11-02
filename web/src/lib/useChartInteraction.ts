@@ -50,6 +50,16 @@ export interface ChartInteractionHandlers {
   onDoubleClick: (e: React.MouseEvent) => void;
 }
 
+// A real iOS Safari gotcha, not reproducible via Chromium's CDP touch emulation (which is how
+// this hook was first tested, in session 8): calling preventDefault() inside pointermove/
+// touchmove does NOT reliably cancel WebKit's native scroll/pinch once it's already started —
+// only CSS touch-action does. The chart surface therefore uses `touch-action: none` (full
+// script control from the first touch), not `pan-y` as originally designed — see DESIGN.md's
+// "Chart touch-action" note. That means vertical scrolling over a chart no longer happens for
+// free; `onPointerMove` below reimplements it with window.scrollBy + a simple momentum fling on
+// release, gated to touch input only (mouse never loses native scroll, since touch-action only
+// governs touch).
+
 export interface UseChartInteractionResult {
   handlers: ChartInteractionHandlers;
   zoomIn: () => void;
@@ -70,6 +80,11 @@ const DOUBLE_TAP_DIST_PX = 32;
 // (interaction spec #4) — not a tap. Without this, holding still to read the crosshair and
 // then lifting your finger would fire onTap, e.g. navigating away from a tappable chart.
 const HOLD_IS_NOT_A_TAP_MS = 350;
+// Touch-only: how long a stationary finger must stay down before the crosshair/tooltip
+// appears (interaction spec #4's "~300ms"). Below this, a still finger is just the first part
+// of an undecided tap/pan, and showing a crosshair immediately on every touchdown (as a mouse
+// does, where hover is already free) would flash on every tap and pan gesture.
+const HOLD_SHOW_CROSSHAIR_MS = 300;
 
 function clampDomain(domain: Domain, full: Domain, minSpan: number): Domain {
   const span = Math.min(Math.max(domain.max - domain.min, minSpan), full.max - full.min);
@@ -95,15 +110,23 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
   // never itself trigger a re-render (that's what onViewChange's rAF throttle is for).
   const gesture = useRef({
     pointers: new Map<number, { x: number; y: number }>(),
-    mode: "idle" as "idle" | "pending" | "pan" | "pinch" | "vertical-scroll",
+    mode: "idle" as "idle" | "pending" | "pan" | "pinch" | "vertical-scroll" | "inspect",
+    pointerType: "mouse" as string,
     startDomain: fullDomain,
     startPointer: { x: 0, y: 0 },
+    startRect: null as DOMRect | null,
     startTime: 0,
     pinchStartDist: 0,
     pinchStartMid: 0,
     lastTap: { time: 0, x: 0 },
     rafPending: false,
     pendingTapTimer: null as ReturnType<typeof setTimeout> | null,
+    holdTimer: null as ReturnType<typeof setTimeout> | null,
+    // Manual vertical-scroll pass-through (touch only — see the file-level note above).
+    lastTouchY: 0,
+    lastMoveTs: 0,
+    lastMoveVelocityPxMs: 0,
+    flingRafId: null as number | null,
   });
 
   // The hook is "controlled": `domainRef` is normally just a same-frame mirror of the
@@ -180,16 +203,43 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     [commit],
   );
 
+  // A simple decaying-velocity momentum scroll — not real physics, just enough that releasing
+  // a fast vertical swipe over a chart keeps coasting instead of stopping dead the instant the
+  // finger lifts (which `touch-action: none` otherwise causes, since there's no more native
+  // scroll under it at all).
+  const flingScroll = useCallback((initialVelocityPxMs: number) => {
+    const g = gesture.current;
+    if (g.flingRafId != null) cancelAnimationFrame(g.flingRafId);
+    let velocity = initialVelocityPxMs;
+    let last: number | null = null;
+    const step = (ts: number) => {
+      const dt = last == null ? 16 : Math.min(ts - last, 48);
+      last = ts;
+      window.scrollBy(0, -velocity * dt);
+      velocity *= 0.92;
+      if (Math.abs(velocity) > 0.02) {
+        g.flingRafId = requestAnimationFrame(step);
+      } else {
+        g.flingRafId = null;
+      }
+    };
+    g.flingRafId = requestAnimationFrame(step);
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (disabled) return;
       const g = gesture.current;
+      if (g.flingRafId != null) {
+        cancelAnimationFrame(g.flingRafId);
+        g.flingRafId = null;
+      }
       g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // Wrapped: an uncaught throw here (e.g. no genuinely active pointer with this id — seen
       // from a synthetic PointerEvent in testing, but defensive for any real browser quirk
       // too) would abort the rest of this handler and leave gesture state never initialized.
       try {
-        (e.target as Element).setPointerCapture?.(e.pointerId);
+        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
       } catch {
         // Gesture tracking still works without capture; it just won't survive the pointer
         // leaving this element's bounds mid-drag.
@@ -206,12 +256,37 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
           clearTimeout(g.pendingTapTimer);
           g.pendingTapTimer = null;
         }
+        if (g.holdTimer != null) {
+          clearTimeout(g.holdTimer);
+          g.holdTimer = null;
+        }
         g.mode = "pending";
+        g.pointerType = e.pointerType;
         g.startDomain = domainRef.current;
         g.startPointer = { x: e.clientX, y: e.clientY };
+        g.startRect = (e.currentTarget as Element).getBoundingClientRect();
         g.startTime = performance.now();
-        setHoverX(pxToDomainValue(e.clientX, (e.currentTarget as Element).getBoundingClientRect()));
+        g.lastTouchY = e.clientY;
+        if (e.pointerType === "touch") {
+          // No immediate crosshair for touch — only a mouse gets one for free from hover; a
+          // touch has to earn it with a press-and-hold (below), or this would flash on every
+          // tap and every pan gesture's opening frames.
+          setHoverX(null);
+          g.holdTimer = setTimeout(() => {
+            g.holdTimer = null;
+            if (g.mode === "pending" && g.startRect) {
+              g.mode = "inspect";
+              setHoverX(pxToDomainValue(g.startPointer.x, g.startRect));
+            }
+          }, HOLD_SHOW_CROSSHAIR_MS);
+        } else {
+          setHoverX(pxToDomainValue(e.clientX, g.startRect));
+        }
       } else if (g.pointers.size === 2) {
+        if (g.holdTimer != null) {
+          clearTimeout(g.holdTimer);
+          g.holdTimer = null;
+        }
         const pts = Array.from(g.pointers.values());
         g.mode = "pinch";
         g.pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
@@ -248,19 +323,55 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         return;
       }
 
+      if (g.mode === "inspect") {
+        // Press-and-hold has already claimed this gesture — keep scrubbing the crosshair
+        // across the data regardless of direction; never promote to pan/scroll/zoom from here.
+        setHoverX(pxToDomainValue(e.clientX, rect));
+        e.preventDefault();
+        return;
+      }
+
+      if (g.mode === "vertical-scroll") {
+        // Native scroll no longer happens under `touch-action: none` — reimplemented here,
+        // touch-only (mouse never loses native scroll, since touch-action only governs touch).
+        if (g.pointerType === "touch") {
+          const now = performance.now();
+          const dy = e.clientY - g.lastTouchY;
+          const dt = Math.max(now - g.lastMoveTs, 1);
+          window.scrollBy(0, -dy);
+          g.lastTouchY = e.clientY;
+          g.lastMoveTs = now;
+          g.lastMoveVelocityPxMs = dy / dt;
+        }
+        return;
+      }
+
       if (g.mode === "pending") {
         const dx = e.clientX - g.startPointer.x;
         const dy = e.clientY - g.startPointer.y;
         if (Math.hypot(dx, dy) < DIRECTION_LOCK_THRESHOLD_PX) {
-          setHoverX(pxToDomainValue(e.clientX, rect));
+          if (g.pointerType !== "touch") setHoverX(pxToDomainValue(e.clientX, rect));
           return;
+        }
+        // Movement has committed this gesture to a direction — it's no longer a candidate for
+        // the press-and-hold crosshair.
+        if (g.holdTimer != null) {
+          clearTimeout(g.holdTimer);
+          g.holdTimer = null;
         }
         if (Math.abs(dx) > Math.abs(dy)) {
           g.mode = "pan";
           setIsPanning(true);
         } else {
           g.mode = "vertical-scroll";
-          return; // let the page scroll natively — don't preventDefault, don't capture further
+          g.lastTouchY = e.clientY;
+          g.lastMoveTs = performance.now();
+          g.lastMoveVelocityPxMs = 0;
+          if (g.pointerType === "touch") {
+            window.scrollBy(0, -dy);
+            e.preventDefault();
+          }
+          return;
         }
       }
 
@@ -280,10 +391,20 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     (e: React.PointerEvent) => {
       const g = gesture.current;
       const wasMode = g.mode;
+      if (g.holdTimer != null) {
+        clearTimeout(g.holdTimer);
+        g.holdTimer = null;
+      }
       g.pointers.delete(e.pointerId);
       if (g.pointers.size === 0) {
         if (wasMode === "pan" || wasMode === "pinch") {
           onSettled?.(domainRef.current);
+        } else if (wasMode === "vertical-scroll") {
+          if (g.pointerType === "touch" && Math.abs(g.lastMoveVelocityPxMs) > 0.05) {
+            flingScroll(g.lastMoveVelocityPxMs);
+          }
+        } else if (wasMode === "inspect") {
+          // A long press that ended without ever becoming a tap or a drag — nothing to settle.
         } else if (wasMode === "pending") {
           const dx = e.clientX - g.startPointer.x;
           const dy = e.clientY - g.startPointer.y;
@@ -328,11 +449,47 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         // Pinch collapsed to one finger — restart as a fresh pan from here rather than jumping.
         const remaining = Array.from(g.pointers.entries())[0];
         g.mode = "pending";
+        g.pointerType = e.pointerType;
         g.startPointer = { x: remaining[1].x, y: remaining[1].y };
+        g.startRect = (e.currentTarget as Element).getBoundingClientRect();
         g.startDomain = domainRef.current;
       }
     },
-    [onSettled, onTap, onDoubleTap, pxToDomainValue],
+    [onSettled, onTap, onDoubleTap, pxToDomainValue, flingScroll],
+  );
+
+  // A dedicated cancel handler, not routed through endGesture: a pointercancel means the OS/
+  // browser interrupted the gesture (e.g. an edge-swipe system gesture), not that the user
+  // finished it deliberately — it must never be interpreted as a tap or a double-tap, and a
+  // cancel mid-tap must not leave a delayed onTap timer armed to fire afterward into a gesture
+  // that never happened.
+  const onPointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      const g = gesture.current;
+      const wasMode = g.mode;
+      if (g.holdTimer != null) {
+        clearTimeout(g.holdTimer);
+        g.holdTimer = null;
+      }
+      if (g.pendingTapTimer != null) {
+        clearTimeout(g.pendingTapTimer);
+        g.pendingTapTimer = null;
+      }
+      g.pointers.delete(e.pointerId);
+      if (g.pointers.size === 0) {
+        if (wasMode === "pan" || wasMode === "pinch") onSettled?.(domainRef.current);
+        g.mode = "idle";
+        setIsPanning(false);
+      } else if (g.pointers.size === 1) {
+        const remaining = Array.from(g.pointers.entries())[0];
+        g.mode = "pending";
+        g.pointerType = e.pointerType;
+        g.startPointer = { x: remaining[1].x, y: remaining[1].y };
+        g.startRect = (e.currentTarget as Element).getBoundingClientRect();
+        g.startDomain = domainRef.current;
+      }
+    },
+    [onSettled],
   );
 
   // A *native* listener, not React's onWheel prop: React registers its delegated wheel
@@ -416,11 +573,13 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullDomain.min, fullDomain.max, minSpan]);
 
-  // Cancels a pending delayed single-tap if the chart unmounts (e.g. switching metric/route)
-  // before the double-tap window elapses — otherwise onTap fires into a component that's gone.
+  // Cancels any pending timers if the chart unmounts (e.g. switching metric/route) before they
+  // fire — otherwise onTap/the hold-to-inspect transition fires into a component that's gone.
   useEffect(() => {
     return () => {
       if (gesture.current.pendingTapTimer != null) clearTimeout(gesture.current.pendingTapTimer);
+      if (gesture.current.holdTimer != null) clearTimeout(gesture.current.holdTimer);
+      if (gesture.current.flingRafId != null) cancelAnimationFrame(gesture.current.flingRafId);
     };
   }, []);
 
@@ -430,7 +589,7 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         onPointerDown,
         onPointerMove,
         onPointerUp: endGesture,
-        onPointerCancel: endGesture,
+        onPointerCancel,
         onKeyDown,
         onDoubleClick,
       },
@@ -442,6 +601,6 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
       setHoverX,
       isPanning,
     }),
-    [onPointerDown, onPointerMove, endGesture, onKeyDown, onDoubleClick, zoomIn, zoomOut, panBy, reset, hoverX, isPanning],
+    [onPointerDown, onPointerMove, endGesture, onPointerCancel, onKeyDown, onDoubleClick, zoomIn, zoomOut, panBy, reset, hoverX, isPanning],
   );
 }
