@@ -63,14 +63,17 @@ export function BodyPage() {
   );
 
   // Re-derives the domain once the real earliestMs loads — see Trends.tsx's identical effect
-  // for the full explanation (a cold `?range=all`/`1y`/`6m` load would otherwise permanently
-  // stick at the ~60-day mount-time fallback span, since useState's initializer only runs once).
+  // for the full explanation (a cold `?range=all`/`1y`/`6m` load — or even the no-param default —
+  // would otherwise permanently stick at the ~60-day mount-time fallback span, since useState's
+  // initializer only runs once). Gated on the custom from/to pair, not `urlState.preset` itself —
+  // the latter is also null on the no-param default, which skipped this re-derive on the single
+  // most common entry point (see Trends.tsx's comment for the full story).
   const lastAppliedEarliestMs = useRef<number | null>(null);
   useEffect(() => {
     if (lastAppliedEarliestMs.current === earliestMs) return;
     lastAppliedEarliestMs.current = earliestMs;
-    if (!urlState.preset) return;
-    const next = presetToDomain(urlState.preset, now, new Date(earliestMs));
+    if (urlState.from && urlState.to) return;
+    const next = presetToDomain(urlState.preset ?? "12w", now, new Date(earliestMs));
     setDomain(next);
     setQueryDomain(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps

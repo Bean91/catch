@@ -132,8 +132,19 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
   // The hook is "controlled": `domainRef` is normally just a same-frame mirror of the
   // `domain` prop, kept as a ref purely so gesture math reads/writes synchronously without
   // waiting for React to re-render between pointermove events — not a second source of truth.
+  // Skipped while a `commit()` has a flush still pending (`rafPending`): any `settled: true`
+  // commit — every keyboard action (+/-/arrows/Home/End/Esc), since those call commit outside
+  // a drag — calls its own `onSettled` synchronously, which commonly triggers a parent
+  // re-render (e.g. Trends.tsx's URL write) *before* the rAF-deferred `onViewChange` flush
+  // fires. Without this guard, that re-render's still-stale `domain` prop would stomp
+  // `domainRef.current` right back over the just-committed value in between, so the pending
+  // rAF would flush the OLD domain instead — a real, confirmed bug: every keyboard zoom/pan
+  // silently updated the URL and the settled query but never the visible chart or its
+  // aria-label, because the live domain it flushed was always one step behind.
   const domainRef = useRef(domain);
-  domainRef.current = domain;
+  if (!gesture.current.rafPending) {
+    domainRef.current = domain;
+  }
 
   const commit = useCallback(
     (next: Domain, { settled }: { settled: boolean }) => {

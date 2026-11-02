@@ -52,3 +52,29 @@ test("a real touchscreen tap on a tappable point navigates (not just 'still visi
   await page.touchscreen.tap(target.x, target.y);
   await expect(page).toHaveURL(/\/workouts\/\d+/, { timeout: 2000 });
 });
+
+test("no on-chart zoom buttons — they covered data at 390px (see DESIGN.md)", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Zoom in" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Zoom out" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveCount(0);
+});
+
+test("keyboard +/- zooms a focused chart and Escape resets it", async ({ page }) => {
+  // Regression test for a real bug this session: a ref-mirror line in useChartInteraction.ts
+  // was stomping the rAF-deferred live-domain flush before it fired, so every settled: true
+  // commit (every keyboard action, since those never go through a drag) silently updated the
+  // URL/query but never the visible chart or its aria-label.
+  const chart = page.locator('[data-chart-surface="true"]').first();
+  await chart.focus();
+  const before = await page.getByRole("img", { name: /Trend over time/ }).getAttribute("aria-label");
+
+  await chart.press("=");
+  await expect
+    .poll(async () => page.getByRole("img", { name: /Trend over time/ }).getAttribute("aria-label"), { timeout: 2000 })
+    .not.toBe(before);
+
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(async () => page.getByRole("img", { name: /Trend over time/ }).getAttribute("aria-label"), { timeout: 2000 })
+    .toBe(before);
+});

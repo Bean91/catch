@@ -8,7 +8,6 @@ import { useChartInteraction } from "../../lib/useChartInteraction";
 import { useReducedMotion } from "../../lib/useReducedMotion";
 import { zoneColor } from "../../lib/zoneColors";
 import { EmptyState } from "../ui/EmptyState";
-import { ChartZoomButtons } from "./ChartZoomButtons";
 
 const WIDTH = 640;
 const HEIGHT = 260;
@@ -94,7 +93,7 @@ export function ErgChart({
     hasAnimatedIn.current = true;
   }, []);
 
-  const { handlers, zoomIn, zoomOut, hoverX, setHoverX } = useChartInteraction({
+  const { handlers, hoverX, setHoverX } = useChartInteraction({
     domain,
     fullDomain,
     minSpan: MIN_SPAN_M,
@@ -164,7 +163,7 @@ export function ErgChart({
         // that only surfaced testing on a real iPhone, not Chromium's CDP touch emulation.
         data-chart-surface="true"
         role="img"
-        aria-label="Split, watts and stroke rate over distance"
+        aria-label="Split, watts and stroke rate over distance. Focus and press +/- to zoom, arrow keys to pan, Escape to reset."
         tabIndex={0}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
@@ -255,8 +254,6 @@ export function ErgChart({
           {hovered.stroke_rate != null && <div className="font-mono-nums text-text-tertiary">{hovered.stroke_rate.toFixed(0)}spm</div>}
         </div>
       )}
-
-      <ChartZoomButtons onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={onResetDomain} />
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
         {lines.map((line) => (

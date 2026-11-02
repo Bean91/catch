@@ -47,9 +47,10 @@ web/
   src/
     components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
                 workouts/ (WorkoutRow, IntervalTable, ZoneTable, NotesBox, PbTable),
-                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart, ChartNavigator,
-                ChartZoomButtons — hand-rolled SVG, no chart library; lazy-loaded with the page
-                that uses them; pan/pinch/press-hold run through the shared
+                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart, ChartNavigator —
+                hand-rolled SVG, no chart library; lazy-loaded with the page that uses them; no
+                on-chart zoom buttons — they covered data at 390px, see DESIGN.md's "On-chart
+                zoom buttons removed" note; pan/pinch/press-hold run through the shared
                 lib/useChartInteraction.ts hook against `touch-action: none` HTML wrapper divs,
                 never the `<svg>` itself — WebKit's touch-action support on SVG root elements
                 has real gaps, see DESIGN.md's "Chart touch-action" note), shell/ (AppShell,

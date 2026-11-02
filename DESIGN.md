@@ -131,6 +131,16 @@ own "Unable to preventDefault inside passive event listener invocation" warning)
 pinch would zoom the whole page right alongside the chart. `useChartInteraction` takes a
 `surfaceRef` specifically to attach this natively to the chart's own DOM node.
 
+**On-chart zoom buttons removed (session 11).** Interaction spec #2's `+`/`−`/reset buttons
+overlaid on each chart (`ChartZoomButtons`) covered real data on a 390px phone screen, so they
+were deleted along with the component. Every other control from the original spec stays: pinch
+or ctrl/cmd+wheel to zoom, drag to pan, double-tap/double-click to reset, the navigator strip,
+the range presets, and `+`/`-`/arrows/Esc on a focused chart (`useChartInteraction.ts` already
+had all of this — the buttons were a redundant, screen-covering affordance for the same
+actions). Don't re-add on-chart buttons for this; if zoom/reset ever needs a visible affordance
+again, it belongs outside the plot area (e.g. next to the range presets), never floating over
+the data.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

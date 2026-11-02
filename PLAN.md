@@ -1627,3 +1627,69 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
   id/commit in Settings — including whether the one-time migration gap documented above (old
   JS's dead tap, since the phone's currently-running JS predates this session) actually happens,
   and if so whether a force-quit/relaunch resolves it as expected.]
+
+## Session 11 checklist
+
+The task: the on-chart `+`/`−`/reset zoom buttons (`ChartZoomButtons`, interaction spec #2)
+covered real data on a 390px phone — remove them, keep every other control. Also: a range
+preset wider than the real history (e.g. "6m"/"All" when data only starts mid-October) should
+start the x-axis at the first data point, not show empty months.
+
+- [x] **Deleted `ChartZoomButtons.tsx`** and its usage in `TrendLineChart`, `WeeklyVolumeBars`,
+      `ErgChart`. Every other control from the original spec already lived in
+      `useChartInteraction.ts` and needed no new code: pinch/ctrl+wheel zoom, drag pan,
+      double-tap/double-click reset, the navigator strip, the range presets, and
+      `+`/`-`/arrows/Home/End/Esc on a focused chart. Added a keyboard hint to each chart's
+      `aria-label` since the buttons were the only visible affordance for the same actions.
+      DESIGN.md's "On-chart zoom buttons removed" note documents why, so a future session
+      doesn't re-add them for spec-completeness.
+- [x] **Fixed-span presets (4w/12w/6m/1y/season) now clamp their start to the real earliest data
+      point**, same as "all" already did (`chartRange.ts`'s `presetToDomain` — it only clamped
+      the `spanDays === null` branch before). A preset wider than the actual history now starts
+      exactly at the first point instead of `now - spanDays`.
+- [x] **A second bug in the same area, caught re-deriving this**: `Trends.tsx`/`Body.tsx` each
+      have an effect that re-resolves the domain once the metric's real earliest date loads
+      (needed because the mount-time `useState` initializer runs once, before that query
+      resolves). It was gated on `if (!urlState.preset) return`, but a cold load with *no*
+      `range` param also has `urlState.preset === null` — so the single most common entry point
+      (no query string at all) never got the corrected domain, even after this session's
+      earliest-clamp fix. Changed the gate to skip only on an explicit custom `from`/`to` pair,
+      using `urlState.preset ?? "12w"` otherwise. Confirmed via a throwaway Playwright screenshot
+      spec (390×844, iPhone 13 touch profile, mock history shortened to 19 days for this check
+      only, reverted after) that `/trends?mock=1` with no params, `?range=6m`, and `?range=all`
+      all now start at the real first data point.
+- [x] **A third, independent bug found while verifying "keyboard +/-/Esc still work" (the user's
+      explicit ask, since the removed buttons called the same `zoomIn`/`zoomOut`)**:
+      `useChartInteraction.ts`'s `domainRef` mirror line (`domainRef.current = domain`) ran
+      unconditionally on every render. Any keyboard action calls `commit(..., {settled: true})`
+      outside of a drag, which synchronously fires `onSettled` (e.g. Trends.tsx's URL write) —
+      triggering a parent re-render with the *old* `domain` prop before the `commit`'s own
+      rAF-deferred `onViewChange` flush had a chance to fire. That re-render's mirror line
+      stomped `domainRef.current` back over the just-committed value, so the pending rAF flushed
+      the stale domain instead. Net effect: every keyboard zoom/pan silently updated the URL and
+      the settled query but never the visible chart or its aria-label — confirmed broken, then
+      fixed, via the same throwaway spec (RAF-SCHEDULED/RAF-FIRED tracing plus aria-label
+      polling). Fix: skip the mirror write while a commit's rAF flush is still pending
+      (`gesture.current.rafPending`). Locked in with two new permanent tests in
+      `web/tests/touch/basic.spec.ts` (runs on both the Chromium and real-WebKit touch
+      projects, full mock history, no temporary mock.ts edit needed): one presses `=` on a
+      focused chart and polls for the aria-label to change, then presses `Escape` and polls for
+      it to revert; the other asserts zero "Zoom in"/"Zoom out"/"Reset zoom" buttons exist
+      anywhere.
+- [x] Checked all four `TrendLineChart` hosts at 390×844 with an iPhone 13 touch profile
+      (Playwright, `mobile-gestures`/`mobile-webkit` projects): Trends' main chart + weekly
+      volume bars, Body's weight + W/kg charts, WorkoutDetail's `ErgChart` (a concept2-sourced
+      workout, since a Garmin-only one has no per-stroke data to chart at all), and Today's
+      `ExpandedTrendChart` dialog (VitalsCard's HRV/resting-HR expand). No zoom buttons visible
+      on any of them; all data fits without the buttons' former screen real estate.
+- [x] New unit tests in `chartRange.test.ts` for the clamp-to-earliest behavior (wider-than-
+      history clamps to the first point, narrower-than-history is unaffected, never clamps below
+      the 7-day minimum zoom).
+- [x] `uv run pytest tests/ -q` — 224 passed, unchanged (this session never touched the
+      backend). `cd web && npx tsc -b && npm run build` — clean, and the `ChartZoomButtons`
+      chunk no longer appears in the build output. `cd web && npm run test` (Vitest) — 20
+      passed (17 + 3 new `presetToDomain` cases). `cd web && npm run test:touch` — 17 run / 7
+      correctly skipped (WebKit can't do multi-touch/move), including the 2 new permanent tests
+      above. `cd web && npm run test:update` — 4 passed, unaffected.
+- [x] `CLAUDE.md` (charts/ list, `ChartZoomButtons` removed) and `DESIGN.md` ("On-chart zoom
+      buttons removed" note) updated. PLAN.md + commit.

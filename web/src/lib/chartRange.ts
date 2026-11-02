@@ -50,15 +50,24 @@ export interface DomainMs {
   max: number;
 }
 
-/** A preset resolved against `now` and the data's earliest known date (for "all"). */
+/** A preset resolved against `now` and the data's earliest known date. A fixed-span preset
+ * (e.g. "6m") that would start before `earliest` is pulled forward to start there instead —
+ * otherwise a preset wider than the actual history shows empty months of blank chart before
+ * the first point, rather than filling the view with the data that exists (never narrower
+ * than MIN_SPAN_DAYS, matching "all"'s own floor below). */
 export function presetToDomain(preset: RangePreset, now: Date, earliest: Date | null): DomainMs {
   const spanDays = presetSpanDays(preset, now);
   const max = now.getTime();
+  const earliestMs = earliest?.getTime() ?? null;
   if (spanDays === null) {
-    const min = earliest ? Math.min(earliest.getTime(), max - MIN_SPAN_DAYS * DAY_MS) : max - 365 * DAY_MS;
+    const min = earliestMs != null ? Math.min(earliestMs, max - MIN_SPAN_DAYS * DAY_MS) : max - 365 * DAY_MS;
     return { min, max };
   }
-  return { min: max - spanDays * DAY_MS, max };
+  let min = max - spanDays * DAY_MS;
+  if (earliestMs != null && earliestMs > min) {
+    min = Math.max(min, Math.min(earliestMs, max - MIN_SPAN_DAYS * DAY_MS));
+  }
+  return { min, max };
 }
 
 export function clampSpanDays(days: number, allTimeDays: number): number {

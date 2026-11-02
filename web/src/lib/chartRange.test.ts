@@ -51,6 +51,27 @@ describe("presetToDomain", () => {
     const domain = presetToDomain("all", now, null);
     expect(domain.max).toBeGreaterThan(domain.min);
   });
+
+  it("a fixed-span preset wider than the real history starts at the first data point, not before it", () => {
+    // Data only since ~18 days ago ("mid-October" relative to the Nov 1 `now` above) — "6m"
+    // would otherwise start 182 days back, showing ~5 months of empty chart.
+    const earliest = new Date(2026, 9, 14); // Oct 14 2026
+    const domain = presetToDomain("6m", now, earliest);
+    expect(domain.min).toBe(earliest.getTime());
+    expect(domain.max).toBe(now.getTime());
+  });
+
+  it("a fixed-span preset narrower than the real history is unaffected", () => {
+    const earliest = new Date(2024, 0, 1); // years of history
+    const domain = presetToDomain("4w", now, earliest);
+    expect(domain.max - domain.min).toBe(28 * 86_400_000);
+  });
+
+  it("never clamps a fixed-span preset to less than the 7-day minimum zoom", () => {
+    const earliest = new Date(now.getTime() - 2 * 86_400_000); // only 2 days of real history
+    const domain = presetToDomain("12w", now, earliest);
+    expect(domain.max - domain.min).toBe(7 * 86_400_000);
+  });
 });
 
 describe("clampSpanDays", () => {

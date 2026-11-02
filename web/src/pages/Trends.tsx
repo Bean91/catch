@@ -100,19 +100,24 @@ export function TrendsPage() {
 
   // `initialDomain` above is computed from `earliestMs`, which falls back to "now - 84d" until
   // `allQuery` resolves with the metric's *real* earliest date — so a cold load of `?range=all`
-  // (or `1y`/`6m`, anything wider than that 84-day fallback) would otherwise permanently stick
-  // at the fallback span, since `useState`'s initializer only runs once. This effect re-derives
-  // the domain from the URL's preset whenever the real `earliestMs` becomes known (on mount,
-  // and again on a metric switch) — but only while still in preset mode (`urlState.preset` set,
-  // i.e. the user hasn't panned/zoomed into a custom range since), so it never fights an
-  // explicit user action. A real bug caught only by reading the chart's own aria-label after a
-  // cold `?range=all` load, not by trusting the preset button's visual selected state.
+  // (or `1y`/`6m`, anything wider than that 84-day fallback, or even the no-param default) would
+  // otherwise permanently stick at the fallback span, since `useState`'s initializer only runs
+  // once. This effect re-derives the domain from the URL's preset (or the "12w" default) whenever
+  // the real `earliestMs` becomes known (on mount, and again on a metric switch) — but only while
+  // still in preset mode (no explicit `from`/`to` in the URL, i.e. the user hasn't panned/zoomed
+  // into a custom range since), so it never fights an explicit user action. Gating on
+  // `urlState.preset` itself (rather than the from/to pair) was a real bug: a cold load with no
+  // `range` param at all has `urlState.preset === null` too, so that check skipped the re-derive
+  // on the single most common entry point — the fixed-span clamp-to-earliest-data fix below
+  // would never actually apply until the user picked a preset explicitly. A real bug caught only
+  // by reading the chart's own aria-label after a cold load, not by trusting the preset button's
+  // visual selected state.
   const lastAppliedEarliestMs = useRef<number | null>(null);
   useEffect(() => {
     if (lastAppliedEarliestMs.current === earliestMs) return;
     lastAppliedEarliestMs.current = earliestMs;
-    if (!urlState.preset) return;
-    const next = presetToDomain(urlState.preset, now, new Date(earliestMs));
+    if (urlState.from && urlState.to) return;
+    const next = presetToDomain(urlState.preset ?? "12w", now, new Date(earliestMs));
     setDomain(next);
     setQueryDomain(next);
     // urlState/now are derived fresh every render and would make this effect fire every

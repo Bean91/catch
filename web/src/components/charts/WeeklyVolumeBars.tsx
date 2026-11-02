@@ -7,7 +7,6 @@ import type { Domain } from "../../lib/useChartInteraction";
 import { useChartInteraction } from "../../lib/useChartInteraction";
 import { useReducedMotion } from "../../lib/useReducedMotion";
 import { zoneColor } from "../../lib/zoneColors";
-import { ChartZoomButtons } from "./ChartZoomButtons";
 
 const HEIGHT = 220;
 const PAD_X = 12;
@@ -56,7 +55,7 @@ export function WeeklyVolumeBars({
     return () => observer.disconnect();
   }, []);
 
-  const { handlers, zoomIn, zoomOut, hoverX, setHoverX } = useChartInteraction({
+  const { handlers, hoverX, setHoverX } = useChartInteraction({
     domain,
     fullDomain,
     minSpan,
@@ -100,7 +99,7 @@ export function WeeklyVolumeBars({
         // that only surfaced testing on a real iPhone, not Chromium's CDP touch emulation.
         data-chart-surface="true"
         role="img"
-        aria-label="Weekly training volume by zone"
+        aria-label="Weekly training volume by zone. Focus and press +/- to zoom, arrow keys to pan, Escape to reset."
         tabIndex={0}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
@@ -164,8 +163,6 @@ export function WeeklyVolumeBars({
           ))}
         </div>
       )}
-
-      <ChartZoomButtons onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={onResetDomain} />
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
         {ZONE_NAMES.map((z) => (

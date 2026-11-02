@@ -6,7 +6,6 @@ import type { SeriesPoint } from "../../lib/types";
 import { useReducedMotion } from "../../lib/useReducedMotion";
 import type { Domain } from "../../lib/useChartInteraction";
 import { useChartInteraction } from "../../lib/useChartInteraction";
-import { ChartZoomButtons } from "./ChartZoomButtons";
 
 const HEIGHT = 240;
 const PAD_X = 36;
@@ -81,7 +80,7 @@ export function TrendLineChart({
     return () => observer.disconnect();
   }, []);
 
-  const { handlers, zoomIn, zoomOut, hoverX, setHoverX, isPanning } = useChartInteraction({
+  const { handlers, hoverX, setHoverX, isPanning } = useChartInteraction({
     domain,
     fullDomain,
     minSpan: minSpanMs,
@@ -181,12 +180,12 @@ export function TrendLineChart({
         // hard way: this chart's touches did nothing on a real iPhone despite working under
         // Chromium's CDP touch emulation in session 8's own testing). A plain HTMLElement is
         // the one thing every engine, including iOS Safari, reliably honors `touch-action:
-        // none` on. Deliberately doesn't wrap ChartZoomButtons below — those are real
-        // <button>s, and pointerdown on them would otherwise bubble into this gesture engine
-        // too. See DESIGN.md's "Chart touch-action" note.
+        // none` on. See DESIGN.md's "Chart touch-action" note.
         data-chart-surface="true"
         role="img"
-        aria-label={`Trend over time. ${rangeLabel}`}
+        // The range text stays last in the label, not first — a touch regression test
+        // (charts.spec.ts) parses "Showing X to Y" by anchoring on the label's own end.
+        aria-label={`Trend over time. Focus and press +/- to zoom, arrow keys to pan, Escape to reset. ${rangeLabel}`}
         tabIndex={0}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
@@ -297,7 +296,6 @@ export function TrendLineChart({
         </div>
       )}
 
-      <ChartZoomButtons onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={onResetDomain} />
       <p className="sr-only" aria-live="polite">
         {announcedRangeLabel}
       </p>
