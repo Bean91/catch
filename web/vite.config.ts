@@ -5,6 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
+// Computed once per build, shared by the service worker's own VERSION (below) and the
+// `__BUILD_ID__` the client bundle embeds (Settings.tsx shows it) — one value, so "which build
+// is the phone actually running" never needs comparing two different numbers.
+const BUILD_ID = Date.now().toString(36)
+
 // Hand-rolled service worker, not a Workbox/vite-plugin-pwa dependency — this app is small
 // and self-hosted, and a few dozen lines of fetch-handler logic isn't worth a new build
 // dependency. The one thing a static public/sw.js *can't* do on its own is know Vite's
@@ -20,10 +25,9 @@ function serviceWorkerPlugin(): Plugin {
           precache.push(`/${file.fileName}`)
         }
       }
-      const version = Date.now().toString(36)
       const sw = `// Generated at build time by vite.config.ts's serviceWorkerPlugin — do not edit the
 // hashed filenames below by hand, they're regenerated on every build.
-const VERSION = ${JSON.stringify(version)};
+const VERSION = ${JSON.stringify(BUILD_ID)};
 const SHELL_CACHE = \`catch-shell-\${VERSION}\`;
 const API_CACHE = 'catch-api-v1';
 const PRECACHE_URLS = ${JSON.stringify(precache)};
@@ -117,6 +121,9 @@ function catchPort(): number {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
+  define: {
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
+  },
   build: {
     outDir: '../catch/api/static',
     emptyOutDir: true,

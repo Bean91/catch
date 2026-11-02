@@ -27,11 +27,28 @@ test("the page body still allows native scrolling (pan-x pan-y)", async ({ page 
   expect(bodyTouchAction).toBe("pan-x pan-y");
 });
 
-test("a real tap on a chart surface is accepted (no dead zone)", async ({ page }) => {
-  const box = await page.locator('[data-chart-surface="true"]').first().boundingBox();
-  if (!box) throw new Error("no chart surface");
-  // Just confirms the surface actually receives pointer input at all under this engine — the
-  // original bug on a real iPhone was that touches did nothing, full stop.
-  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page.getByRole("img", { name: /Trend over time/ })).toBeVisible();
+test("a real touchscreen tap on a tappable point navigates (not just 'still visible')", async ({ page }) => {
+  // Deliberately NOT just "the chart is still there after tapping" — that would pass even if
+  // touches were silently swallowed, which is exactly the original bug. Asserting navigation
+  // forces the tap to have gone through the real engine's touch -> pointer event pipeline,
+  // the shared gesture hook, and React Router's navigate() end to end.
+  await page.getByRole("tab", { name: "W/kg" }).click();
+  await expect(page.locator('[data-testid="chart-line"]')).toBeVisible();
+  await page.waitForTimeout(800); // see charts.spec.ts's selectMetricAndWaitForStableChart
+
+  const target = await page.evaluate(() => {
+    const surface = document.querySelector('[data-chart-surface="true"]') as HTMLElement;
+    const rect = surface.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    for (const frac of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      const y = rect.top + rect.height * frac;
+      const el = document.elementFromPoint(x, y);
+      if (el && surface.contains(el)) return { x, y };
+    }
+    return null;
+  });
+  if (!target) throw new Error("no on-screen, actually-tappable chart point found");
+
+  await page.touchscreen.tap(target.x, target.y);
+  await expect(page).toHaveURL(/\/workouts\/\d+/, { timeout: 2000 });
 });

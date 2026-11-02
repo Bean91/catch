@@ -10,8 +10,14 @@ export function useServiceWorkerUpdate(): { updateAvailable: boolean; reload: ()
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const waitingWorker = useRef<ServiceWorker | null>(null);
   const reloadedOnce = useRef(false);
+  // A *first-ever* install (no previous controller) also fires `controllerchange` once
+  // `clients.claim()` runs — without this flag, a brand-new visit (or any visit after the user
+  // clears site data) would reload itself once, unprompted, possibly mid-password on the login
+  // screen. Only a reload *we* asked for (via SKIP_WAITING, below) should actually reload.
+  const weRequestedSkipWaiting = useRef(false);
 
   const reload = useCallback(() => {
+    weRequestedSkipWaiting.current = true;
     waitingWorker.current?.postMessage("SKIP_WAITING");
   }, []);
 
@@ -52,6 +58,7 @@ export function useServiceWorkerUpdate(): { updateAvailable: boolean; reload: ()
       });
 
     const onControllerChange = () => {
+      if (!weRequestedSkipWaiting.current) return; // e.g. the very first install — not an update
       if (reloadedOnce.current) return; // guards against a reload loop
       reloadedOnce.current = true;
       window.location.reload();

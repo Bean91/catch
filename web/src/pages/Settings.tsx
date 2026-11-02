@@ -244,6 +244,11 @@ export function SettingsPage() {
           </button>
         </div>
       )}
+
+      {/* Lets a real device checklist confirm which build it's actually running (matches
+          sw.js's own VERSION) — the one way to tell "the fix didn't work" apart from "this
+          device is still on the old JS" without SSH access to the Pi. */}
+      <p className="text-center text-xs text-text-tertiary">Build {__BUILD_ID__}</p>
     </div>
   );
 }

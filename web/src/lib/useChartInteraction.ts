@@ -400,7 +400,11 @@ export function useChartInteraction(opts: UseChartInteractionOptions): UseChartI
         if (wasMode === "pan" || wasMode === "pinch") {
           onSettled?.(domainRef.current);
         } else if (wasMode === "vertical-scroll") {
-          if (g.pointerType === "touch" && Math.abs(g.lastMoveVelocityPxMs) > 0.05) {
+          // A finger that stopped moving before lifting (common — people often pause before
+          // releasing) leaves `lastMoveVelocityPxMs` holding a real velocity from moments ago;
+          // using it here would fling a swipe that had already come to rest.
+          const stale = performance.now() - g.lastMoveTs > 50;
+          if (!stale && g.pointerType === "touch" && Math.abs(g.lastMoveVelocityPxMs) > 0.05) {
             flingScroll(g.lastMoveVelocityPxMs);
           }
         } else if (wasMode === "inspect") {

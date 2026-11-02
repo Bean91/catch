@@ -135,6 +135,20 @@ export function ChartNavigator({
   );
 
   return (
+    // Handlers + touch-action live on this wrapping HTML div, not the <svg> — same reasoning
+    // as the main charts in useChartInteraction.ts's file-level comment: WebKit's touch-action
+    // support on SVG root elements (and, per that same gap, likely its descendants) has real
+    // holes a plain HTMLElement doesn't. Pointer capture is still set per-handle-rect in
+    // onHandlePointerDown below; captured pointer events still bubble up through this div
+    // exactly as they bubbled through the <svg> before, so onPointerMove/Up here are unaffected.
+    <div
+      className="touch-none select-none"
+      data-chart-surface="true"
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onClick={onBackgroundClick}
+    >
     <svg
       ref={svgRef}
       width="100%"
@@ -145,11 +159,6 @@ export function ChartNavigator({
       aria-valuemin={fullDomain.min}
       aria-valuemax={fullDomain.max}
       aria-valuenow={(viewDomain.min + viewDomain.max) / 2}
-      className="touch-none select-none"
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onClick={onBackgroundClick}
     >
       <rect x={0} y={0} width={width} height={HEIGHT} rx={6} fill="var(--surface-2)" />
       {pathD && <path d={pathD} fill="none" stroke="var(--text-tertiary)" strokeWidth={1} opacity={0.6} />}
@@ -187,6 +196,7 @@ export function ChartNavigator({
         className="cursor-ew-resize"
       />
     </svg>
+    </div>
   );
 }
 

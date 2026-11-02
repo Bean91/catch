@@ -83,19 +83,23 @@ fetch attempt. Any new chart added later should follow the same split.
 **Chart touch-action: `none`, not `pan-y` — reversed from session 8's original call.** Session 8
 chose `pan-y` (native vertical scroll kept, JS claims horizontal/pinch via direction-locked
 `preventDefault()`) specifically to avoid reimplementing scroll in JS. That worked under
-Chromium's CDP touch emulation but did nothing at all on a real iPhone (session 9) — a real,
-well-documented WebKit gap: iOS Safari does not reliably honor `preventDefault()` inside
-`pointermove`/`touchmove` to cancel a native gesture already in progress the way Chromium does;
-only CSS `touch-action` reliably governs what the browser claims versus leaves to script, and by
-the time a direction-locked drag calls `preventDefault()`, Safari may have already committed to
-its own native handling. `touch-action: none` sidesteps relying on that entirely: the browser
-never claims the gesture in the first place, full stop, on every engine. The cost is real —
-vertical scroll over a chart is no longer free — so `useChartInteraction.ts` reimplements it
-itself (`window.scrollBy` per pointermove, a small decaying-velocity fling on release), gated to
-touch input only (mouse never loses native scroll, since `touch-action` only governs touch).
-Handlers also moved from the `<svg>` itself onto its wrapping HTML `<div>` — WebKit's
-`touch-action` support on SVG root elements has its own real gaps, and a plain HTMLElement is
-the one thing every engine reliably honors it on. Page-level pinch is blocked separately
+Chromium's CDP touch emulation but, per the user's report, did nothing at all on their real
+iPhone (session 9 — note: diagnosed from that report and from known WebKit behavior, not
+reproduced on an actual device during this session). The leading suspect is a known class of
+WebKit gap: iOS Safari does not reliably honor `preventDefault()` inside `pointermove`/
+`touchmove` to cancel a native gesture already in progress the way Chromium does; only CSS
+`touch-action` reliably governs what the browser claims versus leaves to script, and by the time
+a direction-locked drag calls `preventDefault()`, Safari may have already committed to its own
+native handling. `touch-action: none` sidesteps relying on that entirely: the browser never
+claims the gesture in the first place, full stop, on every engine — true regardless of whether
+this specific diagnosis turns out to be the whole story once actually checked on a phone (see
+PLAN.md's session 9 checklist). The cost is real — vertical scroll over a chart is no longer
+free — so `useChartInteraction.ts` reimplements it itself (`window.scrollBy` per pointermove, a
+small decaying-velocity fling on release), gated to touch input only (mouse never loses native
+scroll, since `touch-action` only governs touch). Handlers also moved from the `<svg>` itself
+onto its wrapping HTML `<div>` (every chart, including `ChartNavigator`) — WebKit's
+`touch-action` support on SVG root elements has its own separately-documented history of gaps,
+and a plain HTMLElement is the safer bet regardless. Page-level pinch is blocked separately
 (`html, body { touch-action: pan-x pan-y }` in `index.css`, plus a viewport-meta
 `user-scalable=no` and an *unconditional* `gesturestart`/`gesturechange`/`gestureend`/
 2-touch-`touchmove` preventDefault in `main.tsx` — no longer scoped around chart surfaces, since
