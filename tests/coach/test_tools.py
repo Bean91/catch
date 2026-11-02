@@ -98,6 +98,86 @@ def test_list_workouts_filters_by_type(session):
     assert len(out["items"]) == 1
 
 
+def test_rename_and_tag_activity(session):
+    activity = Activity(source="garmin", external_id="r1", type="strength_training", start=datetime.now(timezone.utc), duration=600)
+    session.add(activity)
+    session.commit()
+    run_matching(session)
+    session.refresh(activity)
+
+    renamed = tools.call_tool(session, "rename_activity", {"id": activity.canonical_id, "title": "Leg day"})
+    assert renamed["title"] == "Leg day"
+    tagged = tools.call_tool(session, "tag_activity", {"id": activity.canonical_id, "tags": ["cross-training"]})
+    assert tagged["tags"] == ["cross-training"]
+
+
+def test_merge_activities_previews_then_merges_on_confirm(session):
+    a = Activity(source="garmin", external_id="m1", type="indoor_rowing", start=datetime(2026, 4, 1, 7, tzinfo=timezone.utc), duration=1800.0)
+    b = Activity(source="concept2", external_id="m2", type="rower", start=datetime(2026, 4, 2, 7, tzinfo=timezone.utc), duration=1800.0)
+    session.add(a)
+    session.add(b)
+    session.commit()
+    run_matching(session)
+    session.refresh(a)
+    session.refresh(b)
+    assert a.canonical_id != b.canonical_id  # a day apart — never auto-merges
+
+    preview = tools.call_tool(session, "merge_activities", {"canonical_id_a": a.canonical_id, "canonical_id_b": b.canonical_id})
+    assert preview["preview"] is True
+
+    merged = tools.call_tool(
+        session, "merge_activities", {"canonical_id_a": a.canonical_id, "canonical_id_b": b.canonical_id, "confirm": True}
+    )
+    assert {s["source"] for s in merged["sources"]} == {"garmin", "concept2"}
+
+
+def test_merge_activities_errors_cleanly_on_an_id_with_no_matching_canonical(session):
+    """Regression context: merge_activities used to take raw activity ids, like the one a
+    model would read from a workout's `sources` list — but every other tool only ever deals
+    in canonical ids, so a model handing it one of those by mistake could coincidentally
+    match a real-but-wrong canonical and merge the wrong pair. It now resolves strictly via
+    `Activity.canonical_id == X` (never `Activity.id == X`), so a value that isn't a real
+    canonical id for anything — however plausible-looking — fails loudly instead of
+    resolving to some unrelated activity by accident."""
+    a = Activity(source="garmin", external_id="d1", type="strength_training", start=datetime(2026, 5, 1, tzinfo=timezone.utc), duration=600.0)
+    session.add(a)
+    session.commit()
+    run_matching(session)
+    session.refresh(a)
+
+    try:
+        tools.call_tool(session, "merge_activities", {"canonical_id_a": a.canonical_id, "canonical_id_b": 999999})
+        assert False, "should have raised"
+    except ValueError:
+        pass
+
+
+def test_merge_activities_preview_reports_the_real_canonical_members(session):
+    a = Activity(source="garmin", external_id="d1", type="indoor_rowing", start=datetime(2026, 5, 1, 7, tzinfo=timezone.utc), duration=1800.0)
+    b = Activity(source="concept2", external_id="d2", type="rower", start=datetime(2026, 5, 2, 7, tzinfo=timezone.utc), duration=1800.0)
+    session.add(a)
+    session.add(b)
+    session.commit()
+    run_matching(session)
+    session.refresh(a)
+    session.refresh(b)
+
+    preview = tools.call_tool(session, "merge_activities", {"canonical_id_a": a.canonical_id, "canonical_id_b": b.canonical_id})
+    assert preview["a"]["source"] == "garmin"
+    assert preview["b"]["source"] == "concept2"
+
+
+def test_get_body_comp_with_a_date_range(session):
+    from catch.core.models import BodyComp
+
+    session.add(BodyComp(source="withings", external_id="b1", ts=datetime(2026, 1, 1, 12, tzinfo=timezone.utc), weight_kg=80.0))
+    session.commit()
+
+    out = tools.call_tool(session, "get_body_comp", {"from": "2026-01-01", "to": "2026-01-31"})
+    assert out["readings"][0]["weight"] == 80.0
+    assert out["readings"][0]["weight_source"] == "withings"
+
+
 def test_predict_2k_insufficient_data(session):
     out = tools.call_tool(session, "predict_2k", {})
     assert out["band"] == "insufficient_data"

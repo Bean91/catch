@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from catch.analytics.predict import predict_2k as predict_2k_fn
 from catch.analytics.zones import training_zones
 from catch.api import routes_activities, routes_analytics, routes_body, routes_wellness
-from catch.core.models import DailyScore
+from catch.core.models import Activity, DailyScore
 from catch.core.settings_store import get_settings
 from catch.coach import memory
 from catch.sync.upsert import upsert_note
@@ -88,7 +88,11 @@ def _get_trends(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _get_body_comp(session: Session, args: dict, ctx: dict) -> dict:
-    rows = routes_body.list_body_comp(from_=_parse_datetime(args.get("from")), to=_parse_datetime(args.get("to")), db=session)
+    # GET /api/body (session 8/12 — see PLAN.md) takes dates, not datetimes, and now returns
+    # one resolved row per day (weight/fat_pct/muscle_kg + which source each came from) —
+    # `_parse_datetime` here used to work only because the date-vs-datetime mismatch never
+    # got compared against anything; routes_body.resolve_daily compares them directly.
+    rows = routes_body.list_body_comp(from_=_parse_date(args.get("from")), to=_parse_date(args.get("to")), db=session)
     return {"readings": _downsample(rows, _MAX_ROWS)}
 
 
@@ -127,24 +131,28 @@ def _tag_activity(session: Session, args: dict, ctx: dict) -> dict:
 
 def _merge_activities(session: Session, args: dict, ctx: dict) -> dict:
     """Two-step: without confirm=true, returns a preview so the model asks the athlete
-    before merging (task Part C.4's explicit "asks me to confirm in chat before merging")."""
+    before merging (task Part C.4's explicit "asks me to confirm in chat before merging").
+
+    Takes *canonical* ids, like every other workout tool (list_workouts/get_workout) — never
+    a raw per-source activity id. Picking a representative member of each canonical here,
+    rather than asking the model for raw ids, avoids a small model confusing a canonical id
+    with a same-numbered raw activity id and silently merging the wrong pair."""
     from catch.sync.matching import manual_merge
 
-    activity_id_a, activity_id_b = int(args["activity_id_a"]), int(args["activity_id_b"])
-    if not args.get("confirm"):
-        from catch.core.models import Activity as _Activity
+    canonical_id_a, canonical_id_b = int(args["canonical_id_a"]), int(args["canonical_id_b"])
+    member_a = session.exec(select(Activity).where(Activity.canonical_id == canonical_id_a)).first()
+    member_b = session.exec(select(Activity).where(Activity.canonical_id == canonical_id_b)).first()
+    if member_a is None or member_b is None:
+        raise ValueError("canonical workout not found")
 
-        row_a = session.get(_Activity, activity_id_a)
-        row_b = session.get(_Activity, activity_id_b)
-        if row_a is None or row_b is None:
-            raise ValueError("activity not found")
+    if not args.get("confirm"):
         return {
             "preview": True,
             "message": "Merging will combine these into one canonical activity. Call again with confirm=true to proceed.",
-            "a": {"activity_id": row_a.id, "source": row_a.source, "start": row_a.start.isoformat() if row_a.start else None, "duration": row_a.duration},
-            "b": {"activity_id": row_b.id, "source": row_b.source, "start": row_b.start.isoformat() if row_b.start else None, "duration": row_b.duration},
+            "a": {"canonical_id": canonical_id_a, "source": member_a.source, "start": member_a.start.isoformat() if member_a.start else None, "duration": member_a.duration},
+            "b": {"canonical_id": canonical_id_b, "source": member_b.source, "start": member_b.start.isoformat() if member_b.start else None, "duration": member_b.duration},
         }
-    canonical = manual_merge(session, activity_id_a, activity_id_b)
+    canonical = manual_merge(session, member_a.id, member_b.id)
     from catch.sync.scoring import recompute_scores
 
     recompute_scores(session)
@@ -289,7 +297,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "get_body_comp": {
         "fn": _get_body_comp,
         "write": False,
-        "description": "Body-composition readings from Withings (weight_kg, fat_pct, muscle_kg, bone_kg, hydration_kg) over a date range. Capped to 180 readings.",
+        "description": "Resolved daily body-composition readings (weight, fat_pct, muscle_kg — Withings and/or Garmin scale, or a manual entry; never averaged, each tagged with which source it came from) over a date range. Capped to 180 days.",
         "input_schema": {"type": "object", "properties": dict(_DATE_RANGE_PROPS), "additionalProperties": False},
     },
     "get_load": {
@@ -353,15 +361,15 @@ TOOLS: dict[str, dict[str, Any]] = {
     "merge_activities": {
         "fn": _merge_activities,
         "write": True,
-        "description": "Merge two source activities (e.g. a watch recording and a Peloton-pushed duplicate) into one canonical workout. Call once without confirm to preview, tell the athlete what will merge, and only call again with confirm=true once they agree.",
+        "description": "Merge two canonical workouts (e.g. a watch recording and a Peloton-pushed duplicate of the same ride) into one. Call once without confirm to preview, tell the athlete what will merge, and only call again with confirm=true once they agree.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "activity_id_a": {"type": "integer", "description": "A raw activity id (from a workout's `sources` list), not a canonical id."},
-                "activity_id_b": {"type": "integer"},
+                "canonical_id_a": {"type": "integer", "description": "Canonical workout id, e.g. from list_workouts."},
+                "canonical_id_b": {"type": "integer"},
                 "confirm": {"type": "boolean", "description": "Only set true after the athlete has confirmed in chat."},
             },
-            "required": ["activity_id_a", "activity_id_b"],
+            "required": ["canonical_id_a", "canonical_id_b"],
             "additionalProperties": False,
         },
     },

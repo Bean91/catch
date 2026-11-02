@@ -147,6 +147,25 @@ def test_duplicates_review_lists_flagged_but_unmerged_pairs(session):
     assert any({p["a"]["activity_id"], p["b"]["activity_id"]} == {a.id, b.id} for p in pairs)
 
 
+def test_run_matching_resolves_a_blank_migrated_canonical(session):
+    """Regression: catch/core/db.py's one-time linked_activity_id migration creates a
+    canonical but never resolves it — a never-merged migrated activity must not stay
+    permanently blank (start/duration/avg_hr all NULL) on every later run_matching call."""
+    activity = _add(session, source="garmin", external_id="old1", type="indoor_rowing", start=T0, duration=1800.0, avg_hr=140)
+    blank_canonical = CanonicalActivity(sport_family="rowing")  # deliberately never resolved
+    session.add(blank_canonical)
+    session.commit()
+    activity.canonical_id = blank_canonical.id
+    session.add(activity)
+    session.commit()
+    assert blank_canonical.start is None
+
+    run_matching(session)
+    session.refresh(blank_canonical)
+    assert blank_canonical.start == T0
+    assert blank_canonical.avg_hr == 140
+
+
 def test_run_matching_is_idempotent_over_repeated_backfill_runs(session):
     a = _add(session, source="concept2", external_id="i1", type="rower", start=T0, duration=1800.0)
     b = _add(session, source="garmin", external_id="i2", type="indoor_rowing", start=T0 + timedelta(seconds=10), duration=1800.0)

@@ -167,8 +167,23 @@ def apply_auto_merges(session: Session, pairs: list[tuple[Activity, Activity, Ma
     return {"auto_merged": auto_merged, "flagged": flagged}
 
 
+def _resolve_blank_canonicals(session: Session) -> int:
+    """`_migrate_linked_activities_to_canonical` (catch/core/db.py) creates a canonical for
+    every pre-session-12 activity but never resolves it — `ensure_canonicals` only resolves
+    *orphans* (no canonical at all) and `apply_auto_merges` only resolves *merged* pairs, so
+    a migrated-but-never-merged activity's canonical would otherwise stay permanently blank
+    (no start/duration/avg_hr), silently vanishing from every date-filtered reader. Catches
+    up any canonical with no `start` at all; idempotent, self-healing on every run."""
+    blank = session.exec(select(CanonicalActivity).where(CanonicalActivity.start.is_(None))).all()
+    for canonical in blank:
+        if session.exec(select(Activity).where(Activity.canonical_id == canonical.id)).first() is not None:
+            resolve_canonical(session, canonical.id)
+    return len(blank)
+
+
 def run_matching(session: Session) -> dict:
     ensure_canonicals(session)
+    _resolve_blank_canonicals(session)
     pairs = find_candidate_pairs(session)
     result = apply_auto_merges(session, pairs)
     remaining = find_candidate_pairs(session)

@@ -628,7 +628,9 @@ def _pb_entry(activity: Activity | None) -> dict | None:
         return None
     pace = (activity.duration / activity.distance) * 500.0 if activity.distance else None
     return {
-        "activity_id": activity.id,
+        # The canonical id — /workouts/:id now always means a canonical, never a raw
+        # per-source Activity id (session 8/12, see PLAN.md).
+        "activity_id": activity.canonical_id,
         "date": activity.start.date().isoformat() if activity.start else None,
         "distance_m": activity.distance,
         "duration_s": activity.duration,

@@ -65,7 +65,9 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def get_body_comp(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
-        """Body-composition readings from Withings over an ISO date range. Capped to 180 readings."""
+        """Resolved daily body-composition readings (weight, fat_pct, muscle_kg — Withings
+        and/or a Garmin scale, or a manual entry; never averaged) over an ISO date range.
+        Capped to 180 days."""
         return await _call("get_body_comp", **{"from": from_, "to": to})
 
     @mcp.tool()
@@ -101,11 +103,11 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("tag_activity", id=id, tags=tags)
 
     @mcp.tool()
-    async def merge_activities(activity_id_a: int, activity_id_b: int, confirm: Optional[bool] = None) -> dict:
-        """Merge two source activities (e.g. a watch recording and a Peloton-pushed
-        duplicate) into one canonical workout. Call once without confirm to preview, tell
+    async def merge_activities(canonical_id_a: int, canonical_id_b: int, confirm: Optional[bool] = None) -> dict:
+        """Merge two canonical workouts (e.g. a watch recording and a Peloton-pushed
+        duplicate of the same ride) into one. Call once without confirm to preview, tell
         the athlete what will merge, and only call again with confirm=true once they agree."""
-        return await _call("merge_activities", activity_id_a=activity_id_a, activity_id_b=activity_id_b, confirm=confirm)
+        return await _call("merge_activities", canonical_id_a=canonical_id_a, canonical_id_b=canonical_id_b, confirm=confirm)
 
     @mcp.tool()
     async def remember(
