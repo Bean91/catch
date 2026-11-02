@@ -1607,17 +1607,19 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
   in the deployed `sw.js`'s `PRECACHE_URLS` was curled directly against the Pi's FastAPI and
   returned 200 (a single 404 there would make `install`'s `cache.addAll` reject, meaning the new
   service worker never installs at all and the phone silently keeps running session 9's).
-- `./deploy.sh` against the real Pi — frontend build, rsync, `uv sync --frozen`, service
-  restart, health check passed. Confirmed live afterward via `ssh opensky-pi`, not just the
-  script's own "Healthy" line: `/api/health` returns `{"ok":true}`; `/version.json` returns
-  `Cache-Control: no-cache` and `{"build":"mvympppr","commit":"8fbb873-dirty"}` (the `-dirty`
-  suffix is correct — the pre-existing, unrelated uncommitted icon/favicon/`Memory.tsx` changes
-  noted at the top of this session are still sitting in the working tree `deploy.sh` builds
-  from, same as session 9); `/sw.js` and `/` both also show `Cache-Control: no-cache`; a hashed
-  `/assets/*.js` request shows no such header (left to normal heuristic/ETag caching, correct
-  per design since the filename itself changes per build); the deployed `sw.js` was grepped
-  directly on the Pi and contains the versioned `API_CACHE`, the `NEVER_CACHE` list, the
-  unconditional `skipWaiting()`, and `clients.claim()`.
+- `./deploy.sh` against the real Pi, twice (once before the advisor-review follow-up commit
+  above, once after — the second is what's actually live). Confirmed live afterward via `ssh
+  opensky-pi`, not just the script's own "Healthy" line: `/api/health` returns `{"ok":true}`;
+  `/version.json` returns `Cache-Control: no-cache` and
+  `{"build":"mvyn2y3s","commit":"e3b4df4-dirty"}` (the `-dirty` suffix is correct — the
+  pre-existing, unrelated uncommitted icon/favicon/`Memory.tsx` changes noted at the top of this
+  session are still sitting in the working tree `deploy.sh` builds from, same as session 9);
+  `/sw.js` and `/` both also show `Cache-Control: no-cache`; a hashed `/assets/*.js` request
+  shows no such header (left to normal heuristic/ETag caching, correct per design since the
+  filename itself changes per build); every `PRECACHE_URLS` entry in the deployed `sw.js` was
+  re-curled against the Pi's FastAPI after this final deploy and returned 200; the deployed
+  `sw.js` was grepped directly on the Pi and contains the versioned `API_CACHE`, the
+  `NEVER_CACHE` list, the unconditional `skipWaiting()`, and `clients.claim()`.
 - **Not yet verified against the user's actual iPhone** — this session had no access to one.
   [Fill in after the phone checklist is actually walked: whether the offline banner stays hidden
   while genuinely online, whether it appears with a sensible data age when the phone is actually
