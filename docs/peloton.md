@@ -51,14 +51,23 @@ that's the one place this check lives.
 
 ## Mapping
 
-Both `JustRide` and class rides land in `sport_family = "cycling"`, `indoor = True`
-(`catch/analytics/matching.py`). Title/instructor: Garmin Connect's summary JSON for an
-imported Peloton ride is undocumented here (no example exists — see above); when
-`origin == "peloton"`, `catch/sync/canonical.py`'s auto-title falls back to the activity's own
-`activityName` field (whatever Garmin Connect's import populated it with, e.g. a class name)
-rather than inventing a "Peloton 45 min Just Ride"-style label from fields that were never
-confirmed to exist. If Garmin Connect's real field turns out to carry a class name/instructor
-field separately once a real example exists, prefer that instead and update this doc.
+Both `JustRide` and class rides land in `sport_family = "cycling"`, `indoor = True` —
+forced in `catch/sync/garmin_client.py`'s `_ingest_fit_samples` once FIT parsing confirms
+`origin == "peloton"`, regardless of whatever typeKey Garmin assigned the import (unconfirmed
+either way — see above), and the matching engine's indoor/outdoor hard block
+(`catch/sync/matching.py::_to_match_input`) honors that override too, so a Peloton-pushed
+ride is never blocked from merging with the watch's own `indoor_cycling` recording over a
+type mismatch.
+
+Title: `catch/sync/canonical.py`'s `auto_title` uses the activity's own `title_hint` (Garmin's
+`activityName`, stored at upsert time) verbatim whenever it isn't Garmin's generic per-type
+label — confirmed live that a plain watch recording's `activityName` is exactly "Indoor
+Cycling" (i.e. `type.replace("_", " ").title()`), so that exact string is treated as
+"no real title" and a synthesized one is used instead. A genuine Peloton class name (once a
+real Peloton-pushed activity's `activityName` can be checked) would differ from that generic
+label and would be used as-is — unverified, since no such activity exists yet. No separate
+"instructor" field has ever been seen on this account's summary JSON at all; if Garmin
+Connect's real shape for an imported Peloton ride turns out to carry one, add it here.
 
 ## Power/cadence: use whatever the watch recorded
 
@@ -74,11 +83,16 @@ needed.
 
 ## Strain
 
-`catch/analytics/cycling_load.py`: power-based TSS-style load when any source for the ride has
-power (needs an FTP — `settings.ftp_watts`; estimated from the best 20-minute power x 0.95
-over the last `predict_lookback_days` if unset, and the UI says so), HR-based (the same
-per-sample Banister integration as every other sport, Part E) otherwise — which, given the
-real data above, is every cycling session in this account today. Cycling load is included in
-total daily load; Today shows rowing-specific load as its own line (`rowing_load` alongside
-`load`) so cycling volume never silently inflates the rowing training-load number the athlete
-actually cares about.
+`catch/analytics/cycling_load.py` + `catch/sync/canonical.py::_resolve_zones`: power-based
+TSS-style load (`TSS = 100 * hours * (avg_power/FTP)^2`, the standard simplified formula —
+this app doesn't compute a lag-filtered "normalized power", a documented approximation) when
+the canonical's cycling power source has power samples, HR-based (the same per-sample
+Banister integration as every other sport, Part E) otherwise — which, given the real data
+above, is every cycling session in this account today. FTP comes from `settings.ftp_watts`
+if set, else is estimated per-ride from that ride's own best 20-minute average power x 0.95
+(`CanonicalActivity.strain_method` records `"cycling_tss_estimated_ftp"` so the UI can flag
+it as an estimate — a true FTP estimate would scan *all* history for the best 20 minutes
+ever, which this doesn't do, a scope cut given zero real cycling-power data exists to tune
+it against). Cycling load is included in total daily load; Today shows rowing-specific load
+as its own line (`rowing_load` alongside `load`) so cycling volume never silently inflates
+the rowing training-load number the athlete actually cares about.

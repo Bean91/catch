@@ -158,6 +158,7 @@ class GarminClient:
                 max_hr=item.get("maxHR"),
                 avg_power=item.get("avgPower"),
                 calories=item.get("calories"),
+                title_hint=item.get("activityName"),
                 raw_json=json.dumps(item),
             )
             if not row.fit_path:
@@ -185,6 +186,13 @@ class GarminClient:
             return
         row.origin = "peloton" if fit_samples.is_peloton_like else "watch"
         row.hr_source_type = fit_samples.hr_source_type
+        if fit_samples.is_peloton_like:
+            # Part B.2: "map Just Ride and class rides to cycling (indoor)" regardless of
+            # whatever Garmin typed the import as — sport_family is set at upsert time, before
+            # this FIT-level Peloton detection runs, from the summary's typeKey alone. No real
+            # Peloton-pushed activity exists in this account to confirm what typeKey Garmin
+            # assigns it (docs/peloton.md), so this is the one place that can't just trust it.
+            row.sport_family = "cycling"
         if fit_samples.laps:
             row.laps_json = json.dumps(fit_samples.laps)
         if row.avg_cadence is None and any(v is not None for v in fit_samples.cadence):

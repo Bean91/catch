@@ -158,3 +158,66 @@ def test_sync_weight_converts_grams_to_kg(session):
     # muscleMass/boneMass/bodyWater are never mapped (see docs/garmin-endpoints.md) — no live
     # non-null value exists to confirm their unit, so they stay None rather than guess.
     assert by_date[date(2026, 10, 18)].muscle_kg is None
+
+
+def test_peloton_pushed_activity_forced_to_cycling_indoor_regardless_of_garmin_type(session, monkeypatch, tmp_path):
+    """Task Part B.2: map a Peloton-pushed ride to cycling (indoor) even if Garmin typed the
+    import as something else — no real Peloton-pushed activity exists in this account to
+    confirm what typeKey Garmin assigns it (docs/peloton.md), so sport_family can't be
+    trusted from the summary alone once origin turns out to be Peloton."""
+    from catch.sync.fit_parse import FitSamples
+
+    fit_path = tmp_path / "fake.fit"
+    fit_path.write_bytes(b"not a real fit file")
+
+    fake_samples = FitSamples(
+        start=datetime(2026, 6, 1, 12, tzinfo=timezone.utc),
+        duration_s=1800.0,
+        hr=[140.0] * 1800,
+        power=[180.0] * 1800,
+        cadence=[85.0] * 1800,
+        is_peloton_like=True,
+        hr_source_type="wrist",
+    )
+    monkeypatch.setattr("catch.sync.garmin_client.parse_fit", lambda path: fake_samples)
+
+    client = GarminClient(session)
+    row = Activity(source="garmin", external_id="pel1", type="other", sport_family="other", fit_path=str(fit_path), start=fake_samples.start, duration=1800.0)
+    session.add(row)
+    session.commit()
+
+    client._ingest_fit_samples(row)
+    session.refresh(row)
+    assert row.origin == "peloton"
+    assert row.sport_family == "cycling"
+
+
+def test_peloton_and_watch_cycling_merge_despite_mismatched_garmin_types(session, monkeypatch, tmp_path):
+    """Even if Garmin typed the Peloton import as outdoor "cycling" (never confirmed live —
+    see docs/peloton.md) while the watch's own recording is "indoor_cycling", the two must
+    still be eligible to merge — the matching engine's indoor/outdoor hard block must see
+    both as indoor once origin=="peloton" forces it."""
+    from catch.sync.fit_parse import FitSamples
+    from catch.sync.matching import run_matching
+
+    start = datetime(2026, 6, 2, 7, tzinfo=timezone.utc)
+    watch = Activity(source="garmin", external_id="watch2", type="indoor_cycling", start=start, duration=1800.0, avg_hr=140)
+    peloton_path = tmp_path / "peloton.fit"
+    peloton_path.write_bytes(b"not a real fit file")
+    peloton = Activity(
+        source="garmin", external_id="pel2", type="cycling", start=start + timedelta(seconds=20), duration=1800.0,
+        fit_path=str(peloton_path),
+    )
+    session.add(watch)
+    session.add(peloton)
+    session.commit()
+
+    fake_samples = FitSamples(start=start, duration_s=1800.0, hr=[], power=[180.0] * 1800, cadence=[85.0] * 1800, is_peloton_like=True)
+    monkeypatch.setattr("catch.sync.garmin_client.parse_fit", lambda path: fake_samples)
+    client = GarminClient(session)
+    client._ingest_fit_samples(peloton)
+
+    run_matching(session)
+    session.refresh(watch)
+    session.refresh(peloton)
+    assert watch.canonical_id == peloton.canonical_id

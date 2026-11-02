@@ -86,6 +86,31 @@ def test_auto_trimmed_tail_excluded_from_summary_chips(client, session):
     assert body["min_hr_observed"] == 150.0
 
 
+def test_start_end_window_gives_full_resolution_within_a_zoomed_range(client, session):
+    from catch.core.settings_store import update_settings
+
+    update_settings(session, {"max_hr": 190})
+    activity = Activity(source="garmin", external_id="g5", type="indoor_rowing", start=datetime.now(timezone.utc), duration=1800.0)
+    session.add(activity)
+    session.commit()
+
+    hr = [120.0 + (i % 40) for i in range(1800)]
+    store_samples(session, activity.id, start=activity.start, hr=hr, power=[None] * 1800, cadence=[20.0] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+
+    _login(client)
+    resp = client.get(
+        f"/api/activities/{activity.canonical_id}/samples", params={"points": 5000, "start_s": 100, "end_s": 200}
+    )
+    body = resp.json()
+    assert body["raw_count"] == 100
+    assert body["points"][0]["elapsed_s"] == 100
+    assert body["points"][-1]["elapsed_s"] == 199
+    # Summary chips still reflect the whole session, not just the zoomed window.
+    assert body["max_hr_observed"] == 159.0
+
+
 def test_concept2_laps_derived_from_stroke_intervals(client, session):
     activity = Activity(source="concept2", external_id="c1", type="rower", start=datetime.now(timezone.utc), duration=120.0)
     session.add(activity)

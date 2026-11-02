@@ -38,6 +38,7 @@ _NEW_COLUMNS = {
         "canonical_id": "INTEGER",
         "hr_source_type": "TEXT",
         "laps_json": "TEXT",
+        "title_hint": "TEXT",
     },
     "strokes": {
         "seq": "INTEGER NOT NULL DEFAULT 0",

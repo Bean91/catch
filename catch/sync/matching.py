@@ -63,11 +63,15 @@ def _blocked(session: Session, a: Activity, b: Activity) -> bool:
 
 
 def _to_match_input(a: Activity) -> MatchInput:
+    # A Peloton-pushed Garmin activity is always indoor cycling (task Part B.2), regardless
+    # of whatever Garmin typed the import as — is_indoor's generic source/type table has no
+    # way to know that; only the sync-layer origin flag does.
+    indoor = True if a.origin == "peloton" else is_indoor(a.source, a.type)
     return MatchInput(
         source=a.source,
         external_id=a.external_id,
         sport_family=a.sport_family or "other",
-        indoor=is_indoor(a.source, a.type),
+        indoor=indoor,
         start=a.start,
         duration=a.duration,
     )

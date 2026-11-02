@@ -19,7 +19,7 @@ from catch.api.deps import as_utc, get_db, require_auth
 from catch.coach.memory import next_a_race as _next_a_race
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
-from catch.sync import body_comp
+from catch.sync import body_comp, rowing_predict
 from catch.analytics.samples_codec import unpack_series
 from catch.sync.canonical import pick_hr
 
@@ -510,33 +510,7 @@ def erg_strokes(
 
 
 def _predict_2k(db: Session, settings: dict) -> dict:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings["predict_lookback_days"])
-    stmt = select(Activity).where(
-        Activity.source == "concept2",
-        Activity.type == "rower",
-        Activity.distance.is_not(None),
-        Activity.duration.is_not(None),
-        Activity.start >= cutoff,
-    )
-    rows = db.exec(stmt.order_by(Activity.start.desc())).all()
-
-    best_by_bucket: dict[int, dict] = {}
-    for a in rows:
-        if a.workout_type not in _CONTINUOUS_WORKOUT_TYPES:
-            continue
-        if not a.distance or a.distance < 1000 or not a.duration:
-            continue
-        bucket = round(a.distance / 250) * 250
-        pace = (a.duration / a.distance) * 500.0
-        existing = best_by_bucket.get(bucket)
-        if existing is None or pace < existing["pace_s_per_500"]:
-            best_by_bucket[bucket] = {
-                "distance_m": a.distance,
-                "pace_s_per_500": pace,
-                "label": a.start.date().isoformat() if a.start else None,
-            }
-    pieces = sorted(best_by_bucket.values(), key=lambda p: p["distance_m"])[-6:]
-    return predict_2k(pieces)
+    return predict_2k(rowing_predict.recent_rower_pieces(db, settings))
 
 
 @router.get("/api/predict/2k")
@@ -701,7 +675,17 @@ def _hr_recovery(hr_full: list[float | None], from_offset: int, window_s: int = 
 
 
 @router.get("/api/activities/{canonical_id}/samples")
-def activity_samples(canonical_id: int, points: int = Query(600, ge=50, le=5000), db: Session = Depends(get_db)):
+def activity_samples(
+    canonical_id: int,
+    points: int = Query(600, ge=50, le=5000),
+    # Plain optional ints, not Query(...) — same reasoning as erg_strokes's distance_min/max:
+    # full resolution within a zoomed-in window (task Part E.8's "full resolution when
+    # zoomed in"), windowing applied before downsampling so the chart's point budget is
+    # spent entirely on the visible range rather than the whole recording.
+    start_s: int | None = None,
+    end_s: int | None = None,
+    db: Session = Depends(get_db),
+):
     canonical = db.get(CanonicalActivity, canonical_id)
     if canonical is None:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -731,7 +715,9 @@ def activity_samples(canonical_id: int, points: int = Query(600, ge=50, le=5000)
     usable_n = n - int(trimmed_s)
 
     elapsed = list(range(n))
-    defined_idx = [i for i in range(usable_n) if hr_full[i] is not None]
+    window_lo = max(0, start_s) if start_s is not None else 0
+    window_hi = min(usable_n, end_s) if end_s is not None else usable_n
+    defined_idx = [i for i in range(window_lo, window_hi) if hr_full[i] is not None]
     indices = lttb_indices([elapsed[i] for i in defined_idx], [hr_full[i] for i in defined_idx], points) if defined_idx else []
     chosen = [defined_idx[i] for i in indices]
 

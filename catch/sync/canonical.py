@@ -12,6 +12,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from catch.analytics.cycling_load import best_rolling_power, cycling_tss, estimate_ftp_watts
 from catch.analytics.matching import sport_family as _sport_family
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.zones_samples import (
@@ -69,12 +70,26 @@ def _key(m: Activity) -> str:
     return f"{m.source}:{m.external_id}"
 
 
+def _humanize_type(type_key: Optional[str]) -> str:
+    return type_key.replace("_", " ").title() if type_key else ""
+
+
+def _is_generic_garmin_title(title_hint: Optional[str], type_key: Optional[str]) -> bool:
+    """Garmin Connect's own generic per-type label (confirmed live: a plain watch-recorded
+    "indoor_cycling" activity's `activityName` is exactly "Indoor Cycling") isn't useful as a
+    title — but a *real* class name (Peloton's own, once one exists — see docs/peloton.md)
+    or a user-renamed activity in Garmin Connect is. Compares case/spacing-insensitively so
+    "Indoor Cycling" == humanize("indoor_cycling") without being thrown by punctuation."""
+    if not title_hint:
+        return True
+    return title_hint.strip().casefold() == _humanize_type(type_key).casefold()
+
+
 def auto_title(sport_family: str, members: list[Activity], title_priority: list[str] | None = None) -> str:
     """Part C.3 — only used when no user override is set. Honors `field_priority.title`
-    (default peloton > concept2 > garmin, task Part A.3/B.2's "keep the class name and
-    instructor as the default title") for *which source's own title wins*, but each
-    source's title is itself synthesized (no Garmin `activityName`/Peloton class-name field
-    has been confirmed live — see docs/peloton.md — so nothing here parses raw_json for one)."""
+    (default peloton > concept2 > garmin, task Part A.3/B.2's "keep the class name ... as the
+    default title") for *which source's own title wins*; a non-generic `title_hint` (Garmin's
+    `activityName`) from that source is used verbatim, else a synthesized label."""
     title_priority = title_priority or ["peloton", "concept2", "garmin"]
     by_provenance: dict[str, list[Activity]] = {}
     for m in members:
@@ -85,6 +100,9 @@ def auto_title(sport_family: str, members: list[Activity], title_priority: list[
         if not group:
             continue
         if label == "peloton":
+            real_title = next((m.title_hint for m in group if not _is_generic_garmin_title(m.title_hint, m.type)), None)
+            if real_title:
+                return real_title.strip()
             minutes = round((group[0].duration or 0) / 60.0) if group[0].duration else None
             return f"Peloton {minutes} min Just Ride" if minutes else "Peloton ride"
         if label == "concept2":
@@ -103,6 +121,9 @@ def auto_title(sport_family: str, members: list[Activity], title_priority: list[
             minutes = round((concept2.duration or 0) / 60.0)
             return f"Erg {minutes}'" if minutes else "Erg"
         if label == "garmin":
+            real_title = next((m.title_hint for m in group if not _is_generic_garmin_title(m.title_hint, m.type)), None)
+            if real_title:
+                return real_title.strip()
             if sport_family == "rowing":
                 minutes = round((group[0].duration or 0) / 60.0) if group[0].duration else None
                 return f"Steady state {minutes}'" if minutes else "Row"
@@ -179,7 +200,7 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     canonical.title = title
     canonical.field_sources_json = json.dumps(field_sources)
 
-    _resolve_zones(session, canonical, members, avg_hr, max_hr, settings)
+    _resolve_zones(session, canonical, members, avg_hr, power_src, settings)
 
     canonical.updated_at = datetime.now(timezone.utc)
     session.add(canonical)
@@ -197,53 +218,88 @@ def _resting_hr_for(session: Session, when: Optional[datetime]) -> Optional[floa
     return row.resting_hr if row else None
 
 
+def _trim_tail(session: Session, settings: dict, samples: dict) -> float:
+    if not settings.get("auto_trim_enabled") or not any(v is not None for v in samples["cadence"]):
+        return 0.0
+    return detect_trailing_idle(samples["cadence"], settings.get("auto_trim_min_idle_s", 120))
+
+
 def _resolve_zones(
     session: Session,
     canonical: CanonicalActivity,
     members: list[Activity],
     avg_hr: Optional[float],
-    _unused: Optional[float],
+    power_member: Optional[Activity],
     settings: dict,
 ) -> None:
-    hr_member = next((m for m in members if m.avg_hr == avg_hr and avg_hr is not None), members[0])
-    samples = _activity_samples(session, hr_member.id) if hr_member.id else None
-    max_hr = settings.get("max_hr")
+    """HR-based zones/strain (every sport, Part E) and cycling power-based TSS-style strain
+    (Part B.3) are resolved independently — the HR-contributing member and the
+    power-contributing member can be two *different* source records once a Peloton (power)
+    and a watch (HR-only) have been merged, with their own separate sample timelines, so
+    there's no single shared "usable_n" to align them on. Power-based strain wins for
+    cycling when it's available (task Part B.3's "power-based ... when power exists,
+    HR-based otherwise"); HR zones/label still use whichever member has HR, independently."""
+    hr_member = next((m for m in members if m.avg_hr == avg_hr and avg_hr is not None), members[0] if members else None)
+    hr_samples = _activity_samples(session, hr_member.id) if hr_member and hr_member.id else None
+    has_hr = bool(hr_samples) and any(v is not None for v in hr_samples["hr"])
 
-    if not samples or not any(v is not None for v in samples["hr"]):
+    power_samples = _activity_samples(session, power_member.id) if power_member and power_member.id else None
+    has_power = bool(power_samples) and any(v is not None for v in power_samples["power"])
+
+    if not has_hr and not has_power:
         canonical.zones_json = None
         canonical.strain_trimp = None
         canonical.session_label = None
         canonical.auto_trimmed_tail_s = None
         return
 
-    hr_raw = samples["hr"]
-    trimmed_s = 0.0
-    if settings.get("auto_trim_enabled") and any(v is not None for v in samples["cadence"]):
-        trimmed_s = detect_trailing_idle(samples["cadence"], settings.get("auto_trim_min_idle_s", 120))
-    usable_n = len(hr_raw) - int(trimmed_s)
-    hr_for_ui = hr_raw[:usable_n] if trimmed_s else hr_raw
+    max_hr = settings.get("max_hr")
+    hr_zones: dict = {}
+    hr_trimp: Optional[float] = None
+    hr_moving_s = 0.0
+    hr_trimmed_s = 0.0
+    if has_hr:
+        hr_trimmed_s = _trim_tail(session, settings, hr_samples)
+        usable_n = len(hr_samples["hr"]) - int(hr_trimmed_s)
+        hr_for_ui = hr_samples["hr"][:usable_n] if hr_trimmed_s else hr_samples["hr"]
+        hr_zones = time_in_zone_seconds(smooth(hr_for_ui), max_hr, settings)
+        hr_moving_s = float(usable_n)
+        resting_hr = _resting_hr_for(session, canonical.start)
+        hr_trimp = banister_trimp_from_samples(hr_for_ui, resting_hr, max_hr, settings["trimp_exponent"])
 
-    smoothed = smooth(hr_for_ui)
-    hr_zones = time_in_zone_seconds(smoothed, max_hr, settings)
+    power_zones: Optional[dict] = None
+    power_tss: Optional[float] = None
+    power_moving_s = 0.0
+    if canonical.sport_family == "cycling" and has_power:
+        power_trimmed_s = _trim_tail(session, settings, power_samples)
+        p_usable_n = len(power_samples["power"]) - int(power_trimmed_s)
+        power_for_ui = power_samples["power"][:p_usable_n] if power_trimmed_s else power_samples["power"]
+        power_moving_s = float(p_usable_n)
 
-    # Power-zone time (Part E.5) is implemented for cycling (against FTP) only — no live
-    # Concept2 data exists in this account to confirm an erg power-zone threshold against
-    # (docs/peloton.md/PLAN.md), so threading predicted_2k's watts_2k through here is
-    # deferred rather than built against zero real evidence.
-    power_zones = None
-    if canonical.sport_family == "cycling" and any(v is not None for v in samples["power"]):
         ftp = settings.get("ftp_watts")
-        power_for_ui = samples["power"][:usable_n] if trimmed_s else samples["power"]
+        ftp_is_estimated = False
+        if not ftp:
+            ftp = estimate_ftp_watts(best_rolling_power(power_for_ui))
+            ftp_is_estimated = True
         if ftp:
             power_zones = power_time_in_zone_seconds(smooth(power_for_ui), ftp, settings)
+            defined = [v for v in power_for_ui if v is not None]
+            avg_power = sum(defined) / len(defined) if defined else None
+            power_tss = cycling_tss(power_moving_s, avg_power, ftp)
+            canonical.strain_method = "cycling_tss_estimated_ftp" if ftp_is_estimated else "cycling_tss"
 
-    moving_time_s = float(usable_n)
-    label = _session_label(hr_zones, moving_time_s, power_zones, settings["min_zone_minutes"], settings["min_zone_pct"])
+    label = _session_label(
+        hr_zones, hr_moving_s or power_moving_s, power_zones, settings["min_zone_minutes"], settings["min_zone_pct"]
+    )
 
-    resting_hr = _resting_hr_for(session, canonical.start)
-    trimp = banister_trimp_from_samples(hr_for_ui, resting_hr, max_hr, settings["trimp_exponent"])
+    # Power-based strain wins for cycling when available; HR Banister trimp otherwise —
+    # the two are kept on the same 0-21 log-saturation scale as an approximation (see
+    # catch/analytics/cycling_load.py's module docstring).
+    trimp = power_tss if power_tss is not None else hr_trimp
+    if trimp is not None and power_tss is None:
+        canonical.strain_method = "trimp_samples"
 
-    canonical.zones_json = json.dumps({"hr": hr_zones, "power": power_zones})
+    canonical.zones_json = json.dumps({"hr": hr_zones or None, "power": power_zones})
     canonical.strain_trimp = trimp
     canonical.session_label = label
-    canonical.auto_trimmed_tail_s = trimmed_s or None
+    canonical.auto_trimmed_tail_s = hr_trimmed_s or None

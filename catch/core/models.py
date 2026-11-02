@@ -64,6 +64,12 @@ class Activity(SQLModel, table=True):
     # [{"offset_s", "duration_s"}, ...] from FIT lap messages (Part E.8's lap markers) —
     # symmetric with intervals_json, which is Concept2's equivalent.
     laps_json: Optional[str] = None
+    # The source's own native title, where one exists — Garmin's `activityName` (set at
+    # upsert time from the summary JSON, since raw_json isn't parsed again later). Used as
+    # the canonical's title only when it isn't Garmin's generic per-type label (e.g. "Indoor
+    # Cycling") — task Part B.2's "keep the class name ... as the default title" needs a real
+    # Peloton class name, not Garmin's own generic fallback text, to actually be useful.
+    title_hint: Optional[str] = None
     raw_json: Optional[str] = None
     fit_path: Optional[str] = None
     # Concept2-specific, left NULL for other sources.
@@ -119,6 +125,10 @@ class CanonicalActivity(SQLModel, table=True):
     # by catch/sync/scoring.py's day_strain instead of recomputing per request.
     zones_json: Optional[str] = None
     strain_trimp: Optional[float] = None
+    # "trimp_samples" | "cycling_tss" | "cycling_tss_estimated_ftp" | None — which strain
+    # method produced strain_trimp (Part B.3's power-vs-HR branch), surfaced in the UI so an
+    # estimated FTP shows a visible "estimated" flag rather than a silently approximate number.
+    strain_method: Optional[str] = None
     session_label: Optional[str] = None
     auto_trimmed_tail_s: Optional[float] = None
     created_at: datetime = Field(default_factory=_utcnow)
