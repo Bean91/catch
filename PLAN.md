@@ -1570,14 +1570,30 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
 - [x] `CLAUDE.md` updated (new `useOnlineStatus.ts`/`useServiceWorkerUpdate.ts` descriptions,
       `?mock=offline`, `web/tests/update/`, the new `npm run test:update` command). PLAN.md +
       commit.
-- [ ] **Deploy to the real Pi** and walk the checklist below on the actual iPhone — fill in
-      "Real verification" once done.
+- [x] **Deployed to the real Pi** — see "Real verification" below. Walking the checklist on the
+      actual iPhone is still outstanding; that part of "Real verification" is a placeholder.
 
 ## Real verification (session 10)
 
-[Fill in after `./deploy.sh` and the phone checklist below are actually walked: whether the
-offline banner stays hidden while genuinely online, whether it appears with a sensible data age
-when the phone is actually offline, whether the update toast appears and a tap on it actually
-lands on the new build id/commit in Settings — including whether the one-time migration gap
-above (old JS's dead tap) actually happens, and if so whether a force-quit/relaunch resolves it
-as expected.]
+- `uv run pytest` — 224 passed. `cd web && npx tsc -b && npm run build` — clean. `cd web && npm
+  run test` (Vitest) — 17 passed. `cd web && npx playwright test` (touch suite) — unchanged, 13
+  run / 7 correctly skipped, all passing. `cd web && npm run test:update` — 3 passed, including
+  the real build-A→build-B detect-and-reload-and-cache-churn assertion.
+- `./deploy.sh` against the real Pi — frontend build, rsync, `uv sync --frozen`, service
+  restart, health check passed. Confirmed live afterward via `ssh opensky-pi`, not just the
+  script's own "Healthy" line: `/api/health` returns `{"ok":true}`; `/version.json` returns
+  `Cache-Control: no-cache` and `{"build":"mvympppr","commit":"8fbb873-dirty"}` (the `-dirty`
+  suffix is correct — the pre-existing, unrelated uncommitted icon/favicon/`Memory.tsx` changes
+  noted at the top of this session are still sitting in the working tree `deploy.sh` builds
+  from, same as session 9); `/sw.js` and `/` both also show `Cache-Control: no-cache`; a hashed
+  `/assets/*.js` request shows no such header (left to normal heuristic/ETag caching, correct
+  per design since the filename itself changes per build); the deployed `sw.js` was grepped
+  directly on the Pi and contains the versioned `API_CACHE`, the `NEVER_CACHE` list, the
+  unconditional `skipWaiting()`, and `clients.claim()`.
+- **Not yet verified against the user's actual iPhone** — this session had no access to one.
+  [Fill in after the phone checklist is actually walked: whether the offline banner stays hidden
+  while genuinely online, whether it appears with a sensible data age when the phone is actually
+  offline, whether the update toast appears and a tap on it actually lands on the new build
+  id/commit in Settings — including whether the one-time migration gap documented above (old
+  JS's dead tap, since the phone's currently-running JS predates this session) actually happens,
+  and if so whether a force-quit/relaunch resolves it as expected.]
