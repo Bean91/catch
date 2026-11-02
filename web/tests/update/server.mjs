@@ -25,11 +25,20 @@ const NO_CACHE_NAMES = new Set(["sw.js", "index.html", "version.json"]);
 // `getRoot()` rather than a fixed path — the whole point is simulating a deploy by swapping
 // which build's dist directory is served, without restarting the server (a real restart would
 // drop any open connections/SW registration state the test is relying on staying put).
-export function startServer(getRoot, port) {
+// `getHealthMode()` — "ok" (default behavior) or "broken", which destroys the socket instead of
+// responding, so a client sees a genuine connection failure rather than a clean error status.
+// Lets a test tell apart "the service worker correctly let a real outage through" from "the
+// server merely returned a 5xx" (the fetch() in useOnlineStatus.ts only treats the former as
+// offline — see its own comment on why).
+export function startServer(getRoot, port, getHealthMode = () => "ok") {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     if (url.pathname === "/api/health") {
+      if (getHealthMode() === "broken") {
+        req.socket.destroy();
+        return;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
       return;

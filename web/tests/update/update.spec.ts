@@ -8,9 +8,10 @@ const BASE = `http://localhost:${PORT}`;
 
 let server: Server;
 let currentRoot = DIST_A;
+let healthMode: "ok" | "broken" = "ok";
 
 test.beforeAll(async () => {
-  server = await startServer(() => currentRoot, PORT);
+  server = await startServer(() => currentRoot, PORT, () => healthMode);
 });
 
 test.afterAll(() => {
@@ -19,6 +20,7 @@ test.afterAll(() => {
 
 test.beforeEach(() => {
   currentRoot = DIST_A;
+  healthMode = "ok";
 });
 
 test("first-ever load of a build shows no update toast", async ({ page }) => {
@@ -58,4 +60,30 @@ test("an offline mock scenario shows the banner with real data age, a healthy on
   await page.goto(`${BASE}/?mock=offline`);
   await expect(page.getByText(/You're offline — showing data from/)).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/3h ago/)).toBeVisible();
+});
+
+test("the service worker lets a real /api/health connection failure through instead of masking it", async ({ page }) => {
+  // Deliberately not ?mock=1 here — mock mode never calls fetch("/api/health") at all, so it
+  // can't exercise the service worker's NEVER_CACHE routing (vite.config.ts's sw.js template),
+  // which is the actual fix for "the banner never shows because a cached {'ok':true} answers
+  // for a genuinely dead connection" (see DESIGN.md/PLAN.md session 10 notes).
+  await page.goto(`${BASE}/`);
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10_000 });
+
+  const okResult = await page.evaluate(() =>
+    fetch("/api/health", { cache: "no-store" }).then(
+      () => "resolved",
+      () => "rejected",
+    ),
+  );
+  expect(okResult).toBe("resolved");
+
+  healthMode = "broken";
+  const brokenResult = await page.evaluate(() =>
+    fetch("/api/health", { cache: "no-store" }).then(
+      () => "resolved",
+      () => "rejected",
+    ),
+  );
+  expect(brokenResult).toBe("rejected");
 });

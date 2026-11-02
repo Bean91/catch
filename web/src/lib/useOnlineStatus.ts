@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 import { MOCK_SCENARIO, isMock } from "./api";
 
 const PROBE_TIMEOUT_MS = 4_000;
 const PROBE_INTERVAL_MS = 15_000;
+// A single slow/stalled request (e.g. a sync job briefly pegging the Pi 3's one CPU core)
+// shouldn't flip the banner on its own — that's the same complaint this fix exists for, just
+// moved from a bad signal to a flaky one. Two consecutive failures in a row before reporting
+// offline.
+const FAILURES_BEFORE_OFFLINE = 2;
 
 // `navigator.onLine` only reflects whether the device has *a* network interface up — it's
 // true on a LAN with no route to the Pi, true behind a captive portal, true with Wi-Fi on but
@@ -28,9 +34,20 @@ async function probeHealth(): Promise<boolean> {
 }
 
 export function useOnlineStatus(): boolean {
+  const consecutiveFailures = useRef(0);
+
   const { data } = useQuery({
     queryKey: ["health-probe"],
-    queryFn: isMock ? async () => MOCK_SCENARIO !== "offline" : probeHealth,
+    // The consecutive-failure debounce below is specifically for real network flakiness
+    // (a slow request, not a real outage) — ?mock=offline is a deterministic scenario, not
+    // network flakiness, so it reports immediately rather than waiting out two poll intervals.
+    queryFn: isMock
+      ? async () => MOCK_SCENARIO !== "offline"
+      : async () => {
+          const healthy = await probeHealth();
+          consecutiveFailures.current = healthy ? 0 : consecutiveFailures.current + 1;
+          return consecutiveFailures.current < FAILURES_BEFORE_OFFLINE;
+        },
     refetchInterval: PROBE_INTERVAL_MS,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,

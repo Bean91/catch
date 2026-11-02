@@ -1472,7 +1472,11 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
       own-timezone `date.today()` versus the browser's *UTC*-sliced date string. Those two
       strings disagree for several hours a day whenever the client and the Pi aren't in the same
       timezone, which is unrelated to whether the network is actually up — exactly the "online
-      with fresh data" report. **Fix**: deleted the date-string comparison outright.
+      with fresh data" report. **Confirmed, not just reasoned from the code**: `ssh opensky-pi
+      'timedatectl'` shows the Pi runs `America/New_York`, 5 hours behind UTC — so for roughly
+      5 hours out of every day (evening in New York, already past midnight UTC), the server's
+      `date.today()` and the browser's UTC-sliced date string name two different calendar days,
+      regardless of connectivity. **Fix**: deleted the date-string comparison outright.
       `/api/today` now also returns `generated_at` (a real UTC timestamp,
       `routes_analytics.py`), and Today shows real data age from that instead of inferring
       staleness from a date mismatch.
@@ -1486,7 +1490,19 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
       works. The service worker routes `/api/health` network-only with **no cache fallback at
       all** (see Bug 2 below) specifically so this can never be answered by a stale cached `"ok"`
       while genuinely offline — without that, the old network-first-with-cache-fallback routing
-      every other `/api/*` route used would have silently defeated this exact fix.
+      every other `/api/*` route used would have silently defeated this exact fix. Verified that
+      routing actually matters, not just reasoned from reading the code: a Playwright test
+      (`web/tests/update/update.spec.ts`) fetches `/api/health` once while a real registered
+      service worker is controlling the page, then has `server.mjs` destroy the socket on the
+      next request and asserts the fetch now rejects — and, as a mutation check, temporarily
+      removing `/api/health` from `sw.js`'s `NEVER_CACHE` list made this specific test fail (the
+      fetch resolved instead of rejecting), confirming it actually exercises the fix rather than
+      passing regardless (session 9's "vacuous test" lesson). Also requires **two consecutive**
+      probe failures before reporting offline, not one — a single slow request (e.g. a sync job
+      briefly pegging the Pi 3's one core) flipping the banner would just be moving the original
+      complaint to a flakier trigger, not fixing it; `?mock=offline` bypasses this debounce
+      (it's a deterministic scenario, not network flakiness, and waiting out two real poll
+      intervals would make that test unnecessarily slow).
 - [x] **Confirmed, not just assumed, that a single source's sync failure was already a per-card
       notice and not routed through the global banner**: `RecommendationAndSync.tsx`'s sync-status
       list already renders a red dot + "failed" per source (e.g. Concept2), independently of
@@ -1555,18 +1571,21 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
       in-process static server (`server.mjs` — deliberately not `catch.main`, which would start
       APScheduler against the real `.env` and violate "no live network calls in the suite")
       serves whichever one a test currently points it at, swappable without a restart so an
-      already-open tab can be "deployed over." Three tests, one worker (shared mutable server
+      already-open tab can be "deployed over." Four tests, one worker (shared mutable server
       state): a first-ever load shows no toast; swapping the served build and firing
       `visibilitychange` shows the toast, and tapping it actually lands on the new build *and*
       leaves only that build's cache names in `caches.keys()` (confirms versioned-cache deletion,
       not just the toast); the offline-mock scenario shows the banner with real data age while
-      the healthy one shows nothing.
+      the healthy one shows nothing; and (added after an advisor review — see below) a real
+      registered service worker lets a destroyed-socket `/api/health` request actually reject
+      rather than resolving from cache, mutation-checked against `NEVER_CACHE`. Ran the full
+      suite 3 times in a row with no flakes.
 - [x] `uv run pytest` — 224 passed (223 at the end of session 9, +1 for `generated_at`'s
       freshness; the no-cache-headers test was renamed, not added, to cover `version.json` too).
       `cd web && npx tsc -b && npm run build` — clean. `cd web && npm run test` (Vitest) — 17
       passed, unchanged. `cd web && npx playwright test` (touch suite) — unchanged, 13 run / 7
       correctly skipped, all passing — this session's changes don't touch any of that code.
-      `cd web && npm run test:update` — 3 passed.
+      `cd web && npm run test:update` — 4 passed.
 - [x] `CLAUDE.md` updated (new `useOnlineStatus.ts`/`useServiceWorkerUpdate.ts` descriptions,
       `?mock=offline`, `web/tests/update/`, the new `npm run test:update` command). PLAN.md +
       commit.
@@ -1577,8 +1596,17 @@ apparently already built correct-looking skipWaiting/clients.claim/update-toast 
 
 - `uv run pytest` — 224 passed. `cd web && npx tsc -b && npm run build` — clean. `cd web && npm
   run test` (Vitest) — 17 passed. `cd web && npx playwright test` (touch suite) — unchanged, 13
-  run / 7 correctly skipped, all passing. `cd web && npm run test:update` — 3 passed, including
-  the real build-A→build-B detect-and-reload-and-cache-churn assertion.
+  run / 7 correctly skipped, all passing. `cd web && npm run test:update` — 4 passed, including
+  the real build-A→build-B detect-and-reload-and-cache-churn assertion and the destroyed-socket
+  `/api/health` test, which an advisor review flagged as missing (the `?mock=offline` test
+  bypasses the service worker entirely and can't exercise `NEVER_CACHE`'s actual effect) and
+  which this session mutation-checked: temporarily dropping `/api/health` from `NEVER_CACHE`
+  made exactly that one test fail, confirming it isn't vacuous.
+- Also per that review: `ssh opensky-pi 'timedatectl'` confirmed the Pi runs `America/New_York`
+  (not UTC) before PLAN.md stated the timezone-mismatch diagnosis as fact above, and every URL
+  in the deployed `sw.js`'s `PRECACHE_URLS` was curled directly against the Pi's FastAPI and
+  returned 200 (a single 404 there would make `install`'s `cache.addAll` reject, meaning the new
+  service worker never installs at all and the phone silently keeps running session 9's).
 - `./deploy.sh` against the real Pi — frontend build, rsync, `uv sync --frozen`, service
   restart, health check passed. Confirmed live afterward via `ssh opensky-pi`, not just the
   script's own "Healthy" line: `/api/health` returns `{"ok":true}`; `/version.json` returns
