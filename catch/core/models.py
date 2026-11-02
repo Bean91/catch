@@ -61,6 +61,9 @@ class Activity(SQLModel, table=True):
     # wrist sensor — documented assumption, no PM5-side wrist-HR capability exists to confuse
     # it with). Drives the HR field-priority rule (task Part A.3).
     hr_source_type: Optional[str] = None
+    # [{"offset_s", "duration_s"}, ...] from FIT lap messages (Part E.8's lap markers) —
+    # symmetric with intervals_json, which is Concept2's equivalent.
+    laps_json: Optional[str] = None
     raw_json: Optional[str] = None
     fit_path: Optional[str] = None
     # Concept2-specific, left NULL for other sources.

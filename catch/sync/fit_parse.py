@@ -47,6 +47,11 @@ class FitSamples:
     cadence: list[Optional[float]] = field(default_factory=list)
     is_peloton_like: bool = False
     hr_source_type: Optional[str] = None  # "chest_strap" | "wrist" | None
+    # [{"offset_s": float, "duration_s": float}, ...] from FIT `lap` messages, oldest first —
+    # Part E.8's lap markers. This account's real FIT files have exactly one lap (the whole
+    # continuous session); multi-lap interval sets are supported but unverified against real
+    # multi-lap data.
+    laps: list[dict] = field(default_factory=list)
 
 
 def parse_fit(path: str | Path) -> Optional[FitSamples]:
@@ -57,6 +62,7 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
     file_id_manufacturer: Optional[str] = None
     hr_device_types: set[str] = set()
     records: list[tuple[datetime, Optional[float], Optional[float], Optional[float]]] = []
+    raw_laps: list[tuple[datetime, float]] = []
 
     try:
         with fitdecode.FitReader(str(path)) as fit:
@@ -86,6 +92,13 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
                             _field_value(frame, "cadence"),
                         )
                     )
+                elif frame.name == "lap":
+                    lap_start = _field_value(frame, "start_time")
+                    lap_elapsed = _field_value(frame, "total_elapsed_time")
+                    if lap_start is not None and lap_elapsed is not None:
+                        if lap_start.tzinfo is None:
+                            lap_start = lap_start.replace(tzinfo=timezone.utc)
+                        raw_laps.append((lap_start, float(lap_elapsed)))
     except Exception:
         logger.exception("failed to parse FIT file %s", path)
         return None
@@ -110,6 +123,11 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
     elif _WRIST_DEVICE_TYPES & hr_device_types:
         hr_source_type = "wrist"
 
+    laps = [
+        {"offset_s": max(0.0, (lap_start - start).total_seconds()), "duration_s": lap_elapsed}
+        for lap_start, lap_elapsed in sorted(raw_laps)
+    ]
+
     return FitSamples(
         start=start,
         duration_s=duration_s,
@@ -118,6 +136,7 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
         cadence=cadence,
         is_peloton_like=is_peloton_like,
         hr_source_type=hr_source_type,
+        laps=laps,
     )
 
 

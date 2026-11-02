@@ -14,12 +14,14 @@ from catch.analytics.erg_math import w_per_kg
 from catch.analytics.predict import predict_2k
 from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
-from catch.analytics.zones import ZONE_ORDER, zone_for_hr
+from catch.analytics.zones import ZONE_ORDER, training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.coach.memory import next_a_race as _next_a_race
-from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness, Stroke
+from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync import body_comp
+from catch.analytics.samples_codec import unpack_series
+from catch.sync.canonical import pick_hr
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -658,3 +660,114 @@ def personal_bests(db: Session = Depends(get_db)):
         best = max(candidates, key=lambda a: a.distance) if candidates else None
         result[label] = _pb_entry(best)
     return result
+
+
+# -- Per-activity HR/power/cadence samples (task Part E.8) ------------------------------
+
+
+def _concept2_laps(db: Session, activity_id: int) -> list[dict]:
+    """Concept2 has no FIT laps, but Stroke.interval_index boundaries are the same idea —
+    reuses the same t-offset accumulation erg_strokes already does for distance."""
+    strokes = db.exec(select(Stroke.t, Stroke.interval_index).where(Stroke.activity_id == activity_id).order_by(Stroke.seq)).all()
+    if not strokes:
+        return []
+    by_interval: dict[int, list[float]] = {}
+    for t, idx in strokes:
+        by_interval.setdefault(idx or 0, []).append(t)
+    laps = []
+    offset = 0.0
+    for idx in sorted(by_interval):
+        duration = max(by_interval[idx]) if by_interval[idx] else 0.0
+        laps.append({"offset_s": offset, "duration_s": duration})
+        offset += duration
+    return laps
+
+
+def _hr_recovery(hr_full: list[float | None], from_offset: int, window_s: int = 60) -> float | None:
+    """Drop in HR over `window_s` seconds starting at `from_offset` — used both for "after
+    the session" (from_offset = the last work sample) and, generically, after any lap
+    boundary. None if the recording doesn't extend far enough past that point to measure it."""
+    if from_offset < 0 or from_offset >= len(hr_full):
+        return None
+    end = from_offset + window_s
+    if end >= len(hr_full):
+        return None
+    start_hr, end_hr = hr_full[from_offset], hr_full[end]
+    if start_hr is None or end_hr is None:
+        return None
+    return start_hr - end_hr
+
+
+@router.get("/api/activities/{canonical_id}/samples")
+def activity_samples(canonical_id: int, points: int = Query(600, ge=50, le=5000), db: Session = Depends(get_db)):
+    canonical = db.get(CanonicalActivity, canonical_id)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    members = db.exec(select(Activity).where(Activity.canonical_id == canonical_id)).all()
+    _, _, hr_member = pick_hr(members)
+    if hr_member is None:
+        hr_member = members[0] if members else None
+    if hr_member is None or hr_member.id is None:
+        return {"has_data": False, "reason": "no source activity"}
+
+    samples_row = db.get(ActivitySamples, hr_member.id)
+    if samples_row is None:
+        return {"has_data": False, "reason": "no per-sample data for this activity"}
+
+    n = samples_row.n_samples
+    hr_full = unpack_series(samples_row.hr_blob, n)
+    power_full = unpack_series(samples_row.power_blob, n)
+    cadence_full = unpack_series(samples_row.cadence_blob, n)
+    has_hr = any(v is not None for v in hr_full)
+    if not has_hr:
+        return {"has_data": False, "reason": "no heart-rate data"}
+
+    settings = get_settings(db)
+    max_hr = settings.get("max_hr")
+    trimmed_s = canonical.auto_trimmed_tail_s or 0
+    usable_n = n - int(trimmed_s)
+
+    elapsed = list(range(n))
+    defined_idx = [i for i in range(usable_n) if hr_full[i] is not None]
+    indices = lttb_indices([elapsed[i] for i in defined_idx], [hr_full[i] for i in defined_idx], points) if defined_idx else []
+    chosen = [defined_idx[i] for i in indices]
+
+    laps = json.loads(hr_member.laps_json) if hr_member.laps_json else _concept2_laps(db, hr_member.id)
+
+    defined_hr = [hr_full[i] for i in range(usable_n) if hr_full[i] is not None]
+    recoveries = {
+        "session_end": _hr_recovery(hr_full, usable_n - 1),
+        "per_lap": [
+            {"offset_s": lap["offset_s"], "recovery_bpm": _hr_recovery(hr_full, int(lap["offset_s"] + lap["duration_s"]))}
+            for lap in laps
+        ],
+    }
+
+    return {
+        "has_data": True,
+        "canonical_id": canonical_id,
+        "n_samples": n,
+        "usable_n_samples": usable_n,
+        "trimmed_tail_s": trimmed_s,
+        "max_hr_setting": max_hr,
+        "avg_hr": (sum(defined_hr) / len(defined_hr)) if defined_hr else None,
+        "max_hr_observed": max(defined_hr) if defined_hr else None,
+        "min_hr_observed": min(defined_hr) if defined_hr else None,
+        "zones": json.loads(canonical.zones_json) if canonical.zones_json else None,
+        "zones_config": training_zones(max_hr=max_hr, settings=settings),
+        "session_label": canonical.session_label,
+        "laps": laps,
+        "hr_recovery": recoveries,
+        "points": [
+            {
+                "elapsed_s": elapsed[i],
+                "hr": hr_full[i],
+                "power": power_full[i],
+                "cadence": cadence_full[i],
+            }
+            for i in chosen
+        ],
+        "returned_count": len(chosen),
+        "raw_count": len(defined_idx),
+    }

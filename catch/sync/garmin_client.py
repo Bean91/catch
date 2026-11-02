@@ -185,6 +185,8 @@ class GarminClient:
             return
         row.origin = "peloton" if fit_samples.is_peloton_like else "watch"
         row.hr_source_type = fit_samples.hr_source_type
+        if fit_samples.laps:
+            row.laps_json = json.dumps(fit_samples.laps)
         if row.avg_cadence is None and any(v is not None for v in fit_samples.cadence):
             defined = [v for v in fit_samples.cadence if v is not None]
             row.avg_cadence = sum(defined) / len(defined)

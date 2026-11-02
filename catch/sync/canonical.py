@@ -44,7 +44,7 @@ def _pick(members: list[Activity], field: str, priority: list[str]) -> tuple[Opt
     return None, None
 
 
-def _pick_hr(members: list[Activity]) -> tuple[Optional[float], Optional[float], Optional[Activity]]:
+def pick_hr(members: list[Activity]) -> tuple[Optional[float], Optional[float], Optional[Activity]]:
     """HR field priority (Part A.3): whichever source has a chest-strap HR, else the Garmin
     watch. Concept2 results are assumed chest-strap whenever they carry HR at all (a PM5 has
     no wrist sensor of its own — see catch/core/models.py's Activity.hr_source_type docstring)."""
@@ -147,7 +147,7 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     power, power_src = _pick(members, "avg_power", priority["power"] + _DEFAULT_PRIORITY)
     cadence, cadence_src = _pick(members, "avg_cadence", priority["cadence"] + _DEFAULT_PRIORITY)
     calories, calories_src = _pick(members, "calories", _DEFAULT_PRIORITY)
-    avg_hr, max_hr, hr_src = _pick_hr(members)
+    avg_hr, max_hr, hr_src = pick_hr(members)
 
     field_sources = {}
     for name, value, src in (
