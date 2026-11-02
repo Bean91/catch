@@ -38,6 +38,7 @@ def run_sync(source: str, days: int = 3) -> dict:
                     result = {
                         "health_rows": client.sync_health(start, end),
                         "activities": client.sync_activities(start, end, FIT_DIR),
+                        "weight_rows": client.sync_weight(start, end),
                     }
                 elif source == "withings":
                     from catch.sync.withings_client import sync as withings_sync

@@ -18,7 +18,7 @@ from catch.core.models import OAuthToken
 from catch.sync.canonical import resolve_canonical
 from catch.sync.fit_parse import parse_fit
 from catch.sync.samples import store_samples_from_fit
-from catch.sync.upsert import upsert_activity, upsert_daily_wellness
+from catch.sync.upsert import upsert_activity, upsert_body_comp, upsert_daily_wellness
 
 logger = logging.getLogger("catch.garmin")
 
@@ -279,15 +279,49 @@ class GarminClient:
             n += 1
         return n
 
+    # -- body composition (task Part D) --------------------------------------------------
+
+    def sync_weight(self, start_date: date_, end_date: date_) -> int:
+        """`/weight-service/weight/range` — confirmed live (docs/garmin-endpoints.md):
+        `weight` is in GRAMS despite the OpenAPI schema claiming kilograms. `bodyFat` maps to
+        `fat_pct`; `muscleMass`/`boneMass`/`bodyWater` are left unmapped (every real entry in
+        this account has them null, so there's nothing to confirm their unit against)."""
+        resp = self._get(f"/weight-service/weight/range/{start_date.isoformat()}/{end_date.isoformat()}")
+        data = resp.json() or {}
+        n = 0
+        for summary in data.get("dailyWeightSummaries") or []:
+            entries = summary.get("allWeightMetrics") or []
+            if not entries and summary.get("latestWeight"):
+                entries = [summary["latestWeight"]]
+            for entry in entries:
+                weight_g = entry.get("weight")
+                if weight_g is None:
+                    continue
+                ts = _parse_epoch_ms(entry.get("timestampGMT") or entry.get("date"))
+                if ts is None:
+                    continue
+                sample_pk = entry.get("samplePk")
+                upsert_body_comp(
+                    self.db,
+                    source="garmin",
+                    external_id=str(sample_pk) if sample_pk is not None else ts.isoformat(),
+                    ts=ts,
+                    weight_kg=weight_g / 1000.0,
+                    fat_pct=entry.get("bodyFat"),
+                )
+                n += 1
+        return n
+
     def backfill(self, days: int, fit_dir: Path, window_days: int = 30) -> dict[str, int]:
         end_date = date_.today()
         start_date = end_date - timedelta(days=days)
-        totals = {"activities": 0, "health_rows": 0}
+        totals = {"activities": 0, "health_rows": 0, "weight_rows": 0}
         cursor = start_date
         while cursor <= end_date:
             window_end = min(cursor + timedelta(days=window_days), end_date)
             totals["health_rows"] += self.sync_health(cursor, window_end)
             totals["activities"] += self.sync_activities(cursor, window_end, fit_dir)
+            totals["weight_rows"] += self.sync_weight(cursor, window_end)
             cursor = window_end + timedelta(days=1)
         return totals
 
@@ -310,6 +344,15 @@ def _parse_date(value: Any) -> date_ | None:
     try:
         return date_.fromisoformat(str(value)[:10])
     except ValueError:
+        return None
+
+
+def _parse_epoch_ms(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1000.0, tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
         return None
 
 

@@ -14,8 +14,11 @@ def _login(client):
 
 
 def test_trends_weight(client, session):
-    session.add(BodyComp(source="withings", external_id="b1", ts=datetime(2026, 1, 1, tzinfo=timezone.utc), weight_kg=80.0))
-    session.add(BodyComp(source="withings", external_id="b2", ts=datetime(2026, 1, 2, tzinfo=timezone.utc), weight_kg=79.5))
+    # Noon, not midnight — catch/sync/body_comp.py buckets by *local* calendar day (matching
+    # every other day-bucketing in this codebase, e.g. scoring.py), so a UTC-midnight
+    # timestamp would land on the wrong local day under a negative UTC offset.
+    session.add(BodyComp(source="withings", external_id="b1", ts=datetime(2026, 1, 1, 12, tzinfo=timezone.utc), weight_kg=80.0))
+    session.add(BodyComp(source="withings", external_id="b2", ts=datetime(2026, 1, 2, 12, tzinfo=timezone.utc), weight_kg=79.5))
     session.commit()
 
     _login(client)

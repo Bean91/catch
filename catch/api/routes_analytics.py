@@ -17,8 +17,9 @@ from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.coach.memory import next_a_race as _next_a_race
-from catch.core.models import Activity, BodyComp, CanonicalActivity, DailyScore, DailyWellness, Stroke
+from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
+from catch.sync import body_comp
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -308,17 +309,24 @@ def _date_bounds(from_: date | None, to: date | None) -> tuple[datetime | None, 
 def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
     # Smoothed over *all* history, not just the requested range — otherwise the smoothed
     # line at the start of a narrow range (e.g. "4w") would have no trailing context and
-    # read as noisier than it should.
-    start, end = _date_bounds(from_, to)
-    all_rows = db.exec(select(BodyComp).where(BodyComp.weight_kg.is_not(None)).order_by(BodyComp.ts)).all()
-    smoothed_by_day = dict(smooth_weight([(r.ts.date(), r.weight_kg) for r in all_rows]))
+    # read as noisier than it should. One point per day (task Part D.2 — resolve_daily
+    # already picked the right source per day; never averaged across scales).
+    daily = [d for d in body_comp.resolve_daily(db) if d["weight"] is not None]
+    smoothed_by_day = dict(smooth_weight([(d["date"], d["weight"]) for d in daily]))
     out = []
-    for r in all_rows:
-        if start and r.ts < start:
+    for d in daily:
+        if from_ and d["date"] < from_:
             continue
-        if end and r.ts > end:
+        if to and d["date"] > to:
             continue
-        out.append({"date": r.ts.date(), "value": r.weight_kg, "smoothed": smoothed_by_day.get(r.ts.date())})
+        out.append(
+            {
+                "date": d["date"],
+                "value": d["weight"],
+                "smoothed": smoothed_by_day.get(d["date"]),
+                "source": d["weight_source"],
+            }
+        )
     return out
 
 
@@ -372,21 +380,11 @@ def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> lis
 
 
 def _nearest_weight_kg(db: Session, when: datetime | None) -> float | None:
-    """Nearest body_comp (Withings) weight in time to `when` — whichever of the closest row
-    at-or-before and the closest row at-or-after is nearer. None if there's no weight data
-    yet (Withings OAuth isn't completed as of session 1/2)."""
-    if when is None:
-        return None
-    before = db.exec(
-        select(BodyComp).where(BodyComp.ts <= when, BodyComp.weight_kg.is_not(None)).order_by(BodyComp.ts.desc())
-    ).first()
-    after = db.exec(
-        select(BodyComp).where(BodyComp.ts >= when, BodyComp.weight_kg.is_not(None)).order_by(BodyComp.ts.asc())
-    ).first()
-    candidates = [c for c in (before, after) if c is not None]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda c: abs((c.ts - when).total_seconds())).weight_kg
+    """Nearest *day's* priority-resolved weight to `when` (task Part D.2 — Withings first,
+    Garmin second by default, a manual entry as the last resort) — delegates to
+    catch/sync/body_comp.py so this never silently prefers whichever source's row happens to
+    sit closer in wall-clock time within the same day."""
+    return body_comp.nearest_resolved_weight_kg(db, when)
 
 
 @router.get("/api/erg/results")

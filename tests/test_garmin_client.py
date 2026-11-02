@@ -82,6 +82,8 @@ def _mock_transport() -> httpx.MockTransport:
             with zipfile.ZipFile(buf, "w") as zf:
                 zf.writestr("activity.fit", b"\x0efake-fit-bytes")
             return httpx.Response(200, content=buf.getvalue(), headers={"content-type": "application/x-zip-compressed"})
+        if path.startswith("/weight-service/weight/range/"):
+            return httpx.Response(200, json=load_fixture("garmin", "weight_range.json"))
         raise AssertionError(f"unexpected path {path}")
 
     return httpx.MockTransport(handler)
@@ -136,3 +138,23 @@ def test_sync_activities_upserts_and_downloads_fit(session, tmp_path):
     count2 = client.sync_activities(start, end, tmp_path)
     assert count2 == 2
     assert len(session.exec(select(Activity)).all()) == 2
+
+
+def test_sync_weight_converts_grams_to_kg(session):
+    """docs/garmin-endpoints.md: the real `/weight-service/weight/range` response reports
+    `weight` in grams despite the OpenAPI schema's own "kilograms" description — confirmed
+    against this account's real data (2026-11-02)."""
+    from catch.core.models import BodyComp
+
+    client = _client_with_cached_token(session)
+    n = client.sync_weight(date(2026, 10, 17), date(2026, 10, 19))
+    assert n == 2
+
+    rows = session.exec(select(BodyComp).where(BodyComp.source == "garmin")).all()
+    by_date = {r.ts.date(): r for r in rows}
+    assert by_date[date(2026, 10, 17)].weight_kg == pytest.approx(75.3)
+    assert by_date[date(2026, 10, 17)].fat_pct == 18.5
+    assert by_date[date(2026, 10, 18)].weight_kg == pytest.approx(75.1)
+    # muscleMass/boneMass/bodyWater are never mapped (see docs/garmin-endpoints.md) — no live
+    # non-null value exists to confirm their unit, so they stay None rather than guess.
+    assert by_date[date(2026, 10, 18)].muscle_kg is None
