@@ -103,6 +103,9 @@ def test_series_w_per_kg_carries_activity_id_for_tap_to_open(client, session):
         Activity(source="concept2", external_id="c1", type="rower", start=datetime(2026, 1, 1, 12, tzinfo=timezone.utc), avg_power=320.0)
     )
     session.commit()
+    from catch.sync.matching import run_matching
+
+    run_matching(session)
 
     _login(client)
     resp = client.get("/api/series", params={"metrics": "w_per_kg", "points": 400})

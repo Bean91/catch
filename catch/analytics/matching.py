@@ -92,6 +92,16 @@ def sport_family(source: str | None, type_: str | None) -> str:
     return "other"
 
 
+def category_for_canonical(sport_family_: str, indoor: Optional[bool]) -> str:
+    """erg/on_water/other for the Workouts-list filter, generalizing
+    catch/analytics/classify.py's workout_category (kept as-is for raw per-source rows) to a
+    canonical activity — rowing is "erg" indoors, "on_water" outdoors; everything else
+    (cycling, running, strength, unclassified) is "other", same as the original scheme."""
+    if sport_family_ != "rowing":
+        return "other"
+    return "erg" if indoor is not False else "on_water"
+
+
 def is_indoor(source: str | None, type_: str | None) -> Optional[bool]:
     """True/False where the source/type tells us, else None (unknown — e.g. "other")."""
     if source == "garmin":

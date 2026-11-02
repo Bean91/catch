@@ -3,51 +3,39 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlmodel import Session, select
 
-from catch.analytics.classify import (
-    CONCEPT2_ON_WATER_TYPES,
-    CONCEPT2_OTHER_TYPES,
-    GARMIN_ERG_TYPES,
-    GARMIN_ON_WATER_TYPES,
-    workout_category,
-)
+from catch.analytics.matching import category_for_canonical, is_indoor
 from catch.analytics.zones import training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
-from catch.core.models import Activity, DailyScore, Note
+from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, Note
 from catch.core.settings_store import get_settings
+from catch.sync.canonical import provenance, resolve_canonical
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _PAGE_SIZE_DEFAULT = 30
 _PAGE_SIZE_MAX = 100
+_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"}
+
+
+def _overrides(canonical: CanonicalActivity) -> dict:
+    return json.loads(canonical.overrides_json) if canonical.overrides_json else {}
+
+
+def _members(db: Session, canonical_id: int) -> list[Activity]:
+    return db.exec(select(Activity).where(Activity.canonical_id == canonical_id).order_by(Activity.id)).all()
 
 
 def _category_filter(category: str):
-    if category == "erg":
-        return or_(
-            (Activity.source == "concept2") & ~Activity.type.in_(CONCEPT2_ON_WATER_TYPES | CONCEPT2_OTHER_TYPES),
-            (Activity.source == "garmin") & Activity.type.in_(GARMIN_ERG_TYPES),
-        )
-    if category == "on_water":
-        return or_(
-            (Activity.source == "concept2") & Activity.type.in_(CONCEPT2_ON_WATER_TYPES),
-            (Activity.source == "garmin") & Activity.type.in_(GARMIN_ON_WATER_TYPES),
-        )
+    if category not in ("erg", "on_water", "other"):
+        raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Allowed: erg, on_water, other")
     if category == "other":
-        return or_(
-            (Activity.source == "concept2") & Activity.type.in_(CONCEPT2_OTHER_TYPES),
-            (Activity.source == "garmin") & ~Activity.type.in_(GARMIN_ERG_TYPES | GARMIN_ON_WATER_TYPES),
-        )
-    raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Allowed: erg, on_water, other")
-
-
-def _not_linked_garmin_duplicate():
-    # A linked Garmin<->Concept2 pair is one physical session; keep only the Concept2 side
-    # (source of truth for erg metrics), matching catch/sync/scoring.py's _day_activities.
-    return ~((Activity.source == "garmin") & Activity.linked_activity_id.is_not(None))
+        return CanonicalActivity.sport_family != "rowing"
+    return CanonicalActivity.sport_family == "rowing"  # narrowed to erg/on_water below in Python
 
 
 def _parse_cursor(cursor: str | None) -> tuple[datetime, int] | None:
@@ -60,22 +48,10 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime, int] | None:
         raise HTTPException(status_code=400, detail="Invalid cursor") from exc
 
 
-def _activity_local_date(activity: Activity) -> date | None:
-    # Matches catch/sync/scoring.py's day-bucketing: a naive datetime's .astimezone() assumes
-    # the system's own local timezone, which is what date.today()/Garmin's calendarDate/
-    # notes.date all use. Only correct if the Pi's system timezone matches the athlete's own.
-    if activity.start is None:
+def _activity_strain(db: Session, canonical: CanonicalActivity, strain_by_date: dict[date, dict] | None = None) -> dict | None:
+    if canonical.start is None:
         return None
-    return activity.start.astimezone().date()
-
-
-def _activity_strain(db: Session, activity: Activity, strain_by_date: dict[date, dict] | None = None) -> dict | None:
-    """Per-activity strain was already computed and cached by catch/sync/scoring.py's
-    day_strain (each per-activity component carries its own activity_id) — read it back
-    instead of recomputing, so this stays a cheap lookup even for a long activity list."""
-    local_date = _activity_local_date(activity)
-    if local_date is None:
-        return None
+    local_date = canonical.start.astimezone().date()
     if strain_by_date is not None:
         day_strain = strain_by_date.get(local_date)
     else:
@@ -84,9 +60,43 @@ def _activity_strain(db: Session, activity: Activity, strain_by_date: dict[date,
     if not day_strain:
         return None
     for component in day_strain.get("components", []):
-        if component.get("activity_id") == activity.id:
+        if component.get("canonical_id") == canonical.id:
             return component
     return None
+
+
+def _source_summary(member: Activity) -> dict:
+    return {
+        "activity_id": member.id,
+        "source": member.source,
+        "external_id": member.external_id,
+        "provenance": provenance(member),
+        "type": member.type,
+        "origin": member.origin,
+        "hr_source_type": member.hr_source_type,
+        "has_fit": bool(member.fit_path),
+        "has_strokes": member.source == "concept2",
+    }
+
+
+def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[Activity] | None = None) -> dict:
+    members = members if members is not None else _members(db, canonical.id)
+    overrides = _overrides(canonical)
+    indoor = is_indoor(members[0].source, members[0].type) if members else None
+    data = canonical.model_dump(exclude={"overrides_json", "field_sources_json", "zones_json"})
+    data["category"] = category_for_canonical(canonical.sport_family or "other", indoor)
+    data["field_sources"] = json.loads(canonical.field_sources_json) if canonical.field_sources_json else {}
+    data["zones"] = json.loads(canonical.zones_json) if canonical.zones_json else None
+    data["notes"] = overrides.get("notes")
+    data["rpe"] = overrides.get("rpe")
+    data["exclude_from_totals"] = bool(overrides.get("exclude_from_totals"))
+    data["tags"] = overrides.get("tags") or []
+    data["overrides"] = overrides
+    data["sources"] = [_source_summary(m) for m in members]
+    data["editable_fields"] = sorted(_OVERRIDE_FIELDS)
+    # Garmin's Personal API is read-only (task Part C.5) — edits here never push back.
+    data["edits_push_back_to_source"] = False
+    return data
 
 
 @router.get("/api/activities")
@@ -99,35 +109,41 @@ def list_activities(
     db: Session = Depends(get_db),
 ):
     from_, to = as_utc(from_), as_utc(to)
-    stmt = select(Activity).where(_not_linked_garmin_duplicate())
+    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))
     if from_:
-        stmt = stmt.where(Activity.start >= from_)
+        stmt = stmt.where(CanonicalActivity.start >= from_)
     if to:
-        stmt = stmt.where(Activity.start <= to)
+        stmt = stmt.where(CanonicalActivity.start <= to)
     if category:
         stmt = stmt.where(_category_filter(category))
 
     cursor_parsed = _parse_cursor(cursor)
     if cursor_parsed:
         cursor_start, cursor_id = cursor_parsed
-        # Keyset pagination, not OFFSET: a background sync inserting rows between page
-        # fetches would otherwise shift offsets and produce skipped or duplicated rows.
         stmt = stmt.where(
-            or_(Activity.start < cursor_start, (Activity.start == cursor_start) & (Activity.id < cursor_id))
+            or_(CanonicalActivity.start < cursor_start, (CanonicalActivity.start == cursor_start) & (CanonicalActivity.id < cursor_id))
         )
-    stmt = stmt.order_by(Activity.start.desc(), Activity.id.desc()).limit(limit)
+    stmt = stmt.order_by(CanonicalActivity.start.desc(), CanonicalActivity.id.desc()).limit(limit)
     rows = db.exec(stmt).all()
 
-    dates = {d for d in (_activity_local_date(a) for a in rows) if d is not None}
-    score_rows = db.exec(select(DailyScore).where(DailyScore.date.in_(dates))).all() if dates else []
-    strain_by_date = {r.date: json.loads(r.strain_json) for r in score_rows if r.strain_json}
+    all_members = db.exec(select(Activity).where(Activity.canonical_id.in_([r.id for r in rows]))).all() if rows else []
+    members_by_canonical: dict[int, list[Activity]] = {}
+    for m in all_members:
+        members_by_canonical.setdefault(m.canonical_id, []).append(m)
 
+    dates = {r.start.astimezone().date() for r in rows if r.start is not None}
+    score_rows = db.exec(select(DailyScore).where(DailyScore.date.in_(dates))).all() if dates else []
+    strain_by_date = {s.date: json.loads(s.strain_json) for s in score_rows if s.strain_json}
+
+    # category narrows further than the SQL filter (erg vs on_water both share sport_family
+    # == "rowing"; the indoor/outdoor split needs each row's member type).
     items = []
-    for a in rows:
-        data = a.model_dump(exclude={"raw_json", "intervals_json"})
-        data["category"] = workout_category(a.source, a.type)
-        data["strain"] = _activity_strain(db, a, strain_by_date)
-        items.append(data)
+    for r in rows:
+        payload = _canonical_payload(db, r, members_by_canonical.get(r.id, []))
+        if category and payload["category"] != category:
+            continue
+        payload["strain"] = _activity_strain(db, r, strain_by_date)
+        items.append(payload)
 
     next_cursor = None
     if len(rows) == limit and rows[-1].start is not None:
@@ -135,22 +151,164 @@ def list_activities(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@router.get("/api/activities/{activity_id}")
-def get_activity(activity_id: int, db: Session = Depends(get_db)):
-    activity = db.get(Activity, activity_id)
-    if activity is None:
+@router.get("/api/activities/{canonical_id}")
+def get_activity(canonical_id: int, db: Session = Depends(get_db)):
+    canonical = db.get(CanonicalActivity, canonical_id)
+    if canonical is None:
         raise HTTPException(status_code=404, detail="Activity not found")
 
     settings = get_settings(db)
-    local_date = _activity_local_date(activity)
+    members = _members(db, canonical_id)
+    local_date = canonical.start.astimezone().date() if canonical.start else None
     note = db.exec(select(Note).where(Note.date == local_date)).first() if local_date else None
 
-    data = activity.model_dump(exclude={"raw_json", "intervals_json"})
-    data["intervals"] = json.loads(activity.intervals_json) if activity.intervals_json else None
-    data["category"] = workout_category(activity.source, activity.type)
+    data = _canonical_payload(db, canonical, members)
     data["local_date"] = local_date
-    data["strain"] = _activity_strain(db, activity)
-    data["zones"] = training_zones(max_hr=settings.get("max_hr"), settings=settings)
-    data["hr_zone"] = zone_for_hr(activity.avg_hr, settings.get("max_hr"), settings)
-    data["note"] = note
+    data["strain"] = _activity_strain(db, canonical)
+    data["zones_config"] = training_zones(max_hr=settings.get("max_hr"), settings=settings)
+    data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
+    data["day_note"] = note
+    data["has_samples"] = any(db.get(ActivitySamples, m.id) is not None for m in members)
     return data
+
+
+class ActivityEditRequest(BaseModel):
+    title: str | None = None
+    sport_family: str | None = None
+    notes: str | None = None
+    rpe: int | None = None
+    exclude_from_totals: bool | None = None
+    tags: list[str] | None = None
+
+
+@router.patch("/api/activities/{canonical_id}")
+def patch_activity(canonical_id: int, body: ActivityEditRequest = Body(...), db: Session = Depends(get_db)):
+    canonical = db.get(CanonicalActivity, canonical_id)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if body.rpe is not None and not (0 <= body.rpe <= 10):
+        raise HTTPException(status_code=422, detail="rpe must be between 0 and 10")
+
+    overrides = _overrides(canonical)
+    patch = body.model_dump(exclude_unset=True)
+    overrides.update(patch)
+    canonical.overrides_json = json.dumps(overrides)
+    db.add(canonical)
+    db.commit()
+    resolve_canonical(db, canonical_id)
+
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(db)
+    return get_activity(canonical_id, db=db)
+
+
+class RevertFieldRequest(BaseModel):
+    field: str
+
+
+@router.post("/api/activities/{canonical_id}/revert")
+def revert_activity_field(canonical_id: int, body: RevertFieldRequest = Body(...), db: Session = Depends(get_db)):
+    if body.field not in _OVERRIDE_FIELDS:
+        raise HTTPException(status_code=422, detail=f"field must be one of {sorted(_OVERRIDE_FIELDS)}")
+    canonical = db.get(CanonicalActivity, canonical_id)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    overrides = _overrides(canonical)
+    overrides.pop(body.field, None)
+    canonical.overrides_json = json.dumps(overrides)
+    db.add(canonical)
+    db.commit()
+    resolve_canonical(db, canonical_id)
+
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(db)
+    return get_activity(canonical_id, db=db)
+
+
+class BulkEditRequest(BaseModel):
+    canonical_ids: list[int]
+    patch: ActivityEditRequest
+
+
+@router.post("/api/activities/bulk")
+def bulk_edit_activities(body: BulkEditRequest = Body(...), db: Session = Depends(get_db)):
+    updated = []
+    for canonical_id in body.canonical_ids:
+        canonical = db.get(CanonicalActivity, canonical_id)
+        if canonical is None:
+            continue
+        overrides = _overrides(canonical)
+        overrides.update(body.patch.model_dump(exclude_unset=True))
+        canonical.overrides_json = json.dumps(overrides)
+        db.add(canonical)
+        db.commit()
+        resolve_canonical(db, canonical_id)
+        updated.append(canonical_id)
+
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(db)
+    return {"updated": updated}
+
+
+# -- Duplicates review (task Part A.5) ---------------------------------------------------
+
+
+@router.get("/api/activities/duplicates")
+def list_duplicates(db: Session = Depends(get_db)):
+    from catch.sync.matching import list_flagged_duplicates
+
+    return {"pairs": list_flagged_duplicates(db)}
+
+
+class ActivityPairRequest(BaseModel):
+    activity_id_a: int
+    activity_id_b: int
+
+
+@router.post("/api/activities/merge")
+def merge_activities(body: ActivityPairRequest = Body(...), db: Session = Depends(get_db)):
+    from catch.sync.matching import manual_merge
+
+    try:
+        canonical = manual_merge(db, body.activity_id_a, body.activity_id_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(db)
+    return get_activity(canonical.id, db=db)
+
+
+class SplitActivityRequest(BaseModel):
+    activity_id: int
+
+
+@router.post("/api/activities/split")
+def split_activity_route(body: SplitActivityRequest = Body(...), db: Session = Depends(get_db)):
+    from catch.sync.matching import split_activity
+
+    try:
+        canonical = split_activity(db, body.activity_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(db)
+    return get_activity(canonical.id, db=db)
+
+
+@router.post("/api/activities/not-duplicate")
+def mark_not_duplicate_route(body: ActivityPairRequest = Body(...), db: Session = Depends(get_db)):
+    from catch.sync.matching import mark_not_duplicate
+
+    try:
+        mark_not_duplicate(db, body.activity_id_a, body.activity_id_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True}

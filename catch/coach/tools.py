@@ -66,11 +66,12 @@ def _list_workouts(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _get_workout(session: Session, args: dict, ctx: dict) -> dict:
-    activity_id = int(args["id"])
-    detail = routes_activities.get_activity(activity_id, db=session)
+    canonical_id = int(args["id"])
+    detail = routes_activities.get_activity(canonical_id, db=session)
     strokes_payload = None
-    if detail.get("source") == "concept2":
-        strokes_payload = routes_analytics.erg_strokes(activity_id, db=session)
+    concept2_source = next((s for s in detail["sources"] if s["source"] == "concept2"), None)
+    if concept2_source is not None:
+        strokes_payload = routes_analytics.erg_strokes(concept2_source["activity_id"], db=session)
     return {
         "activity": detail,
         "strokes": _downsample(strokes_payload["strokes"], _MAX_STROKE_POINTS) if strokes_payload else None,
@@ -112,6 +113,42 @@ def _get_zones(session: Session, args: dict, ctx: dict) -> dict:
 
 
 # --- Write tools --------------------------------------------------------------
+
+
+def _rename_activity(session: Session, args: dict, ctx: dict) -> dict:
+    result = routes_activities.patch_activity(int(args["id"]), body=routes_activities.ActivityEditRequest(title=args["title"]), db=session)
+    return {"id": result["id"], "title": result["title"]}
+
+
+def _tag_activity(session: Session, args: dict, ctx: dict) -> dict:
+    result = routes_activities.patch_activity(int(args["id"]), body=routes_activities.ActivityEditRequest(tags=args["tags"]), db=session)
+    return {"id": result["id"], "tags": result["tags"]}
+
+
+def _merge_activities(session: Session, args: dict, ctx: dict) -> dict:
+    """Two-step: without confirm=true, returns a preview so the model asks the athlete
+    before merging (task Part C.4's explicit "asks me to confirm in chat before merging")."""
+    from catch.sync.matching import manual_merge
+
+    activity_id_a, activity_id_b = int(args["activity_id_a"]), int(args["activity_id_b"])
+    if not args.get("confirm"):
+        from catch.core.models import Activity as _Activity
+
+        row_a = session.get(_Activity, activity_id_a)
+        row_b = session.get(_Activity, activity_id_b)
+        if row_a is None or row_b is None:
+            raise ValueError("activity not found")
+        return {
+            "preview": True,
+            "message": "Merging will combine these into one canonical activity. Call again with confirm=true to proceed.",
+            "a": {"activity_id": row_a.id, "source": row_a.source, "start": row_a.start.isoformat() if row_a.start else None, "duration": row_a.duration},
+            "b": {"activity_id": row_b.id, "source": row_b.source, "start": row_b.start.isoformat() if row_b.start else None, "duration": row_b.duration},
+        }
+    canonical = manual_merge(session, activity_id_a, activity_id_b)
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(session)
+    return routes_activities.get_activity(canonical.id, db=session)
 
 
 def _add_note(session: Session, args: dict, ctx: dict) -> dict:
@@ -208,7 +245,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_workouts": {
         "fn": _list_workouts,
         "write": False,
-        "description": "Recent workouts (Garmin + Concept2, deduped), newest first, up to 50. Optionally filter by date range and category.",
+        "description": "Recent canonical workouts (Garmin/Concept2/Peloton sources matched and merged), newest first, up to 50. Optionally filter by date range and category.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -221,10 +258,10 @@ TOOLS: dict[str, dict[str, Any]] = {
     "get_workout": {
         "fn": _get_workout,
         "write": False,
-        "description": "One workout's full detail: zones, strain, note. For a Concept2 erg piece, also stroke data (downsampled to at most 100 points) plus the per-interval table (split/rate/watts/HR/drift, technique metrics).",
+        "description": "One canonical workout's full detail: zones, strain, note, which source each metric came from. For a Concept2 erg piece, also stroke data (downsampled to at most 100 points) plus the per-interval table (split/rate/watts/HR/drift, technique metrics).",
         "input_schema": {
             "type": "object",
-            "properties": {"id": {"type": "integer", "description": "Activity id, from list_workouts or get_today's latest_erg."}},
+            "properties": {"id": {"type": "integer", "description": "Canonical workout id, from list_workouts or get_today's latest_erg.canonical_id."}},
             "required": ["id"],
             "additionalProperties": False,
         },
@@ -285,6 +322,46 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "rpe": {"type": "integer", "minimum": 0, "maximum": 10},
             },
             "required": ["date", "text"],
+            "additionalProperties": False,
+        },
+    },
+    "rename_activity": {
+        "fn": _rename_activity,
+        "write": True,
+        "description": "Rename a canonical workout (overrides any source/auto title, survives re-sync).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer", "description": "Canonical workout id."}, "title": {"type": "string"}},
+            "required": ["id", "title"],
+            "additionalProperties": False,
+        },
+    },
+    "tag_activity": {
+        "fn": _tag_activity,
+        "write": True,
+        "description": "Set a canonical workout's tags (e.g. race, test, technique, cross-training) — replaces any existing tags.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "Canonical workout id."},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["id", "tags"],
+            "additionalProperties": False,
+        },
+    },
+    "merge_activities": {
+        "fn": _merge_activities,
+        "write": True,
+        "description": "Merge two source activities (e.g. a watch recording and a Peloton-pushed duplicate) into one canonical workout. Call once without confirm to preview, tell the athlete what will merge, and only call again with confirm=true once they agree.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "activity_id_a": {"type": "integer", "description": "A raw activity id (from a workout's `sources` list), not a canonical id."},
+                "activity_id_b": {"type": "integer"},
+                "confirm": {"type": "boolean", "description": "Only set true after the athlete has confirmed in chat."},
+            },
+            "required": ["activity_id_a", "activity_id_b"],
             "additionalProperties": False,
         },
     },

@@ -17,7 +17,7 @@ from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.coach.memory import next_a_race as _next_a_race
-from catch.core.models import Activity, BodyComp, DailyScore, DailyWellness, Stroke
+from catch.core.models import Activity, BodyComp, CanonicalActivity, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -102,6 +102,9 @@ def _latest_erg(db: Session) -> dict | None:
     data = row.model_dump(exclude={"raw_json", "intervals_json"})
     data["weight_kg"] = weight_kg
     data["w_per_kg"] = w_per_kg(row.avg_power, weight_kg)
+    # `id` stays the raw Concept2 Activity id (GET /api/erg/{id}/strokes needs it);
+    # `canonical_id` is what the Today card should navigate to (/workouts/{canonical_id}).
+    data["canonical_id"] = row.canonical_id
     return data
 
 
@@ -113,6 +116,7 @@ def today(db: Session = Depends(get_db)):
     recovery = _score_dict(score_row.recovery_json) if score_row else None
     strain = _score_dict(score_row.strain_json) if score_row else None
     load = _score_dict(score_row.load_json) if score_row else None
+    rowing_load = _score_dict(score_row.rowing_load_json) if score_row else None
     settings = get_settings(db)
 
     components = recovery.get("components") if recovery else None
@@ -144,6 +148,10 @@ def today(db: Session = Depends(get_db)):
         "strain_today": strain,
         "strain_target_range": strain_target,
         "load": load,
+        # Rowing-only load, parallel to "load"'s all-sport number (task Part B.3) — so
+        # cycling/other volume never inflates the figure Today actually trains rowing
+        # against.
+        "rowing_load": rowing_load,
         "hrv": {
             "today": wellness.hrv_rmssd if wellness else None,
             "sparkline_14d": _sparkline(db, "hrv_rmssd", 14, today_date),
@@ -329,7 +337,9 @@ def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[di
         if value is not None and a.start is not None:
             # activity_id lets the frontend chart open this exact workout on tap (interaction
             # spec #4) — /api/series already passes any extra per-point keys through verbatim.
-            out.append({"date": a.start.date(), "value": value, "activity_id": a.id})
+            # It's the *canonical* id (session 8/12 — see PLAN.md): /workouts/:id now routes
+            # to GET /api/activities/{canonical_id}, never a raw per-source Activity id.
+            out.append({"date": a.start.date(), "value": value, "activity_id": a.canonical_id})
     return out
 
 
@@ -357,7 +367,7 @@ def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> lis
         pace = (a.duration / a.distance) * 500.0
         result = predict_2k([{"distance_m": a.distance, "pace_s_per_500": pace, "label": a.start.date().isoformat()}])
         if result["value"] is not None:
-            out.append({"date": a.start.date(), "value": result["predicted_time_s"], "activity_id": a.id})
+            out.append({"date": a.start.date(), "value": result["predicted_time_s"], "activity_id": a.canonical_id})
     return out
 
 
@@ -552,11 +562,11 @@ def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
     return result
 
 
-def _estimated_zone_totals(activity: Activity, max_hr: float | None, settings: dict) -> dict[str, float] | None:
-    """Fallback for sessions with no per-sample HR (every Garmin-only activity, and any
-    Concept2 result synced without a paired HR strap): bucket the *whole* duration into the
-    zone for avg_hr, rather than contributing nothing to weekly volume. Callers must flag
-    weeks that used this as "estimated" — it's a coarser number than real time-in-zone."""
+def _estimated_zone_totals(activity: CanonicalActivity, max_hr: float | None, settings: dict) -> dict[str, float] | None:
+    """Fallback for a canonical with no per-sample HR cached (nothing parsed a FIT/stroke
+    stream for any of its members): bucket the *whole* duration into the zone for avg_hr,
+    rather than contributing nothing to weekly volume. Callers must flag weeks that used this
+    as "estimated" — it's a coarser number than real time-in-zone."""
     zone = zone_for_hr(activity.avg_hr, max_hr, settings)
     if zone is None or not activity.duration:
         return None
@@ -574,11 +584,13 @@ def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get
     week_starts = [this_week_start - timedelta(weeks=i) for i in range(weeks)][::-1]
     range_start, range_end = week_starts[0], this_week_start + timedelta(days=7)
 
-    stmt = select(Activity).where(
-        Activity.start.is_not(None),
-        ~((Activity.source == "garmin") & Activity.linked_activity_id.is_not(None)),
-    )
-    activities = db.exec(stmt).all()
+    # Session 8/12 (see PLAN.md): one row per canonical activity — the matching engine
+    # already guarantees that, so no per-source dedup logic is needed here anymore. A
+    # canonical's cached zones_json (Part E — real per-sample HR, not the whole-session
+    # average) is preferred; only a canonical with no samples at all falls back to the old
+    # whole-duration estimate.
+    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))
+    activities = [a for a in db.exec(stmt).all() if not json.loads(a.overrides_json or "{}").get("exclude_from_totals")]
 
     buckets: dict[date, dict[str, float]] = {w: {z: 0.0 for z in ZONE_ORDER} for w in week_starts}
     estimated_weeks: set[date] = set()
@@ -589,21 +601,10 @@ def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get
         bucket_week = local_date - timedelta(days=local_date.weekday())
 
         exact = None
-        if a.source == "concept2":
-            # Only the columns time_in_zone actually needs — not whole Stroke rows — to stay
-            # memory-bounded on the Pi even with a long training history in range.
-            rows = db.exec(
-                select(Stroke.t, Stroke.hr, Stroke.interval_index).where(Stroke.activity_id == a.id)
-            ).all()
-            if rows:
-                by_interval: dict[int, list[tuple[float, float | None]]] = {}
-                for t, hr, idx in rows:
-                    by_interval.setdefault(idx or 0, []).append((t, hr))
-                exact = {z: 0.0 for z in ZONE_ORDER}
-                for group in by_interval.values():
-                    zone_secs = time_in_zone(hr_sample_durations(group), max_hr, settings)
-                    for z, secs in zone_secs.items():
-                        exact[z] += secs
+        if a.zones_json:
+            hr_zones = (json.loads(a.zones_json) or {}).get("hr")
+            if hr_zones and any(hr_zones.values()):
+                exact = hr_zones
 
         if exact is not None:
             for z, secs in exact.items():

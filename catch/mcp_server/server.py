@@ -90,6 +90,24 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("add_note", date=date, text=text, rpe=rpe)
 
     @mcp.tool()
+    async def rename_activity(id: int, title: str) -> dict:
+        """Rename a canonical workout (overrides any source/auto title, survives re-sync)."""
+        return await _call("rename_activity", id=id, title=title)
+
+    @mcp.tool()
+    async def tag_activity(id: int, tags: list[str]) -> dict:
+        """Set a canonical workout's tags (e.g. race, test, technique, cross-training) —
+        replaces any existing tags."""
+        return await _call("tag_activity", id=id, tags=tags)
+
+    @mcp.tool()
+    async def merge_activities(activity_id_a: int, activity_id_b: int, confirm: Optional[bool] = None) -> dict:
+        """Merge two source activities (e.g. a watch recording and a Peloton-pushed
+        duplicate) into one canonical workout. Call once without confirm to preview, tell
+        the athlete what will merge, and only call again with confirm=true once they agree."""
+        return await _call("merge_activities", activity_id_a=activity_id_a, activity_id_b=activity_id_b, confirm=confirm)
+
+    @mcp.tool()
     async def remember(
         category: Literal["injury", "schedule", "equipment", "preference", "other"],
         text: str,

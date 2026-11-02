@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from catch.coach import tools
 from catch.core.models import Activity, ApiToken, CoachCredential, DailyWellness, OAuthToken, Stroke
+from catch.sync.matching import run_matching
 
 
 def test_get_today_runs_on_empty_db(session):
@@ -64,9 +65,11 @@ def test_get_workout_downsamples_strokes_and_includes_interval_table(session):
             Stroke(activity_id=activity.id, seq=i, interval_index=0, t=float(i), distance=float(i) * 8, watts=200, stroke_rate=30, hr=150)
         )
     session.commit()
+    run_matching(session)
+    session.refresh(activity)
 
-    out = tools.call_tool(session, "get_workout", {"id": activity.id})
-    assert out["activity"]["id"] == activity.id
+    out = tools.call_tool(session, "get_workout", {"id": activity.canonical_id})
+    assert out["activity"]["id"] == activity.canonical_id
     assert len(out["strokes"]) <= tools._MAX_STROKE_POINTS
     assert 0 in out["interval_summary"]
 
@@ -76,8 +79,10 @@ def test_get_workout_has_no_strokes_for_garmin_only_activity(session):
     session.add(activity)
     session.commit()
     session.refresh(activity)
+    run_matching(session)
+    session.refresh(activity)
 
-    out = tools.call_tool(session, "get_workout", {"id": activity.id})
+    out = tools.call_tool(session, "get_workout", {"id": activity.canonical_id})
     assert out["strokes"] is None
     assert out["interval_summary"] is None
 
@@ -86,6 +91,7 @@ def test_list_workouts_filters_by_type(session):
     session.add(Activity(source="garmin", external_id="g1", type="indoor_rowing", start=datetime.now(timezone.utc), duration=600))
     session.add(Activity(source="garmin", external_id="g2", type="rowing_v2", start=datetime.now(timezone.utc), duration=600))
     session.commit()
+    run_matching(session)
 
     out = tools.call_tool(session, "list_workouts", {"type": "erg"})
     assert all(item["category"] == "erg" for item in out["items"])
@@ -134,6 +140,7 @@ def test_tool_outputs_never_leak_secrets(session):
     activity = Activity(source="concept2", external_id="r1", type="rower", start=datetime.now(timezone.utc), duration=600, distance=2000)
     session.add(activity)
     session.commit()
+    run_matching(session)
     session.refresh(activity)
 
     secrets_ = ["SUPER-SECRET-GARMIN-TOKEN", "ENCRYPTED-BLOB", "deadbeef" * 8]
@@ -141,7 +148,7 @@ def test_tool_outputs_never_leak_secrets(session):
         ("get_today", {}),
         ("get_wellness", {}),
         ("list_workouts", {}),
-        ("get_workout", {"id": activity.id}),
+        ("get_workout", {"id": activity.canonical_id}),
         ("get_trends", {"metric": "recovery"}),
         ("get_body_comp", {}),
         ("get_load", {}),

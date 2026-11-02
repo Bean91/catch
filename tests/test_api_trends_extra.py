@@ -4,6 +4,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from catch.core.models import Activity, BodyComp, DailyScore, OAuthToken, Stroke
+from catch.sync.matching import run_matching
+from catch.sync.samples import store_samples_from_strokes
 from conftest import TEST_PASSWORD
 
 
@@ -96,6 +98,7 @@ def test_trends_volume_estimates_from_avg_hr_without_strokes(client, session):
         )
     )
     session.commit()
+    run_matching(session)
 
     _login(client)
     resp = client.get("/api/trends/volume", params={"weeks": 2})
@@ -122,12 +125,24 @@ def test_trends_volume_uses_real_stroke_zones_when_available(client, session):
     session.add(Stroke(activity_id=activity.id, seq=0, interval_index=0, t=0.0, hr=150))
     session.add(Stroke(activity_id=activity.id, seq=1, interval_index=0, t=60.0, hr=150))
     session.commit()
+    # Mirrors what catch/sync/concept2_client.py's real sync does with the same stroke data
+    # (Part E — per-sample zones cached on the canonical), so this test exercises the same
+    # path a real sync would rather than only inserting raw Stroke rows.
+    store_samples_from_strokes(
+        session,
+        activity.id,
+        [
+            {"seq": 0, "interval_index": 0, "t": 0.0, "hr": 150},
+            {"seq": 1, "interval_index": 0, "t": 60.0, "hr": 150},
+        ],
+    )
+    run_matching(session)
 
     _login(client)
     resp = client.get("/api/trends/volume", params={"weeks": 1})
     week = resp.json()[0]
     assert week["estimated"] is False
-    assert week["zones"]["UT1"] == 60.0
+    assert week["zones"]["UT1"] == 61.0
 
 
 def test_pbs_distance_and_time_buckets(client, session):
