@@ -258,3 +258,58 @@ def test_a_single_fit_download_failure_does_not_abort_the_rest_of_the_sync(sessi
     rows = {r.external_id: r for r in session.exec(select(Activity)).all()}
     assert rows["24918902966"].fit_path is None  # left unset so a later sync retries it
     assert rows["24910202387"].fit_path is not None
+
+
+def test_call_with_backoff_retries_once_on_429_then_succeeds(session, monkeypatch):
+    client = GarminClient(session)
+    calls = {"n": 0}
+
+    def flaky(a, b):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.HTTPStatusError("rate limited", request=httpx.Request("GET", "https://x"), response=httpx.Response(429))
+        return 5
+
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    result = client._call_with_backoff("test", flaky, date(2026, 1, 1), date(2026, 1, 31))
+    assert result == 5
+    assert calls["n"] == 2
+
+
+def test_call_with_backoff_gives_up_after_a_persistent_429_without_raising(session, monkeypatch):
+    client = GarminClient(session)
+
+    def always_429(a, b):
+        raise httpx.HTTPStatusError("rate limited", request=httpx.Request("GET", "https://x"), response=httpx.Response(429))
+
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    result = client._call_with_backoff("test", always_429, date(2026, 1, 1), date(2026, 1, 31))
+    assert result == 0
+
+
+def test_backfill_continues_past_a_window_that_fails_entirely(session, monkeypatch, tmp_path):
+    """One window's sync_health/sync_activities/sync_weight all 429ing must not stop later
+    windows from running — the same real failure mode found live, generalized past just
+    FIT downloads."""
+    client = GarminClient(session)
+    windows_seen = []
+    distinct_starts: list = []
+
+    def fake_health(start, end):
+        windows_seen.append(("health", start))
+        if start not in distinct_starts:
+            distinct_starts.append(start)
+        if distinct_starts.index(start) == 1:  # the second distinct window fails on every attempt
+            raise httpx.HTTPStatusError("x", request=httpx.Request("GET", "https://x"), response=httpx.Response(429))
+        return 1
+
+    monkeypatch.setattr(client, "sync_health", fake_health)
+    monkeypatch.setattr(client, "sync_activities", lambda start, end, fit_dir: 0)
+    monkeypatch.setattr(client, "sync_weight", lambda start, end: 0)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    totals = client.backfill(days=90, fit_dir=tmp_path, window_days=30)
+    # 3 windows over 90 days — even though the first 429s on both attempts, the other two
+    # still ran (health_rows == 2, not 0 and not an unhandled exception).
+    assert len(windows_seen) >= 3
+    assert totals["health_rows"] == 2

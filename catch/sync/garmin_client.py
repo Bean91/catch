@@ -331,6 +331,29 @@ class GarminClient:
                 n += 1
         return n
 
+    def _call_with_backoff(self, label: str, fn, *args) -> int:
+        """A long backfill makes many sequential Garmin calls — a 429 partway through must
+        not abort every later window (the same risk `sync_activities` already guards per-FIT-
+        download, generalized here to every per-window call). One retry after a short sleep
+        on a 429 specifically; any other failure, or a 429 that persists, is logged and
+        treated as 0 for this window rather than raised."""
+        import time
+
+        for attempt in range(2):
+            try:
+                return fn(*args)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429 and attempt == 0:
+                    logger.warning("%s rate-limited (429), backing off before one retry", label)
+                    time.sleep(10)
+                    continue
+                logger.warning("%s failed for window %s-%s, skipping this window", label, args[0], args[1], exc_info=True)
+                return 0
+            except httpx.TransportError:
+                logger.warning("%s failed for window %s-%s, skipping this window", label, args[0], args[1], exc_info=True)
+                return 0
+        return 0
+
     def backfill(self, days: int, fit_dir: Path, window_days: int = 30) -> dict[str, int]:
         end_date = date_.today()
         start_date = end_date - timedelta(days=days)
@@ -338,9 +361,9 @@ class GarminClient:
         cursor = start_date
         while cursor <= end_date:
             window_end = min(cursor + timedelta(days=window_days), end_date)
-            totals["health_rows"] += self.sync_health(cursor, window_end)
-            totals["activities"] += self.sync_activities(cursor, window_end, fit_dir)
-            totals["weight_rows"] += self.sync_weight(cursor, window_end)
+            totals["health_rows"] += self._call_with_backoff("sync_health", self.sync_health, cursor, window_end)
+            totals["activities"] += self._call_with_backoff("sync_activities", self.sync_activities, cursor, window_end, fit_dir)
+            totals["weight_rows"] += self._call_with_backoff("sync_weight", self.sync_weight, cursor, window_end)
             cursor = window_end + timedelta(days=1)
         return totals
 
