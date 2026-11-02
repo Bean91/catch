@@ -246,9 +246,14 @@ export function SettingsPage() {
       )}
 
       {/* Lets a real device checklist confirm which build it's actually running (matches
-          sw.js's own VERSION) — the one way to tell "the fix didn't work" apart from "this
-          device is still on the old JS" without SSH access to the Pi. */}
-      <p className="text-center text-xs text-text-tertiary">Build {__BUILD_ID__}</p>
+          sw.js's own VERSION and version.json) — the one way to tell "the fix didn't work"
+          apart from "this device is still on the old JS" without SSH access to the Pi. The
+          commit is almost always "-dirty" on this app's Pi deploys (deploy.sh builds from
+          whatever's in the working tree, not a clean checkout), which is the honest label, not
+          a bug. */}
+      <p className="text-center text-xs text-text-tertiary">
+        Build {__BUILD_ID__} · {__COMMIT__}
+      </p>
     </div>
   );
 }

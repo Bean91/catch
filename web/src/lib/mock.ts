@@ -34,14 +34,14 @@ import type {
 } from "./types";
 import { ZONE_NAMES } from "./types";
 
-export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading";
+export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading" | "offline";
 
 export function mockScenarioFromQuery(): MockScenario | null {
   const params = new URLSearchParams(window.location.search);
   if (!params.has("mock")) return null;
   const value = params.get("mock");
   if (value === "" || value === "1" || value === "true") return "full";
-  if (value === "calibrating" || value === "empty" || value === "error" || value === "loading") return value;
+  if (value === "calibrating" || value === "empty" || value === "error" || value === "loading" || value === "offline") return value;
   return "full";
 }
 
@@ -58,6 +58,7 @@ const TODAY = new Date().toISOString().slice(0, 10);
 
 const FULL: Today = {
   date: TODAY,
+  generated_at: new Date().toISOString(),
   recovery: {
     value: 78.4,
     band: "green",
@@ -154,6 +155,7 @@ const CALIBRATING: Today = {
 
 const EMPTY: Today = {
   date: TODAY,
+  generated_at: new Date().toISOString(),
   recovery: null,
   sleep_last_night: null,
   strain_today: null,
@@ -182,6 +184,9 @@ const SYNC_STATUS: SyncSourceStatus[] = [
 export function mockToday(scenario: MockScenario): Today {
   if (scenario === "calibrating") return CALIBRATING;
   if (scenario === "empty") return EMPTY;
+  // Real device data, just hours old — the offline banner should show real data age here,
+  // not the data itself looking any different from "full".
+  if (scenario === "offline") return { ...FULL, generated_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString() };
   return FULL;
 }
 

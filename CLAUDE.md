@@ -53,20 +53,25 @@ web/
                 lib/useChartInteraction.ts hook against `touch-action: none` HTML wrapper divs,
                 never the `<svg>` itself — WebKit's touch-action support on SVG root elements
                 has real gaps, see DESIGN.md's "Chart touch-action" note), shell/ (AppShell,
-                Sidebar, BottomNav, UpdateToast — the "new version, tap to reload" banner),
+                Sidebar, BottomNav, UpdateToast — the "New version — tap to reload" banner),
                 coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
-                API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading
+                API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
                 fixtures, incl. a scripted streamMockMessage() turn), format.ts, auth.tsx,
                 theme.tsx, zoneColors.ts/hrZone.ts (zone color ramp + a small TS port of
                 catch/analytics/zones.py's zone_for_hr for client-side chart coloring),
                 dateRanges.ts (Trends' 4w/12w/season/all -> from/to), chartRange.ts (preset <->
                 URL querystring helpers), useChartInteraction.ts (the shared pan/pinch/press-hold
-                gesture engine every chart uses), useServiceWorkerUpdate.ts (registers sw.js,
-                watches for a waiting worker, drives UpdateToast), timeline.ts (merges a
-                conversation's tool_call/tool_result block pairs — stored on two separate
-                message rows — into one display entry), toolLabels.ts (mirrors
+                gesture engine every chart uses), useOnlineStatus.ts (the Today offline banner's
+                only signal — an actual /api/health probe, never navigator.onLine or a cached-
+                response heuristic; see session 10's PLAN.md notes), useServiceWorkerUpdate.ts
+                (registers sw.js for its caching behavior, but drives the update toast off a
+                separate version.json poll — deliberately not off the service worker's own
+                install/waiting/controllerchange timing, which a session 10 bug report showed
+                isn't reliable enough on a real iOS PWA to be the only signal), timeline.ts
+                (merges a conversation's tool_call/tool_result block pairs — stored on two
+                separate message rows — into one display entry), toolLabels.ts (mirrors
                 catch/coach/chat.py's chip-label templates for persisted history)
     pages/      Today.tsx (eager); Workouts, WorkoutDetail, Trends, Body, Coach, Settings,
                 Memory (React.lazy, one chunk per route — keeps the initial bundle under
@@ -83,7 +88,12 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 `playwright.config.ts` runs a Chromium+iPhone-profile project driven via CDP
                 multi-touch, since Playwright's own WebKit bindings only support a single tap
                 with no move/multi-touch; a real-WebKit project covers what a tap alone can
-                verify, e.g. computed `touch-action`)
+                verify, e.g. computed `touch-action`) and `web/tests/update/` (Playwright,
+                `playwright.update.config.ts` — builds two real production bundles with distinct
+                `CATCH_BUILD_ID`s, serves one then the other from an in-process swappable static
+                server (server.mjs, not catch.main — booting the real app starts APScheduler
+                against the real .env) to confirm a client on build A actually detects and
+                reloads to build B, plus the offline-banner scenarios)
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector)
 DESIGN.md       palette/type/motion decisions for the web frontend
@@ -102,8 +112,8 @@ DESIGN.md       palette/type/motion decisions for the web frontend
   `CATCH_MCP_TOKEN` env vars; see `docs/mcp.md`)
 - `cd web && npm install` — install frontend deps
 - `cd web && npm run dev` — Vite dev server, proxies `/api` and `/auth` to the FastAPI port
-  from `.env`; append `?mock=1` (or `?mock=calibrating|empty|error|loading`) to run the UI
-  against fixtures with no backend at all
+  from `.env`; append `?mock=1` (or `?mock=calibrating|empty|error|loading|offline`) to run the
+  UI against fixtures with no backend at all
 - `cd web && npm run build` — builds to `catch/api/static`, which FastAPI serves at `/`
   (gitignored; not committed — the Pi has no Node, so the build must run elsewhere and the
   `catch/api/static` output deployed alongside the backend)
@@ -111,6 +121,9 @@ DESIGN.md       palette/type/motion decisions for the web frontend
 - `cd web && npm run test:touch` — Playwright real-touch-device gesture regression tests
   (installs its own Chromium/WebKit via `npx playwright install` the first time; starts its own
   dev server on port 5190, no backend needed since it runs against `?mock=1`)
+- `cd web && npm run test:update` — Playwright service-worker update + offline-banner tests;
+  builds two real production bundles itself (no `.env`/backend needed) and serves them from its
+  own swappable static server on port 5192
 - `./deploy.sh` — build the frontend + rsync the backend to the Pi + restart + health-check
   (needs `deploy/pi-bootstrap.sh` to have been run on the Pi at least once; see that file)
 

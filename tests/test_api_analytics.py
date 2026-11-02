@@ -22,6 +22,18 @@ def test_today_with_no_data_yet(client):
     assert "recommendation" in body
 
 
+def test_today_generated_at_is_a_real_utc_timestamp(client):
+    # Session 10: the client used to infer "offline/stale" by comparing this endpoint's `date`
+    # against its own local date string, which disagrees for hours whenever the browser and the
+    # Pi aren't in the same timezone, regardless of connectivity. `generated_at` is a real
+    # timestamp the client can use to show actual data age instead.
+    _login(client)
+    body = client.get("/api/today").json()
+    generated_at = datetime.fromisoformat(body["generated_at"])
+    assert generated_at.tzinfo is not None
+    assert abs((datetime.now(timezone.utc) - generated_at).total_seconds()) < 5
+
+
 def test_today_reflects_cached_daily_score(client, session):
     today = date.today()
     session.add(DailyWellness(date=today, sleep_seconds=25000, sleep_score=85))

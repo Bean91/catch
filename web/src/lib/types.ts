@@ -98,6 +98,7 @@ export interface NextARace {
 
 export interface Today {
   date: string;
+  generated_at: string;
   recovery: Recovery | null;
   sleep_last_night: SleepLastNight | null;
   strain_today: Strain | null;

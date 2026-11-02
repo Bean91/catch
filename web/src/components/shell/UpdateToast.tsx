@@ -13,7 +13,7 @@ export function UpdateToast() {
       style={{ touchAction: "manipulation" }}
     >
       <span className="h-2 w-2 rounded-full bg-accent" />
-      New version available — tap to reload
+      New version — tap to reload
     </button>
   );
 }

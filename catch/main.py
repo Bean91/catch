@@ -36,12 +36,13 @@ def safe_static_file(full_path: str) -> Path | None:
 
 
 def _no_cache_headers_for(target: Path) -> dict[str, str] | None:
-    """sw.js and index.html are the two files a client needs a *fresh* copy of to ever notice
-    a new deploy — index.html references the new build's hashed asset filenames, and sw.js's
-    own VERSION const is what the update-detection flow in main.tsx compares against. Every
-    hashed /assets/* file is immutable per build and fine to cache normally; these two must
-    never be served stale by an intermediate cache (or iOS Safari's own aggressive caching)."""
-    return {"Cache-Control": "no-cache"} if target.name in ("sw.js", "index.html") else None
+    """sw.js, index.html, and version.json are the files a client needs a *fresh* copy of to
+    ever notice a new deploy — index.html references the new build's hashed asset filenames,
+    sw.js's own VERSION const is what it uses to name its caches, and version.json is what
+    useServiceWorkerUpdate.ts's poll actually compares against __BUILD_ID__. Every hashed
+    /assets/* file is immutable per build and fine to cache normally; these three must never be
+    served stale by an intermediate cache (or iOS Safari's own aggressive caching)."""
+    return {"Cache-Control": "no-cache"} if target.name in ("sw.js", "index.html", "version.json") else None
 
 
 @asynccontextmanager

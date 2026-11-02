@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchToday } from "../lib/api";
+import { formatRelativeTime, formatShortDate } from "../lib/format";
+import { useOnlineStatus } from "../lib/useOnlineStatus";
 import { ErgCard } from "../components/today/ErgCard";
 import { LoadCard } from "../components/today/LoadCard";
 import { RecommendationAndSync } from "../components/today/RecommendationAndSync";
@@ -12,6 +14,7 @@ import { ErrorState } from "../components/ui/EmptyState";
 
 export function TodayPage() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["today"], queryFn: fetchToday });
+  const isOnline = useOnlineStatus();
 
   if (isLoading) {
     return (
@@ -31,14 +34,17 @@ export function TodayPage() {
     return <ErrorState message="Couldn't load today's data." onRetry={() => refetch()} />;
   }
 
-  const isStale = data.date !== new Date().toISOString().slice(0, 10);
-
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      {isStale && (
+      {/* Gated on an actual failed /api/health probe (useOnlineStatus), never on a date-string
+          comparison — the old check compared the server's own-timezone calendar date against
+          the browser's UTC-sliced one, which disagrees for several hours a day regardless of
+          connectivity. A single source failing to sync (e.g. Concept2) is a per-card notice in
+          RecommendationAndSync, never this global banner. */}
+      {!isOnline && (
         <div className="rounded-md border border-border bg-surface-2 px-4 py-2.5 text-sm text-text-secondary">
-          Showing data from {data.date} — looks like you're offline (or the service worker's cache is serving a stale
-          copy). Reconnect and reload to refresh.
+          You're offline — showing data from {formatRelativeTime(data.generated_at)} ({formatShortDate(data.generated_at)}).
+          Reconnect to refresh.
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-[220px_1fr] lg:grid-cols-[260px_1fr] lg:gap-5">

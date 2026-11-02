@@ -1,83 +1,93 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Session 8 shipped sw.js with an unconditional skipWaiting() on install and no update UI at
-// all — a new build silently replaced the running one's fetch handler with no way for a user
-// to know a reload would get them anything new. This hook drives the "New version available —
-// tap to reload" toast (UpdateToast.tsx): it registers the worker, watches for one that's
-// installed-but-waiting (the new activate-on-message design above means there's always
-// something to find), and reloads once the user asks for it.
+const POLL_INTERVAL_MS = 60_000;
+const PRELOAD_RELOAD_KEY = "catch:preload-reload";
+
+interface VersionInfo {
+  build: string;
+  commit: string;
+}
+
+async function fetchVersion(): Promise<VersionInfo | null> {
+  try {
+    const res = await fetch("/version.json", { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as VersionInfo;
+  } catch {
+    return null;
+  }
+}
+
+// Update detection is a plain version.json poll, deliberately independent of the service
+// worker's own install/waiting/controllerchange lifecycle (registered below purely for its
+// caching behavior — see vite.config.ts's NEVER_CACHE comment). A prior design drove the toast
+// off `registration.waiting`, which depends on exactly when WebKit decides to notice a changed
+// sw.js and run it through install — a real user report ("my iPhone PWA keeps running an old
+// build") despite that code looking correct is the reason this doesn't trust that timing as the
+// only signal: a version compare on an interval/visibilitychange/online event works the same
+// regardless of what the service worker's state machine is doing.
 export function useServiceWorkerUpdate(): { updateAvailable: boolean; reload: () => void } {
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const waitingWorker = useRef<ServiceWorker | null>(null);
   const reloadedOnce = useRef(false);
-  // A *first-ever* install (no previous controller) also fires `controllerchange` once
-  // `clients.claim()` runs — without this flag, a brand-new visit (or any visit after the user
-  // clears site data) would reload itself once, unprompted, possibly mid-password on the login
-  // screen. Only a reload *we* asked for (via SKIP_WAITING, below) should actually reload.
-  const weRequestedSkipWaiting = useRef(false);
 
   const reload = useCallback(() => {
-    weRequestedSkipWaiting.current = true;
-    waitingWorker.current?.postMessage("SKIP_WAITING");
+    if (reloadedOnce.current) return;
+    reloadedOnce.current = true;
+    window.location.reload();
   }, []);
 
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-
-    const onNewWorker = (worker: ServiceWorker) => {
-      waitingWorker.current = worker;
-      setUpdateAvailable(true);
-    };
-
-    let registration: ServiceWorkerRegistration | null = null;
-
-    navigator.serviceWorker
-      // updateViaCache: 'none' — the worker script itself must never be served from the
-      // browser's HTTP cache when checking for an update, matching the server's own
-      // Cache-Control: no-cache on /sw.js (catch/main.py's _no_cache_headers_for).
-      .register("/sw.js", { updateViaCache: "none" })
-      .then((reg) => {
-        registration = reg;
-        // A worker can already be sitting in `waiting` from a previous visit to this tab (the
-        // user never tapped reload last time) — only prompt if a controller already exists,
-        // i.e. this isn't the very first install on a brand-new visit.
-        if (reg.waiting && navigator.serviceWorker.controller) onNewWorker(reg.waiting);
-        reg.addEventListener("updatefound", () => {
-          const installing = reg.installing;
-          if (!installing) return;
-          installing.addEventListener("statechange", () => {
-            if (installing.state === "installed" && navigator.serviceWorker.controller) {
-              onNewWorker(installing);
-            }
-          });
-        });
-      })
-      .catch(() => {
-        // Dev server / HTTP-without-TLS / no SW support — offline caching and update prompts
-        // just don't apply.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {
+        // Dev server / no SW support — offline caching just doesn't apply; update detection
+        // below works independently of this.
       });
+    }
 
-    const onControllerChange = () => {
-      if (!weRequestedSkipWaiting.current) return; // e.g. the very first install — not an update
-      if (reloadedOnce.current) return; // guards against a reload loop
-      reloadedOnce.current = true;
-      window.location.reload();
+    // version.json is a plain static file, unrelated to the ?mock= API switch — it exists
+    // (and should be polled) under ?mock=1 too; only the dev server (no build, no writeBundle)
+    // lacks it, and fetchVersion() already no-ops gracefully on that 404.
+    const poll = () => {
+      fetchVersion().then((info) => {
+        if (info && info.build !== __BUILD_ID__) setUpdateAvailable(true);
+      });
     };
-    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+    poll();
 
-    // An installed iOS PWA resumes from the background without ever navigating, so without
-    // this it would never re-check for a new sw.js until the next cold launch from the
-    // springboard icon — which could be days.
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") registration?.update().catch(() => {});
+      if (document.visibilityState === "visible") poll();
     };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", poll);
 
     return () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", poll);
     };
   }, []);
+
+  useEffect(() => {
+    // Vite's lazily-imported route chunks are content-hashed, and deploy.sh rsyncs with
+    // --delete — an old hash a still-open tab references can 404 once a new build has shipped
+    // over it. sessionStorage (not the ref above) guards this specific reload: it must survive
+    // the reload itself to avoid a loop if the chunk is 404ing for some other reason (e.g.
+    // genuinely offline), at the cost of only auto-recovering once per tab session — a second
+    // deploy in the same long-lived tab relies on the version.json poll above catching it first.
+    const onPreloadError = () => {
+      try {
+        if (sessionStorage.getItem(PRELOAD_RELOAD_KEY)) return;
+        sessionStorage.setItem(PRELOAD_RELOAD_KEY, "1");
+      } catch {
+        // Private browsing / blocked storage — fall through and reload anyway, once, per the
+        // in-memory guard in reload() above.
+      }
+      reload();
+    };
+    window.addEventListener("vite:preloadError", onPreloadError);
+    return () => window.removeEventListener("vite:preloadError", onPreloadError);
+  }, [reload]);
 
   return { updateAvailable, reload };
 }

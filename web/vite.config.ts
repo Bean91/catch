@@ -1,14 +1,30 @@
 /// <reference types="vitest/config" />
+import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 
-// Computed once per build, shared by the service worker's own VERSION (below) and the
-// `__BUILD_ID__` the client bundle embeds (Settings.tsx shows it) — one value, so "which build
-// is the phone actually running" never needs comparing two different numbers.
-const BUILD_ID = Date.now().toString(36)
+// Computed once per build, shared by the service worker's own VERSION (below), the
+// `__BUILD_ID__` the client bundle embeds (the update-check poll in useServiceWorkerUpdate.ts
+// compares against this), and version.json (what that poll actually fetches). `CATCH_BUILD_ID`
+// lets the Playwright update-flow test (tests/update/) force two distinct, deterministic IDs
+// across two builds instead of racing Date.now() across back-to-back builds.
+const BUILD_ID = process.env.CATCH_BUILD_ID ?? Date.now().toString(36)
+
+// A human-readable label for Settings — the build id alone doesn't tell the user which commit
+// shipped it. Best-effort: a fresh clone or a non-git deploy tree shouldn't fail the build.
+function gitCommit(): string {
+  try {
+    const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    const dirty = execSync('git status --porcelain', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0
+    return dirty ? `${sha}-dirty` : sha
+  } catch {
+    return 'unknown'
+  }
+}
+const COMMIT = gitCommit()
 
 // Hand-rolled service worker, not a Workbox/vite-plugin-pwa dependency — this app is small
 // and self-hosted, and a few dozen lines of fetch-handler logic isn't worth a new build
@@ -25,34 +41,38 @@ function serviceWorkerPlugin(): Plugin {
           precache.push(`/${file.fileName}`)
         }
       }
+      // Fetched by useServiceWorkerUpdate.ts's poll, cache-busted with `cache: 'no-store'` on
+      // the client side and Cache-Control: no-cache on the server (catch/main.py), the same way
+      // sw.js/index.html already are. Detecting a new build this way — a plain version compare
+      // on an interval/visibilitychange, independent of the service worker's own install/waiting
+      // lifecycle — sidesteps a real class of WebKit flakiness around *when* (or whether)
+      // `updatefound`/`controllerchange` actually fire on an installed iOS PWA; a session 9 bug
+      // report ("my iPhone PWA keeps running an old build") despite seemingly-correct lifecycle
+      // code pointed straight at not trusting that event timing as the only signal.
+      writeFileSync(`${outDir}/version.json`, JSON.stringify({ build: BUILD_ID, commit: COMMIT }))
+
       const sw = `// Generated at build time by vite.config.ts's serviceWorkerPlugin — do not edit the
 // hashed filenames below by hand, they're regenerated on every build.
 const VERSION = ${JSON.stringify(BUILD_ID)};
 const SHELL_CACHE = \`catch-shell-\${VERSION}\`;
-const API_CACHE = 'catch-api-v1';
+const API_CACHE = \`catch-api-\${VERSION}\`;
 const PRECACHE_URLS = ${JSON.stringify(precache)};
+// Exempt from every caching path below (section 2 of fetch's branches) — these two are the
+// client's actual freshness signals (online-ness, build version). Serving either from a
+// stale cache, even as an offline fallback, would make both silently lie.
+const NEVER_CACHE = ['/api/health', '/version.json'];
 
 self.addEventListener('install', (event) => {
-  // No unconditional self.skipWaiting() here (session 8's original version had one) — a
-  // waiting worker is exactly what main.tsx's update-detection flow needs to find via
-  // registration.waiting and prompt the user about ("New version available — tap to reload").
-  // Skipping straight to activation on install would mean there's never anything waiting to
-  // detect, and a page already open would get its fetch handler swapped out from under it
-  // mid-session with no warning.
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)));
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  // Reload-on-tap is now driven by version.json (above), not by "is a worker waiting" — so
+  // there's no more reason to hold a new worker back: skipWaiting immediately, same as
+  // clients.claim() on activate below.
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
-  // Purges the old API_CACHE too, not just old shell caches — a new build's JS may expect
-  // response shapes an old cached /api/* response doesn't have; losing one deploy's worth of
-  // offline freshness is a better trade than a newer app crashing on stale cached JSON.
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== SHELL_CACHE).map((k) => caches.delete(k))),
+      Promise.all(keys.filter((k) => k !== SHELL_CACHE && k !== API_CACHE).map((k) => caches.delete(k))),
     ).then(() => self.clients.claim()),
   );
 });
@@ -62,6 +82,11 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+
+  if (NEVER_CACHE.includes(url.pathname)) {
+    event.respondWith(fetch(req));
+    return;
+  }
 
   if (url.pathname.startsWith('/api/')) {
     // Network-first: today's real numbers beat yesterday's cache whenever we're online. The
@@ -82,22 +107,42 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match('/')));
+    // Also keeps the precached '/' fallback itself fresh on every successful online
+    // navigation — without this it stays frozen at whatever HTML existed the moment this SW
+    // was first installed, forever, even though every online load took the network-first path.
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put('/', copy)));
+          }
+          return res;
+        })
+        .catch(() => caches.match('/')),
+    );
     return;
   }
 
+  if (url.pathname.startsWith('/assets/')) {
+    // Cache-first only for hashed, content-addressed filenames — immutable per build, safe to
+    // serve from cache indefinitely without ever re-checking the network.
+    event.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
+    return;
+  }
+
+  // Everything else same-origin (manifest, icons, favicons) is NOT content-hashed, so unlike
+  // /assets/* it can change without a new filename — network-first, cache as a fallback only.
   event.respondWith(
-    caches.match(req).then(
-      (cached) =>
-        cached ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(req, copy)));
-          }
-          return res;
-        }),
-    ),
+    fetch(req)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(req, copy)));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req)),
   );
 });
 `
@@ -123,6 +168,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
   define: {
     __BUILD_ID__: JSON.stringify(BUILD_ID),
+    __COMMIT__: JSON.stringify(COMMIT),
   },
   build: {
     outDir: '../catch/api/static',

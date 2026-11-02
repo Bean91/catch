@@ -1459,3 +1459,125 @@ reaches the phone, deploy, and hand back a verification checklist.
   [Fill in after the phone checklist below is actually walked: real Safari-tab and
   installed-PWA touch results, and whether the build ID on the phone's Settings page matches
   this deploy's.]
+
+## Session 10 checklist
+
+The task: two real bugs reported from the live Pi deployment (session 9's touch fix had
+nothing to do with either). (1) Today shows "looks like you're offline" while fully online with
+fresh data. (2) the installed iPhone PWA keeps running an old build, despite session 9 having
+apparently already built correct-looking skipWaiting/clients.claim/update-toast logic.
+
+- [x] **Bug 1's real cause, and why it has nothing to do with connectivity**: Today.tsx compared
+      `/api/today`'s `date` field against `new Date().toISOString().slice(0, 10)` — the server's
+      own-timezone `date.today()` versus the browser's *UTC*-sliced date string. Those two
+      strings disagree for several hours a day whenever the client and the Pi aren't in the same
+      timezone, which is unrelated to whether the network is actually up — exactly the "online
+      with fresh data" report. **Fix**: deleted the date-string comparison outright.
+      `/api/today` now also returns `generated_at` (a real UTC timestamp,
+      `routes_analytics.py`), and Today shows real data age from that instead of inferring
+      staleness from a date mismatch.
+- [x] **A real online/offline signal** (`web/src/lib/useOnlineStatus.ts`): `navigator.onLine`
+      only reflects whether a network interface is up at all — true on a LAN with no route to
+      the Pi, true behind a captive portal — so it's used only as a trigger to re-probe
+      (`refetchOnReconnect`), never as the answer. The actual signal is a direct `/api/health`
+      probe (`cache: 'no-store'`, a 4s `AbortController` timeout), re-run on mount, on a 15s
+      interval, and on window focus/reconnect. Only a rejected/timed-out fetch counts as
+      offline; any response that actually arrives (even a 5xx) means the network path to the Pi
+      works. The service worker routes `/api/health` network-only with **no cache fallback at
+      all** (see Bug 2 below) specifically so this can never be answered by a stale cached `"ok"`
+      while genuinely offline — without that, the old network-first-with-cache-fallback routing
+      every other `/api/*` route used would have silently defeated this exact fix.
+- [x] **Confirmed, not just assumed, that a single source's sync failure was already a per-card
+      notice and not routed through the global banner**: `RecommendationAndSync.tsx`'s sync-status
+      list already renders a red dot + "failed" per source (e.g. Concept2), independently of
+      Today's banner, and `run_sync` (`catch/sync/scheduler.py`) already catches every sync
+      exception internally and always returns 200 — so a failed source can never throw out of
+      `triggerSync`'s sequential loop either. Nothing needed changing here; worth recording so a
+      future session doesn't "fix" something that was already correct.
+- [x] **`?mock=offline`** added to `MockScenario` (`mock.ts`) — real device data, just hours old,
+      so the banner's "real data age" text has something to demonstrate without a backend.
+- [x] **Bug 2's actual fix: dropped session 9's whole waiting-worker/SKIP_WAITING-message design**,
+      not patched it. That design's update *detection* depended on `registration.waiting`/
+      `updatefound`/`controllerchange` firing in a specific order and on a specific timeline —
+      session 9's own code looked correct and still left the user's phone stuck on an old build,
+      which is the whole reason not to keep trusting that timing as the only signal on real
+      WebKit. The service worker's **caching** behavior (which still matters) is now a separate
+      concern from update **detection** (which is now a plain poll):
+      - `install` calls `self.skipWaiting()` unconditionally; `activate` deletes every cache
+        except the current build's `SHELL_CACHE`/`API_CACHE` (both now versioned per build —
+        `API_CACHE` used to be a fixed `'catch-api-v1'` name) and calls `self.clients.claim()`.
+      - Fetch routing: `/api/health` and `/version.json` are **network-only**, no cache write, no
+        cache fallback — ever. `/api/*` (everything else) is network-first with a cache
+        fallback. Navigation requests are network-first, and now also keep the cached `'/'`
+        offline-fallback fresh on every successful online load (it used to be frozen at whatever
+        HTML existed the moment the SW was first installed, never refreshed again even though
+        every online navigation took the network-first path). `/assets/*` (hashed, immutable) is
+        cache-first. Everything else same-origin — manifest, icons, favicons, not content-hashed
+        — is now network-first with a cache fallback; it was wrongly bucketed in with the hashed
+        assets as cache-first before.
+      - **Update detection is now `web/src/lib/useServiceWorkerUpdate.ts` polling
+        `/version.json`** (written by `vite.config.ts`'s `serviceWorkerPlugin` alongside `sw.js`,
+        served with the same `Cache-Control: no-cache` as `sw.js`/`index.html` —
+        `catch/main.py`'s `_no_cache_headers_for`) on mount, a 60s interval, `visibilitychange`,
+        and the `online` event, comparing its `build` field against the client bundle's own
+        `__BUILD_ID__`. This is completely independent of whatever the service worker's
+        install/waiting state happens to be doing — a version mismatch shows the toast
+        regardless. `reload()` is now just `window.location.reload()`, not a
+        postMessage-and-wait-for-controllerchange dance; the new SW (already active and
+        controlling, having skip-waited on its own) serves the fresh reload correctly either
+        way.
+      - Settings shows `Build {__BUILD_ID__} · {__COMMIT__}` — `__COMMIT__` is a new
+        `vite.config.ts`-time `git rev-parse --short HEAD`, `-dirty`-suffixed when the tree has
+        uncommitted changes (which it did on this session's deploy too — see the note at the
+        bottom of this checklist — so seeing `-dirty` on the Pi is the honest label, not a bug).
+        `CATCH_BUILD_ID` env var can override the build id (used by the Playwright test below to
+        get two deterministic builds instead of racing `Date.now()` across two fast builds).
+      - A `vite:preloadError` listener triggers one guarded reload (a `sessionStorage` flag, not
+        the in-memory one `reload()` itself uses, since it has to survive the reload) — Vite's
+        lazily-imported route chunks are content-hashed, and `deploy.sh` rsyncs with `--delete`,
+        so an already-open tab referencing an old hash can 404 once a new build has shipped over
+        it.
+- [x] **A real, honestly-documented migration gap for this one upgrade only**: the phone's
+      *currently* running JS is session 9's message-based design, which expects a worker to sit
+      in `registration.waiting` and only reload once *it* sends `SKIP_WAITING`. This new
+      `sw.js`'s `install` skip-waits on its own instead, so by the time the old JS's toast shows
+      up and the user taps it, the `controllerchange` that old code is waiting for has usually
+      already fired on its own (the new worker activated and claimed clients without waiting for
+      anyone to ask) — the tap can do nothing. If that happens on this one deploy, a manual
+      force-quit/relaunch (or a plain pull-to-refresh) still picks up the new build correctly
+      regardless, since any fresh load is served by whichever SW is actually active. Every
+      update *after* this one won't have this gap, since both sides will be running the new
+      version-poll design.
+- [x] **Playwright update-flow test** (`web/tests/update/`, its own `playwright.update.config.ts`
+      — separate from the touch suite's, since the dev server never emits `sw.js`/`version.json`
+      at all, only `vite build`'s `writeBundle` does): `globalSetup.mjs` builds two real
+      production bundles with distinct `CATCH_BUILD_ID`s into gitignored scratch dirs; a small
+      in-process static server (`server.mjs` — deliberately not `catch.main`, which would start
+      APScheduler against the real `.env` and violate "no live network calls in the suite")
+      serves whichever one a test currently points it at, swappable without a restart so an
+      already-open tab can be "deployed over." Three tests, one worker (shared mutable server
+      state): a first-ever load shows no toast; swapping the served build and firing
+      `visibilitychange` shows the toast, and tapping it actually lands on the new build *and*
+      leaves only that build's cache names in `caches.keys()` (confirms versioned-cache deletion,
+      not just the toast); the offline-mock scenario shows the banner with real data age while
+      the healthy one shows nothing.
+- [x] `uv run pytest` — 224 passed (223 at the end of session 9, +1 for `generated_at`'s
+      freshness; the no-cache-headers test was renamed, not added, to cover `version.json` too).
+      `cd web && npx tsc -b && npm run build` — clean. `cd web && npm run test` (Vitest) — 17
+      passed, unchanged. `cd web && npx playwright test` (touch suite) — unchanged, 13 run / 7
+      correctly skipped, all passing — this session's changes don't touch any of that code.
+      `cd web && npm run test:update` — 3 passed.
+- [x] `CLAUDE.md` updated (new `useOnlineStatus.ts`/`useServiceWorkerUpdate.ts` descriptions,
+      `?mock=offline`, `web/tests/update/`, the new `npm run test:update` command). PLAN.md +
+      commit.
+- [ ] **Deploy to the real Pi** and walk the checklist below on the actual iPhone — fill in
+      "Real verification" once done.
+
+## Real verification (session 10)
+
+[Fill in after `./deploy.sh` and the phone checklist below are actually walked: whether the
+offline banner stays hidden while genuinely online, whether it appears with a sensible data age
+when the phone is actually offline, whether the update toast appears and a tap on it actually
+lands on the new build id/commit in Settings — including whether the one-time migration gap
+above (old JS's dead tap) actually happens, and if so whether a force-quit/relaunch resolves it
+as expected.]

@@ -121,6 +121,12 @@ def today(db: Session = Depends(get_db)):
 
     return {
         "date": today_date,
+        # Client-side offline/staleness detection used to diff this date against the browser's
+        # own local date string, which fires on a plain timezone mismatch regardless of
+        # connectivity (server and client calendar days don't line up for several hours a day
+        # whenever they're not in the same timezone). An actual timestamp lets the client show
+        # real data age without assuming anything about either side's timezone.
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "recovery": recovery,
         "sleep_last_night": (
             {
