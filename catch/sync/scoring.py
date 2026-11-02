@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from catch.analytics.load import training_load
 from catch.analytics.recovery import recovery_score
 from catch.analytics.strain import session_strain, strain_band
-from catch.core.models import Activity, DailyScore, DailyWellness, Note
+from catch.core.models import CanonicalActivity, DailyScore, DailyWellness
 from catch.core.settings_store import get_settings
 
 _lock = threading.Lock()
@@ -33,15 +33,23 @@ def _local_day_utc_range(day: date) -> tuple[datetime, datetime]:
     return start_utc, end_utc
 
 
-def _day_activities(session: Session, day: date) -> list[Activity]:
+def _overrides(canonical: CanonicalActivity) -> dict:
+    return json.loads(canonical.overrides_json) if canonical.overrides_json else {}
+
+
+def _day_activities(session: Session, day: date) -> list[CanonicalActivity]:
+    """Session 8/12 (see PLAN.md): every reader of "an activity" for totals/strain/load now
+    reads CanonicalActivity — the matching engine already guarantees one canonical per
+    physical session, so nothing here needs its own Garmin<->Concept2 dedup logic anymore.
+    A canonical with `exclude_from_totals` set (task Part C.1) is dropped entirely."""
     start, end = _local_day_utc_range(day)
-    rows = session.exec(select(Activity).where(Activity.start >= start, Activity.start < end)).all()
-    # A linked Garmin<->Concept2 pair is one physical session — keep only the Concept2 side
-    # (source of truth for erg metrics; already HR-enriched from Garmin where it had none).
-    return [a for a in rows if not (a.source == "garmin" and a.linked_activity_id is not None)]
+    rows = session.exec(select(CanonicalActivity).where(CanonicalActivity.start >= start, CanonicalActivity.start < end)).all()
+    return [a for a in rows if not _overrides(a).get("exclude_from_totals")]
 
 
 def _note_rpe(session: Session, day: date) -> int | None:
+    from catch.core.models import Note
+
     notes = session.exec(select(Note).where(Note.date == day).order_by(Note.id)).all()
     rpes = [n.rpe for n in notes if n.rpe is not None]
     return rpes[-1] if rpes else None
@@ -52,30 +60,55 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
     if not activities:
         return {"value": 0.0, "band": "light", "trimp_like": 0.0, "components": [], "explanation": "No sessions logged."}
 
-    rpe = _note_rpe(session, day)
+    day_rpe = _note_rpe(session, day)
     max_hr = settings.get("max_hr")
     wellness = session.get(DailyWellness, day)
     resting_hr = wellness.resting_hr if wellness else None
 
     scores = []
     for activity in activities:
+        # Per-activity RPE override (task Part C.1) beats the day's single Note.rpe — the
+        # session-2 gotcha this was meant to fix (two sessions on the same day used to share
+        # one RPE number).
+        rpe = _overrides(activity).get("rpe", day_rpe)
         duration_minutes = (activity.duration or 0) / 60.0
-        result = session_strain(
-            duration_minutes=duration_minutes,
-            avg_hr=activity.avg_hr,
-            resting_hr=resting_hr,
-            max_hr=max_hr,
-            rpe=rpe,
-            settings=settings,
-        )
-        scores.append({"activity_id": activity.id, **result})
+        if activity.strain_trimp is not None:
+            # Part E.3: per-sample Banister integration already computed in
+            # catch/sync/canonical.py's resolve_canonical — never fall back to the
+            # whole-session average when real samples exist.
+            trimp = activity.strain_trimp
+            strain = min(21.0, settings["strain_log_a"] * math.log1p(trimp)) if trimp > 0 else 0.0
+            result = {
+                "value": strain,
+                "band": strain_band(strain) if trimp > 0 else "light",
+                "components": [{"method": "trimp_samples", "trimp_like": trimp, "duration_minutes": duration_minutes}],
+                "explanation": f"Per-sample Banister TRIMP over {activity.title or 'this session'}'s real HR stream -> trimp_like={trimp:.1f}.",
+            }
+        else:
+            result = session_strain(
+                duration_minutes=duration_minutes,
+                avg_hr=activity.avg_hr,
+                resting_hr=resting_hr,
+                max_hr=max_hr,
+                rpe=rpe,
+                settings=settings,
+            )
+        scores.append({"canonical_id": activity.id, "title": activity.title, **result})
 
     total_trimp = sum(s["components"][0]["trimp_like"] for s in scores if s["value"] is not None)
+    # Rowing-specific trimp, summed separately so Today can show rowing load apart from
+    # cycling/other load (task Part B.3) without a second full strain computation.
+    rowing_trimp = sum(
+        s["components"][0]["trimp_like"]
+        for s, a in zip(scores, activities)
+        if s["value"] is not None and a.sport_family == "rowing"
+    )
     if total_trimp <= 0:
         return {
             "value": None,
             "band": "insufficient_data",
             "trimp_like": 0.0,
+            "rowing_trimp_like": 0.0,
             "components": scores,
             "explanation": "No session that day had enough data (HR or an RPE note) to score.",
         }
@@ -86,6 +119,7 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
         "value": combined,
         "band": strain_band(combined),
         "trimp_like": total_trimp,
+        "rowing_trimp_like": rowing_trimp,
         "components": scores,
         "explanation": f"{len(activities)} session(s) that day combined via log-saturation of total trimp_like={total_trimp:.1f}.",
     }
@@ -120,7 +154,7 @@ def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict
 def _earliest_date(session: Session) -> date | None:
     wellness_min = session.exec(select(DailyWellness.date).order_by(DailyWellness.date)).first()
     activity_min = session.exec(
-        select(Activity.start).where(Activity.start.is_not(None)).order_by(Activity.start)
+        select(CanonicalActivity.start).where(CanonicalActivity.start.is_not(None)).order_by(CanonicalActivity.start)
     ).first()
     # .date() alone takes the *UTC* calendar date, not the local one — for a few hours each
     # evening in a negative-UTC-offset timezone, the newest activity's UTC date is already
@@ -145,9 +179,9 @@ def recompute_scores(session: Session) -> int:
     if not _lock.acquire(blocking=False):
         return 0
     try:
-        from catch.sync.concept2_client import relink_unmatched
+        from catch.sync.matching import run_matching
 
-        relink_unmatched(session)
+        run_matching(session)
 
         settings = get_settings(session)
         earliest = _earliest_date(session)
@@ -156,6 +190,7 @@ def recompute_scores(session: Session) -> int:
 
         lookback_days = settings["load_chronic_days"] * 2
         trimp_series: list[float] = []
+        rowing_trimp_series: list[float] = []
         strain_cache: dict[date, float | None] = {}
         count = 0
         day = earliest
@@ -163,9 +198,14 @@ def recompute_scores(session: Session) -> int:
         while day <= today:
             strain = day_strain(session, day, settings)
             trimp_series.append(strain.get("trimp_like") or 0.0)
+            rowing_trimp_series.append(strain.get("rowing_trimp_like") or 0.0)
             strain_cache[day] = strain.get("value")
 
             load = training_load(trimp_series[-lookback_days:], settings)
+            # Rowing-only load (task Part B.3) — same EWMA math over a rowing-only trimp
+            # series, so cycling/other volume never inflates the number the athlete actually
+            # trains rowing against.
+            rowing_load = training_load(rowing_trimp_series[-lookback_days:], settings)
             recovery = day_recovery(session, day, settings, strain_cache)
 
             row = session.get(DailyScore, day)
@@ -175,6 +215,7 @@ def recompute_scores(session: Session) -> int:
             row.recovery_json = json.dumps(recovery)
             row.strain_json = json.dumps(strain)
             row.load_json = json.dumps(load)
+            row.rowing_load_json = json.dumps(rowing_load)
             row.updated_at = datetime.now(timezone.utc)
             count += 1
             day += timedelta(days=1)

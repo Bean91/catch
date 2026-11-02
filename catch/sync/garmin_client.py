@@ -15,6 +15,9 @@ from sqlmodel import Session
 from catch.core import security
 from catch.core.config import settings
 from catch.core.models import OAuthToken
+from catch.sync.canonical import resolve_canonical
+from catch.sync.fit_parse import parse_fit
+from catch.sync.samples import store_samples_from_fit
 from catch.sync.upsert import upsert_activity, upsert_daily_wellness
 
 logger = logging.getLogger("catch.garmin")
@@ -163,8 +166,31 @@ class GarminClient:
                     row.fit_path = str(fit_path)
                     self.db.add(row)
                     self.db.commit()
+            if row.fit_path:
+                self._ingest_fit_samples(row)
+            resolve_canonical(self.db, row.canonical_id)
             count += 1
         return count
+
+    def _ingest_fit_samples(self, row) -> None:
+        """Parses the FIT file once per activity (origin/HR-source detection, Part A/E's
+        per-sample zones/strain) — skipped on every later re-sync once samples already
+        exist, since a FIT file never changes after the activity is recorded."""
+        from catch.core.models import ActivitySamples
+
+        if self.db.get(ActivitySamples, row.id) is not None:
+            return
+        fit_samples = parse_fit(row.fit_path)
+        if fit_samples is None:
+            return
+        row.origin = "peloton" if fit_samples.is_peloton_like else "watch"
+        row.hr_source_type = fit_samples.hr_source_type
+        if row.avg_cadence is None and any(v is not None for v in fit_samples.cadence):
+            defined = [v for v in fit_samples.cadence if v is not None]
+            row.avg_cadence = sum(defined) / len(defined)
+        self.db.add(row)
+        self.db.commit()
+        store_samples_from_fit(self.db, row.id, fit_samples)
 
     # -- health -------------------------------------------------------------
 

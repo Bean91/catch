@@ -116,6 +116,7 @@ dependencies = [
     { name = "argon2-cffi" },
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "fitdecode" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "sqlmodel" },
@@ -134,6 +135,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=23" },
     { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "fitdecode", specifier = ">=0.11" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.2" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
@@ -267,6 +269,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e9/eb/2cf8c80abf09b2800aef0a83b41066fbfda8ee5495b7a08b9d1af40f7046/fastapi-0.162.0.tar.gz", hash = "sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f", size = 527867, upload-time = "2026-10-23T18:47:33.264Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/4f/3f2c25c9b43970b5e9a08beb5e04776247edea684ddc0930f4f02f0bb6cb/fastapi-0.162.0-py3-none-any.whl", hash = "sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c", size = 148912, upload-time = "2026-10-23T18:47:31.734Z" },
+]
+
+[[package]]
+name = "fitdecode"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/19/1bde056f443d8ce890dbc0f0bd8a216cc9ebfda4221619767f80cf1835e2/fitdecode-0.11.0.tar.gz", hash = "sha256:52d920e50eaa76eb065b20bfd4e42f72195e894a079098dacc1cafa908cd4b83", size = 107149, upload-time = "2025-08-06T08:08:42.105Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/7b/75829f9b77b2546f955ec265de10de993939bf3218b5d957ca79803a2d28/fitdecode-0.11.0-py3-none-any.whl", hash = "sha256:a1bdb9b4d1e9ebac0001fc58c22fe07a3f9967ca4e13258c6ef99cdb8d697a78", size = 109961, upload-time = "2025-08-06T08:08:39.033Z" },
 ]
 
 [[package]]

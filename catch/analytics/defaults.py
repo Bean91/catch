@@ -55,4 +55,32 @@ DEFAULT_SETTINGS: dict = {
     # `token_expires_at` is the real, API-derived value (the 24h re-exchanged JWT), which is a
     # different thing and labelled separately in the UI.
     "garmin_key_expires_on": None,
+    # -- Session 8/12 (see PLAN.md): cross-source matching, Peloton, editing, body comp,
+    # samples-based zones/strain. Provenance labels are "garmin" (watch), "peloton" (a
+    # Garmin-sourced activity whose FIT file's own creator isn't Garmin — see
+    # docs/peloton.md), or "concept2". Task Part A.3's defaults.
+    "field_priority": {
+        "power": ["peloton", "concept2", "garmin"],
+        "cadence": ["peloton", "concept2", "garmin"],
+        "title": ["peloton", "concept2", "garmin"],
+        "distance_indoor_bike": ["peloton", "garmin"],
+    },
+    # Cycling TSS-style load (docs/peloton.md) needs a threshold power; estimated from the
+    # best 20-minute power x 0.95 when unset, flagged as an estimate in the UI.
+    "ftp_watts": None,
+    # Part D.2 — default Withings first, Garmin second; "manual" (a user-entered weight,
+    # Part D.3) is always the last resort regardless of this order.
+    "body_comp_priority": {
+        "weight": ["withings", "garmin"],
+        "fat_pct": ["withings", "garmin"],
+        "muscle_kg": ["withings", "garmin"],
+    },
+    # Part E.4 — a zone needs at least this many minutes *or* this fraction of moving time
+    # (whichever floor is lower) to lead the session label.
+    "min_zone_minutes": 3.0,
+    "min_zone_pct": 0.10,
+    # Part E.6 — detect a trailing stretch of near-zero movement (cadence/stroke-rate) as
+    # "likely watch left running" and exclude it from UI averages; never from stored samples.
+    "auto_trim_enabled": True,
+    "auto_trim_min_idle_s": 120,
 }

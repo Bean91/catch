@@ -16,7 +16,7 @@ from sqlmodel import select
 
 from catch.analytics.erg_math import watts_from_pace
 from catch.core.config import settings as real_settings
-from catch.core.models import Activity, Stroke
+from catch.core.models import Activity, CanonicalActivity, Stroke
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync import concept2_client
 from conftest import load_fixture
@@ -129,12 +129,14 @@ def test_result_without_heart_rate_links_to_garmin_and_inherits_hr(monkeypatch, 
     concept2_client.sync(session, http=_http())
 
     a103 = session.exec(select(Activity).where(Activity.external_id == "103")).first()
-    assert a103.avg_hr == 158
-    assert a103.max_hr == 172
-    assert a103.linked_activity_id == garmin_row.id
-
     session.refresh(garmin_row)
-    assert garmin_row.linked_activity_id == a103.id
+    # The matching engine (catch/sync/matching.py), not a per-sync link attempt, merges the
+    # two into one canonical; the canonical's resolved HR falls back to the Garmin watch
+    # since this Concept2 result reported none of its own (task Part A.3).
+    assert a103.canonical_id == garmin_row.canonical_id
+    canonical = session.get(CanonicalActivity, a103.canonical_id)
+    assert canonical.avg_hr == 158
+    assert canonical.max_hr == 172
 
     stroke = session.exec(select(Stroke).where(Stroke.activity_id == a103.id)).first()
     assert stroke.hr is None  # Concept2's hr=0 (absent) must not become a fake zero HR

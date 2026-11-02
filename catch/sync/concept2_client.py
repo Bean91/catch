@@ -7,13 +7,12 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from catch.analytics.classify import GARMIN_ERG_TYPES
 from catch.analytics.erg_math import watts_from_pace
 from catch.core.config import settings
-from catch.core.models import Activity
 from catch.core.settings_store import get_settings, update_settings
+from catch.sync.samples import store_samples_from_strokes
 from catch.sync.upsert import upsert_activity, upsert_strokes
 
 logger = logging.getLogger("catch.concept2")
@@ -21,8 +20,6 @@ logger = logging.getLogger("catch.concept2")
 BASE_URL = "https://log.concept2.com"
 ACCEPT_HEADER = "application/vnd.c2logbook.v1+json"
 SOURCE = "concept2"
-
-LINK_WINDOW = timedelta(minutes=2)
 
 # The pace->watts formula (see catch/analytics/erg_math.py) is Concept2's RowErg/SkiErg
 # formula; BikeErg power doesn't follow it, so per-stroke watts are only derived for these.
@@ -157,6 +154,10 @@ def _activity_fields(item: dict) -> dict:
         "stroke_rate": item.get("stroke_rate"),
         "intervals_json": json.dumps(workout) if workout else None,
         "raw_json": json.dumps(raw),
+        # A PM5 only ever logs HR from a paired ANT+ strap — there's no wrist sensor on the
+        # monitor itself — so any result with HR at all is chest-strap HR by construction
+        # (see catch/core/models.py's Activity.hr_source_type docstring).
+        "hr_source_type": "chest_strap" if heart_rate.get("average") else None,
     }
 
 
@@ -197,49 +198,6 @@ def _extract_strokes(item: dict) -> list[dict]:
     return out
 
 
-def link_garmin_activity(session: Session, c2_activity: Activity) -> bool:
-    if c2_activity.start is None or c2_activity.id is None:
-        return False
-    candidates = session.exec(
-        select(Activity).where(
-            Activity.source == "garmin",
-            Activity.linked_activity_id.is_(None),
-            Activity.start >= c2_activity.start - LINK_WINDOW,
-            Activity.start <= c2_activity.start + LINK_WINDOW,
-        )
-    ).all()
-    match = next((a for a in candidates if (a.type or "") in GARMIN_ERG_TYPES), None)
-    if match is None:
-        return False
-    c2_activity.linked_activity_id = match.id
-    match.linked_activity_id = c2_activity.id
-    # Concept2 is the source of truth for erg metrics; fall back to Garmin's HR only when
-    # Concept2 didn't report any (e.g. no chest strap paired to the PM).
-    if c2_activity.avg_hr is None and match.avg_hr is not None:
-        c2_activity.avg_hr = match.avg_hr
-    if c2_activity.max_hr is None and match.max_hr is not None:
-        c2_activity.max_hr = match.max_hr
-    session.add(c2_activity)
-    session.add(match)
-    session.commit()
-    return True
-
-
-def relink_unmatched(session: Session) -> int:
-    """Linking is attempted at insert time, but Garmin and Concept2 sync in whatever order
-    the scheduler (with jitter) happens to run them — if the Garmin side of a pair hasn't
-    synced yet, the Concept2 row stays unlinked forever (its updated_after cursor has already
-    moved past it). Called from recompute_scores (runs after every sync) to catch up."""
-    unlinked = session.exec(
-        select(Activity).where(
-            Activity.source == SOURCE,
-            Activity.linked_activity_id.is_(None),
-            Activity.start.is_not(None),
-        )
-    ).all()
-    return sum(1 for activity in unlinked if link_garmin_activity(session, activity))
-
-
 def _seed_max_hr(session: Session, http: httpx.Client) -> None:
     if get_settings(session).get("max_hr"):
         return
@@ -265,7 +223,6 @@ def sync(
     from_date = date_.today() - timedelta(days=days) if (days and not updated_after) else None
     results = 0
     strokes_total = 0
-    linked = 0
     for item in list_results(http, updated_after=updated_after, from_date=from_date):
         detail = item
         if not (item.get("stroke_data") or item.get("strokes")):
@@ -276,7 +233,14 @@ def sync(
         strokes = _extract_strokes(detail)
         if strokes:
             strokes_total += upsert_strokes(session, activity.id, strokes)
-        if link_garmin_activity(session, activity):
-            linked += 1
+            store_samples_from_strokes(session, activity.id, strokes)
+        from catch.sync.canonical import resolve_canonical
+
+        resolve_canonical(session, activity.canonical_id)
         results += 1
-    return {"results": results, "strokes": strokes_total, "linked": linked}
+    # Cross-source matching (task Part A) — not per-activity linking anymore; one pass over
+    # all unmatched activities, idempotent, logs every auto-merge (catch/sync/matching.py).
+    from catch.sync.matching import run_matching
+
+    match_result = run_matching(session)
+    return {"results": results, "strokes": strokes_total, **match_result}

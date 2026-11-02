@@ -17,6 +17,9 @@ dependencies = [
     # anthropic_provider.py, catch/mcp_server/) so a Pi that never opens the Coach pays nothing.
     "anthropic>=2.0",
     "mcp>=1.2",
+    # Session 8/12 (see PLAN.md): per-sample FIT parsing for real time-in-zone/strain.
+    # py3-none-any wheel on PyPI (checked before adding) — pure Python, no ARM concerns.
+    "fitdecode>=0.11",
 ]
 
 [dependency-groups]

@@ -5,7 +5,8 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from catch.core.models import Activity, BodyComp, DailyWellness, Note, Stroke
+from catch.analytics.matching import sport_family as _sport_family
+from catch.core.models import Activity, BodyComp, CanonicalActivity, DailyWellness, Note, Stroke
 
 
 def upsert_daily_wellness(session: Session, day: date_, **fields: Any) -> DailyWellness:
@@ -28,6 +29,7 @@ def upsert_activity(session: Session, source: str, external_id: str, **fields: A
     row = session.exec(
         select(Activity).where(Activity.source == source, Activity.external_id == external_id)
     ).first()
+    is_new = row is None
     if row is None:
         row = Activity(source=source, external_id=external_id)
         session.add(row)
@@ -35,8 +37,24 @@ def upsert_activity(session: Session, source: str, external_id: str, **fields: A
         if value is not None:
             setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc)
+    if row.sport_family is None:
+        row.sport_family = _sport_family(row.source, row.type)
+    session.add(row)
     session.commit()
     session.refresh(row)
+
+    if is_new and row.canonical_id is None:
+        # Every source record gets its own standalone canonical immediately (session 8/12 —
+        # see PLAN.md) so every downstream reader can join on canonical_id unconditionally;
+        # catch/sync/matching.py merges canonicals together when two records turn out to be
+        # the same physical session.
+        canonical = CanonicalActivity(sport_family=row.sport_family)
+        session.add(canonical)
+        session.flush()
+        row.canonical_id = canonical.id
+        session.add(row)
+        session.commit()
+        session.refresh(row)
     return row
 
 
