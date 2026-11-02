@@ -221,3 +221,40 @@ def test_peloton_and_watch_cycling_merge_despite_mismatched_garmin_types(session
     session.refresh(watch)
     session.refresh(peloton)
     assert watch.canonical_id == peloton.canonical_id
+
+
+def test_a_single_fit_download_failure_does_not_abort_the_rest_of_the_sync(session, tmp_path):
+    """Real bug found live (2026-11-02): a 429 from Garmin's download-service on one activity
+    used to raise out of sync_activities entirely, discarding every later activity in that
+    call (and, in a multi-window backfill, every later window too)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/activitylist-service/activities/search/activities":
+            start = int(request.url.params.get("start", "0"))
+            page = load_fixture("garmin", "activities_list.json") if start == 0 else []
+            return httpx.Response(200, json=page)
+        if path == "/download-service/files/activity/24918902966":
+            return httpx.Response(429, text="Too Many Requests")
+        if path.startswith("/download-service/files/activity/"):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as zf:
+                zf.writestr("activity.fit", b"\x0efake-fit-bytes")
+            return httpx.Response(200, content=buf.getvalue(), headers={"content-type": "application/x-zip-compressed"})
+        raise AssertionError(f"unexpected path {path}")
+
+    http = httpx.Client(base_url="https://personal.connectapi.garmin.com", transport=httpx.MockTransport(handler))
+    client = GarminClient(session, http=http)
+    from catch.core import security
+
+    session.add(
+        OAuthToken(source="garmin", access_token_enc=security.encrypt(_fake_jwt()), expires_at=datetime.now(timezone.utc) + timedelta(hours=12))
+    )
+    session.commit()
+
+    count = client.sync_activities(date(2026, 10, 1), date(2026, 10, 31), tmp_path)
+    assert count == 2  # both activities upserted despite the first's FIT download failing
+
+    rows = {r.external_id: r for r in session.exec(select(Activity)).all()}
+    assert rows["24918902966"].fit_path is None  # left unset so a later sync retries it
+    assert rows["24910202387"].fit_path is not None

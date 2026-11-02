@@ -162,7 +162,16 @@ class GarminClient:
                 raw_json=json.dumps(item),
             )
             if not row.fit_path:
-                fit_path = self.download_fit(activity_id, fit_dir)
+                try:
+                    fit_path = self.download_fit(activity_id, fit_dir)
+                except (httpx.HTTPStatusError, httpx.TransportError):
+                    # A single activity's FIT download failing (rate limit, transient network
+                    # error) must not abort every later window in a multi-month backfill —
+                    # confirmed a real risk live (a 429 on one activity used to kill the whole
+                    # backfill.run, discarding months of otherwise-successful history). Leaving
+                    # fit_path unset means the next sync/backfill retries exactly this activity.
+                    logger.warning("FIT download failed for activity %s, will retry on next sync", activity_id, exc_info=True)
+                    fit_path = None
                 if fit_path:
                     row.fit_path = str(fit_path)
                     self.db.add(row)
