@@ -1,4 +1,7 @@
 import type {
+  ActivityOverrides,
+  ActivitySamplesResponse,
+  ActivitySourceSummary,
   BodyCompReading,
   CoachConversation,
   CoachConversationDetail,
@@ -7,6 +10,7 @@ import type {
   CoachModel,
   CoachSettings,
   DeviceToken,
+  DuplicatePair,
   ErgStrokesResponse,
   ErgTechnique,
   IntervalSummary,
@@ -94,6 +98,12 @@ const FULL: Today = {
     components: [{ acute_7d: 71.2, chronic_42d: 66.0, form: -5.2 }],
     explanation: "Acute (7d EWMA)=71.2, chronic (42d EWMA)=66.0, acute:chronic=1.08.",
   },
+  rowing_load: {
+    value: 1.02,
+    band: "optimal",
+    components: [{ acute_7d: 58.0, chronic_42d: 56.9, form: -1.1 }],
+    explanation: "Acute (7d EWMA)=58.0, chronic (42d EWMA)=56.9, acute:chronic=1.02.",
+  },
   hrv: {
     today: 64,
     sparkline_14d: sparkline([58, 60, 61, 59, 63, 62, 60, 64, 61, 63, 62, 65, 61, 64], shiftDate(TODAY, -13)),
@@ -106,6 +116,7 @@ const FULL: Today = {
   },
   latest_erg: {
     id: 1,
+    canonical_id: 1,
     source: "concept2",
     external_id: "mock-1",
     type: "rower",
@@ -161,6 +172,7 @@ const EMPTY: Today = {
   strain_today: null,
   strain_target_range: [0, 21],
   load: null,
+  rowing_load: null,
   hrv: { today: null, sparkline_14d: [], baseline_band: null },
   resting_hr: { today: null, sparkline_14d: [], baseline_band: null },
   latest_erg: null,
@@ -202,24 +214,56 @@ export function mockSyncStatus(): SyncSourceStatus[] {
 const MOCK_PAGE_SIZE = 20;
 const MOCK_WORKOUT_COUNT = 56;
 
+// Raw source-record ids are deliberately offset far from canonical ids (1..MOCK_WORKOUT_COUNT)
+// — a real id-confusion bug (e.g. a merge/split action resolving the wrong record) would be
+// invisible in mock data if canonical and raw ids always happened to match, the exact gap an
+// advisor review flagged in the real backend's test suite before this session's canonical-id
+// rewrite. 1000+ never collides with a canonical id at this mock dataset's size.
+let nextRawActivityId = 1000;
+
+function mockSource(
+  source: string,
+  type: string,
+  provenance: string,
+  origin: string | null,
+  overrides: Partial<ActivitySourceSummary> = {},
+): ActivitySourceSummary {
+  return {
+    activity_id: nextRawActivityId++,
+    source,
+    external_id: `mock-${source}-${nextRawActivityId}`,
+    provenance,
+    type,
+    origin,
+    hr_source_type: null,
+    has_fit: source === "garmin",
+    has_strokes: source === "concept2",
+    ...overrides,
+  };
+}
+
 function mockWorkout(i: number): WorkoutListItem {
   const bucket = i % 5;
   const daysAgo = Math.round(i * 1.6);
   const start = shiftDate(TODAY, -daysAgo) + "T07:30:00.000Z";
 
   let category: WorkoutListItem["category"];
+  let sportFamily: WorkoutListItem["sport_family"];
   let source: string;
   let type: string;
   if (bucket === 0) {
     category = "on_water";
+    sportFamily = "rowing";
     source = "garmin";
     type = "rowing_v2";
   } else if (bucket === 3) {
     category = "other";
+    sportFamily = "strength";
     source = "garmin";
     type = "strength_training";
   } else {
     category = "erg";
+    sportFamily = "rowing";
     source = i % 2 === 0 ? "concept2" : "garmin";
     type = source === "concept2" ? "rower" : "indoor_rowing";
   }
@@ -229,29 +273,58 @@ function mockWorkout(i: number): WorkoutListItem {
   const duration = category === "other" ? 2700 + (i % 3) * 300 : distance ? (distance / 500) * paceS500 : null;
   const avgHr = category === "other" ? 128 + (i % 4) * 3 : 150 + (i % 6) * 3;
   const strainValue = 4 + (i % 8) * 1.6;
+  const sourceRow = mockSource(source, type, source === "concept2" ? "concept2" : "garmin", source === "garmin" ? "watch" : null);
+  const canonicalId = i + 1;
+  const title = category === "other" ? "Strength" : category === "on_water" ? "Row" : source === "concept2" ? "Erg 60'" : "Steady state 60'";
 
   return {
-    id: i + 1,
-    source,
-    external_id: `mock-${i}`,
-    type,
+    id: canonicalId,
+    sport_family: sportFamily,
     start,
     duration,
     distance,
     avg_hr: avgHr,
     max_hr: avgHr + 18,
     avg_power: category === "erg" ? 180 + (i % 5) * 15 : null,
+    avg_cadence: category !== "other" ? 22 + (i % 5) : null,
     calories: duration ? Math.round(duration * 0.17) : null,
-    workout_type: category === "erg" ? "JustRow" : null,
-    drag_factor: category === "erg" && source === "concept2" ? 118 + (i % 6) : null,
-    stroke_rate: category !== "other" ? 22 + (i % 5) : null,
-    linked_activity_id: null,
+    title,
+    strain_method: "trimp_samples",
+    session_label: category === "other" ? null : i % 7 === 0 ? "AN (9 min) + UT2" : "UT2 (52 min)",
+    auto_trimmed_tail_s: i % 11 === 0 ? 95 : null,
     category,
-    strain: i < 2 ? null : { activity_id: i + 1, value: strainValue, band: strainValue < 10 ? "light" : strainValue < 14 ? "moderate" : "high" },
+    field_sources: { start: `${sourceRow.source}:${sourceRow.external_id}`, avg_hr: `${sourceRow.source}:${sourceRow.external_id}` },
+    zones:
+      category === "other"
+        ? null
+        : { hr: { UT2: 3120, UT1: 540, AT: 0, TR: 0, AN: i % 7 === 0 ? 540 : 0 }, power: null },
+    notes: null,
+    rpe: null,
+    exclude_from_totals: false,
+    tags: [],
+    overrides: {},
+    sources: [sourceRow],
+    editable_fields: ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"],
+    edits_push_back_to_source: false,
+    strain: i < 2 ? null : { canonical_id: canonicalId, title, value: strainValue, band: strainValue < 10 ? "light" : strainValue < 14 ? "moderate" : "high" },
   };
 }
 
 const MOCK_WORKOUTS: WorkoutListItem[] = Array.from({ length: MOCK_WORKOUT_COUNT }, (_, i) => mockWorkout(i));
+
+// A Peloton-pushed Garmin ride that hasn't been merged with its watch counterpart yet, plus
+// the watch's own recording — the Duplicates review screen's worked example (task Part A.5).
+const PELOTON_PUSH = mockSource("garmin", "indoor_cycling", "peloton", "peloton", { has_fit: true });
+const PELOTON_WATCH = mockSource("garmin", "indoor_cycling", "garmin", "watch", { has_fit: true });
+const MOCK_DUPLICATE_PAIRS: DuplicatePair[] = [
+  {
+    a: { activity_id: PELOTON_PUSH.activity_id, source: PELOTON_PUSH.source, external_id: PELOTON_PUSH.external_id, start: shiftDate(TODAY, -2) + "T17:00:10.000Z", duration: 2700 },
+    b: { activity_id: PELOTON_WATCH.activity_id, source: PELOTON_WATCH.source, external_id: PELOTON_WATCH.external_id, start: shiftDate(TODAY, -2) + "T17:00:00.000Z", duration: 2700 },
+    score: 0.94,
+    hard_block: false,
+    reasons: ["same sport family, within time/duration window"],
+  },
+];
 
 export function mockWorkoutsPage(category: WorkoutCategory | undefined, cursor: string | null): WorkoutsPage {
   const all = category ? MOCK_WORKOUTS.filter((w) => w.category === category) : MOCK_WORKOUTS;
@@ -274,14 +347,149 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
   const localDate = (base.start ?? TODAY).slice(0, 10);
   return {
     ...base,
-    intervals: base.category === "erg" ? { type: "JustRow" } : null,
     local_date: localDate,
-    zones: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them." },
+    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them." },
     hr_zone: base.avg_hr ? "UT1" : null,
-    note:
+    day_note:
       id % 3 === 0
         ? { id: 1, date: localDate, text: "Felt strong on the back half.", rpe: 6, created_at: new Date().toISOString() }
         : null,
+    has_samples: base.category !== "other",
+  };
+}
+
+// --- Activity editing (task Part C) -----------------------------------------
+
+export function patchMockActivity(id: number, patch: ActivityOverrides): WorkoutDetail {
+  const workout = MOCK_WORKOUTS.find((w) => w.id === id);
+  if (!workout) throw new Error("not found");
+  workout.overrides = { ...workout.overrides, ...patch };
+  if (patch.title !== undefined) workout.title = patch.title;
+  if (patch.sport_family !== undefined) workout.sport_family = patch.sport_family;
+  if (patch.notes !== undefined) workout.notes = patch.notes;
+  if (patch.rpe !== undefined) workout.rpe = patch.rpe;
+  if (patch.exclude_from_totals !== undefined) workout.exclude_from_totals = patch.exclude_from_totals;
+  if (patch.tags !== undefined) workout.tags = patch.tags;
+  return mockWorkoutDetail(id);
+}
+
+export function revertMockActivityField(id: number, field: keyof ActivityOverrides): WorkoutDetail {
+  const workout = MOCK_WORKOUTS.find((w) => w.id === id);
+  if (!workout) throw new Error("not found");
+  const { [field]: _removed, ...rest } = workout.overrides;
+  workout.overrides = rest;
+  if (field === "title") workout.title = "Steady state 60'";
+  if (field === "notes") workout.notes = null;
+  if (field === "rpe") workout.rpe = null;
+  if (field === "exclude_from_totals") workout.exclude_from_totals = false;
+  if (field === "tags") workout.tags = [];
+  return mockWorkoutDetail(id);
+}
+
+// --- Duplicates review (task Part A.5) --------------------------------------
+
+export function mockDuplicates(): DuplicatePair[] {
+  return MOCK_DUPLICATE_PAIRS;
+}
+
+function findSourceOwner(activityId: number): WorkoutListItem | undefined {
+  return MOCK_WORKOUTS.find((w) => w.sources.some((s) => s.activity_id === activityId));
+}
+
+export function mergeMockActivities(activityIdA: number, activityIdB: number): WorkoutDetail {
+  // A flagged-pair merge never corresponds to a real pre-existing MOCK_WORKOUTS entry (the
+  // whole point of the Peloton-push demo pair is that it isn't attached to one yet) — always
+  // drop the pair from the flagged list first, regardless of which merge path below applies.
+  const pairIdx = MOCK_DUPLICATE_PAIRS.findIndex(
+    (p) =>
+      (p.a.activity_id === activityIdA && p.b.activity_id === activityIdB) ||
+      (p.a.activity_id === activityIdB && p.b.activity_id === activityIdA),
+  );
+  if (pairIdx >= 0) MOCK_DUPLICATE_PAIRS.splice(pairIdx, 1);
+
+  const ownerA = findSourceOwner(activityIdA);
+  const sourceB = [PELOTON_PUSH, PELOTON_WATCH].find((s) => s.activity_id === activityIdB);
+  if (ownerA && sourceB) {
+    ownerA.sources = [...ownerA.sources, sourceB];
+    return mockWorkoutDetail(ownerA.id);
+  }
+  if (!ownerA && (activityIdA === PELOTON_PUSH.activity_id || activityIdA === PELOTON_WATCH.activity_id)) {
+    // Neither side was already attached to a real workout — synthesize a new merged one so
+    // the demo pair has somewhere to land (a real backend always has at least one side
+    // belonging to a real, already-synced canonical; this mock pair deliberately doesn't).
+    const newId = Math.max(...MOCK_WORKOUTS.map((w) => w.id)) + 1;
+    const merged: WorkoutListItem = { ...mockWorkout(0), id: newId, sources: [PELOTON_PUSH, PELOTON_WATCH], strain: null };
+    MOCK_WORKOUTS.push(merged);
+    return mockWorkoutDetail(newId);
+  }
+
+  // Generic fallback: merge two canonicals in MOCK_WORKOUTS by their first source id.
+  const a = MOCK_WORKOUTS.find((w) => w.sources[0]?.activity_id === activityIdA) ?? MOCK_WORKOUTS[0];
+  const b = MOCK_WORKOUTS.find((w) => w.sources[0]?.activity_id === activityIdB);
+  if (b && b.id !== a.id) {
+    a.sources = [...a.sources, ...b.sources];
+    const idx = MOCK_WORKOUTS.findIndex((w) => w.id === b.id);
+    if (idx >= 0) MOCK_WORKOUTS.splice(idx, 1);
+  }
+  return mockWorkoutDetail(a.id);
+}
+
+export function splitMockActivity(activityId: number): WorkoutDetail {
+  const owner = findSourceOwner(activityId);
+  if (!owner || owner.sources.length < 2) return mockWorkoutDetail(owner?.id ?? MOCK_WORKOUTS[0].id);
+  const leaving = owner.sources.find((s) => s.activity_id === activityId)!;
+  owner.sources = owner.sources.filter((s) => s.activity_id !== activityId);
+  const newCanonicalId = Math.max(...MOCK_WORKOUTS.map((w) => w.id)) + 1;
+  const split: WorkoutListItem = {
+    ...owner,
+    id: newCanonicalId,
+    sources: [leaving],
+    strain: null,
+    title: leaving.provenance === "peloton" ? "Peloton ride" : "Row",
+  };
+  MOCK_WORKOUTS.push(split);
+  return mockWorkoutDetail(newCanonicalId);
+}
+
+export function markMockNotDuplicate(activityIdA: number, activityIdB: number): void {
+  const idx = MOCK_DUPLICATE_PAIRS.findIndex(
+    (p) => (p.a.activity_id === activityIdA && p.b.activity_id === activityIdB) || (p.a.activity_id === activityIdB && p.b.activity_id === activityIdA),
+  );
+  if (idx >= 0) MOCK_DUPLICATE_PAIRS.splice(idx, 1);
+}
+
+// --- Per-activity HR/power/cadence samples (task Part E.8) ------------------
+
+export function mockActivitySamples(id: number): ActivitySamplesResponse {
+  const workout = MOCK_WORKOUTS.find((w) => w.id === id);
+  if (!workout || workout.category === "other") {
+    return { has_data: false, reason: workout ? "no heart-rate data" : "no per-sample data for this activity" };
+  }
+  const n = Math.round(workout.duration ?? 3600);
+  const baseHr = workout.avg_hr ?? 140;
+  const points = Array.from({ length: Math.min(n, 3600) }, (_, t) => {
+    const trimmed = workout.auto_trimmed_tail_s && t > n - workout.auto_trimmed_tail_s;
+    const hr = trimmed ? 72 + Math.sin(t / 20) * 2 : baseHr + Math.sin(t / 45) * 10 + (t % 900 < 120 ? 20 : 0);
+    return { elapsed_s: t, hr: Math.round(hr), power: workout.avg_power ? Math.round(workout.avg_power + Math.sin(t / 30) * 15) : null, cadence: workout.avg_cadence ? Math.round(workout.avg_cadence + Math.sin(t / 15) * 3) : null };
+  });
+  return {
+    has_data: true,
+    canonical_id: id,
+    n_samples: n,
+    usable_n_samples: n - (workout.auto_trimmed_tail_s ?? 0),
+    trimmed_tail_s: workout.auto_trimmed_tail_s ?? 0,
+    max_hr_setting: MOCK_SETTINGS.max_hr,
+    avg_hr: baseHr,
+    max_hr_observed: baseHr + 22,
+    min_hr_observed: baseHr - 18,
+    zones: workout.zones,
+    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them." },
+    session_label: workout.session_label,
+    laps: [{ offset_s: 0, duration_s: n }],
+    hr_recovery: { session_end: 22, per_lap: [{ offset_s: 0, recovery_bpm: 22 }] },
+    points,
+    returned_count: points.length,
+    raw_count: points.length,
   };
 }
 
@@ -467,25 +675,52 @@ export function mockSeries(metrics: TrendMetric[], from: string, to: string, poi
   return { series };
 }
 
-export function mockBody(): BodyCompReading[] {
+const MOCK_BODY: BodyCompReading[] = (() => {
   const days = 60;
   const out: BodyCompReading[] = [];
   for (let i = days; i >= 0; i -= 3) {
     const d = shiftDate(TODAY, -i);
     out.push({
-      id: days - i,
-      source: "withings",
-      external_id: `mock-body-${i}`,
-      ts: d + "T07:00:00.000Z",
-      weight_kg: 79 + Math.sin(i / 9) * 0.8,
+      date: d,
+      weight: 79 + Math.sin(i / 9) * 0.8,
+      weight_source: "withings",
       fat_pct: 14.5 + Math.sin(i / 14) * 0.6,
-      fat_kg: 11.4,
+      fat_pct_source: "withings",
       muscle_kg: 36.2 + Math.sin(i / 20) * 0.3,
+      muscle_kg_source: "withings",
       bone_kg: 3.2,
       hydration_kg: 44.0,
+      sources: ["withings"],
     });
   }
   return out;
+})();
+
+export function mockBody(): BodyCompReading[] {
+  return MOCK_BODY;
+}
+
+export function postMockManualWeight(date: string, weightKg: number): void {
+  const existing = MOCK_BODY.find((r) => r.date === date);
+  if (existing) {
+    existing.weight = weightKg;
+    existing.weight_source = "manual";
+    if (!existing.sources.includes("manual")) existing.sources.push("manual");
+  } else {
+    MOCK_BODY.push({
+      date,
+      weight: weightKg,
+      weight_source: "manual",
+      fat_pct: null,
+      fat_pct_source: null,
+      muscle_kg: null,
+      muscle_kg_source: null,
+      bone_kg: null,
+      hydration_kg: null,
+      sources: ["manual"],
+    });
+    MOCK_BODY.sort((a, b) => a.date.localeCompare(b.date));
+  }
 }
 
 export function mockVolume(weeks: number): VolumeWeek[] {
@@ -550,6 +785,18 @@ let MOCK_SETTINGS: Settings = {
   zone_mode: "hr",
   units: "metric",
   garmin_key_expires_on: null,
+  field_priority: {
+    power: ["peloton", "concept2", "garmin"],
+    cadence: ["peloton", "concept2", "garmin"],
+    title: ["peloton", "concept2", "garmin"],
+    distance_indoor_bike: ["peloton", "garmin"],
+  },
+  ftp_watts: null,
+  body_comp_priority: { weight: ["withings", "garmin"], fat_pct: ["withings", "garmin"], muscle_kg: ["withings", "garmin"] },
+  min_zone_minutes: 3,
+  min_zone_pct: 0.1,
+  auto_trim_enabled: true,
+  auto_trim_min_idle_s: 120,
 };
 
 export function mockSettings(): Settings {

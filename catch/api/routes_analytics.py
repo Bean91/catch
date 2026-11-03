@@ -715,8 +715,11 @@ def activity_samples(
     usable_n = n - int(trimmed_s)
 
     elapsed = list(range(n))
+    # Full recording by default — *including* any auto-trimmed tail, so the frontend can grey
+    # it out on the chart (task Part E.8) rather than it just being absent. usable_n only
+    # bounds the summary chips/zones/strain above, computed separately.
     window_lo = max(0, start_s) if start_s is not None else 0
-    window_hi = min(usable_n, end_s) if end_s is not None else usable_n
+    window_hi = min(n, end_s) if end_s is not None else n
     defined_idx = [i for i in range(window_lo, window_hi) if hr_full[i] is not None]
     indices = lttb_indices([elapsed[i] for i in defined_idx], [hr_full[i] for i in defined_idx], points) if defined_idx else []
     chosen = [defined_idx[i] for i in indices]

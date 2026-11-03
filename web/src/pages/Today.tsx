@@ -65,7 +65,7 @@ export function TodayPage() {
         <VitalsCard title="HRV" unit="ms" decimals={0} trend={data.hrv} metric="hrv_rmssd" />
         <VitalsCard title="Resting HR" unit="bpm" decimals={0} trend={data.resting_hr} metric="resting_hr" />
         <div className="sm:col-span-2 lg:col-span-1">
-          <LoadCard load={data.load} />
+          <LoadCard load={data.load} rowingLoad={data.rowing_load} />
         </div>
       </div>
 

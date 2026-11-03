@@ -11,6 +11,7 @@ import { TodayPage } from "./pages/Today";
 // the initial bundle under the 250KB-gzip budget as more screens are added.
 const WorkoutsPage = lazy(() => import("./pages/Workouts").then((m) => ({ default: m.WorkoutsPage })));
 const WorkoutDetailPage = lazy(() => import("./pages/WorkoutDetail").then((m) => ({ default: m.WorkoutDetailPage })));
+const DuplicatesPage = lazy(() => import("./pages/Duplicates").then((m) => ({ default: m.DuplicatesPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
@@ -43,6 +44,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<TodayPage />} />
           <Route path="/workouts" element={<WorkoutsPage />} />
+          <Route path="/workouts/duplicates" element={<DuplicatesPage />} />
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/body" element={<BodyPage />} />

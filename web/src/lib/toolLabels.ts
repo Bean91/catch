@@ -38,6 +38,12 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Update event #${input.id}`;
     case "forget":
       return `Forget ${input.ref}`;
+    case "rename_activity":
+      return `Rename workout #${input.id} to "${input.title}"`;
+    case "tag_activity":
+      return `Tag workout #${input.id}`;
+    case "merge_activities":
+      return input.confirm ? "Merge two workouts" : "Preview merging two workouts";
     default:
       return name;
   }

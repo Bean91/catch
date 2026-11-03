@@ -8,12 +8,14 @@ import {
   deleteMockConversation,
   deleteMockMemory,
   deleteMockToken,
+  mockActivitySamples,
   mockBody,
   mockCoachModels,
   mockCoachSettings,
   mockConversationDetail,
   mockConversations,
   mockDailyUsage,
+  mockDuplicates,
   mockErgStrokes,
   mockMemory,
   mockNote,
@@ -28,16 +30,24 @@ import {
   mockVolume,
   mockWorkoutDetail,
   mockWorkoutsPage,
+  mergeMockActivities,
+  markMockNotDuplicate,
+  patchMockActivity,
+  postMockManualWeight,
+  revertMockActivityField,
   saveMockCoachSettings,
   saveMockNote,
   saveMockSettings,
   setMockAnthropicKey,
+  splitMockActivity,
   streamMockMessage,
   updateMockEvent,
   updateMockFact,
   updateMockGoal,
 } from "./mock";
 import type {
+  ActivityOverrides,
+  ActivitySamplesResponse,
   BodyCompReading,
   CoachConversation,
   CoachConversationDetail,
@@ -45,6 +55,7 @@ import type {
   CoachModel,
   CoachSettings,
   DeviceToken,
+  DuplicatePair,
   ErgStrokesResponse,
   MemoryEvent,
   MemoryFact,
@@ -158,6 +169,86 @@ export async function fetchErgStrokes(
   return request<ErgStrokesResponse>(`/api/erg/${id}/strokes${qs ? `?${qs}` : ""}`);
 }
 
+// --- Activity editing (task Part C) -----------------------------------------
+
+export async function patchActivity(id: number, patch: ActivityOverrides): Promise<WorkoutDetail> {
+  if (isMock) return delay(patchMockActivity(id, patch), 200);
+  return request<WorkoutDetail>(`/api/activities/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function revertActivityField(id: number, field: keyof ActivityOverrides): Promise<WorkoutDetail> {
+  if (isMock) return delay(revertMockActivityField(id, field), 200);
+  return request<WorkoutDetail>(`/api/activities/${id}/revert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ field }),
+  });
+}
+
+export async function bulkEditActivities(ids: number[], patch: ActivityOverrides): Promise<{ updated: number[] }> {
+  if (isMock) {
+    ids.forEach((id) => patchMockActivity(id, patch));
+    return delay({ updated: ids }, 300);
+  }
+  return request("/api/activities/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ canonical_ids: ids, patch }),
+  });
+}
+
+export async function fetchActivitySamples(
+  id: number,
+  opts?: { points?: number; startS?: number; endS?: number },
+): Promise<ActivitySamplesResponse> {
+  if (isMock) return delay(mockActivitySamples(id));
+  const search = new URLSearchParams();
+  if (opts?.points) search.set("points", String(opts.points));
+  if (opts?.startS != null) search.set("start_s", String(opts.startS));
+  if (opts?.endS != null) search.set("end_s", String(opts.endS));
+  const qs = search.toString();
+  return request<ActivitySamplesResponse>(`/api/activities/${id}/samples${qs ? `?${qs}` : ""}`);
+}
+
+// --- Duplicates review (task Part A.5) --------------------------------------
+
+export async function fetchDuplicates(): Promise<DuplicatePair[]> {
+  if (isMock) return delay(mockDuplicates());
+  const { pairs } = await request<{ pairs: DuplicatePair[] }>("/api/activities/duplicates");
+  return pairs;
+}
+
+export async function mergeActivities(activityIdA: number, activityIdB: number): Promise<WorkoutDetail> {
+  if (isMock) return delay(mergeMockActivities(activityIdA, activityIdB), 300);
+  return request<WorkoutDetail>("/api/activities/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activity_id_a: activityIdA, activity_id_b: activityIdB }),
+  });
+}
+
+export async function splitActivity(activityId: number): Promise<WorkoutDetail> {
+  if (isMock) return delay(splitMockActivity(activityId), 300);
+  return request<WorkoutDetail>("/api/activities/split", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activity_id: activityId }),
+  });
+}
+
+export async function markNotDuplicate(activityIdA: number, activityIdB: number): Promise<void> {
+  if (isMock) return delay(markMockNotDuplicate(activityIdA, activityIdB), 150);
+  await request("/api/activities/not-duplicate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activity_id_a: activityIdA, activity_id_b: activityIdB }),
+  });
+}
+
 // --- Notes ---------------------------------------------------------------
 
 export async function fetchNote(date: string): Promise<Note | null> {
@@ -198,6 +289,15 @@ export async function fetchBody(from?: string, to?: string): Promise<BodyCompRea
   if (from) search.set("from", from);
   if (to) search.set("to", to);
   return request<BodyCompReading[]>(`/api/body?${search.toString()}`);
+}
+
+export async function postManualWeight(date: string, weightKg: number): Promise<void> {
+  if (isMock) return delay(postMockManualWeight(date, weightKg), 200);
+  await request("/api/body/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, weight_kg: weightKg }),
+  });
 }
 
 export async function fetchPbs(): Promise<PersonalBests> {

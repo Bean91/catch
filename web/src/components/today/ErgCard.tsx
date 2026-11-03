@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { ErgPiece, Predicted2k } from "../../lib/types";
 import { bandLabel, formatDistance, formatDuration, formatSplit, formatTimeTenths } from "../../lib/format";
 import { BandBadge } from "../ui/Badge";
@@ -11,14 +12,14 @@ export function ErgCard({ erg, predicted2k }: { erg: ErgPiece | null; predicted2
     <Card title="Latest erg piece">
       {erg ? (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Link to={`/workouts/${erg.canonical_id}`} className="grid grid-cols-2 gap-3 rounded-md transition-opacity hover:opacity-80 sm:grid-cols-3">
             <Stat label="Distance" value={formatDistance(erg.distance)} />
             <Stat label="Time" value={formatDuration(erg.duration)} />
             <Stat label="Avg split" value={`${formatSplit(avgSplit)} /500m`} />
             <Stat label="Rate" value={erg.stroke_rate != null ? `${erg.stroke_rate.toFixed(0)} spm` : "—"} />
             <Stat label="Watts" value={erg.avg_power != null ? erg.avg_power.toFixed(0) : "—"} />
             <Stat label="W/kg" value={erg.w_per_kg != null ? erg.w_per_kg.toFixed(2) : "—"} />
-          </div>
+          </Link>
         </>
       ) : (
         <EmptyState message="No Concept2 results synced yet." />

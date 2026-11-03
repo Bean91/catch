@@ -84,6 +84,10 @@ def test_auto_trimmed_tail_excluded_from_summary_chips(client, session):
     assert body["usable_n_samples"] == 600
     assert body["max_hr_observed"] == 150.0  # the idle-tail's lower HR never pulls this down
     assert body["min_hr_observed"] == 150.0
+    # The trimmed tail is still *in the chart data* by default (task Part E.8: greyed out on
+    # the graph, not simply absent) — only the summary chips above exclude it.
+    assert body["points"][-1]["elapsed_s"] == 899
+    assert any(p["elapsed_s"] >= 600 for p in body["points"])
 
 
 def test_start_end_window_gives_full_resolution_within_a_zoomed_range(client, session):

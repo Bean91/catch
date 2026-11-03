@@ -62,6 +62,8 @@ export interface VitalTrend {
 
 export interface ErgPiece {
   id: number;
+  /** The canonical id — navigate to /workouts/{canonical_id}, never {id}. */
+  canonical_id: number;
   source: string;
   external_id: string;
   type: string | null;
@@ -104,6 +106,9 @@ export interface Today {
   strain_today: Strain | null;
   strain_target_range: [number, number];
   load: Load | null;
+  /** Rowing-only load, parallel to `load`'s all-sport number (task Part B.3) — so cycling
+   * volume never inflates the figure the athlete actually trains rowing against. */
+  rowing_load: Load | null;
   hrv: VitalTrend;
   resting_hr: VitalTrend;
   latest_erg: ErgPiece | null;
@@ -128,41 +133,105 @@ export interface SyncResult {
   [key: string]: unknown;
 }
 
-// --- Workouts (session 4) ---------------------------------------------------
+// --- Workouts (session 4; canonical activities + matching/editing, session 8/12) -------
 
 export type WorkoutCategory = "erg" | "on_water" | "other";
+export type SportFamily = "cycling" | "rowing" | "running" | "strength" | "other";
 
 export interface ActivityStrain {
-  activity_id: number;
+  /** The canonical id this strain component belongs to (catch/sync/scoring.py keys its
+   * per-session components by canonical_id, not a raw per-source activity id). */
+  canonical_id: number;
+  title?: string | null;
   value: number | null;
   band: StrainBand;
   components?: unknown[];
   explanation?: string;
 }
 
-export interface WorkoutListItem {
-  id: number;
+/** One member source record of a canonical activity — catch/api/routes_activities.py's
+ * `_source_summary`. `activity_id` here is a *raw* per-source Activity id (used by
+ * GET /api/erg/{activity_id}/strokes and the Duplicates-review merge/split/not-duplicate
+ * endpoints), never a canonical id. */
+export interface ActivitySourceSummary {
+  activity_id: number;
   source: string;
   external_id: string;
+  provenance: string; // "garmin" | "peloton" | "concept2"
   type: string | null;
+  origin: string | null; // "watch" | "peloton" | null
+  hr_source_type: string | null; // "chest_strap" | "wrist" | null
+  has_fit: boolean;
+  has_strokes: boolean;
+}
+
+export interface ActivityZones {
+  hr: Record<ZoneName, number> | null;
+  power: Record<ZoneName, number> | null;
+}
+
+export interface ActivityOverrides {
+  title?: string;
+  sport_family?: SportFamily;
+  notes?: string;
+  rpe?: number;
+  exclude_from_totals?: boolean;
+  tags?: string[];
+}
+
+export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"] as const;
+export type EditableActivityField = (typeof EDITABLE_ACTIVITY_FIELDS)[number];
+
+export interface WorkoutListItem {
+  id: number; // canonical id
+  sport_family: SportFamily;
   start: string | null;
   duration: number | null;
   distance: number | null;
   avg_hr: number | null;
   max_hr: number | null;
   avg_power: number | null;
+  avg_cadence: number | null;
   calories: number | null;
-  workout_type: string | null;
-  drag_factor: number | null;
-  stroke_rate: number | null;
-  linked_activity_id: number | null;
+  title: string | null;
+  strain_method: string | null;
+  session_label: string | null;
+  auto_trimmed_tail_s: number | null;
   category: WorkoutCategory;
+  field_sources: Record<string, string>;
+  zones: ActivityZones | null;
+  notes: string | null;
+  rpe: number | null;
+  exclude_from_totals: boolean;
+  tags: string[];
+  overrides: ActivityOverrides;
+  sources: ActivitySourceSummary[];
+  editable_fields: EditableActivityField[];
+  edits_push_back_to_source: false;
   strain: ActivityStrain | null;
 }
 
 export interface WorkoutsPage {
   items: WorkoutListItem[];
   next_cursor: string | null;
+}
+
+// --- Duplicates review (task Part A.5) --------------------------------------
+
+export interface DuplicatePairSide {
+  activity_id: number;
+  source: string;
+  external_id: string;
+  start: string | null;
+  duration: number | null;
+}
+
+export interface DuplicatePair {
+  a: DuplicatePairSide;
+  b: DuplicatePairSide;
+  score: number;
+  hard_block: boolean;
+  reasons: string[];
 }
 
 export interface ZoneRow {
@@ -191,12 +260,56 @@ export interface Note {
 }
 
 export interface WorkoutDetail extends WorkoutListItem {
-  intervals: unknown | null;
   local_date: string | null;
-  zones: TrainingZones;
+  /** Zone *boundaries* (thresholds), as opposed to WorkoutListItem.zones' per-sample zone
+   * *seconds* — these are two different things with similarly-named fields; don't confuse
+   * them. Mirrors GET /api/activities/{id}'s split naming exactly. */
+  zones_config: TrainingZones;
   hr_zone: string | null;
-  note: Note | null;
+  day_note: Note | null;
+  has_samples: boolean;
 }
+
+// --- Per-activity HR/power/cadence samples (task Part E.8) -------------------
+
+export interface LapMarker {
+  offset_s: number;
+  duration_s: number;
+}
+
+export interface HrRecovery {
+  session_end: number | null;
+  per_lap: { offset_s: number; recovery_bpm: number | null }[];
+}
+
+export interface SamplePoint {
+  elapsed_s: number;
+  hr: number | null;
+  power: number | null;
+  cadence: number | null;
+}
+
+export type ActivitySamplesResponse =
+  | { has_data: false; reason: string }
+  | {
+      has_data: true;
+      canonical_id: number;
+      n_samples: number;
+      usable_n_samples: number;
+      trimmed_tail_s: number;
+      max_hr_setting: number | null;
+      avg_hr: number | null;
+      max_hr_observed: number | null;
+      min_hr_observed: number | null;
+      zones: ActivityZones | null;
+      zones_config: TrainingZones;
+      session_label: string | null;
+      laps: LapMarker[];
+      hr_recovery: HrRecovery;
+      points: SamplePoint[];
+      returned_count: number;
+      raw_count: number;
+    };
 
 export interface Stroke {
   id: number;
@@ -267,7 +380,10 @@ export interface TrendPoint {
   chronic_42d?: number;
   form?: number;
   smoothed?: number | null;
+  /** A canonical id (w_per_kg/predicted_2k only) — navigate to /workouts/{activity_id}. */
   activity_id?: number;
+  /** weight only — which source this day's resolved value came from (task Part D.2). */
+  source?: string | null;
 }
 
 // --- Interactive series (session 8) -----------------------------------------
@@ -281,8 +397,11 @@ export interface SeriesPoint {
   chronic_42d?: number;
   form?: number;
   smoothed?: number | null;
-  /** Only on w_per_kg/predicted_2k — lets tapping a point open that workout (spec #4). */
+  /** Only on w_per_kg/predicted_2k — lets tapping a point open that workout (spec #4). A
+   * canonical id, like TrendPoint's. */
   activity_id?: number;
+  /** weight only — which source this day's resolved value came from (task Part D.2). */
+  source?: string | null;
 }
 
 export interface SeriesForMetric {
@@ -304,20 +423,23 @@ export interface VolumeWeek {
   estimated: boolean;
 }
 
+// Session 8/12 (see PLAN.md Part D) — GET /api/body now returns one priority-resolved row
+// per calendar day (never averaged across scales) instead of raw interleaved source rows.
 export interface BodyCompReading {
-  id: number;
-  source: string;
-  external_id: string;
-  ts: string;
-  weight_kg: number | null;
+  date: string;
+  weight: number | null;
+  weight_source: string | null; // "withings" | "garmin" | "manual" | null
   fat_pct: number | null;
-  fat_kg: number | null;
+  fat_pct_source: string | null;
   muscle_kg: number | null;
+  muscle_kg_source: string | null;
   bone_kg: number | null;
   hydration_kg: number | null;
+  sources: string[];
 }
 
 export interface PbEntry {
+  /** A canonical id — navigate to /workouts/{activity_id}. */
   activity_id: number;
   date: string | null;
   distance_m: number | null;
@@ -348,6 +470,23 @@ export interface Settings {
   zone_mode: "hr" | "power";
   units: "metric" | "imperial";
   garmin_key_expires_on: string | null;
+  // --- Session 8/12 (see PLAN.md): matching/editing/body-comp/samples settings ---
+  field_priority: {
+    power: string[];
+    cadence: string[];
+    title: string[];
+    distance_indoor_bike: string[];
+  };
+  ftp_watts: number | null;
+  body_comp_priority: {
+    weight: string[];
+    fat_pct: string[];
+    muscle_kg: string[];
+  };
+  min_zone_minutes: number;
+  min_zone_pct: number;
+  auto_trim_enabled: boolean;
+  auto_trim_min_idle_s: number;
 }
 
 // --- Coach (session 5) -------------------------------------------------------

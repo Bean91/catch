@@ -180,6 +180,100 @@ export function SettingsPage() {
         <p className="mt-2 text-xs text-text-tertiary">{"Defaults — confirm with your coach before training off them."}</p>
       </Card>
 
+      <Card title="Cross-source matching">
+        <p className="mb-3 text-xs text-text-tertiary">
+          Which source wins for each metric when a watch, Peloton-pushed activity, and/or Concept2 result get merged into one
+          workout — comma-separated, first match wins. "manual" always sorts last for body-comp metrics below, regardless of order.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(["power", "cadence", "title", "distance_indoor_bike"] as const).map((field) => (
+            <label key={field} className="flex flex-col gap-1 text-sm text-text-secondary">
+              <span className="capitalize">{field.replace(/_/g, " ")}</span>
+              <input
+                defaultValue={form.field_priority[field].join(", ")}
+                onBlur={(e) =>
+                  update("field_priority", { ...form.field_priority, [field]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
+                }
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              />
+            </label>
+          ))}
+        </div>
+        <label className="mt-3 flex flex-col gap-1 text-sm text-text-secondary sm:flex-row sm:items-center sm:gap-3">
+          Cycling FTP (watts)
+          <input
+            type="number"
+            value={form.ftp_watts ?? ""}
+            onChange={(e) => update("ftp_watts", e.target.value ? Number(e.target.value) : null)}
+            placeholder="auto"
+            className="font-mono-nums w-24 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+          />
+          <span className="text-xs text-text-tertiary">Estimated from the best 20-minute power x 0.95 per ride if left blank.</span>
+        </label>
+      </Card>
+
+      <Card title="Body composition sources">
+        <p className="mb-3 text-xs text-text-tertiary">Default Withings first, Garmin second — never averaged, shown per-day on the Body page.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["weight", "fat_pct", "muscle_kg"] as const).map((field) => (
+            <label key={field} className="flex flex-col gap-1 text-sm text-text-secondary">
+              <span className="capitalize">{field.replace(/_/g, " ")}</span>
+              <input
+                defaultValue={form.body_comp_priority[field].join(", ")}
+                onBlur={(e) =>
+                  update("body_comp_priority", { ...form.body_comp_priority, [field]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
+                }
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              />
+            </label>
+          ))}
+        </div>
+      </Card>
+
+      <Card title="Zones & strain from samples">
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-3 text-sm text-text-secondary">
+            Min minutes to lead the label
+            <input
+              type="number"
+              value={form.min_zone_minutes}
+              onChange={(e) => update("min_zone_minutes", Number(e.target.value))}
+              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            />
+          </label>
+          <label className="flex items-center gap-3 text-sm text-text-secondary">
+            Min % of moving time
+            <input
+              type="number"
+              step="0.01"
+              value={form.min_zone_pct}
+              onChange={(e) => update("min_zone_pct", Number(e.target.value))}
+              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            />
+          </label>
+        </div>
+        <label className="mt-3 flex items-center gap-3 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            checked={form.auto_trim_enabled}
+            onChange={(e) => update("auto_trim_enabled", e.target.checked)}
+            className="h-5 w-5 accent-accent"
+          />
+          Auto-detect "watch left running" and exclude it from averages
+        </label>
+        {form.auto_trim_enabled && (
+          <label className="mt-2 flex items-center gap-3 text-sm text-text-secondary">
+            Min idle seconds to count as left running
+            <input
+              type="number"
+              value={form.auto_trim_min_idle_s}
+              onChange={(e) => update("auto_trim_min_idle_s", Number(e.target.value))}
+              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            />
+          </label>
+        )}
+      </Card>
+
       <Card title="Profile & units">
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
           <label className="flex items-center gap-3 text-sm text-text-secondary">

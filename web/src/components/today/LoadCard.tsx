@@ -4,7 +4,7 @@ import { BandBadge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
 
-export function LoadCard({ load }: { load: Load | null }) {
+export function LoadCard({ load, rowingLoad }: { load: Load | null; rowingLoad?: Load | null }) {
   if (!load || load.value == null) {
     return (
       <Card title="Training load">
@@ -45,6 +45,14 @@ export function LoadCard({ load }: { load: Load | null }) {
         <p className="mt-3 rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-xs text-band-red-text">
           Acute:chronic ratio is in the high-risk band — add load cautiously.
         </p>
+      )}
+      {rowingLoad?.value != null && (
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-sm">
+          <span className="text-text-tertiary">Rowing only</span>
+          <span className="font-mono-nums text-text-primary">
+            {rowingLoad.value.toFixed(2)} <BandBadge band={rowingLoad.band} label={bandLabel(rowingLoad.band)} />
+          </span>
+        </div>
       )}
     </Card>
   );

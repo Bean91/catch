@@ -1,17 +1,23 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { Sparkline } from "../components/today/Sparkline";
 import { Card } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
-import { fetchBody, fetchSeries } from "../lib/api";
+import { fetchBody, fetchSeries, postManualWeight } from "../lib/api";
 import { RANGE_PRESETS, parseChartUrlState, presetToDomain, writeChartUrlState, type RangePreset } from "../lib/chartRange";
 import { formatNumber } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 
 const DAY_MS = 86_400_000;
+
+const SOURCE_LABELS: Record<string, string> = { withings: "Withings", garmin: "Garmin scale", manual: "a manual entry" };
+function sourceLabel(source: string | null | undefined): string {
+  if (!source) return "an unknown source";
+  return SOURCE_LABELS[source] ?? source;
+}
 
 function quantizePoints(plotWidthPx: number): number {
   return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
@@ -132,11 +138,33 @@ export function BodyPage() {
     [weightAll],
   );
 
+  const queryClient = useQueryClient();
   const bodyQuery = useQuery({ queryKey: ["body"], queryFn: () => fetchBody() });
   const readings = bodyQuery.data ?? [];
   const latest = readings[readings.length - 1];
-  const fatSpark = readings.map((r) => ({ date: r.ts.slice(0, 10), value: r.fat_pct }));
-  const muscleSpark = readings.map((r) => ({ date: r.ts.slice(0, 10), value: r.muscle_kg }));
+
+  const [manualDate, setManualDate] = useState(now.toISOString().slice(0, 10));
+  const [manualWeight, setManualWeight] = useState("");
+  const [savingManual, setSavingManual] = useState(false);
+  const submitManualWeight = async (e: FormEvent) => {
+    e.preventDefault();
+    const kg = Number(manualWeight);
+    if (!Number.isFinite(kg) || kg <= 0) return;
+    setSavingManual(true);
+    try {
+      await postManualWeight(manualDate, kg);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["body"] }),
+        queryClient.invalidateQueries({ queryKey: ["series"] }),
+        queryClient.invalidateQueries({ queryKey: ["series-all"] }),
+      ]);
+      setManualWeight("");
+    } finally {
+      setSavingManual(false);
+    }
+  };
+  const fatSpark = readings.map((r) => ({ date: r.date, value: r.fat_pct }));
+  const muscleSpark = readings.map((r) => ({ date: r.date, value: r.muscle_kg }));
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
@@ -186,11 +214,51 @@ export function BodyPage() {
             </div>
             <p className="mt-2 text-xs text-text-tertiary">
               Solid = raw readings. Dashed = 7-day smoothed (a single-day outlier doesn't move it).
+              {weightPoints[weightPoints.length - 1]?.source && (
+                <> Latest from {sourceLabel(weightPoints[weightPoints.length - 1].source)}.</>
+              )}
             </p>
           </>
         ) : (
-          <EmptyState message="No weight data synced yet (needs Withings OAuth)." />
+          <EmptyState message="No weight data yet — connect Withings or a Garmin scale, or add one below." />
         )}
+        <form onSubmit={submitManualWeight} className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+          <div>
+            <label htmlFor="manual-weight-date" className="block text-xs text-text-tertiary">
+              Date
+            </label>
+            <input
+              id="manual-weight-date"
+              type="date"
+              value={manualDate}
+              onChange={(e) => setManualDate(e.target.value)}
+              className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            />
+          </div>
+          <div>
+            <label htmlFor="manual-weight-kg" className="block text-xs text-text-tertiary">
+              Weight (kg)
+            </label>
+            <input
+              id="manual-weight-kg"
+              type="number"
+              step="0.1"
+              inputMode="decimal"
+              value={manualWeight}
+              onChange={(e) => setManualWeight(e.target.value)}
+              placeholder="79.0"
+              className="min-h-9 w-24 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={savingManual || !manualWeight}
+            className="min-h-9 rounded-md border border-accent bg-accent px-3 text-sm font-medium text-accent-contrast disabled:opacity-40"
+          >
+            Add manual weight
+          </button>
+          <span className="text-xs text-text-tertiary">Always the last-resort source — a real scale reading wins if one exists that day.</span>
+        </form>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -198,6 +266,7 @@ export function BodyPage() {
           {latest?.fat_pct != null ? (
             <>
               <div className="font-mono-nums text-3xl font-semibold text-text-primary">{formatNumber(latest.fat_pct, 1)}%</div>
+              <div className="text-xs text-text-tertiary">from {sourceLabel(latest.fat_pct_source)}</div>
               <div className="mt-3">
                 <Sparkline points={fatSpark} baselineBand={null} />
               </div>
@@ -210,6 +279,7 @@ export function BodyPage() {
           {latest?.muscle_kg != null ? (
             <>
               <div className="font-mono-nums text-3xl font-semibold text-text-primary">{formatNumber(latest.muscle_kg, 1)}kg</div>
+              <div className="text-xs text-text-tertiary">from {sourceLabel(latest.muscle_kg_source)}</div>
               <div className="mt-3">
                 <Sparkline points={muscleSpark} baselineBand={null} />
               </div>
