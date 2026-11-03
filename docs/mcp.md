@@ -1,8 +1,11 @@
 # MCP server
 
 `catch/mcp_server/` exposes the same shared tool layer (`catch/coach/tools.py`) that the
-in-app coach uses — read-only training data plus the `remember`/`add_event`/`update_event`/
-`set_goal`/`forget`/`recall` memory tools — to Claude Desktop (or any MCP client) over two
+in-app coach uses — read-only training data (canonical activities only, session 8/12 — see
+PLAN.md: every id a tool takes or returns is a canonical id, never a raw per-source activity
+id), the `remember`/`add_event`/`update_event`/`set_goal`/`forget`/`recall` memory tools, and
+(session 8/12) `rename_activity`/`tag_activity`/`merge_activities` for the cross-source
+matching/editing tools — 19 tools total — to Claude Desktop (or any MCP client) over two
 transports:
 
 - **stdio** — for Claude Desktop, running on your laptop while Catch itself runs on the Pi.

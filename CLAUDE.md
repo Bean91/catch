@@ -24,8 +24,27 @@ catch/
                 generator on client disconnect — see PLAN.md's session 6 Findings for why
                 that needs its own polling helper, not just a per-event check)
   core/         SQLModel models, config, db, security
-  sync/         garmin_client, withings_client, scheduler, upsert helpers
-  analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O
+  sync/         garmin_client, withings_client, concept2_client, scheduler, upsert helpers;
+                session 8/12 (cross-source matching + Peloton + body comp + per-sample
+                zones/strain — see PLAN.md): matching.py (the DB-facing half of the matching
+                engine — ensure_canonicals/find_candidate_pairs/apply_auto_merges/manual
+                merge-split-not_duplicate, run after every sync), canonical.py
+                (resolve_canonical — field-priority merge of a canonical's member Activity
+                rows into its displayed fields + auto-title, plus its zones/strain via
+                zones_samples.py), fit_parse.py (streams a FIT file's record/lap messages
+                with `fitdecode`, Peloton detection via file_id.manufacturer), samples.py
+                (builds the 1Hz sample arrays FIT parsing or Concept2 strokes produce and
+                writes ActivitySamples), body_comp.py (one resolved daily body-comp reading
+                across however many scales reported one), rowing_predict.py (shared
+                "recent best Concept2 pieces" gathering for GET /api/predict/2k and the erg
+                power-zone threshold)
+  analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
+                session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
+                scoring half of cross-source matching), cycling_load.py (TSS-style power
+                load + FTP estimate), samples_codec.py (pack/unpack the compact per-sample
+                blobs), zones_samples.py (per-sample time-in-zone/Banister-TRIMP/session-
+                label/auto-trim-detection — the real zones/strain fix for a session whose
+                average HR undersells a short hard block inside a long easy one)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -35,7 +54,7 @@ catch/
                 see the Gotchas section), cost.py (usage -> $ from user-entered prices),
                 system_prompt.md (editable coach persona), providers/ (anthropic_provider.py,
                 ollama_provider.py — both yield the same normalized event stream)
-  mcp_server/   server.py (MCPServer + all 16 tools + 2 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 19 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py
@@ -47,8 +66,12 @@ web/
   src/
     components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
                 workouts/ (WorkoutRow, IntervalTable, ZoneTable, NotesBox, PbTable),
-                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart, ChartNavigator —
-                hand-rolled SVG, no chart library; lazy-loaded with the page that uses them; no
+                charts/ (TrendLineChart, WeeklyVolumeBars, ErgChart, HrChart — session 8/12's
+                per-sample HR graph on workout detail: zone-shaded bands, dashed max/avg HR,
+                lap markers, the auto-trimmed tail greyed out (not absent — GET
+                /api/activities/{id}/samples returns the full recording by default), a
+                power/cadence overlay toggle — ChartNavigator — hand-rolled SVG, no chart
+                library; lazy-loaded with the page that uses them; no
                 on-chart zoom buttons — they covered data at 390px, see DESIGN.md's "On-chart
                 zoom buttons removed" note; pan/pinch/press-hold run through the shared
                 lib/useChartInteraction.ts hook against `touch-action: none` HTML wrapper divs,
@@ -74,9 +97,14 @@ web/
                 (merges a conversation's tool_call/tool_result block pairs — stored on two
                 separate message rows — into one display entry), toolLabels.ts (mirrors
                 catch/coach/chat.py's chip-label templates for persisted history)
-    pages/      Today.tsx (eager); Workouts, WorkoutDetail, Trends, Body, Coach, Settings,
-                Memory (React.lazy, one chunk per route — keeps the initial bundle under
-                budget)
+    pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
+                tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
+                possible-duplicate-pairs review screen, merge/not-duplicate actions),
+                WorkoutDetail (inline title/sport/tags/RPE/exclude editing with
+                revert-to-source, a per-metric field-source panel, the HrChart), Trends,
+                Body (session 8/12: per-day resolved weight/fat%/muscle with its source,
+                a manual-weight-entry form), Coach, Settings, Memory (React.lazy, one chunk
+                per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
                 here — vite.config.ts's serviceWorkerPlugin writes it at build time with
@@ -96,7 +124,9 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 against the real .env) to confirm a client on build A actually detects and
                 reloads to build B, plus the offline-banner scenarios)
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
-                analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector)
+                analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector),
+                peloton.md (session 8/12: Peloton-push detection mechanism + live findings —
+                no Peloton-pushed activity exists in this account yet to confirm it against)
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 

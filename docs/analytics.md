@@ -240,15 +240,142 @@ strain fallback — and recomputes **every** day from the earliest known
 incremental path (a settings change or backfilled day would otherwise leave stale cached
 numbers), and cheap at single-user scale (plain-Python arithmetic over a few thousand days at
 most). Guarded by a module-level lock so two syncs finishing close together don't recompute
-concurrently. It also sweeps for any Concept2 result that's still unlinked to a Garmin
-activity and retries the link — linking is also attempted at Concept2 insert time, but the
-scheduler runs sources in whatever order (with jitter), so if Garmin hasn't synced that
-session yet when Concept2 does, the first attempt finds no match and would otherwise double-
-count the session in strain/load forever (Concept2's `updated_after` cursor has already moved
-past it, so it's never re-listed).
+concurrently. Session 8/12 (see PLAN.md): it also runs `catch/sync/matching.run_matching()`
+first — the cross-source matching engine (§17 below), which replaced the old
+Concept2-only "sweep for an unlinked result and retry the link" step this paragraph used to
+describe.
 
-A day's activities are bucketed by the **system's local calendar date** (converting local
-midnight to UTC via `datetime.astimezone()`, which assumes a naive datetime is in the system
-timezone) to match `date.today()`, Garmin's `calendarDate`, and `notes.date`, all of which are
-local — this only lines up correctly if the Pi's system timezone is actually set to the
-athlete's own.
+A day's activities (now canonical activities, §17) are bucketed by the **system's local
+calendar date** (converting local midnight to UTC via `datetime.astimezone()`, which assumes a
+naive datetime is in the system timezone) to match `date.today()`, Garmin's `calendarDate`,
+and `notes.date`, all of which are local — this only lines up correctly if the Pi's system
+timezone is actually set to the athlete's own.
+
+## 17. Cross-source matching (`catch/analytics/matching.py`, `catch/sync/matching.py`,
+`catch/sync/canonical.py`), session 8/12
+
+One physical session can arrive as more than one source record — a Garmin watch recording, a
+Peloton-pushed Garmin activity (same source, different external id), and/or a Concept2 PM5
+result. Every `Activity` row gets its own 1:1 `CanonicalActivity` immediately at upsert time
+(`catch/sync/upsert.py`); the matching engine then merges canonicals that turn out to be the
+same session, so **every reader of "an activity" (Trends, Workouts, PBs, coach, MCP) reads
+`CanonicalActivity` only** — nothing is ever double-counted.
+
+**Matching rule** (`catch/analytics/matching.py::match_pair`, pure, no I/O): a pair is a
+*candidate* only if (a) same broad sport family (`sport_family()` — rowing/cycling/running/
+strength/other, from documented Garmin typeKey/Concept2 `type` tables), (b) start times within
+3 minutes **or** time overlap ≥ 70% of the shorter record, and (c) duration ratio in
+`[0.8, 1.25]`. Among candidates, a continuous score (`0.6 * time_component + 0.4 *
+duration_ratio`) decides auto-merge (`score >= 0.82`) vs. "possible duplicate" flagged for
+manual review (`score >= 0.45`, below the auto-merge threshold) — both numbers are code
+constants, not a Settings knob (only field priority, §17.1, is user-configurable per the task).
+Indoor vs. outdoor (`is_indoor()`) is a hard block on auto-merge regardless of score — a
+Peloton-origin record is always forced `indoor=True` (`catch/sync/matching.py::_to_match_input`)
+since its Garmin-assigned typeKey is unverified (docs/peloton.md).
+
+`catch/sync/matching.run_matching()` (idempotent, run after every sync and as a one-off
+backfill): gives every orphaned `Activity` a canonical (`ensure_canonicals`), re-resolves any
+canonical a prior migration left blank (`_resolve_blank_canonicals` — see PLAN.md's session 12
+bug log), scores every non-blocked candidate pair across different canonicals
+(`find_candidate_pairs`, bucketed by local day ±1 for cheapness, not correctness, at this
+app's single-user scale), and merges the auto-merge ones (`apply_auto_merges`, logging one
+`MergeLog` row per member). A `MatchDecision` row (keyed on the natural `(source, external_id)`
+pair, not row ids) records a manual "not a duplicate" or a split, so neither is ever silently
+re-proposed by a later run.
+
+Manual control (`catch/sync/matching.py`, `POST /api/activities/{merge,split,not-duplicate}`):
+`manual_merge` merges two source activities' canonicals outright (preferring to keep whichever
+canonical already carries user overrides, so an edit never gets silently discarded by a
+merge); `split_activity` gives one member back its own canonical and writes the
+re-merge-blocking `MatchDecision`; `mark_not_duplicate` writes one without merging anything.
+
+### 17.1 Field priority (`catch/sync/canonical.py::resolve_canonical`)
+
+Each resolved field on the canonical is picked by `Settings.field_priority[field]` (a list of
+provenance labels — `"peloton"`, `"concept2"`, `"garmin"` — first match with a non-null value
+wins), falling back to `["concept2", "peloton", "garmin"]` for any field without its own
+configured priority (duration, distance for non-bike, calories, start). HR is a dedicated rule
+(not configurable): whichever member has `hr_source_type == "chest_strap"` (or is a Concept2
+result, which only ever logs HR from a paired ANT+ strap — no PM5 has a wrist sensor), else
+the Garmin watch, else any member with HR at all. The title (Part C.3) prefers a source's own
+non-generic `title_hint` (Garmin's `activityName`, when it isn't exactly the generic per-type
+label `type.replace("_"," ").title()` — confirmed live that a plain watch recording's
+`activityName` is exactly that) in `field_priority.title`'s order, else a synthesized label
+(`"Erg N x Dm"` from Concept2's structured workout, `"Peloton N min Just Ride"`, `"Steady state
+N'"` for a continuous Garmin row, else a generic per-`sport_family` noun). Every resolved
+field's winning source is recorded in `field_sources_json` (`"source:external_id"` or
+`"override"`/`"auto"` for the title), shown next to each metric in workout detail.
+
+## 18. Peloton / cycling load (`catch/analytics/cycling_load.py`), session 8/12
+
+See docs/peloton.md for the live-verified Peloton detection mechanism (FIT `file_id`'s own
+creator, not a paired accessory's manufacturer) and its real-data findings. Cycling strain
+prefers power over HR whenever the canonical's chosen power-source member has power samples:
+`TSS = 100 * hours * (avg_power / FTP)^2` (the standard simplified formula — this app has no
+lag-filtered "normalized power", a documented approximation), with FTP from
+`Settings.ftp_watts` if set, else estimated per-ride as `best_20min_power * 0.95`
+(`CanonicalActivity.strain_method` records whether FTP was estimated, so the UI can flag it).
+No live cycling-power data exists in this account to tune or verify the TSS-vs-Banister
+equivalence assumed by feeding TSS into the same 0-21 log-saturation strain scale as every
+other sport (§4) — see docs/peloton.md.
+
+## 19. Per-sample zones and strain (`catch/analytics/zones_samples.py`,
+`catch/sync/fit_parse.py`, `catch/sync/samples.py`), session 8/12
+
+**The problem this replaces**: §4/§6's strain and zone numbers used whole-session average HR —
+a long warm-up/cool-down, or a watch left running past the end of a hard session, drags the
+average down enough that a session with real time at AN/TR reads as UT2 and scores far too low.
+
+**Samples**: `catch/sync/fit_parse.py` streams a FIT file's `record` messages (`fitdecode`, a
+pure-Python/universal-wheel package — no Pi/ARM concern) into a 1 Hz grid (gaps ≤10s
+forward-filled as "unchanged since the last reading"; longer gaps are real dropouts, left
+`None`) for `heart_rate`/`power`/`cadence`, plus FIT `lap` messages as offset/duration pairs.
+Concept2 stroke data (`catch/sync/samples.py::store_samples_from_strokes`) is resampled onto
+the same 1 Hz grid by forward-filling each stroke's reading (an event stream, not a
+fixed-interval one) across its own cumulative time offset, including rest between intervals.
+Packed as zlib-compressed uint16 arrays (`catch/analytics/samples_codec.py`, `0xFFFF` =
+missing) into one `ActivitySamples` row per *source* record — a few KB for a 90-minute
+session, not thousands of SQLite rows (CLAUDE.md's Pi-memory rule).
+
+**Zones/strain** (`zones_samples.py`, pure): `drop_dropouts` removes 0 readings and any run of
+the same non-zero value held ≥30s (a real HR doesn't flatline that long — a stuck sensor
+does); `smooth` is a ~5s centered moving average (skipping dropouts in its window, not
+treating them as 0) to drop sensor spikes without smearing a real 10-minute hard block into
+its neighbors. `time_in_zone_seconds` sums actual per-sample seconds in each zone — the direct
+fix for the motivating problem. `banister_trimp_from_samples` integrates the same
+`duration_minutes * HRr * 0.64 * e^(1.92*HRr)` formula §4 uses, but **per second** (1/60
+minute each) instead of once over the session average: since it's convex in HRr, concentrating
+the same total HR-minutes into a short intense block scores strictly higher than spreading
+them evenly, by construction — no separate "intensity bonus" needed. A quality-bar fixture
+(20 min warm-up/10 min at ~95% max HR/25 min cool-down, `tests/test_canonical.py`) runs this
+end to end and confirms the label is AN/TR-led (never UT2) and the day's strain exceeds a
+steady UT2 piece of the same average HR.
+
+**Session label** (`session_label`): the highest zone with "meaningful" time — clearing
+*either* of two configurable floors (`Settings.min_zone_minutes`, default 3; or
+`min_zone_pct` of moving time, default 10%) is enough — leads the label, with the
+zone holding the most total time appended for context when it differs (`"AN (10 min) +
+UT2"`). HR and power (erg/bike, where it exists) are labelled independently and the
+higher-intensity one wins, since HR lags a short sharp effort that power/pace already shows.
+
+**Auto-trim** (`detect_trailing_idle`, `Settings.auto_trim_enabled`/`auto_trim_min_idle_s`,
+default 120s): a trailing run of near-zero cadence/stroke-rate at the very end of the raw
+(unsmoothed) recording is "likely watch left running" — excluded from the zones/strain/label
+computation above and from the summary chips on `GET /api/activities/{id}/samples`, but never
+from the stored samples themselves, which still return the full recording (greyed out on the
+chart) by default.
+
+**Recompute-all-history report**: see PLAN.md's session 12 real-backfill section — 352 of 418
+real sessions with samples (84%) changed label under this method vs. the old average-HR one.
+
+## 20. Body composition (`catch/sync/body_comp.py`), session 8/12
+
+One resolved value per day per metric (weight/fat_pct/muscle_kg), across however many of
+Withings/a Garmin scale/a manual entry reported one that day — **never averaged**; the metric
+list mirrors `field_priority`'s pattern (`Settings.body_comp_priority[metric]`, first source
+with a non-null value wins) except "manual" is always forced to sort last regardless of
+configured order (a real scale reading should never lose to a manual entry). Garmin's
+`/weight-service/weight/range` reports `weight` in **grams**, not kilograms as its own OpenAPI
+schema claims — confirmed against two real entries (docs/garmin-endpoints.md); `muscleMass`/
+`boneMass`/`bodyWater` are left unmapped since this account's real entries have them all
+`null`, with nothing to confirm their unit against.

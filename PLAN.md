@@ -1693,3 +1693,278 @@ start the x-axis at the first data point, not show empty months.
       above. `cd web && npm run test:update` — 4 passed, unaffected.
 - [x] `CLAUDE.md` (charts/ list, `ChartZoomButtons` removed) and `DESIGN.md` ("On-chart zoom
       buttons removed" note) updated. PLAN.md + commit.
+
+## Session 12 checklist
+
+The task that opened this session called it "session 8" — PLAN.md's own numbering already
+used that number for the interactive-charts work (above), so this continues the file's own
+sequence instead, the same resolution session 8 itself used for an identical collision with
+"session 7."
+
+Cross-source activity matching, Peloton rides, activity editing, body composition from any
+scale, and real per-sample zones/strain (Parts A-E of the task). The single largest session
+so far — summarized by part below, with the real-data verification and an advisor review's
+findings after.
+
+### Part A — matching engine
+
+- [x] **Data model**: every `Activity` (a source record) gets a `canonical_id` immediately at
+      upsert time, pointing at its own new `CanonicalActivity` row — a 1:1 relationship until
+      the matching engine merges two. New tables: `canonical_activities` (resolved display
+      fields, `field_sources_json`, `overrides_json`, cached `zones_json`/`strain_trimp`/
+      `strain_method`/`session_label`/`auto_trimmed_tail_s`), `match_decisions` (natural
+      `(source, external_id)` pair key, not row ids — survives a resync), `merge_log` (one row
+      per merge/split, "log every auto-merge"). The old session-2 `linked_activity_id`
+      Garmin<->Concept2 mechanism is fully superseded; kept only as a column a one-time
+      migration (`catch/core/db.py::_migrate_linked_activities_to_canonical`) reads to carry
+      existing pairs into one canonical, never read by any other code after that.
+- [x] **Matching rule** (`catch/analytics/matching.py`, pure): same `sport_family`
+      (rowing/cycling/running/strength/other) + start within 3 min OR overlap >=70% of the
+      shorter record + duration ratio in [0.8, 1.25] makes a *candidate*; a continuous score
+      decides auto-merge (>=0.82) vs. flagged "possible duplicate" (>=0.45). Indoor vs. outdoor
+      is a hard block on auto-merge regardless of score. `catch/sync/matching.py` is the
+      DB-facing half — `run_matching()` (idempotent; run after every sync and as the backfill
+      report below) finds and merges candidates, writing a `MergeLog` row per merged member.
+- [x] **Field priority** (`catch/sync/canonical.py::resolve_canonical`, task's defaults):
+      power/cadence/title prefer Peloton > Concept2 > Garmin; distance for an indoor bike
+      prefers Peloton > Garmin; HR prefers whichever member has `hr_source_type ==
+      "chest_strap"` (or is a Concept2 result — a PM5 has no wrist sensor to confuse it with)
+      else the Garmin watch else any member with HR. Configurable via
+      `Settings.field_priority`/`body_comp_priority` (Settings page: "Cross-source matching" /
+      "Body composition sources" cards). Shown per-field next to each metric in workout detail
+      (the "Sources" panel: which record, which fields it won).
+- [x] **Manual control**: `POST /api/activities/{merge,split,not-duplicate}` (raw per-source
+      activity ids, matching what the Duplicates screen displays) and the coach tools
+      `merge_activities`/(implicitly via) — split survives a resync via the `MatchDecision`
+      row `split_activity` writes. `/workouts/duplicates` lists flagged (not auto-merged)
+      pairs side by side with Merge / Not a duplicate actions.
+
+### Part B — Peloton
+
+- [x] **Checked with real data first, per the task's own instruction**: no Peloton-pushed
+      activity exists in this account (see the real-data section below) — detection is
+      implemented per the documented FIT-spec mechanism (`file_id.manufacturer`, not
+      `device_info`, which legitimately lists third-party *paired accessories* like this
+      account's real Cardiosport HR strap on an otherwise watch-recorded ride — using it
+      would have false-positived on that) but is unverified against a real Peloton-origin
+      file. Full findings in `docs/peloton.md`, including the specific "neither real
+      indoor-cycling FIT file has a power or cadence field" finding that drove the "use
+      whatever the watch recorded" fallback.
+- [x] Peloton-origin activities forced to `sport_family="cycling"`, treated as indoor by the
+      matching engine, title prefers a real (non-generic) `title_hint` — Garmin's
+      `activityName` — confirmed live that a plain recording's is exactly the generic
+      per-type label, so nothing in this account's real history ever produces a fake "real"
+      title.
+- [x] **Cycling strain** (`catch/analytics/cycling_load.py`): power-based TSS
+      (`100 * hours * (avg_power/FTP)^2`, the standard simplified formula) when the canonical's
+      power-source member has power samples, FTP from `Settings.ftp_watts` or estimated
+      per-ride as best-20-minute-power x 0.95 (flagged via `CanonicalActivity.strain_method`).
+      HR Banister trimp otherwise. Fed into the same 0-21 strain scale as every other sport —
+      a documented approximation (docs/analytics.md §18), unverified against any real
+      cycling-power data since none exists in this account. Today's `load` card gained a
+      `rowing_load` line (rowing-only EWMA load, parallel series) so cycling volume never
+      inflates the number the athlete actually trains rowing against.
+
+### Part C — activity editing
+
+- [x] `title`/`sport_family`/`notes`/`rpe`/`exclude_from_totals`/`tags` are Catch-side
+      overrides (`CanonicalActivity.overrides_json`) layered over resolved source values,
+      surviving every re-sync; `POST /api/activities/{id}/revert` drops one field's override.
+      `exclude_from_totals` is honored everywhere totals are computed (`scoring.py`'s
+      `_day_activities`, `routes_analytics.py`'s `trends_volume`).
+- [x] Inline title edit (tap to rename) + a full Edit card (sport/tags/exclude/sources) on
+      workout detail; Workouts-list "Select" mode for bulk retype/tag/exclude-from-totals
+      (`POST /api/activities/bulk`).
+- [x] Auto-titles when no source/override title exists: `"Erg N x Dm"` (Concept2 structured
+      workout), `"Peloton N min Just Ride"`, `"Steady state N'"` (continuous Garmin row), else
+      a generic per-sport-family noun.
+- [x] Coach/MCP tools: `rename_activity`, `tag_activity`, `merge_activities` (preview-then-
+      `confirm=true`, per the task's explicit "asks me to confirm in chat before merging") —
+      all three take canonical ids like every other workout tool, *not* raw per-source ids (an
+      advisor-review fix below explains why that distinction matters).
+- [x] Garmin's Personal API is read-only — `edits_push_back_to_source: false` on every
+      canonical payload; the UI never implies otherwise.
+
+### Part D — body composition from any scale
+
+- [x] **Checked the Garmin swagger spec, then live**: `/weight-service/weight/range` is real
+      and now synced (`GarminClient.sync_weight`) — **live-verified weight is reported in
+      grams, not kilograms as the OpenAPI schema's own description claims** (two real entries:
+      `58967.0`/`54431.0` for ~59kg/~54kg readings). `bodyFat` maps to `fat_pct`;
+      `muscleMass`/`boneMass`/`bodyWater` are left unmapped since this account's real entries
+      have them all `null` — no live value to confirm their unit against, and guessing wrong
+      would silently corrupt a number rather than just being absent.
+- [x] `catch/sync/body_comp.py::resolve_daily`: one resolved value per day per metric
+      (weight/fat_pct/muscle_kg), Withings first/Garmin second by default
+      (`Settings.body_comp_priority`), **never averaged**, each tagged with its winning
+      source. `GET /api/body` now returns this instead of raw interleaved rows.
+- [x] `POST /api/body/manual` + a form on the Body page — the app works with no scale
+      connected at all; "manual" always sorts last regardless of configured priority order.
+
+### Part E — zones and strain from the full HR stream
+
+- [x] **Samples**: `catch/sync/fit_parse.py` streams FIT `record`/`lap` messages (`fitdecode`
+      — pure-Python, universal wheel, checked against PyPI before adding) into a 1Hz grid
+      (<=10s gaps forward-filled, longer ones are real dropouts); Concept2 strokes resampled
+      the same way (`catch/sync/samples.py`). Packed as zlib'd uint16 arrays
+      (`catch/analytics/samples_codec.py`) into one `ActivitySamples` row per source record —
+      a few KB per session, not thousands of rows (the Pi-memory rule).
+- [x] **Real time-in-zone and per-sample Banister TRIMP** (`catch/analytics/zones_samples.py`)
+      replace the whole-session average everywhere samples exist — light (~5s) smoothing
+      with dropout rejection (0s and 30s+ flatlines), never counted as real HR.
+- [x] **Session label**: highest zone with meaningful time (>= `min_zone_minutes` OR
+      `min_zone_pct` of moving time, both configurable) leads, e.g. `"AN (10 min) + UT2"`.
+      Erg/bike also compute a power-zone label when power exists and use the higher-intensity
+      reading between HR and power.
+- [x] **Auto-trim**: a trailing near-zero-cadence stretch is "likely watch left running" —
+      excluded from the zones/strain/label computation and from the HR-graph summary chips,
+      never from the stored samples (which the chart still shows, in full, greyed out over
+      that stretch).
+- [x] **HR graph** (`GET /api/activities/{id}/samples`, `HrChart.tsx` on `useChartInteraction`
+      like every other chart): zone-shaded bands, dashed max/avg HR, FIT lap markers (or their
+      Concept2 stroke-interval equivalent), the trimmed tail greyed, a power/cadence overlay
+      toggle, pan/zoom with `start_s`/`end_s` windowing for full resolution when zoomed in, a
+      clean "no heart-rate data" vs. "no per-sample data at all" empty state.
+- [x] **Recompute-all-history report**: see the real-data section below —
+      **352 of 418 real sessions with samples (84%) changed their primary zone label** under
+      this method vs. the old whole-session-average one.
+
+### Quality bar
+
+- [x] Fixture tests for: watch + Peloton-pushed merging into one canonical with correct field
+      sources (`tests/test_matching_engine.py`), back-to-back separate rides never merging,
+      indoor vs. outdoor never auto-merging, manual split staying split after a re-run of
+      matching. The task's own quality-bar fixture (20 min warm-up / 10 min at ~95% max HR /
+      25 min cool-down + an idle tail) run twice — once against the pure zone/strain functions
+      directly (`tests/analytics/test_zones_samples.py`) and once end to end through
+      `store_samples -> resolve_canonical -> day_strain` with the idle tail included
+      (`tests/test_canonical.py`) — confirming the label is AN/TR-led (never UT2) and the
+      day's strain exceeds a steady UT2 piece of the same average HR, both ways.
+- [x] 80+ new/updated tests this session (224 -> 305 total, `uv run pytest` all green),
+      including monkeypatched-`fitdecode`-frame coverage for FIT parsing (no real `.fit` file
+      committed — it carries a user-profile/serial-number) and a real-backoff test for the
+      Garmin-429-resilience fix below.
+- [x] Frontend: `tsc -b` clean, 20 Vitest tests passing, `npm run build` ~156.5KB gzip eager
+      bundle (budget 250KB, `HrChart`/`Duplicates`/the editing UI all land in their own
+      per-route lazy chunks). Verified live against a real Vite dev server with Playwright
+      MCP (not just the build succeeding) at 390px/1280px, dark/light, on Workouts (Select
+      mode), Workout detail (HR graph + Edit card + Sources panel), Duplicates (merge flow
+      clicked through end to end), and Settings (the three new cards) — caught and fixed two
+      real bugs this way (below).
+- [x] CLAUDE.md (layout: new `sync`/`analytics`/`web` modules, MCP tool count 16->19),
+      `docs/analytics.md` (§17-20: matching, Peloton/cycling load, per-sample zones/strain,
+      body comp), `docs/garmin-endpoints.md` (the real weight-in-grams finding),
+      `docs/mcp.md` (tool count/list), `docs/peloton.md` (new) updated. PLAN.md + commit.
+
+## Real-data verification (2026-11-02)
+
+The local snapshot (`data/catch.db`, last synced 2026-10-31) only covered 30 days and the Pi's
+live DB wasn't reachable this session (not on the same network) — so the backfill report
+below is a **full, fresh `uv run catch backfill --days 400` against a disposable scratch
+SQLite DB** (`CATCH_DB_PATH` override; real `.env` Garmin/Concept2 credentials, read-only API
+calls, never the real `data/catch.db`), matching every prior session's disposable-instance
+precedent for live checks. Also includes the earlier live checks run directly against the
+real account before the backfill (the Garmin weight endpoint, this account's real FIT files).
+
+**Two real bugs found running it, fixed, then re-verified against the same real backfill**:
+
+- **A single FIT download's 429 (rate limit) used to abort the entire backfill.**
+  `GarminClient.download_fit` let `resp.raise_for_status()` propagate uncaught, so one rate-
+  limited activity killed every later activity in that sync call *and* every later window in
+  a multi-month backfill — caught live after several months of real history had already
+  synced successfully, then hit a 429 partway through. Fixed in two passes (the first only
+  covered FIT downloads; running the real backfill again immediately surfaced the same root
+  cause on `/weight-service` too, which wasn't covered): `GarminClient._call_with_backoff`
+  now wraps every per-window call (`sync_health`/`sync_activities`/`sync_weight`) with one
+  retry after a short sleep on a 429, otherwise logging and treating that window as a 0
+  rather than raising. Re-verified live: the second real backfill attempt hit *many* 429s
+  (Garmin rate-limits a 400-day historical pull fairly aggressively) but completed all 400
+  days regardless, landing 451 real activities instead of aborting after ~80.
+- **The Duplicates screen's mock "Merge" button didn't actually clear the flagged pair** —
+  found live-clicking through the mock UI with Playwright, not by reading the code. Real bug
+  in `mergeMockActivities`'s fallback path: the demo Peloton-push duplicate pair isn't
+  attached to any pre-existing `MOCK_WORKOUTS` entry (the whole point of the demo — a
+  not-yet-merged flagged pair), so the function's happy path never matched and the flagged
+  pair was never spliced out of `MOCK_DUPLICATE_PAIRS`. Fixed by always removing the matched
+  pair first, before whichever merge path applies. Also found and fixed in the same pass: the
+  HR chart's trimmed tail never actually rendered (greyed out) on first load — the frontend's
+  initial view domain was computed from `usable_n_samples` (which *excludes* the trimmed
+  tail by definition), so the chart's own window never extended far enough to show it. Fixed
+  by defaulting both the backend's `/samples` window and the frontend's initial domain to the
+  *full* recording (`n_samples`), with the summary chips still computed over the usable range
+  only — the trimmed tail is now visibly greyed, not simply cut off the chart.
+
+**Backfill report** (451 real Garmin activities, 2025-09-28 to 2026-10-31, ~13 months):
+
+| | before | after |
+|---|---|---|
+| Activity rows | 451 | 451 (unchanged — raw source records are never deleted) |
+| Canonical activities | — | 451 |
+| Auto-merged | — | 0 |
+| Flagged (possible duplicates) | — | 0 |
+
+**Zero merges and zero flags** — a real, somewhat anticlimactic finding, not a bug: this
+account has zero Concept2 results (still true every session since session 2 — `GET
+/api/users/me/results` returns `total: 0`) and zero Peloton-pushed Garmin activities across
+the *entire* 13-month real history (`origin` is `"watch"` for all 418 FIT-parsed activities,
+never `"peloton"`), so there is genuinely nothing in this account for the matching engine to
+merge yet. The matching logic itself is covered by synthetic fixtures (above) specifically
+because real evidence for it doesn't exist here — same situation as session 2's Concept2
+fixtures and session 8's Peloton docs.
+
+Other real findings from the same backfill:
+
+- **418 of 451 activities got real per-sample zones/strain** (the rest hit a persistent 429 on
+  their FIT download even after the one retry — logged, `fit_path` left unset, picked up by
+  the next scheduled sync).
+- **84% of real session labels changed** under the new per-sample method vs. the old
+  whole-session-average one (352 of 418) — including cases matching the task's exact
+  motivating scenario, e.g. a real session that averaged to "AT" relabeled "AN (11 min) + TR"
+  once the real 11 real minutes at AN showed up, and one that averaged to "UT1" relabeled
+  "AN (7 min) + UT2" (a short hard effort the average had been hiding inside an otherwise easy
+  session).
+- **Real recovery/strain/load computed correctly end to end**: the most recent day's real
+  recovery score (78.9%, green — real HRV/sleep/prior-strain components) and 3 real Garmin
+  weight rows (confirming `sync_weight` works live beyond its fixture test) both came out of
+  the same backfill run.
+- All 45 real `indoor_cycling` activities: `origin="watch"`, `hr_source_type="wrist"`
+  uniformly (no chest-strap pairing on any cycling session in this account), and every single
+  one's `activityName` is exactly the generic `"Indoor Cycling"` label — the live basis for
+  `_is_generic_garmin_title`'s detection logic (docs/peloton.md, docs/analytics.md §17.1).
+- This account's real FIT files legitimately pair a third-party ANT+ HR strap
+  (`"cardiosport"`) on an otherwise watch-recorded activity — confirmed why Peloton detection
+  must use `file_id.manufacturer`, not `device_info`, or it would false-positive on this
+  exact real case.
+
+## Gotchas / deviations from the literal task spec
+
+- **"Activity sources" is `Activity`+`canonical_id`, not a new table** — the task's wording
+  ("`activity_sources` table") was weighed against reusing the existing `activities` table
+  (already has the unique `(source, external_id)`, `fit_path`, `raw_json`, the `strokes`
+  foreign key) plus a new `canonical_activities` table for the resolved side. Chose reuse:
+  less migration risk, no behavior change for any code that already reads `Activity` for
+  source-specific fields (raw FIT path, Concept2 strokes/workout_type/drag_factor).
+- **Match-score thresholds (0.82 auto-merge / 0.45 flag) are code constants, not a Settings
+  knob** — only field priority is explicitly asked to be configurable in the task; tuning the
+  thresholds against zero real duplicate pairs in this account (see above) would have been
+  guessing, not configuring.
+- **Erg power-zone time (Part E.5) is implemented but unexercised by real data** — a real
+  `watts_2k` threshold is threaded through (`catch/sync/rowing_predict.py`, shared with
+  `GET /api/predict/2k`), but with 0 real Concept2 results this account has never produced a
+  value to sanity-check it against. Revisit once real erg data exists.
+- **Cycling TSS-vs-Banister-trimp equivalence (feeding both into the same 0-21 scale) is a
+  documented approximation**, not a validated one — no real cycling-power data exists in this
+  account to tune it against (docs/analytics.md §18).
+- **FTP estimation is per-ride (best 20 minutes in that one ride x 0.95), not all-time** — a
+  true FTP estimate would scan every ride's power history for the best-ever 20 minutes, which
+  this doesn't do; a reasonable scope cut given there's zero real cycling-power data to tell
+  the difference against either way.
+- **"Instructor" (task Part B.2) has no field to map** — no Garmin summary field for it has
+  ever been observed, live or otherwise; only the class-name-equivalent `activityName` is
+  used. Revisit if a real Peloton-pushed activity's real shape ever becomes available.
+- **The Pi needs a full-history `catch backfill` after its next deploy** — the scheduler's own
+  3-day sync window will never retroactively parse FIT samples for older activities, so the
+  real Pi's zones/strain/matching won't reflect this session's new method until a backfill
+  (like the one this session ran against a scratch DB) runs against the Pi's real database.
+  Deploying and running it was intentionally left for the user rather than done automatically
+  this session (a real, hard-to-reverse action against the live device).
