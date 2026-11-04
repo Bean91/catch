@@ -8,9 +8,12 @@ import type { ZoneName } from "../../lib/types";
 
 const HEIGHT = 280;
 const PAD_X = 40;
+const PAD_RIGHT_OVERLAY = 44; // only reserved when an overlay (power/cadence) axis is shown
 const PAD_TOP = 12;
 const PAD_BOTTOM = 24;
 const MIN_SPAN_S = 30;
+
+const OVERLAY_UNITS: Record<"power" | "cadence", string> = { power: "W", cadence: "spm" };
 
 function nearestPoint(points: SamplePoint[], targetS: number): SamplePoint | null {
   if (points.length === 0) return null;
@@ -54,14 +57,16 @@ export function HrChart({
   onResetDomain: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [plotWidthPx, setPlotWidthPx] = useState(600);
+  const [containerWidthPx, setContainerWidthPx] = useState(600 + PAD_X * 2);
+  const padRight = overlay === "none" ? PAD_X : PAD_RIGHT_OVERLAY;
+  const plotWidthPx = Math.max(containerWidthPx - PAD_X - padRight, 50);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
-      if (w) setPlotWidthPx(Math.max(w - PAD_X * 2, 50));
+      if (w) setContainerWidthPx(w);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -79,11 +84,13 @@ export function HrChart({
     onDoubleTap: onResetDomain,
   });
 
-  const width = plotWidthPx + PAD_X * 2;
+  const width = plotWidthPx + PAD_X + padRight;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
 
   const hrValues = points.map((p) => p.hr).filter((v): v is number => v != null);
-  const hrMin = Math.min(0, ...hrValues, maxHrSetting ?? 0);
+  // Starting the axis at the lowest observed HR (minus a small margin) instead of always 0
+  // avoids a half-empty plot for a typical 120-180bpm session (advisor review finding).
+  const hrMin = hrValues.length ? Math.max(0, Math.min(...hrValues) - 10) : 0;
   const hrMax = Math.max(maxHrSetting ?? 0, ...hrValues, 1) * 1.05;
   const hrRange = hrMax - hrMin || 1;
 
@@ -130,7 +137,7 @@ export function HrChart({
             return (
               <g key={z.zone}>
                 <rect x={PAD_X} width={plotWidthPx} y={yHr(hi)} height={Math.max(yHr(lo) - yHr(hi), 0)} fill={zoneColor(z.zone as ZoneName)} opacity={0.35} />
-                <text x={width - PAD_X + 4} y={(yHr(lo) + yHr(hi)) / 2} fontSize={9} fill="var(--text-tertiary)" dominantBaseline="middle">
+                <text x={PAD_X + plotWidthPx + 4} y={(yHr(lo) + yHr(hi)) / 2} fontSize={9} fill="var(--text-tertiary)" dominantBaseline="middle">
                   {z.zone}
                 </text>
               </g>
@@ -180,6 +187,28 @@ export function HrChart({
               {Math.round(v)}
             </text>
           ))}
+          {overlay !== "none" && (
+            <>
+              {/* Second y-axis, with units (task Part E.8) — the overlay's own scale, distinct
+                  from the left HR axis. */}
+              {[0, overlayMax / 2, overlayMax].map((v, i) => (
+                <text
+                  key={i}
+                  x={PAD_X + plotWidthPx + PAD_RIGHT_OVERLAY - 4}
+                  y={yOverlay(v) - 3}
+                  fontSize={10}
+                  fill="var(--text-tertiary)"
+                  textAnchor="end"
+                  className="font-mono-nums"
+                >
+                  {Math.round(v)}
+                </text>
+              ))}
+              <text x={PAD_X + plotWidthPx + PAD_RIGHT_OVERLAY - 4} y={PAD_TOP - 2} fontSize={9} fill="var(--text-tertiary)" textAnchor="end">
+                {OVERLAY_UNITS[overlay]}
+              </text>
+            </>
+          )}
           {Array.from({ length: 5 }, (_, i) => domain.min + ((domain.max - domain.min) * i) / 4).map((s, i) => (
             <text key={i} x={x(s)} y={HEIGHT - 6} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
               {formatDuration(s)}

@@ -13,11 +13,13 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from catch.analytics.cycling_load import best_rolling_power, cycling_tss, estimate_ftp_watts
+from catch.analytics.matching import category_for_canonical, is_indoor
 from catch.analytics.matching import sport_family as _sport_family
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.zones_samples import (
     banister_trimp_from_samples,
     detect_trailing_idle,
+    drop_dropouts,
     power_time_in_zone_seconds,
     session_label as _session_label,
     smooth,
@@ -188,7 +190,12 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     title = overrides.get("title") or auto_title(sport, members, priority["title"])
     field_sources["title"] = "override" if overrides.get("title") else "auto"
 
-    canonical.sport_family = overrides.get("sport_family") or sport
+    resolved_sport = overrides.get("sport_family") or sport
+    canonical.sport_family = resolved_sport
+    # Persisted (not recomputed per request) so GET /api/activities' category filter can run
+    # entirely in SQL — see the model field's own docstring for why that matters.
+    indoor = is_indoor(members[0].source, members[0].type) if members else None
+    canonical.category = category_for_canonical(resolved_sport, indoor)
     canonical.start = start
     canonical.duration = duration
     canonical.distance = distance
@@ -262,10 +269,15 @@ def _resolve_zones(
         hr_trimmed_s = _trim_tail(session, settings, hr_samples)
         usable_n = len(hr_samples["hr"]) - int(hr_trimmed_s)
         hr_for_ui = hr_samples["hr"][:usable_n] if hr_trimmed_s else hr_samples["hr"]
-        hr_zones = time_in_zone_seconds(smooth(hr_for_ui), max_hr, settings)
+        # Part E.2: drop obvious dropouts (0 or flatlined) *before* smoothing/integrating —
+        # a stuck sensor must never count as real low-intensity time. Validated against this
+        # account's real backfill: ~0.5% of real HR samples get dropped on average, so the
+        # default 30s flatline threshold isn't eating legitimate steady-state HR.
+        hr_cleaned = drop_dropouts(hr_for_ui)
+        hr_zones = time_in_zone_seconds(smooth(hr_cleaned), max_hr, settings)
         hr_moving_s = float(usable_n)
         resting_hr = _resting_hr_for(session, canonical.start)
-        hr_trimp = banister_trimp_from_samples(hr_for_ui, resting_hr, max_hr, settings["trimp_exponent"])
+        hr_trimp = banister_trimp_from_samples(hr_cleaned, resting_hr, max_hr, settings["trimp_exponent"])
 
     power_zones: Optional[dict] = None
     power_tss: Optional[float] = None
@@ -303,3 +315,18 @@ def _resolve_zones(
     canonical.strain_trimp = trimp
     canonical.session_label = label
     canonical.auto_trimmed_tail_s = hr_trimmed_s or None
+
+
+def resolve_all_canonicals(session: Session) -> int:
+    """Re-resolves every canonical activity — needed whenever a Settings change could change
+    an *already-resolved* canonical's cached fields (max_hr, ftp_watts, field_priority,
+    min_zone_minutes/pct, auto_trim_*), none of which `run_matching`'s own resolve calls cover
+    (those only touch orphaned, blank, or newly-merged canonicals — a real gap this session's
+    own advisor review caught: a Settings-page max_hr change used to silently stop affecting
+    any activity's cached strain/zones/label at all). One canonical at a time, each its own
+    commit (`resolve_canonical` already commits internally), to stay memory-bounded on the Pi
+    even with a long real history (this account's real backfill produced 451 canonicals)."""
+    ids = session.exec(select(CanonicalActivity.id)).all()
+    for canonical_id in ids:
+        resolve_canonical(session, canonical_id)
+    return len(ids)

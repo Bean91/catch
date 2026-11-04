@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlmodel import Session, select
 
-from catch.analytics.matching import category_for_canonical, is_indoor
 from catch.analytics.zones import training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, Note
@@ -33,9 +32,13 @@ def _members(db: Session, canonical_id: int) -> list[Activity]:
 def _category_filter(category: str):
     if category not in ("erg", "on_water", "other"):
         raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Allowed: erg, on_water, other")
-    if category == "other":
-        return CanonicalActivity.sport_family != "rowing"
-    return CanonicalActivity.sport_family == "rowing"  # narrowed to erg/on_water below in Python
+    # A pure SQL predicate on the persisted column — category_for_canonical's erg-vs-on_water
+    # split within the "rowing" sport family used to only be knowable in Python, *after* a
+    # SQL-level sport_family filter and the page's LIMIT had already applied, which could
+    # silently return a short or empty page (this account's real backfill: 166 on_water vs.
+    # 118 erg sessions — far from a 50/50 split a LIMIT could ride out by luck). See
+    # PLAN.md's session 12 bug log and CanonicalActivity.category's own docstring.
+    return CanonicalActivity.category == category
 
 
 def _parse_cursor(cursor: str | None) -> tuple[datetime, int] | None:
@@ -82,9 +85,9 @@ def _source_summary(member: Activity) -> dict:
 def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[Activity] | None = None) -> dict:
     members = members if members is not None else _members(db, canonical.id)
     overrides = _overrides(canonical)
-    indoor = is_indoor(members[0].source, members[0].type) if members else None
     data = canonical.model_dump(exclude={"overrides_json", "field_sources_json", "zones_json"})
-    data["category"] = category_for_canonical(canonical.sport_family or "other", indoor)
+    # canonical.category is already in `data` (a real persisted column, set by
+    # resolve_canonical) — nothing to recompute here.
     data["field_sources"] = json.loads(canonical.field_sources_json) if canonical.field_sources_json else {}
     data["zones"] = json.loads(canonical.zones_json) if canonical.zones_json else None
     data["notes"] = overrides.get("notes")
@@ -135,13 +138,9 @@ def list_activities(
     score_rows = db.exec(select(DailyScore).where(DailyScore.date.in_(dates))).all() if dates else []
     strain_by_date = {s.date: json.loads(s.strain_json) for s in score_rows if s.strain_json}
 
-    # category narrows further than the SQL filter (erg vs on_water both share sport_family
-    # == "rowing"; the indoor/outdoor split needs each row's member type).
     items = []
     for r in rows:
         payload = _canonical_payload(db, r, members_by_canonical.get(r.id, []))
-        if category and payload["category"] != category:
-            continue
         payload["strain"] = _activity_strain(db, r, strain_by_date)
         items.append(payload)
 
@@ -149,6 +148,25 @@ def list_activities(
     if len(rows) == limit and rows[-1].start is not None:
         next_cursor = f"{rows[-1].start.isoformat()}_{rows[-1].id}"
     return {"items": items, "next_cursor": next_cursor}
+
+
+# -- Duplicates review (task Part A.5) ---------------------------------------------------
+#
+# Registered *before* GET /api/activities/{canonical_id} below, deliberately — Starlette
+# matches routes in registration order on (method, path pattern) alone, with no type-aware
+# fallback: `{canonical_id}` has no `:int` converter in the path string, so it structurally
+# matches literally any single path segment, including "duplicates". FastAPI only discovers
+# the int-conversion failure *after* that route is already selected, and a failed parameter
+# validation does not fall through to try the next route — it 422s outright. A real bug this
+# session caught live (an HTTP-level check the mock-mode/direct-function tests never
+# exercised): see PLAN.md's session 12 notes.
+
+
+@router.get("/api/activities/duplicates")
+def list_duplicates(db: Session = Depends(get_db)):
+    from catch.sync.matching import list_flagged_duplicates
+
+    return {"pairs": list_flagged_duplicates(db)}
 
 
 @router.get("/api/activities/{canonical_id}")
@@ -252,16 +270,6 @@ def bulk_edit_activities(body: BulkEditRequest = Body(...), db: Session = Depend
 
     recompute_scores(db)
     return {"updated": updated}
-
-
-# -- Duplicates review (task Part A.5) ---------------------------------------------------
-
-
-@router.get("/api/activities/duplicates")
-def list_duplicates(db: Session = Depends(get_db)):
-    from catch.sync.matching import list_flagged_duplicates
-
-    return {"pairs": list_flagged_duplicates(db)}
 
 
 class ActivityPairRequest(BaseModel):

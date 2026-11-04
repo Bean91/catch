@@ -530,6 +530,16 @@ def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
         result = update_settings(db, patch)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    # Session 8/12: a changed max_hr/ftp_watts/field_priority/min_zone_*/auto_trim_* affects
+    # every *already-resolved* canonical's cached zones/strain/label/title, none of which
+    # run_matching's own resolve calls touch (those only cover orphaned, blank, or
+    # newly-merged canonicals) — re-resolve everything before recompute_scores reads the
+    # (now-correct) cached CanonicalActivity.strain_trimp values back out.
+    from catch.sync.canonical import resolve_all_canonicals
+
+    resolve_all_canonicals(db)
+
     from catch.sync.scoring import recompute_scores
 
     recompute_scores(db)

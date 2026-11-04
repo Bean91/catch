@@ -4,11 +4,18 @@ from datetime import datetime, timedelta, timezone
 
 from catch.core.models import Activity, CanonicalActivity, DailyWellness
 from catch.core.settings_store import get_settings, update_settings
-from catch.sync.canonical import _is_generic_garmin_title, auto_title, resolve_canonical
+from catch.sync.canonical import _is_generic_garmin_title, auto_title, resolve_all_canonicals, resolve_canonical
 from catch.sync.matching import run_matching
 from catch.sync.samples import store_samples
 
 T0 = datetime(2026, 7, 1, 7, tzinfo=timezone.utc)
+
+
+def _jitter(base_hr: float, n: int) -> list[float]:
+    """±1 bpm oscillation, not a flat value for `n` seconds straight — a real HR trace never
+    holds one exact integer bpm for 30s+ (drop_dropouts, Part E.2, would correctly treat that
+    as a stuck sensor and drop it, which a naive constant-value fixture would trigger)."""
+    return [base_hr + (i % 3 - 1) for i in range(n)]
 
 
 def test_generic_garmin_title_detection():
@@ -94,8 +101,8 @@ def test_quality_bar_fixture_end_to_end_through_the_real_pipeline(session):
     day = hard_start.astimezone().date()
     session.add(DailyWellness(date=day, resting_hr=resting_hr))
 
-    profile_hr = [warmup_hr] * (20 * 60) + [hard_hr] * (10 * 60) + [warmup_hr] * (25 * 60)
-    idle_tail = [60.0] * 180  # watch left running after the session ended
+    profile_hr = _jitter(warmup_hr, 20 * 60) + _jitter(hard_hr, 10 * 60) + _jitter(warmup_hr, 25 * 60)
+    idle_tail = _jitter(60.0, 180)  # watch left running after the session ended
     cadence = [20.0] * len(profile_hr) + [0.0] * len(idle_tail)
 
     hard = Activity(source="garmin", external_id="qb1", type="indoor_rowing", start=hard_start, duration=float(len(profile_hr)))
@@ -109,7 +116,10 @@ def test_quality_bar_fixture_end_to_end_through_the_real_pipeline(session):
     steady = Activity(source="garmin", external_id="qb2", type="indoor_rowing", start=steady_start, duration=float(len(profile_hr)))
     session.add(steady)
     session.commit()
-    store_samples(session, steady.id, start=steady_start, hr=[avg_hr] * len(profile_hr), power=[None] * len(profile_hr), cadence=[20.0] * len(profile_hr))
+    store_samples(
+        session, steady.id, start=steady_start, hr=_jitter(avg_hr, len(profile_hr)),
+        power=[None] * len(profile_hr), cadence=[20.0] * len(profile_hr),
+    )
 
     run_matching(session)
     session.refresh(hard)
@@ -130,6 +140,36 @@ def test_quality_bar_fixture_end_to_end_through_the_real_pipeline(session):
     assert by_canonical[hard_canonical.id]["value"] > by_canonical[steady_canonical.id]["value"]
 
 
+def test_resolve_all_canonicals_picks_up_a_changed_max_hr(session):
+    """Regression (advisor-caught): a max_hr change via Settings used to be a silent no-op
+    for every already-resolved canonical, since day_strain reads the *cached*
+    CanonicalActivity.strain_trimp/zones_json rather than recomputing live, and
+    run_matching's own resolve calls only ever touch orphaned/blank/newly-merged canonicals.
+    resolve_all_canonicals (wired into PUT /api/settings) must re-resolve everything."""
+    update_settings(session, {"max_hr": 190})
+    session.add(DailyWellness(date=T0.date(), resting_hr=50))
+    activity = Activity(source="garmin", external_id="mh1", type="indoor_rowing", start=T0, duration=1800.0)
+    session.add(activity)
+    session.commit()
+    store_samples(session, activity.id, start=T0, hr=_jitter(150.0, 1800), power=[None] * 1800, cadence=[20.0] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+
+    canonical_before = session.get(CanonicalActivity, activity.canonical_id)
+    zones_before = canonical_before.zones_json
+    trimp_before = canonical_before.strain_trimp
+    assert zones_before is not None
+
+    # 150 bpm against max_hr=190 is UT1 (78.9%); against a much lower max_hr it reads as a much
+    # higher zone, and the Banister HRr (and so trimp) changes too.
+    update_settings(session, {"max_hr": 160})
+    resolve_all_canonicals(session)
+
+    canonical_after = session.get(CanonicalActivity, activity.canonical_id)
+    assert canonical_after.zones_json != zones_before
+    assert canonical_after.strain_trimp != trimp_before
+
+
 def test_cycling_without_power_falls_back_to_hr_banister(session):
     update_settings(session, {"max_hr": 190})
     session.add(DailyWellness(date=T0.date(), resting_hr=50))
@@ -137,7 +177,7 @@ def test_cycling_without_power_falls_back_to_hr_banister(session):
     session.add(activity)
     session.commit()
 
-    store_samples(session, activity.id, start=T0, hr=[150.0] * 1800, power=[None] * 1800, cadence=[85.0] * 1800)
+    store_samples(session, activity.id, start=T0, hr=_jitter(150.0, 1800), power=[None] * 1800, cadence=[85.0] * 1800)
     run_matching(session)
     session.refresh(activity)
 

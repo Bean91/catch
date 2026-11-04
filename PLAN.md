@@ -1734,10 +1734,10 @@ findings after.
       "Body composition sources" cards). Shown per-field next to each metric in workout detail
       (the "Sources" panel: which record, which fields it won).
 - [x] **Manual control**: `POST /api/activities/{merge,split,not-duplicate}` (raw per-source
-      activity ids, matching what the Duplicates screen displays) and the coach tools
-      `merge_activities`/(implicitly via) — split survives a resync via the `MatchDecision`
-      row `split_activity` writes. `/workouts/duplicates` lists flagged (not auto-merged)
-      pairs side by side with Merge / Not a duplicate actions.
+      activity ids, matching what the Duplicates screen displays) and the coach tool
+      `merge_activities` — a manual split survives a resync via the `MatchDecision` row
+      `split_activity` writes. `/workouts/duplicates` lists flagged (not auto-merged) pairs
+      side by side with Merge / Not a duplicate actions.
 
 ### Part B — Peloton
 
@@ -1840,17 +1840,24 @@ findings after.
       `store_samples -> resolve_canonical -> day_strain` with the idle tail included
       (`tests/test_canonical.py`) — confirming the label is AN/TR-led (never UT2) and the
       day's strain exceeds a steady UT2 piece of the same average HR, both ways.
-- [x] 80+ new/updated tests this session (224 -> 305 total, `uv run pytest` all green),
+- [x] 85+ new/updated tests this session (224 -> 312 total, `uv run pytest` all green),
       including monkeypatched-`fitdecode`-frame coverage for FIT parsing (no real `.fit` file
-      committed — it carries a user-profile/serial-number) and a real-backoff test for the
-      Garmin-429-resilience fix below.
+      committed — it carries a user-profile/serial-number), a real-backoff test for the
+      Garmin-429-resilience fix below, and regression tests for every bug the two advisor
+      reviews caught (route order over real HTTP, `resolve_all_canonicals`, the
+      `drop_dropouts` hang, category-filter pagination, the Pi stale-`fit_path` migration
+      bug).
 - [x] Frontend: `tsc -b` clean, 20 Vitest tests passing, `npm run build` ~156.5KB gzip eager
       bundle (budget 250KB, `HrChart`/`Duplicates`/the editing UI all land in their own
       per-route lazy chunks). Verified live against a real Vite dev server with Playwright
       MCP (not just the build succeeding) at 390px/1280px, dark/light, on Workouts (Select
       mode), Workout detail (HR graph + Edit card + Sources panel), Duplicates (merge flow
-      clicked through end to end), and Settings (the three new cards) — caught and fixed two
-      real bugs this way (below).
+      clicked through end to end), and Settings (the three new cards) — this first pass ran
+      against **mock data** (`?mock=1`) and caught two real bugs (below). A second advisor
+      review then caught four more real bugs plus several missing requirements, verified with
+      a further pass against a **disposable real backend** (a throwaway uvicorn instance over
+      a copy of the real local `data/catch.db`, real secrets never touched) — see "A second
+      advisor review" below.
 - [x] CLAUDE.md (layout: new `sync`/`analytics`/`web` modules, MCP tool count 16->19),
       `docs/analytics.md` (§17-20: matching, Peloton/cycling load, per-sample zones/strain,
       body comp), `docs/garmin-endpoints.md` (the real weight-in-grams finding),
@@ -1866,7 +1873,7 @@ calls, never the real `data/catch.db`), matching every prior session's disposabl
 precedent for live checks. Also includes the earlier live checks run directly against the
 real account before the backfill (the Garmin weight endpoint, this account's real FIT files).
 
-**Two real bugs found running it, fixed, then re-verified against the same real backfill**:
+**Three real bugs found running it, fixed, then re-verified against the same real backfill**:
 
 - **A single FIT download's 429 (rate limit) used to abort the entire backfill.**
   `GarminClient.download_fit` let `resp.raise_for_status()` propagate uncaught, so one rate-
@@ -1879,20 +1886,23 @@ real account before the backfill (the Garmin weight endpoint, this account's rea
   retry after a short sleep on a 429, otherwise logging and treating that window as a 0
   rather than raising. Re-verified live: the second real backfill attempt hit *many* 429s
   (Garmin rate-limits a 400-day historical pull fairly aggressively) but completed all 400
-  days regardless, landing 451 real activities instead of aborting after ~80.
+  days regardless, landing 451 real activities instead of aborting after ~80. One
+  `sync_health` window (2026-10-05..11-02) still hit the 429 even after the one retry and was
+  logged and skipped rather than retried further — `DailyWellness` for that window is backed
+  only by whatever Withings covered, picked up on the next scheduled sync.
 - **The Duplicates screen's mock "Merge" button didn't actually clear the flagged pair** —
   found live-clicking through the mock UI with Playwright, not by reading the code. Real bug
   in `mergeMockActivities`'s fallback path: the demo Peloton-push duplicate pair isn't
   attached to any pre-existing `MOCK_WORKOUTS` entry (the whole point of the demo — a
   not-yet-merged flagged pair), so the function's happy path never matched and the flagged
   pair was never spliced out of `MOCK_DUPLICATE_PAIRS`. Fixed by always removing the matched
-  pair first, before whichever merge path applies. Also found and fixed in the same pass: the
-  HR chart's trimmed tail never actually rendered (greyed out) on first load — the frontend's
-  initial view domain was computed from `usable_n_samples` (which *excludes* the trimmed
-  tail by definition), so the chart's own window never extended far enough to show it. Fixed
-  by defaulting both the backend's `/samples` window and the frontend's initial domain to the
-  *full* recording (`n_samples`), with the summary chips still computed over the usable range
-  only — the trimmed tail is now visibly greyed, not simply cut off the chart.
+  pair first, before whichever merge path applies.
+- **The HR chart's trimmed tail never actually rendered (greyed out) on first load** — the
+  frontend's initial view domain was computed from `usable_n_samples` (which *excludes* the
+  trimmed tail by definition), so the chart's own window never extended far enough to show it.
+  Fixed by defaulting both the backend's `/samples` window and the frontend's initial domain
+  to the *full* recording (`n_samples`), with the summary chips still computed over the usable
+  range only — the trimmed tail is now visibly greyed, not simply cut off the chart.
 
 **Backfill report** (451 real Garmin activities, 2025-09-28 to 2026-10-31, ~13 months):
 
@@ -1935,6 +1945,69 @@ Other real findings from the same backfill:
   (`"cardiosport"`) on an otherwise watch-recorded activity — confirmed why Peloton detection
   must use `file_id.manufacturer`, not `device_info`, or it would false-positive on this
   exact real case.
+
+## A second advisor review: four more real bugs, plus missing requirements
+
+A second advisor pass over the diff above (after the real-data verification, before this
+session's commit) caught four more real bugs — none visible to mock-mode or direct-function
+tests, all over real HTTP or real settled state — and several requirements the task asked for
+that the first pass had missed. Fixed, then re-verified with a **disposable real-backend
+Playwright pass**: a throwaway uvicorn instance over a copy of the real local `data/catch.db`
+(real secrets never touched, cleaned up after).
+
+- **The entire Duplicates feature was unreachable over real HTTP** — `GET
+  /api/activities/duplicates` 422'd (`int_parsing` on `"duplicates"`). Root cause: Starlette
+  matches routes by registration order, and `GET /api/activities/{canonical_id}` (no `:int`
+  converter) structurally matches any path segment first; FastAPI's own type-validation
+  failure on that match doesn't fall through to try the next route. Invisible to the mock-UI
+  Playwright pass above (which never hits a real backend) and to every existing test (all
+  called the handler function directly, never over HTTP). Fixed by moving the `/duplicates`
+  route above `/{canonical_id}` with an explanatory comment; added HTTP-level regression
+  tests.
+- **A changed Settings value (max HR, zone boundaries) silently stopped affecting
+  already-resolved canonicals.** `PUT /api/settings` only re-ran matching for orphan/blank/
+  newly-merged canonicals, never recomputed the zones/strain of ones that already had cached
+  values. Added `resolve_all_canonicals()`, wired into `put_settings` before
+  `recompute_scores`.
+- **`drop_dropouts` could hang forever** on a sample array that already had a `None` gap
+  (true of every real FIT/Concept2 sample array, which always has resample gaps) — the inner
+  scan's termination condition (`out[j] is not None and out[j] == out[i]`) can never advance
+  when `out[i]` itself is `None`. Found trying to empirically measure the function's real-data
+  drop rate per the advisor's own suggestion: a background script hung past two minutes.
+  Fixed with an explicit "already a gap" branch; added a regression test; then re-ran the
+  real-data measurement once the hang was fixed (0.57% average drop rate across 30 sampled
+  real activities, 4.5% worst case — confirms the 30s-flatline threshold isn't overly
+  aggressive against real sensor noise).
+- **The Workouts category filter (erg/on_water) broke pagination on real data.** Both
+  categories map to the same `sport_family=="rowing"` in SQL; the actual erg/on_water split
+  only happened in Python *after* the SQL `LIMIT` applied, so with this account's real skew
+  (166 on_water vs. 118 erg) a page could come back short or empty. Fixed by persisting
+  `category` on `CanonicalActivity` (computed once in `resolve_canonical`) and filtering on it
+  directly in SQL.
+- **Missing requirements, added**: per-activity notes/RPE inline editing on Workout detail
+  (distinct from the existing per-day note/RPE journal entry); a stacked time-in-zone
+  `ZoneBar` (Workouts list, compact, and Workout detail, with a legend); a second y-axis on
+  `HrChart` for the power/cadence overlay (previously sharing the HR axis, making an overlay
+  unreadable); live/settled-domain windowed refetch on the HR chart so zooming in actually
+  requests full-resolution samples for the zoomed range instead of just stretching the same
+  downsampled points.
+- **Non-blocking, also fixed**: `HrChart`'s y-axis always started at 0, making a typical
+  120-180bpm session plot half-empty — now starts at the lowest observed HR minus a small
+  margin (floored at 0).
+- **A real latent Pi-deployment bug, found by inspecting `deploy/pi-bootstrap.sh` rather than
+  from a review comment**: that script explicitly supports adopting a staged `catch.db` +
+  `fit/` directory copied from the laptop, landing FIT files at `/var/lib/catch/fit/`. But
+  rows synced on the laptop store `fit_path` as a path relative to `CATCH_DB_PATH`'s parent
+  (`data/fit/<id>.fit`, since the laptop's `.env` uses a relative `CATCH_DB_PATH`). On the Pi,
+  `catch.service`'s `WorkingDirectory=/opt/catch/app` (and `ProtectSystem=strict`, read-only
+  outside `ReadWritePaths=/var/lib/catch`) means that relative path never resolves, and since
+  `sync_activities` only re-downloaded when `fit_path` was unset, a migrated row's samples
+  would silently never populate on the Pi, forever, with no error logged. Fixed:
+  `sync_activities` now also re-checks `Path(row.fit_path).exists()`, and if the expected file
+  already lives in the current run's `fit_dir` (as it does right after the bootstrap's `fit/`
+  copy), re-points to it instead of re-hitting Garmin's download-service. Added a regression
+  test reproducing the exact migration scenario (stale relative `fit_path`, real file already
+  present at the new location, asserts no network call for that activity).
 
 ## Gotchas / deviations from the literal task spec
 

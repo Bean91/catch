@@ -140,6 +140,59 @@ def test_sync_activities_upserts_and_downloads_fit(session, tmp_path):
     assert len(session.exec(select(Activity)).all()) == 2
 
 
+def test_sync_activities_repairs_a_stale_fit_path_without_a_network_call(session, tmp_path):
+    """Real latent bug: a DB migrated from the laptop to the Pi (deploy/pi-bootstrap.sh
+    adopting a staged catch.db + fit/ dir) carries laptop-relative fit_path values
+    ("data/fit/X.fit") that don't resolve under the Pi's systemd WorkingDirectory. Since
+    `fit_path` was already set, sync_activities used to never notice the file was missing
+    and silently never ingest samples for that activity again. If the expected file already
+    exists in this run's fit_dir (as it does right after the bootstrap's `fit/` copy), the
+    fix should just re-point to it — never re-hit Garmin's download-service."""
+    stale_activity_id = "24918902966"
+    row = Activity(
+        source="garmin", external_id=stale_activity_id, type="rowing", sport_family="rowing",
+        start=datetime(2026, 10, 2, tzinfo=timezone.utc), duration=1800.0,
+        # A path that can never accidentally resolve on this machine's real CWD, unlike
+        # a real relative "data/fit/..." path — which could coincide with this repo's own
+        # downloaded fixtures and mask the bug this test exists to catch.
+        fit_path="definitely-stale-laptop-relative-dir/fit/24918902966.fit",
+    )
+    session.add(row)
+    session.commit()
+
+    real_fit = tmp_path / f"{stale_activity_id}.fit"
+    real_fit.write_bytes(b"not a real fit file")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/activitylist-service/activities/search/activities":
+            start = int(request.url.params.get("start", "0"))
+            page = load_fixture("garmin", "activities_list.json") if start == 0 else []
+            return httpx.Response(200, json=page)
+        if path == f"/download-service/files/activity/{stale_activity_id}":
+            raise AssertionError("must not re-download a FIT file that already exists in fit_dir")
+        if path.startswith("/download-service/files/activity/"):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as zf:
+                zf.writestr("activity.fit", b"\x0efake-fit-bytes")
+            return httpx.Response(200, content=buf.getvalue(), headers={"content-type": "application/x-zip-compressed"})
+        raise AssertionError(f"unexpected path {path}")
+
+    http = httpx.Client(base_url="https://personal.connectapi.garmin.com", transport=httpx.MockTransport(handler))
+    client = GarminClient(session, http=http)
+    from catch.core import security
+
+    session.add(
+        OAuthToken(source="garmin", access_token_enc=security.encrypt(_fake_jwt()), expires_at=datetime.now(timezone.utc) + timedelta(hours=12))
+    )
+    session.commit()
+
+    client.sync_activities(date(2026, 10, 1), date(2026, 10, 31), tmp_path)
+
+    session.refresh(row)
+    assert row.fit_path == str(real_fit)
+
+
 def test_sync_weight_converts_grams_to_kg(session):
     """docs/garmin-endpoints.md: the real `/weight-service/weight/range` response reports
     `weight` in grams despite the OpenAPI schema's own "kilograms" description — confirmed

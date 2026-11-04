@@ -55,6 +55,18 @@ def test_time_in_zone_sums_real_seconds_not_whole_session_average():
     assert zones["UT2"] == 45 * 60.0
 
 
+def test_drop_dropouts_does_not_hang_on_a_pre_existing_gap():
+    """Regression: a None already in the array (e.g. a >10s resample gap from
+    catch/sync/fit_parse.py — every real activity in this app's own live backfill has at
+    least one) used to make the scan never advance past it, an infinite loop. Any array with
+    a None anywhere must still terminate and leave non-flatlined, non-zero values alone."""
+    samples = [110.0, 111.0, None, None, None, 112.0, 113.0] + [None] * 50 + [120.0] * 5
+    cleaned = drop_dropouts(samples, flatline_run_s=30)  # must return, not hang
+    assert cleaned[0:2] == [110.0, 111.0]
+    assert cleaned[5:7] == [112.0, 113.0]
+    assert cleaned[-5:] == [120.0] * 5  # too short a run to count as a flatline
+
+
 def test_drop_dropouts_removes_zero_and_long_flatlines():
     samples = [120.0] * 10 + [0.0] * 5 + [150.0] * 40  # a 40s flatline at 150 is a dropout
     cleaned = drop_dropouts(samples, flatline_run_s=30)

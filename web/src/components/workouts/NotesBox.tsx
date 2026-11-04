@@ -26,7 +26,11 @@ export function NotesBox({ date }: { date: string }) {
   });
 
   return (
-    <Card title="Notes & RPE">
+    <Card title="Day note & RPE">
+      <p className="mb-2 text-xs text-text-tertiary">
+        One journal entry per calendar day (used as the sRPE strain fallback when a session has no HR) — separate from the
+        per-workout notes/RPE in the Edit card above.
+      </p>
       <textarea
         value={text}
         onChange={(e) => {

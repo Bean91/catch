@@ -10,6 +10,7 @@ import { HrChart } from "../components/charts/HrChart";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
 import { TechniqueGrid } from "../components/workouts/TechniqueGrid";
+import { ZoneBar } from "../components/workouts/ZoneBar";
 import { ZoneTable } from "../components/workouts/ZoneTable";
 import { BandBadge } from "../components/ui/Badge";
 import { Card } from "../components/ui/Card";
@@ -89,6 +90,11 @@ export function WorkoutDetailPage() {
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
   // --- HR graph (task Part E.8) --------------------------------------------
+  // Two queries, like the erg strokes above: one unwindowed fetch for everything that's
+  // stable regardless of zoom (summary chips, zones, label, laps, n_samples), and a second,
+  // re-fetched-per-zoom one for just the chart's own point array — "full resolution when
+  // zoomed in" needs the backend's start_s/end_s window, not only a wider on-screen domain
+  // over the same fixed 800-point sample.
   const { data: samples } = useQuery({
     queryKey: ["activity-samples", canonicalId],
     queryFn: () => fetchActivitySamples(canonicalId, { points: 800 }),
@@ -96,9 +102,25 @@ export function WorkoutDetailPage() {
   });
   const hrFullDomain: Domain | null = samples?.has_data ? { min: 0, max: Math.max(samples.n_samples, 1) } : null;
   const [hrDomain, setHrDomain] = useState<Domain | null>(null);
+  const [hrQueryDomain, setHrQueryDomain] = useState<Domain | null>(null);
   const effectiveHrDomain = hrDomain ?? hrFullDomain ?? { min: 0, max: 1 };
-  const resetHrDomain = () => setHrDomain(hrFullDomain);
+  const effectiveHrQueryDomain = hrQueryDomain ?? hrFullDomain ?? { min: 0, max: 1 };
+  const resetHrDomain = () => {
+    setHrDomain(hrFullDomain);
+    setHrQueryDomain(hrFullDomain);
+  };
+  const onHrDomainSettled = (next: Domain) => setHrQueryDomain(next);
   const [overlay, setOverlay] = useState<"none" | "power" | "cadence">("none");
+
+  const hrPadded = hrFullDomain ? padDomain(effectiveHrQueryDomain, hrFullDomain) : null;
+  const hrPoints = quantizePoints(640);
+  const { data: windowedSamples } = useQuery({
+    queryKey: ["activity-samples-window", canonicalId, hrPadded?.min, hrPadded?.max, hrPoints],
+    queryFn: () => fetchActivitySamples(canonicalId, { points: hrPoints, startS: Math.floor(hrPadded!.min), endS: Math.ceil(hrPadded!.max) }),
+    enabled: !!hrPadded && samples?.has_data,
+    placeholderData: keepPreviousData,
+  });
+  const chartPoints = windowedSamples?.has_data ? windowedSamples.points : samples?.has_data ? samples.points : [];
 
   // --- Editing (task Part C) ------------------------------------------------
   const [editingTitle, setEditingTitle] = useState(false);
@@ -204,6 +226,24 @@ export function WorkoutDetailPage() {
             {workout.strain_method?.includes("estimated") && <span className="text-xs text-text-tertiary">(estimated FTP)</span>}
           </div>
         )}
+        {(workout.zones?.hr || workout.zones?.power) && (
+          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-3">
+            {workout.zones?.hr && (
+              <div>
+                <p className="mb-1 text-xs text-text-tertiary">Time in zone — heart rate</p>
+                <ZoneBar zones={workout.zones.hr} height={10} showLegend />
+              </div>
+            )}
+            {/* Part E.5: erg/bike also compute a power-zone reading, shown alongside HR so
+                both are visible even though session_label only used the higher-intensity one. */}
+            {workout.zones?.power && (
+              <div>
+                <p className="mb-1 text-xs text-text-tertiary">Time in zone — power</p>
+                <ZoneBar zones={workout.zones.power} height={10} showLegend />
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {samples?.has_data && (
@@ -225,6 +265,11 @@ export function WorkoutDetailPage() {
             )}
             {samples.trimmed_tail_s > 0 && <span>watch left running {Math.round(samples.trimmed_tail_s)}s — greyed out, excluded above</span>}
           </div>
+          {samples.zones?.hr && (
+            <div className="mb-3">
+              <ZoneBar zones={samples.zones.hr} height={8} showLegend />
+            </div>
+          )}
           {(samples.points.some((p) => p.power != null) || samples.points.some((p) => p.cadence != null)) && (
             <div className="mb-2 flex gap-2" role="tablist" aria-label="Overlay">
               {(["none", "power", "cadence"] as const).map((o) => (
@@ -242,7 +287,7 @@ export function WorkoutDetailPage() {
             </div>
           )}
           <HrChart
-            points={samples.points}
+            points={chartPoints}
             zonesConfig={samples.zones_config}
             maxHrSetting={samples.max_hr_setting}
             avgHr={samples.avg_hr}
@@ -252,6 +297,7 @@ export function WorkoutDetailPage() {
             domain={effectiveHrDomain}
             fullDomain={hrFullDomain ?? { min: 0, max: 1 }}
             onDomainChange={setHrDomain}
+            onDomainSettled={onHrDomainSettled}
             onResetDomain={resetHrDomain}
           />
         </Card>
@@ -354,6 +400,42 @@ export function WorkoutDetailPage() {
               placeholder="race, test, technique, cross-training"
               className="min-h-9 flex-1 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
             />
+          </div>
+
+          <div>
+            <label className="text-xs text-text-tertiary" htmlFor="wd-notes">
+              Notes (this workout)
+            </label>
+            <textarea
+              id="wd-notes"
+              defaultValue={workout.notes ?? ""}
+              onBlur={(e) => patch.mutate({ notes: e.target.value })}
+              placeholder="How did it feel?"
+              rows={2}
+              className="mt-1 w-full resize-none rounded-md border border-border bg-surface-2 p-2 text-sm text-text-primary placeholder:text-text-tertiary"
+            />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-text-tertiary" htmlFor="wd-rpe">
+              RPE (this workout)
+            </label>
+            <input
+              id="wd-rpe"
+              type="range"
+              min={0}
+              max={10}
+              step={1}
+              value={workout.rpe ?? 0}
+              onChange={(e) => patch.mutate({ rpe: Number(e.target.value) })}
+              className="w-32 accent-accent"
+            />
+            <span className="font-mono-nums w-6 text-sm text-text-primary">{workout.rpe ?? "—"}</span>
+            {workout.overrides.rpe != null && (
+              <button type="button" onClick={() => revert.mutate("rpe")} className="text-xs text-text-tertiary underline">
+                revert
+              </button>
+            )}
           </div>
 
           <div>

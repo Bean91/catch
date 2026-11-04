@@ -125,20 +125,20 @@ def test_trends_volume_uses_real_stroke_zones_when_available(client, session):
     )
     session.add(activity)
     session.commit()
-    session.add(Stroke(activity_id=activity.id, seq=0, interval_index=0, t=0.0, hr=150))
-    session.add(Stroke(activity_id=activity.id, seq=1, interval_index=0, t=60.0, hr=150))
+    # 7 strokes, ~10s apart, HR oscillating 150/151/149 — not one exact value held for the
+    # whole 61s run. A real stroke stream never holds one exact bpm that long either;
+    # drop_dropouts (Part E.2) would otherwise treat a flat 61s forward-fill as a stuck
+    # sensor and wipe this fixture's samples entirely.
+    strokes = [
+        {"seq": i, "interval_index": 0, "t": float(i * 10), "hr": 150 + (i % 3 - 1)} for i in range(7)
+    ]
+    for s in strokes:
+        session.add(Stroke(activity_id=activity.id, **s))
     session.commit()
     # Mirrors what catch/sync/concept2_client.py's real sync does with the same stroke data
     # (Part E — per-sample zones cached on the canonical), so this test exercises the same
     # path a real sync would rather than only inserting raw Stroke rows.
-    store_samples_from_strokes(
-        session,
-        activity.id,
-        [
-            {"seq": 0, "interval_index": 0, "t": 0.0, "hr": 150},
-            {"seq": 1, "interval_index": 0, "t": 60.0, "hr": 150},
-        ],
-    )
+    store_samples_from_strokes(session, activity.id, strokes)
     run_matching(session)
 
     _login(client)

@@ -270,3 +270,35 @@ def test_put_settings_updates_and_rejects_unknown_keys(client):
 def test_settings_require_auth(client):
     resp = client.get("/api/settings")
     assert resp.status_code == 401
+
+
+def test_put_settings_max_hr_change_updates_an_existing_activitys_cached_zones(client, session):
+    """Regression: PUT /api/settings used to leave every already-resolved canonical's cached
+    zones/strain untouched — only orphaned/blank/newly-merged canonicals got re-resolved."""
+    from catch.core.models import CanonicalActivity
+    from catch.sync.matching import run_matching
+    from catch.sync.samples import store_samples
+
+    _login(client)
+    client.put("/api/settings", json={"max_hr": 190})
+    session.add(DailyWellness(date=date(2026, 6, 1), resting_hr=50))
+    activity = Activity(
+        source="garmin", external_id="put1", type="indoor_rowing",
+        start=datetime(2026, 6, 1, 7, tzinfo=timezone.utc), duration=1800.0,
+    )
+    session.add(activity)
+    session.commit()
+    # ±1 bpm oscillation, not a flat 150.0 for 1800s straight — drop_dropouts (Part E.2)
+    # treats a 30s+ run of one exact value as a stuck sensor, which a real HR trace never
+    # does but a naive constant-value test fixture would, wiping the samples this test needs.
+    hr = [150.0 + (i % 3 - 1) for i in range(1800)]
+    store_samples(session, activity.id, start=activity.start, hr=hr, power=[None] * 1800, cadence=[20.0] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+    zones_before = session.get(CanonicalActivity, activity.canonical_id).zones_json
+
+    resp = client.put("/api/settings", json={"max_hr": 160})
+    assert resp.status_code == 200
+
+    zones_after = session.get(CanonicalActivity, activity.canonical_id).zones_json
+    assert zones_after != zones_before

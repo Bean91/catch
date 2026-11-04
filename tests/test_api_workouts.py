@@ -52,6 +52,32 @@ def test_activities_category_filter_on_water(client, session):
     assert {i["id"] for i in items} == {g2.canonical_id, c2.canonical_id}
 
 
+def test_category_filter_paginates_correctly_when_one_subcategory_dominates(client, session):
+    """Regression: erg and on_water both share sport_family == "rowing" — the category
+    filter used to run sport_family == "rowing" in SQL (apply LIMIT), then narrow to the
+    requested erg/on_water split in Python afterward. With many more on_water than erg rows
+    (this account's real backfill: 166 vs. 118), an "erg"-filtered page could come back
+    short or empty even though plenty of real erg rows existed further down the unfiltered
+    set. category is now a persisted column filtered directly in SQL."""
+    rows = []
+    for i in range(8):
+        rows.append(
+            Activity(
+                source="garmin", external_id=f"ow{i}", type="rowing_v2",
+                start=datetime(2026, 1, 1 + i, tzinfo=timezone.utc), duration=1800.0,
+            )
+        )
+    rows.append(Activity(source="garmin", external_id="erg1", type="indoor_rowing", start=datetime(2026, 1, 9, tzinfo=timezone.utc), duration=1800.0))
+    _seed(session, *rows)
+
+    _login(client)
+    resp = client.get("/api/activities", params={"category": "erg", "limit": 3})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["category"] == "erg"
+
+
 def test_activities_category_rejects_unknown(client):
     _login(client)
     resp = client.get("/api/activities", params={"category": "bogus"})
@@ -170,3 +196,49 @@ def test_activity_detail_404_for_missing(client):
     _login(client)
     resp = client.get("/api/activities/999")
     assert resp.status_code == 404
+
+
+def test_duplicates_endpoint_reachable_over_http(client, session):
+    """Regression: GET /api/activities/duplicates used to be shadowed by the earlier-
+    registered GET /api/activities/{canonical_id} — Starlette's router has no type-aware
+    fallback, so "duplicates" matched the {canonical_id} pattern first and 422'd on int
+    conversion before ever reaching this route. Invisible to a test that calls
+    list_flagged_duplicates directly (matching_engine tests) or to mock mode (which never
+    hits a real route at all) — only a real HTTP GET catches it."""
+    a, b = _seed(
+        session,
+        Activity(source="garmin", external_id="dup1", type="indoor_rowing", start=datetime(2026, 6, 1, tzinfo=timezone.utc), duration=200.0),
+        Activity(source="garmin", external_id="dup2", type="indoor_rowing", start=datetime(2026, 6, 1, 0, 2, 50, tzinfo=timezone.utc), duration=200.0),
+    )
+    _login(client)
+    resp = client.get("/api/activities/duplicates")
+    assert resp.status_code == 200
+    pairs = resp.json()["pairs"]
+    assert any({p["a"]["activity_id"], p["b"]["activity_id"]} == {a.id, b.id} for p in pairs)
+
+
+def test_merge_split_not_duplicate_endpoints_over_http(client, session):
+    a, b = _seed(
+        session,
+        Activity(source="garmin", external_id="m1", type="strength_training", start=datetime(2026, 6, 2, tzinfo=timezone.utc), duration=600.0),
+        Activity(source="garmin", external_id="m2", type="strength_training", start=datetime(2026, 6, 3, tzinfo=timezone.utc), duration=600.0),
+    )
+    assert a.canonical_id != b.canonical_id
+
+    _login(client)
+    merged = client.post("/api/activities/merge", json={"activity_id_a": a.id, "activity_id_b": b.id})
+    assert merged.status_code == 200
+    canonical_id = merged.json()["id"]
+    assert {s["activity_id"] for s in merged.json()["sources"]} == {a.id, b.id}
+
+    split = client.post("/api/activities/split", json={"activity_id": b.id})
+    assert split.status_code == 200
+    assert split.json()["id"] != canonical_id
+
+    c, d = _seed(
+        session,
+        Activity(source="garmin", external_id="nd1", type="strength_training", start=datetime(2026, 6, 4, tzinfo=timezone.utc), duration=600.0),
+        Activity(source="garmin", external_id="nd2", type="strength_training", start=datetime(2026, 6, 5, tzinfo=timezone.utc), duration=600.0),
+    )
+    not_dup = client.post("/api/activities/not-duplicate", json={"activity_id_a": c.id, "activity_id_b": d.id})
+    assert not_dup.status_code == 200

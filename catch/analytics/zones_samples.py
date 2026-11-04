@@ -29,6 +29,14 @@ def drop_dropouts(samples: list[Optional[float]], flatline_run_s: int = DEFAULT_
     n = len(out)
     i = 0
     while i < n:
+        if out[i] is None:
+            # Already a gap (e.g. a >10s resample dropout from catch/sync/fit_parse.py) —
+            # nothing to clean here. Without this branch, the inner while below never
+            # advances past a None (its own `is not None` guard means j stays == i), so i
+            # never advances either: a real, confirmed infinite loop on any real sample
+            # array with a gap in it (every one of this account's real activities has one).
+            i += 1
+            continue
         if out[i] == 0:
             out[i] = None
             i += 1

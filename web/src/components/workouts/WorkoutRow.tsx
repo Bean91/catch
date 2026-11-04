@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { WorkoutListItem } from "../../lib/types";
 import { bandLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../../lib/format";
 import { BandBadge } from "../ui/Badge";
+import { ZoneBar } from "./ZoneBar";
 
 export function WorkoutRow({
   workout,
@@ -40,6 +41,11 @@ export function WorkoutRow({
           {formatDistance(workout.distance)}
           {workout.session_label && <span className="ml-2">{workout.session_label}</span>}
         </div>
+        {workout.zones?.hr && (
+          <div className="mt-1 max-w-[220px]">
+            <ZoneBar zones={workout.zones.hr} height={4} />
+          </div>
+        )}
       </div>
       <div className="hidden w-20 shrink-0 text-right font-mono-nums text-sm text-text-secondary sm:block">
         {formatDuration(workout.duration)}

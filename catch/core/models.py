@@ -113,6 +113,15 @@ class CanonicalActivity(SQLModel, table=True):
     calories: Optional[float] = None
     # Resolved display title — either a Catch-side override or an auto-title (part C.3).
     title: Optional[str] = None
+    # "erg" | "on_water" | "other" (catch/analytics/matching.py's category_for_canonical) —
+    # persisted, not recomputed per request, specifically so GET /api/activities' category
+    # filter can run entirely in SQL. It used to be computed in Python after the page's LIMIT
+    # had already applied to a SQL-level sport_family filter (erg and on_water share
+    # sport_family=="rowing"), which could silently return short or empty pages — this
+    # account's real backfill has 166 on_water vs. 118 erg sessions, so a page of 30
+    # "rowing"-family rows landing mostly on the wrong side of that split was a real risk,
+    # not a theoretical one. See PLAN.md's session 12 bug log.
+    category: Optional[str] = None
     # {"power": "peloton:123", "cadence": "peloton:123", "hr": "garmin:456", ...} — which
     # source record each resolved metric came from, keyed by (source, external_id) as
     # "source:external_id". Shown next to each metric in workout detail.
