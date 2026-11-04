@@ -562,9 +562,14 @@ export async function lookupBarcode(barcode: string): Promise<BarcodeLookupResul
   return request<BarcodeLookupResult>(`/api/nutrition/barcode/${encodeURIComponent(barcode)}`);
 }
 
-export async function searchFoods(query: string): Promise<Food[]> {
+// `includeOff`: Open Food Facts' legacy free-text search is opt-in, never part of the plain
+// debounced as-you-type call — OFF's own docs warn against exactly that pattern. Callers pass
+// true only for an explicit, one-shot action (the "Also search Open Food Facts" button).
+export async function searchFoods(query: string, includeOff = false): Promise<Food[]> {
   if (isMock) return delay(mockFoodSearch(query), 250);
-  const { results } = await request<{ results: Food[] }>(`/api/nutrition/search?q=${encodeURIComponent(query)}`);
+  const search = new URLSearchParams({ q: query });
+  if (includeOff) search.set("include_off", "true");
+  const { results } = await request<{ results: Food[] }>(`/api/nutrition/search?${search.toString()}`);
   return results;
 }
 

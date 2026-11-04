@@ -22,7 +22,19 @@ class _LiveNetworkCallError(Exception):
     leaks this session already found (USDA, then OFF search) hid behind a passing-looking test:
     a real call that errored out, or returned real data loose enough to satisfy the assertions,
     was silently swallowed by that same handling. Raising something `httpx.HTTPError` can't
-    catch makes a leak a hard test failure instead of quiet non-determinism."""
+    catch turns a leak on one of *those* paths into a hard test failure instead of quiet
+    non-determinism.
+
+    Not a universal guarantee, though — `catch/sync/scheduler.py` and `catch/coach/chat.py`
+    both have their own broader `except Exception` around a sync/tool call (by design: one
+    source's sync failure, or one tool call's error, shouldn't crash the whole run), which
+    would catch this too and turn a leak there into a recorded error/tool-result rather than a
+    failing test. The Anthropic SDK also wraps a transport-level failure into its own
+    `APIConnectionError` (an `APIError` subclass), which `nutrition_vision.py` already catches
+    deliberately — not a live risk today, since its tests replace the whole `anthropic` module
+    in `sys.modules` rather than reaching real httpx at all, but worth knowing if that ever
+    changes. This guard is a floor for the two paths it's already caught leaking on, not proof
+    that every code path is covered."""
 
 
 def _raise_live_call(*args, **kwargs):

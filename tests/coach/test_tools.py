@@ -87,6 +87,22 @@ def test_log_food_by_description_single_match_logs_directly(session):
     assert out["food"] == "Oats"
 
 
+def test_log_food_by_description_opts_into_off_search(session, monkeypatch):
+    """Unlike the search box's debounced as-you-type calls, log_food is one explicit call per
+    tool use — exactly what OFF's own "not for search-as-you-type" warning is fine with, so
+    this is the one place the coach opts in on the athlete's behalf (task's "text search
+    across cache + both APIs")."""
+    calls = []
+
+    def _spy(session, query, limit=20, include_off=False):
+        calls.append(include_off)
+        return []
+
+    monkeypatch.setattr("catch.sync.nutrition.search_foods", _spy)
+    tools.call_tool(session, "log_food", {"description": "nonexistent", "quantity": 100, "unit": "g", "meal": "lunch"})
+    assert calls == [True]
+
+
 def test_log_food_by_description_ambiguous_returns_candidates_not_a_guess(session):
     session.add(Food(source="manual", name="Chicken Breast", kcal_100g=165, verified=True))
     session.add(Food(source="manual", name="Chicken Thigh", kcal_100g=209, verified=True))

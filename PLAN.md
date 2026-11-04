@@ -2194,21 +2194,29 @@ Commit: `1618418`.
       `USDA_FDC_API_KEY` is set) -> `None` (manual-entry form prefilled with the barcode). A
       found external hit is cached into `foods` immediately.
 - [x] **Free-text search** (local cache, ranked by recency/frequency of use in `food_logs`,
-      then USDA free-text, then OFF's legacy `/cgi/search.pl` last — each deduplicated by
-      barcode against what's already in the results). **A first pass wrongly concluded OFF
-      had no free-text search at all**, having checked only the v2 API's own surface; an
-      advisor review's "verify, don't assume" prompt led to actually fetching OFF's current
-      docs and the live endpoint, which confirmed `/cgi/search.pl?search_terms=...&json=1`
-      works today and is what OFF's own docs still point to for full-text search (v2 doesn't
-      have it; v3 doesn't either; a newer "Search-a-licious" service is referenced as the
-      future but exposed no documented public API at the time of this check). OFF search gets
-      its own separate 10/min/IP budget (OFF's own documented limit for search, distinct from
-      product-read's 15/min) and an explicit "not for search-as-you-type" warning from OFF
-      itself — this app respects both by only reaching OFF search once local+USDA haven't
-      already filled the results page, and by failing open (empty list) rather than raising
-      when the minute's budget is spent. See docs/nutrition-endpoints.md for the verified
-      field shapes (same nutriment-key convention as the v2 product-read endpoint, a
-      different top-level wrapper, a `fields=` param that isn't a strict whitelist).
+      then USDA free-text, deduplicated by barcode against what's already in the results).
+      **A first pass wrongly concluded OFF had no free-text search at all**, having checked
+      only the v2 API's own surface; an advisor review's "verify, don't assume" prompt led to
+      actually fetching OFF's current docs and the live endpoint, which confirmed
+      `/cgi/search.pl?search_terms=...&json=1` works today and is what OFF's own docs still
+      point to for full-text search (v2 doesn't have it; v3 doesn't either; a newer
+      "Search-a-licious" service is referenced as the future but exposed no documented public
+      API at the time of this check). **Second correction, same review thread**: the first
+      wiring attempt reached OFF search from the debounced search box itself — still
+      search-as-you-type by OFF's own definition (the trigger is every keystroke pause, not
+      an explicit action) despite the 250ms debounce, and OFF's docs explicitly warn against
+      exactly that ("you would be blocked very quickly"), on top of making nearly every search
+      wait on OFF's slowest endpoint since local+USDA rarely fill a 20-result page on their
+      own. Fixed by making it **opt-in**: `search_foods(..., include_off=False)` — the search
+      box never passes it, and surfaces an explicit "Also search Open Food Facts" button the
+      athlete taps once per query to opt in; the coach's `log_food` tool always passes
+      `include_off=True` (one call per tool use, never as-you-type — the one place this app
+      does hit OFF search automatically, and legitimately so). `OpenFoodFactsClient.search`
+      still keeps its own separate 10/min/IP budget (distinct from product-read's 15/min) and
+      fails open (empty list, never raises) as a backstop even for opted-in calls. See
+      docs/nutrition-endpoints.md for the verified field shapes (same nutriment-key convention
+      as the v2 product-read endpoint, a different top-level wrapper, a `fields=` param that
+      isn't a strict whitelist).
 - [x] **Scanner** (`web/src/components/nutrition/BarcodeScanner.tsx`,
       `web/src/lib/barcodeScan.ts`): native `window.BarcodeDetector` when present (confirmed
       by forcing the fallback in a real page — `addInitScript` deleting
@@ -2289,7 +2297,9 @@ Commit: `1618418`.
       manual food creation, logging by grams/serving, the serving-size-unknown rejection,
       day/week summaries, copy-day with and without a meal filter, my-foods/saved-meals
       CRUD, targets round-trip, photo-estimate's 422s and its save path); the two coach
-      tools; OFF free-text search's parsing/budget/fallthrough. 391 backend tests total, 20
+      tools; OFF free-text search's parsing/budget/opt-in fallthrough; a structural
+      live-network-call guard (`tests/conftest.py`, patches httpx's default transport to
+      raise on any real outbound call) plus its own self-test. 395 backend tests total, 20
       frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/production build.
 - A real bug found and fixed mid-session: the test suite was making **live calls to the USDA
   API** whenever a test exercised `search_foods`/`lookup_or_fetch_barcode` without its own

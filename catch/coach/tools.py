@@ -189,7 +189,11 @@ def _log_food(session: Session, args: dict, ctx: dict) -> dict:
                 return {"logged": False, "message": f"No food found for barcode {barcode}. It can be added manually in the app."}
             food_id = food.id
         elif description:
-            matches = nutrition_module.search_foods(session, description, limit=5)
+            # One call per tool use, never as-you-type — unlike the search box's debounced
+            # calls, this is exactly the explicit, deliberate action OFF's own "not for
+            # search-as-you-type" warning is fine with, so this is the one place the coach
+            # tool opts in on the athlete's behalf.
+            matches = nutrition_module.search_foods(session, description, limit=5, include_off=True)
             if not matches:
                 return {"logged": False, "message": f"No food found matching '{description}'. Try a more specific description."}
             if len(matches) > 1:

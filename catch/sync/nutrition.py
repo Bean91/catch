@@ -108,15 +108,18 @@ def _get_or_create_cached_food(session: Session, parsed: dict) -> Food:
     return food
 
 
-def search_foods(session: Session, query: str, limit: int = 20) -> list[dict]:
+def search_foods(session: Session, query: str, limit: int = 20, include_off: bool = False) -> list[dict]:
     """Local cache first, ranked by recency/frequency of use in `food_logs` (a food never
     logged sorts after any food that has been, newest-logged-first among those); USDA
-    free-text results are appended next (deduplicated by barcode against what's already in
-    `results`), then Open Food Facts' legacy `/cgi/search.pl` free-text search last, only if
-    local+USDA haven't already filled the page — OFF's search endpoint has its own tight
-    10/min budget and an explicit "not for search-as-you-type" warning
-    (docs/nutrition-endpoints.md), so it's the lowest-priority, lowest-volume source rather
-    than hit on every call."""
+    free-text results appended next (deduplicated by barcode against what's already in
+    `results`). Open Food Facts' legacy `/cgi/search.pl` free-text search is **opt-in**
+    (`include_off`), never reached by a plain debounced as-you-type call — OFF's own docs
+    explicitly warn "don't use it for a search-as-you-type feature, you would be blocked very
+    quickly," and a tighter 250ms debounce doesn't change that the trigger is still every
+    keystroke pause, not an explicit action (docs/nutrition-endpoints.md). The frontend's
+    search box calls this with `include_off=False` by default and offers an explicit "Also
+    search Open Food Facts" action the athlete taps once to opt in for that query; the coach's
+    `log_food` tool (one call per use, never as-you-type) always passes `include_off=True`."""
     like = f"%{query}%"
     local = session.exec(
         select(Food)
@@ -155,12 +158,9 @@ def search_foods(session: Session, query: str, limit: int = 20) -> list[dict]:
             if food.barcode:
                 seen_barcodes.add(food.barcode)
 
-    # OFF last — its free-text search (the legacy `/cgi/search.pl`, see
-    # openfoodfacts_client.py) carries its own tight 10/min budget and an explicit "not for
-    # search-as-you-type" warning, so it only spends a call once local+USDA haven't already
-    # filled the page.
+    # OFF last, and only when the caller opted in — see the docstring above.
     remaining = limit - len(results)
-    if remaining > 0:
+    if remaining > 0 and include_off:
         for parsed in OpenFoodFactsClient().search(query, page_size=remaining * 2)[:remaining]:
             if parsed.get("barcode") and parsed["barcode"] in seen_barcodes:
                 continue

@@ -31,6 +31,13 @@ export function AddFoodDialog({
   const [error, setError] = useState<string | null>(null);
   const [myFoods, setMyFoods] = useState<MyFoodRow[]>([]);
   const [savedMeals, setSavedMeals] = useState<SavedMealRow[]>([]);
+  // Open Food Facts' free-text search is opt-in (its own docs warn against search-as-you-
+  // type, and a 250ms debounce doesn't change that the trigger is still every keystroke
+  // pause, not an explicit action) — tracks whether the current query has had it included
+  // yet, so "Also search Open Food Facts" only shows once per query and only before it's
+  // been tapped.
+  const [offIncluded, setOffIncluded] = useState(false);
+  const [searchingOff, setSearchingOff] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -44,16 +51,16 @@ export function AddFoodDialog({
   }, [open]);
 
   useEffect(() => {
+    setOffIncluded(false);
     if (step !== "search" || !query.trim()) {
       setResults([]);
+      setSearching(false);
       return;
     }
     setSearching(true);
     // `cancelled` guards against a slower, earlier query's response landing after a faster,
-    // later one — a real risk now that OFF's free-text search (the slowest of the three
-    // sources, and reached on most searches since it's lowest-priority) is in the mix. The
-    // timer's own clearTimeout only stops a call that hasn't fired yet; it can't stop one
-    // already in flight.
+    // later one — the timer's own clearTimeout only stops a call that hasn't fired yet; it
+    // can't stop one already in flight.
     let cancelled = false;
     const handle = setTimeout(() => {
       searchFoods(query)
@@ -72,6 +79,18 @@ export function AddFoodDialog({
       clearTimeout(handle);
     };
   }, [query, step]);
+
+  const searchOff = async () => {
+    if (!query.trim()) return;
+    setSearchingOff(true);
+    try {
+      const r = await searchFoods(query, true);
+      setResults(r);
+      setOffIncluded(true);
+    } finally {
+      setSearchingOff(false);
+    }
+  };
 
   const pickFood = (food: Food) => {
     setSelected(food);
@@ -171,6 +190,16 @@ export function AddFoodDialog({
                     <span className="font-mono-nums text-xs text-text-tertiary">{food.kcal_100g != null ? `${Math.round(food.kcal_100g)}kcal/100g` : ""}</span>
                   </button>
                 ))}
+                {!searching && query.trim() && !offIncluded && (
+                  <button
+                    type="button"
+                    onClick={searchOff}
+                    disabled={searchingOff}
+                    className="min-h-9 rounded-md border border-dashed border-border text-xs text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary disabled:opacity-40"
+                  >
+                    {searchingOff ? "Searching Open Food Facts…" : "Also search Open Food Facts"}
+                  </button>
+                )}
               </div>
 
               {!query.trim() && myFoods.length > 0 && (

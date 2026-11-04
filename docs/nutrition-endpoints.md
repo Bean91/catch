@@ -77,16 +77,23 @@ GET /cgi/search.pl?search_terms={query}&json=1&page_size={n}&fields=code,product
   sodium-in-grams parsing logic above applies unchanged; `catch/sync/openfoodfacts_client.py`
   shares one `_parse_off_product_fields` helper between both endpoints rather than duplicating
   it.
-- **Rate limit, and why this app treats it as a last resort**: OFF's docs state **10
-  requests/minute/IP for all search queries** (`GET /api/v*/search` or `GET /cgi/search.pl`)
-  — a *separate*, tighter budget than product-read's 15/min above — and explicitly warn:
-  *"don't use it for a search-as-you-type feature, you would be blocked very quickly."*
-  `OpenFoodFactsClient.search` enforces its own 10/min window (independent of the barcode-
-  lookup limiter) and fails open (returns `[]`, never raises) when it's spent for the minute.
-  `catch/sync/nutrition.py::search_foods` only reaches OFF **after** the local cache and USDA
-  free-text search haven't already filled the result page — OFF is the lowest-priority,
-  lowest-volume source, not the primary search path, specifically because of this limit and
-  warning. Every hit is still cached into `foods` immediately, same as a barcode hit.
+- **Rate limit, and why this app makes it opt-in rather than a silent fallback**: OFF's docs
+  state **10 requests/minute/IP for all search queries** (`GET /api/v*/search` or `GET
+  /cgi/search.pl`) — a *separate*, tighter budget than product-read's 15/min above — and
+  explicitly warn: *"don't use it for a search-as-you-type feature, you would be blocked very
+  quickly."* A debounced search box is still search-as-you-type (the trigger is every
+  keystroke pause, not an explicit action) — reducing the debounce doesn't change that, and
+  `search_foods` would reach OFF on almost every query otherwise (local+USDA rarely fill a
+  20-result page). So `catch/sync/nutrition.py::search_foods` takes an `include_off: bool =
+  False` parameter: the plain debounced search box never passes it, and only reaches OFF when
+  the athlete taps an explicit "Also search Open Food Facts" button for that specific query.
+  The coach's `log_food` tool always passes `include_off=True` — one call per tool use, never
+  as-you-type, exactly what OFF's warning is fine with — which is how "both APIs" stays
+  genuinely satisfied without violating the as-you-type warning anywhere else.
+  `OpenFoodFactsClient.search` still enforces its own 10/min window (independent of the
+  barcode-lookup limiter) and fails open (returns `[]`, never raises) when it's spent for the
+  minute, as a backstop even for opted-in calls. Every hit is still cached into `foods`
+  immediately, same as a barcode hit.
 - No API key required for search (same as barcode lookup — OFF's docs only ask for a real
   `User-Agent` on read operations).
 
@@ -156,7 +163,8 @@ prefilled with the scanned barcode). A found external result is cached into `foo
 immediately, so a repeat scan of the same barcode never re-hits either API.
 
 `search_foods`: local cache (ranked by recency/frequency of use in `food_logs`) first, then
-USDA free-text results appended and cached, then OFF's legacy free-text search last (only if
-local+USDA haven't already filled the page) — deduplicated throughout against anything
-already surfaced by barcode. OFF goes last and gets called the least because of its tighter
-10/min budget and explicit "not for search-as-you-type" warning (see above).
+USDA free-text results appended and cached, then — only when the caller passes
+`include_off=True` — OFF's legacy free-text search last, deduplicated throughout against
+anything already surfaced by barcode. The plain debounced search box never opts in; the
+coach's `log_food` tool always does. See "Rate limit" above for why this is opt-in rather
+than a silent fallback.

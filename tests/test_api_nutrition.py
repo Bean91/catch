@@ -272,7 +272,7 @@ def test_photo_estimate_save_rejects_unknown_meal(client):
     assert resp.status_code == 422
 
 
-def test_search_falls_through_to_off_when_local_and_usda_are_empty(client, session, monkeypatch):
+def _mock_off_search(monkeypatch):
     off_result = {
         "source": "off",
         "barcode": "9990000000001",
@@ -291,9 +291,25 @@ def test_search_falls_through_to_off_when_local_and_usda_are_empty(client, sessi
     }
     calls = []
     monkeypatch.setattr("catch.sync.openfoodfacts_client.OpenFoodFactsClient.search", lambda self, query, page_size=10: (calls.append(query), [off_result])[1])
+    return calls
 
+
+def test_default_search_never_reaches_off(client, monkeypatch):
+    """OFF's own docs warn against search-as-you-type; the plain debounced search box must
+    never opt in on the athlete's behalf."""
+    calls = _mock_off_search(monkeypatch)
     _login(client)
     resp = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits"})
+    assert resp.status_code == 200
+    assert resp.json()["results"] == []
+    assert calls == []
+
+
+def test_include_off_true_falls_through_to_off_when_local_and_usda_are_empty(client, session, monkeypatch):
+    calls = _mock_off_search(monkeypatch)
+
+    _login(client)
+    resp = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits", "include_off": "true"})
     assert resp.status_code == 200
     results = resp.json()["results"]
     assert len(results) == 1
@@ -303,7 +319,7 @@ def test_search_falls_through_to_off_when_local_and_usda_are_empty(client, sessi
     # Every OFF hit is cached into `foods` by barcode — a second search that also reaches OFF
     # (search always tops up to the page limit, so it's called again) must reuse the same
     # cached row rather than insert a duplicate.
-    resp2 = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits"})
+    resp2 = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits", "include_off": "true"})
     assert len(calls) == 2
     assert resp2.json()["results"][0]["id"] == results[0]["id"]
 

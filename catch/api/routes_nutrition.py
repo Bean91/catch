@@ -35,8 +35,8 @@ def get_barcode(barcode: str, db: Session = Depends(get_db)):
 
 
 @router.get("/api/nutrition/search")
-def search_foods(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
-    return {"results": nutrition.search_foods(db, q)}
+def search_foods(q: str = Query(..., min_length=1), include_off: bool = Query(False), db: Session = Depends(get_db)):
+    return {"results": nutrition.search_foods(db, q, include_off=include_off)}
 
 
 class ManualFoodRequest(BaseModel):
