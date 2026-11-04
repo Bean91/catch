@@ -306,18 +306,32 @@ def test_put_settings_max_hr_change_updates_an_existing_activitys_cached_zones(c
 
 def test_put_settings_skips_the_full_resolve_when_nothing_zone_or_strain_affecting_changed(client, monkeypatch):
     """A Pi-3 cost check (advisor review): resolve_all_canonicals walks every canonical
-    (~1ms each on a laptop, extrapolating to several real seconds over this account's real
-    451-activity history on a Pi 3's single core) and must not run for a settings save that
-    can't possibly change any canonical's cached fields, e.g. body_comp_priority alone."""
+    (~6.5ms each with real FIT samples, extrapolating to several real seconds over this
+    account's real 451-activity history on a Pi 3's single core) and must not run for a
+    settings save that can't possibly change any canonical's cached fields.
+
+    The check compares before/after *values*, not which keys are present in the incoming
+    patch — web/src/pages/Settings.tsx's one Save button always PUTs the entire form (every
+    field, every time), so this test sends a full-form-shaped payload too, matching what the
+    real UI actually does. A key-presence check would have looked correct against a
+    hand-crafted partial patch (the first version of this test) while doing nothing for any
+    real save."""
     called = {"n": 0}
     monkeypatch.setattr(
-        "catch.sync.canonical.resolve_all_canonicals", lambda db: called.__setitem__("n", called["n"] + 1)
+        "catch.api.routes_analytics._resolve_all_and_recompute_in_background",
+        lambda engine: called.__setitem__("n", called["n"] + 1),
     )
     _login(client)
-    resp = client.put("/api/settings", json={"body_comp_priority": {"weight": ["garmin", "withings"]}})
+    current = client.get("/api/settings").json()
+
+    # A full-form resend where only an unrelated field changes — the real shape of every
+    # Settings-page save.
+    full_form_unrelated_change = {**current, "body_comp_priority": {**current["body_comp_priority"], "weight": ["garmin", "withings"]}}
+    resp = client.put("/api/settings", json=full_form_unrelated_change)
     assert resp.status_code == 200
     assert called["n"] == 0
 
-    resp = client.put("/api/settings", json={"max_hr": 188})
+    full_form_with_max_hr_change = {**current, "max_hr": (current.get("max_hr") or 180) + 5}
+    resp = client.put("/api/settings", json=full_form_with_max_hr_change)
     assert resp.status_code == 200
     assert called["n"] == 1

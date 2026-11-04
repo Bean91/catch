@@ -207,28 +207,26 @@ export function HrChart({
               {Math.round(v)}
             </text>
           ))}
-          {overlay !== "none" && (
-            <>
-              {/* Second y-axis, with units (task Part E.8) — the overlay's own scale, distinct
-                  from the left HR axis. */}
-              {[0, overlayMax / 2, overlayMax].map((v, i) => (
-                <text
-                  key={i}
-                  x={PAD_X + plotWidthPx + PAD_RIGHT_OVERLAY - 4}
-                  y={yOverlay(v) - 3}
-                  fontSize={10}
-                  fill="var(--text-tertiary)"
-                  textAnchor="end"
-                  className="font-mono-nums"
-                >
-                  {Math.round(v)}
-                </text>
-              ))}
-              <text x={PAD_X + plotWidthPx + PAD_RIGHT_OVERLAY - 4} y={PAD_TOP - 2} fontSize={9} fill="var(--text-tertiary)" textAnchor="end">
-                {OVERLAY_UNITS[overlay]}
+          {overlay !== "none" &&
+            // Second y-axis, with units (task Part E.8) — the overlay's own scale, distinct
+            // from the left HR axis. The unit is appended to the top tick's own label rather
+            // than drawn as a separate text element above it — a standalone units label at
+            // PAD_TOP sat at nearly the same y as the top tick (both near the plot's top edge)
+            // and visually overlapped it (advisor review finding).
+            [0, overlayMax / 2, overlayMax].map((v, i, arr) => (
+              <text
+                key={i}
+                x={PAD_X + plotWidthPx + PAD_RIGHT_OVERLAY - 4}
+                y={yOverlay(v) - 3}
+                fontSize={10}
+                fill="var(--text-tertiary)"
+                textAnchor="end"
+                className="font-mono-nums"
+              >
+                {Math.round(v)}
+                {i === arr.length - 1 ? ` ${OVERLAY_UNITS[overlay]}` : ""}
               </text>
-            </>
-          )}
+            ))}
           {Array.from({ length: 5 }, (_, i) => domain.min + ((domain.max - domain.min) * i) / 4).map((s, i) => (
             <text key={i} x={x(s)} y={HEIGHT - 6} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
               {formatDuration(s)}

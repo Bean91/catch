@@ -2003,8 +2003,10 @@ cleaned up after).
   sync's window, or an explicit `catch backfill --days N`) — it doesn't retroactively touch
   every row already in a migrated DB on its own. After adopting a laptop DB on a fresh Pi
   install, run `catch backfill --days N` (N covering the real history) once so every migrated
-  activity gets re-pointed (cheap — files already exist in `/var/lib/catch/fit/`, so this
-  costs no Garmin API calls, just the one-time per-sample zones/strain computation).
+  activity gets re-pointed. This does *not* avoid Garmin API calls in general — `catch
+  backfill` still calls the activity-list, health, and weight endpoints for every window,
+  the same ones that hit 429s in the real backfill above — only the FIT *download* itself is
+  skipped per-activity once the bootstrap-copied file is found at the expected path.
 - **Missing requirements, added**: per-activity notes/RPE inline editing on Workout detail
   (distinct from the existing per-day note/RPE journal entry); a stacked time-in-zone
   `ZoneBar` (Workouts list, compact, and Workout detail, with a legend); a second y-axis on
@@ -2030,16 +2032,36 @@ cleaned up after).
   the full-recording points (a new `allPoints` prop) rather than the zoom-windowed ones, so
   the y-axis no longer visibly rescales on every refetch.
 - **`resolve_all_canonicals` runs synchronously on every `PUT /api/settings`** — a real Pi-3
-  cost worth checking per the review: timed at ~1ms/canonical against a disposable copy of the
-  real local `data/catch.db` (34 canonicals, 35ms total), which extrapolates to several real
-  seconds over this account's real 451-activity backfill history on the Pi 3's single ARM core
-  under one uvicorn worker — blocking every other request for that long on *any* settings
-  save, not just one that changes zones/strain. Fixed: `put_settings` now only calls
-  `resolve_all_canonicals` when the patch actually touches a field the zones/strain/
-  field-priority pipeline reads (`max_hr`, `ftp_watts`, `field_priority`, `zones`,
-  `trimp_exponent`, `min_zone_minutes`, `min_zone_pct`, `auto_trim_enabled`,
-  `auto_trim_min_idle_s`) — a `body_comp_priority`-only save, for example, now skips it
-  entirely. Added a regression test for both branches.
+  cost worth checking per the review. The first timing pass (~1ms/canonical, 34 canonicals
+  against a disposable copy of the real local `data/catch.db`) measured the wrong thing: that
+  DB predates session 12's schema, so nothing had ever ingested its `ActivitySamples`, and
+  every canonical hit `_resolve_zones`'s cheap early-return for "no HR or power." Re-timed
+  properly — same DB copy, but with every real FIT file actually parsed into samples first
+  (`GarminClient._ingest_fit_samples`, no network calls) — gives **~6.5ms/canonical**, which
+  over this account's real 451-activity history extrapolates to several real seconds on the
+  Pi 3's single ARM core. `def put_settings` being sync means FastAPI runs it in the
+  threadpool, so a slow request doesn't fully block the one uvicorn worker's event loop, but
+  it does compete for the GIL and tie up a threadpool slot — other requests slow down for
+  that whole stretch, on *any* settings save, not just one that changes zones/strain.
+  First fix attempt only skipped the work when the incoming *patch* omitted every
+  zones/strain-affecting key — wrong, since `web/src/pages/Settings.tsx` has exactly one Save
+  button that always PUTs its whole `form` state (every field, every time), so that check
+  never actually skipped anything for a real save. Fixed properly: compare `get_settings`'s
+  *values* before and after `update_settings`, not which keys the patch happened to include,
+  and only re-resolve if one of `max_hr`/`ftp_watts`/`field_priority`/`zones`/
+  `trimp_exponent`/`min_zone_minutes`/`min_zone_pct`/`auto_trim_enabled`/
+  `auto_trim_min_idle_s` actually changed value. When it has, the work now runs as a FastAPI
+  `BackgroundTasks` job (its own DB session) instead of inline, so the PUT itself returns
+  immediately. That background function takes the request session's bound engine explicitly
+  (`db.get_bind()`) rather than importing `catch.core.db.engine` directly — the first version
+  did that and passed locally, but failed the moment it ran under pytest (`OperationalError:
+  no such column`), because tests only override the `get_db` *dependency*, not that
+  module-level global, so it silently ran against a stale real local DB file instead of the
+  test's in-memory one. Both of this bullet's own bugs were caught by the same kind of
+  follow-up advisor pass as the HrChart one above, before either was committed. Added
+  regression tests for the skip/run branches (using a full-form-shaped payload, matching the
+  real UI) and confirmed the existing cache-staleness test still passes with the background
+  task in place.
 
 ## Gotchas / deviations from the literal task spec
 

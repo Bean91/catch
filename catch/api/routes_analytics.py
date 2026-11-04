@@ -5,7 +5,7 @@ import math
 import threading
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from catch.analytics.body import smooth_weight
@@ -525,12 +525,19 @@ def get_settings_endpoint(db: Session = Depends(get_db)):
 
 
 # The exact settings keys resolve_canonical's zones/strain/field-priority pipeline reads
-# (catch/sync/canonical.py, catch/analytics/zones.py) — a PUT that touches none of these
-# can't change any already-resolved canonical's cached fields, so skipping the full
-# re-resolve for e.g. a body_comp_priority-only save avoids a real Pi-3 cost: measured at
-# ~1ms/canonical on a laptop, so the full real 451-activity history (docs/PLAN.md's backfill
-# report) could run several seconds on the Pi's single ARM core under a single uvicorn
-# worker, blocking every other request for that long on every settings save.
+# (catch/sync/canonical.py, catch/analytics/zones.py) — a PUT whose *resulting values* on
+# none of these differ from before can't change any already-resolved canonical's cached
+# fields, so it can skip the full re-resolve. Compared by value, not by key presence in the
+# incoming patch: the Settings page's one Save button always PUTs the whole form (`web/src/
+# pages/Settings.tsx`'s `form` state holds every field), so a key-presence check would always
+# see every key and never actually skip anything for a real save — caught by a review reading
+# the frontend before trusting the first version of this fix. When a relevant value DID
+# change, re-timed against a disposable copy of the real local data/catch.db with its real FIT
+# samples actually ingested (the first timing pass measured the cheap no-samples path by
+# mistake, also caught by review): ~6.5ms/canonical, which over this account's real
+# 451-activity history extrapolates to several real seconds on the Pi 3's single ARM core —
+# run as a FastAPI background task below instead of inline, so the PUT itself returns
+# immediately rather than slowing every other request on that one worker for that long.
 _RESOLVE_AFFECTING_SETTINGS_KEYS = {
     "max_hr", "ftp_watts", "field_priority", "zones",
     "trimp_exponent", "min_zone_minutes", "min_zone_pct",
@@ -538,8 +545,29 @@ _RESOLVE_AFFECTING_SETTINGS_KEYS = {
 }
 
 
+def _resolve_all_and_recompute_in_background(engine) -> None:
+    """Runs off the request thread (FastAPI BackgroundTasks) with its own DB session — the
+    request's `db` session may already be closed by the time this runs. Takes the bound
+    engine explicitly (`db.get_bind()`) rather than importing `catch.core.db.engine` directly:
+    tests only override the `get_db` *dependency*, not that module-level global, so importing
+    it here would silently run against the wrong database under pytest (caught by the test
+    suite itself — an `OperationalError` on a column the test engine's schema had but this
+    one, pointed at a stale real local DB file, didn't). Must do both steps, in order:
+    recompute_scores reads each canonical's *already re-resolved* cached strain_trimp back
+    out, so splitting these across sync/background would let a user's immediate GET
+    /api/series reflect stale zones/strain until some later, unrelated recompute_scores call
+    happens to run."""
+    from catch.sync.canonical import resolve_all_canonicals
+    from catch.sync.scoring import recompute_scores
+
+    with Session(engine) as session:
+        resolve_all_canonicals(session)
+        recompute_scores(session)
+
+
 @router.put("/api/settings")
-def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
+def put_settings(patch: dict = Body(...), background_tasks: BackgroundTasks = None, db: Session = Depends(get_db)):
+    before = get_settings(db)
     try:
         result = update_settings(db, patch)
     except ValueError as exc:
@@ -548,16 +576,13 @@ def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
     # Session 8/12: a changed max_hr/ftp_watts/field_priority/min_zone_*/auto_trim_* affects
     # every *already-resolved* canonical's cached zones/strain/label/title, none of which
     # run_matching's own resolve calls touch (those only cover orphaned, blank, or
-    # newly-merged canonicals) — re-resolve everything before recompute_scores reads the
-    # (now-correct) cached CanonicalActivity.strain_trimp values back out.
-    if _RESOLVE_AFFECTING_SETTINGS_KEYS & patch.keys():
-        from catch.sync.canonical import resolve_all_canonicals
+    # newly-merged canonicals).
+    if any(before.get(k) != result.get(k) for k in _RESOLVE_AFFECTING_SETTINGS_KEYS):
+        background_tasks.add_task(_resolve_all_and_recompute_in_background, db.get_bind())
+    else:
+        from catch.sync.scoring import recompute_scores
 
-        resolve_all_canonicals(db)
-
-    from catch.sync.scoring import recompute_scores
-
-    recompute_scores(db)
+        recompute_scores(db)
     return result
 
 
