@@ -2164,8 +2164,16 @@ photo-estimate, targets that follow training load, and a calm under-fuelling not
   `/v2/dailysummaries` again for that day. The scheduler's own sync window is only a few
   days (same limitation session 12's PLAN.md notes for FIT-sample zones/strain), so the
   daily-activity strain component will silently read as 0 for every day before this session
-  on the real Pi until `catch backfill` (covers `BACKFILL_DAYS`, default 30) is run against
-  it — not automatic, and not done this session (a live-device action left for the user, same
+  on the real Pi until a backfill covering that history is run against it. **Verified**: `uv
+  run catch backfill --days N` (`catch/cli.py::cmd_backfill` ->
+  `GarminClient.backfill`) internally windows any `N` into 30-day chunks regardless of size
+  (`docs/garmin-endpoints.md`: "no documented max range — start with 30-day windows"), and
+  each window's `sync_health` call reaches `_sync_usersummary` — so a single explicit `--days`
+  run genuinely covers full history in one command, not just the 30-day
+  `BACKFILL_DAYS` default plain `catch backfill` (no flag) would use. **Run `uv run catch
+  backfill --days 400` on the Pi** (the same figure session 12's own full-history backfill
+  used) to repopulate `steps`/`active_kcal`/etc. for the real account's whole history — not
+  automatic, and not done this session (a live-device action left for the user, same
   call session 12 made for its own backfill).
 
 Commit: `1618418`.
@@ -2316,7 +2324,10 @@ Commit: `1618418`.
   Part A's note above: `steps`/`active_kcal`/etc. are `NULL` on any day the scheduler's own
   short sync window hasn't re-fetched, and there's no `raw_json` column on `DailyWellness` to
   backfill from locally the way `Activity`'s migration could. The daily-activity strain
-  component reads as 0 for every pre-session day on the real Pi until that backfill runs.
+  component reads as 0 for every pre-session day on the real Pi until that backfill runs. Run
+  `uv run catch backfill --days 400` (not the bare `catch backfill`, which only covers the
+  30-day `BACKFILL_DAYS` default) — verified this genuinely reaches `/v2/dailysummaries`
+  across the whole range via `GarminClient.backfill`'s own 30-day-window chunking loop.
 - **The photo estimate's `kcal`/`protein_g`/etc. fields on `Food` are a modeling shortcut**,
   not a real per-100g nutrition fact — `serving_size=100`/`serving_unit=<description>` exists
   so "1 serving" reproduces the estimate exactly, but if this `Food` row were ever logged

@@ -4,6 +4,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
@@ -12,6 +13,33 @@ from sqlalchemy.pool import StaticPool
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 TEST_PASSWORD = "correct-horse-battery-staple"
+
+
+class _LiveNetworkCallError(Exception):
+    """Deliberately NOT an `httpx.HTTPError` subclass — every external-API client in this app
+    (openfoodfacts_client.py, usda_client.py, and the Garmin/Withings/Concept2 clients) catches
+    `httpx.HTTPError` and fails open (returns None/[]), which is exactly how the two live-call
+    leaks this session already found (USDA, then OFF search) hid behind a passing-looking test:
+    a real call that errored out, or returned real data loose enough to satisfy the assertions,
+    was silently swallowed by that same handling. Raising something `httpx.HTTPError` can't
+    catch makes a leak a hard test failure instead of quiet non-determinism."""
+
+
+def _raise_live_call(*args, **kwargs):
+    raise _LiveNetworkCallError("A test attempted a real network call via httpx's default HTTPTransport — every external call in this suite must go through httpx.MockTransport (see CLAUDE.md's 'no live network calls' rule).")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_network_calls_anywhere(monkeypatch):
+    """A structural backstop, not a replacement for the path-specific fixtures below — those
+    still set sensible defaults (e.g. no USDA key) so most tests never even reach this guard.
+    Patches the transport classes actually used for real outbound HTTP (`HTTPTransport`/
+    `AsyncHTTPTransport`, httpx's defaults when a `Client()` is constructed with no explicit
+    `transport=`), never `httpx.MockTransport` (fixture-driven tests) or the ASGI transport
+    `TestClient` uses internally (a different class entirely) — so this can't interfere with
+    either of this suite's two legitimate uses of httpx."""
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", _raise_live_call)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _raise_live_call)
 
 
 @pytest.fixture()

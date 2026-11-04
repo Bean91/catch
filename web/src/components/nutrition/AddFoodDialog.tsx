@@ -49,12 +49,28 @@ export function AddFoodDialog({
       return;
     }
     setSearching(true);
+    // `cancelled` guards against a slower, earlier query's response landing after a faster,
+    // later one — a real risk now that OFF's free-text search (the slowest of the three
+    // sources, and reached on most searches since it's lowest-priority) is in the mix. The
+    // timer's own clearTimeout only stops a call that hasn't fired yet; it can't stop one
+    // already in flight.
+    let cancelled = false;
     const handle = setTimeout(() => {
       searchFoods(query)
-        .then(setResults)
-        .finally(() => setSearching(false));
+        .then((r) => {
+          if (!cancelled) setResults(r);
+        })
+        .catch(() => {
+          if (!cancelled) setResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
     }, 250);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [query, step]);
 
   const pickFood = (food: Food) => {
