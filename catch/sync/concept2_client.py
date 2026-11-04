@@ -209,6 +209,18 @@ def _seed_max_hr(session: Session, http: httpx.Client) -> None:
     max_hr = profile.get("max_heart_rate")
     if max_hr:
         update_settings(session, {"max_hr": max_hr})
+        # The same already-resolved-canonical staleness `PUT /api/settings` fixes
+        # (catch/api/routes_analytics.py's put_settings) applies here too: any canonical
+        # already resolved before this first Concept2 sync (e.g. Garmin history on a fresh
+        # install) was zoned/strained with max_hr unset, and needs recomputing now that it
+        # isn't. Safe to run synchronously (unlike put_settings) — this already runs inside a
+        # sync (scheduler.py, cli.py, or the already-long-running POST /api/sync/{source}
+        # request), never on a routine request's hot path.
+        from catch.sync.canonical import resolve_all_canonicals
+        from catch.sync.scoring import recompute_scores
+
+        resolve_all_canonicals(session)
+        recompute_scores(session)
 
 
 def sync(

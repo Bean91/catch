@@ -306,9 +306,10 @@ def test_put_settings_max_hr_change_updates_an_existing_activitys_cached_zones(c
 
 def test_put_settings_skips_the_full_resolve_when_nothing_zone_or_strain_affecting_changed(client, monkeypatch):
     """A Pi-3 cost check (advisor review): resolve_all_canonicals walks every canonical
-    (~6.5ms each with real FIT samples, extrapolating to several real seconds over this
-    account's real 451-activity history on a Pi 3's single core) and must not run for a
-    settings save that can't possibly change any canonical's cached fields.
+    (~6.5ms each with real FIT samples, ~3s over this account's real 451-activity history on
+    this laptop — assuming the Pi 3's single ARM core is 10-20x slower single-threaded, not
+    measured directly, call it ~30-60s there) and must not run for a settings save that can't
+    possibly change any canonical's cached fields.
 
     The check compares before/after *values*, not which keys are present in the incoming
     patch — web/src/pages/Settings.tsx's one Save button always PUTs the entire form (every

@@ -1840,7 +1840,7 @@ findings after.
       `store_samples -> resolve_canonical -> day_strain` with the idle tail included
       (`tests/test_canonical.py`) — confirming the label is AN/TR-led (never UT2) and the
       day's strain exceeds a steady UT2 piece of the same average HR, both ways.
-- [x] 85+ new/updated tests this session (224 -> 313 total, `uv run pytest` all green),
+- [x] 85+ new/updated tests this session (224 -> 314 total, `uv run pytest` all green),
       including monkeypatched-`fitdecode`-frame coverage for FIT parsing (no real `.fit` file
       committed — it carries a user-profile/serial-number), a real-backoff test for the
       Garmin-429-resilience fix below, and regression tests for every bug the two advisor
@@ -2037,31 +2037,49 @@ cleaned up after).
   DB predates session 12's schema, so nothing had ever ingested its `ActivitySamples`, and
   every canonical hit `_resolve_zones`'s cheap early-return for "no HR or power." Re-timed
   properly — same DB copy, but with every real FIT file actually parsed into samples first
-  (`GarminClient._ingest_fit_samples`, no network calls) — gives **~6.5ms/canonical**, which
-  over this account's real 451-activity history extrapolates to several real seconds on the
-  Pi 3's single ARM core. `def put_settings` being sync means FastAPI runs it in the
-  threadpool, so a slow request doesn't fully block the one uvicorn worker's event loop, but
-  it does compete for the GIL and tie up a threadpool slot — other requests slow down for
-  that whole stretch, on *any* settings save, not just one that changes zones/strain.
+  (`GarminClient._ingest_fit_samples`, no network calls) — gives **~6.5ms/canonical**, i.e.
+  ~3s for this account's real 451-activity history *on this laptop*. The Pi 3's single ARM
+  core runs pure-Python work an assumed 10-20x slower single-threaded, so call it **roughly
+  30-60s** there, not measured directly. `def put_settings` being sync means FastAPI runs it
+  in the threadpool, so a slow request doesn't fully block the one uvicorn worker's event
+  loop, but it does compete for the GIL and tie up a threadpool slot — other requests slow
+  down for that whole stretch, on *any* settings save, not just one that changes zones/strain.
   First fix attempt only skipped the work when the incoming *patch* omitted every
   zones/strain-affecting key — wrong, since `web/src/pages/Settings.tsx` has exactly one Save
   button that always PUTs its whole `form` state (every field, every time), so that check
-  never actually skipped anything for a real save. Fixed properly: compare `get_settings`'s
-  *values* before and after `update_settings`, not which keys the patch happened to include,
-  and only re-resolve if one of `max_hr`/`ftp_watts`/`field_priority`/`zones`/
-  `trimp_exponent`/`min_zone_minutes`/`min_zone_pct`/`auto_trim_enabled`/
-  `auto_trim_min_idle_s` actually changed value. When it has, the work now runs as a FastAPI
-  `BackgroundTasks` job (its own DB session) instead of inline, so the PUT itself returns
-  immediately. That background function takes the request session's bound engine explicitly
-  (`db.get_bind()`) rather than importing `catch.core.db.engine` directly — the first version
-  did that and passed locally, but failed the moment it ran under pytest (`OperationalError:
-  no such column`), because tests only override the `get_db` *dependency*, not that
-  module-level global, so it silently ran against a stale real local DB file instead of the
-  test's in-memory one. Both of this bullet's own bugs were caught by the same kind of
-  follow-up advisor pass as the HrChart one above, before either was committed. Added
-  regression tests for the skip/run branches (using a full-form-shaped payload, matching the
-  real UI) and confirmed the existing cache-staleness test still passes with the background
-  task in place.
+  never actually skipped anything for a real save. Fixed properly (in `1d282f9`): compare
+  `get_settings`'s *values* before and
+  after `update_settings`, not which keys the patch happened to include, and only re-resolve
+  if one of `max_hr`/`ftp_watts`/`field_priority`/`zones`/`trimp_exponent`/`min_zone_minutes`/
+  `min_zone_pct`/`auto_trim_enabled`/`auto_trim_min_idle_s` actually changed value. When it
+  has, the work now runs as a FastAPI `BackgroundTasks` job (its own DB session) instead of
+  inline, so the PUT itself returns immediately. That background function takes the request
+  session's bound engine explicitly (`db.get_bind()`) rather than importing
+  `catch.core.db.engine` directly — the first version did that, and failed on its first test
+  run (`OperationalError: no such column`, not something that ever passed and later broke),
+  because tests only override the `get_db` *dependency*, not that module-level global, so it
+  would have silently run against a stale real local DB file instead of the test's in-memory
+  one had the test suite not caught it before commit. The key-presence skip and the ~1ms
+  timing both shipped in `53263c3`; both were corrected in `1d282f9`, the very next commit, by
+  the same kind of follow-up advisor pass as the HrChart bugs above. Added regression tests
+  for the skip/run branches (using a full-form-shaped payload, matching the real UI) and
+  confirmed the existing cache-staleness test still passes with the background task in place.
+  **Trade-off this introduces, worth knowing**: after a save that changes max HR, zones, or
+  FTP, `Today`/`Trends`/`Workouts` keep showing the *old* zones and strain until the
+  background job finishes (up to ~60s on the Pi per the estimate above) — nothing pushes a
+  refresh to the frontend when it completes, so a page open at that moment needs a manual
+  reload or a later natural refetch to pick up the corrected numbers.
+- **A second, real write path to `max_hr` bypassed this fix entirely**: a review question
+  ("are there other settings writers besides `put_settings`?") turned up
+  `catch/sync/concept2_client.py`'s `_seed_max_hr`, called from every Concept2 sync
+  (scheduler, CLI, and the `POST /api/sync/{source}` endpoint) — it seeds `max_hr` from the
+  Concept2 profile the *first* time it's unset, calling `update_settings` directly, never
+  through `put_settings`. On a fresh install where Garmin syncs before Concept2 is ever
+  connected, every Garmin canonical gets resolved with `max_hr` unset, and this seed step
+  would otherwise leave their cached zones stale forever once a real `max_hr` exists. Fixed
+  by calling `resolve_all_canonicals`/`recompute_scores` synchronously right after the seed —
+  safe here, unlike `put_settings`, since this already runs inside an already-long sync (never
+  a routine request's hot path). Added a regression test.
 
 ## Gotchas / deviations from the literal task spec
 

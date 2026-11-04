@@ -151,6 +151,39 @@ def test_sync_seeds_max_hr_from_profile_when_unset(monkeypatch, session):
     assert get_settings(session)["max_hr"] == 194
 
 
+def test_sync_seeding_max_hr_re_resolves_an_already_cached_canonicals_zones(monkeypatch, session):
+    """The same already-resolved-canonical staleness PUT /api/settings fixes (session 12's
+    advisor review) applies to this seed path too: a canonical resolved before max_hr was
+    ever set (e.g. Garmin history synced before Concept2 is ever connected) must get its
+    cached zones/strain recomputed once a real max_hr is seeded, not keep whatever it
+    computed with max_hr unset."""
+    from catch.core.models import DailyWellness
+    from catch.sync.matching import run_matching
+    from catch.sync.samples import store_samples
+
+    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    assert get_settings(session)["max_hr"] is None
+
+    session.add(DailyWellness(date=datetime(2026, 6, 1, tzinfo=timezone.utc).date(), resting_hr=50))
+    activity = Activity(
+        source="garmin", external_id="pre-seed1", type="indoor_rowing",
+        start=datetime(2026, 6, 1, 7, tzinfo=timezone.utc), duration=1800.0,
+    )
+    session.add(activity)
+    session.commit()
+    hr = [150.0 + (i % 3 - 1) for i in range(1800)]
+    store_samples(session, activity.id, start=activity.start, hr=hr, power=[None] * 1800, cadence=[20.0] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+    zones_before = session.get(CanonicalActivity, activity.canonical_id).zones_json
+
+    concept2_client.sync(session, http=_http())
+
+    assert get_settings(session)["max_hr"] == 194
+    zones_after = session.get(CanonicalActivity, activity.canonical_id).zones_json
+    assert zones_after != zones_before
+
+
 def test_sync_does_not_overwrite_a_configured_max_hr(monkeypatch, session):
     monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
     update_settings(session, {"max_hr": 180})

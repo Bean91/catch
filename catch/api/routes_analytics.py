@@ -534,10 +534,11 @@ def get_settings_endpoint(db: Session = Depends(get_db)):
 # the frontend before trusting the first version of this fix. When a relevant value DID
 # change, re-timed against a disposable copy of the real local data/catch.db with its real FIT
 # samples actually ingested (the first timing pass measured the cheap no-samples path by
-# mistake, also caught by review): ~6.5ms/canonical, which over this account's real
-# 451-activity history extrapolates to several real seconds on the Pi 3's single ARM core —
-# run as a FastAPI background task below instead of inline, so the PUT itself returns
-# immediately rather than slowing every other request on that one worker for that long.
+# mistake, also caught by review): ~6.5ms/canonical, ~3s for this account's real 451-activity
+# history on this laptop — assuming the Pi 3's single ARM core runs this pure-Python work
+# 10-20x slower single-threaded (not measured directly), call it roughly 30-60s there. Run as
+# a FastAPI background task below instead of inline, so the PUT itself returns immediately
+# rather than slowing every other request on that one worker for that long.
 _RESOLVE_AFFECTING_SETTINGS_KEYS = {
     "max_hr", "ftp_watts", "field_priority", "zones",
     "trimp_exponent", "min_zone_minutes", "min_zone_pct",
