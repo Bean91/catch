@@ -1,25 +1,39 @@
 import {
+  copyMockDayLogs,
   createMockConversation,
   createMockEvent,
   createMockFact,
   createMockGoal,
+  createMockManualFood,
+  createMockFoodLog,
   createMockToken,
   deleteMockAnthropicKey,
   deleteMockConversation,
+  deleteMockFoodLog,
   deleteMockMemory,
+  deleteMockSavedMeal,
   deleteMockToken,
+  listMockFoodLogs,
+  logMockSavedMeal,
   mockActivitySamples,
+  mockBarcodeLookup,
   mockBody,
   mockCoachModels,
   mockCoachSettings,
   mockConversationDetail,
   mockConversations,
   mockDailyUsage,
+  mockDaySummary,
   mockDuplicates,
   mockErgStrokes,
+  mockFoodSearch,
   mockMemory,
+  mockMyFoods,
   mockNote,
+  mockNutritionTargets,
   mockPbs,
+  mockPhotoEstimate,
+  mockSavedMeals,
   mockScenarioFromQuery,
   mockSeries,
   mockSettings,
@@ -28,6 +42,7 @@ import {
   mockToday,
   mockTokens,
   mockVolume,
+  mockWeekSummary,
   mockWorkoutDetail,
   mockWorkoutsPage,
   mergeMockActivities,
@@ -36,33 +51,51 @@ import {
   postMockManualWeight,
   revertMockActivityField,
   saveMockCoachSettings,
+  saveMockMeal,
   saveMockNote,
+  saveMockNutritionTargets,
   saveMockSettings,
+  savePhotoEstimateMock,
   setMockAnthropicKey,
   splitMockActivity,
+  starMockFood,
   streamMockMessage,
+  unstarMockFood,
   updateMockEvent,
   updateMockFact,
+  updateMockFoodLog,
   updateMockGoal,
 } from "./mock";
 import type {
   ActivityOverrides,
   ActivitySamplesResponse,
+  BarcodeLookupResult,
   BodyCompReading,
   CoachConversation,
   CoachConversationDetail,
   CoachEvent,
   CoachModel,
   CoachSettings,
+  DaySummary,
   DeviceToken,
   DuplicatePair,
   ErgStrokesResponse,
+  Food,
+  FoodLogRow,
+  Meal,
   MemoryEvent,
   MemoryFact,
   MemoryGoal,
   MemoryListing,
+  MyFoodRow,
   Note,
+  NutritionTargetSettings,
+  NutritionTargetsResponse,
   PersonalBests,
+  PhotoEstimateItem,
+  PhotoEstimateResult,
+  SavedMealItem,
+  SavedMealRow,
   Settings,
   SeriesResponse,
   SyncResult,
@@ -70,6 +103,7 @@ import type {
   Today,
   TrendMetric,
   VolumeWeek,
+  WeekSummary,
   WorkoutCategory,
   WorkoutDetail,
   WorkoutsPage,
@@ -519,4 +553,187 @@ export async function updateMemoryGoal(ref: string, text: string, target_date: s
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, target_date, status }),
   });
+}
+
+// --- Nutrition (session 13) -----------------------------------------------------
+
+export async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult> {
+  if (isMock) return delay(mockBarcodeLookup(barcode), 400);
+  return request<BarcodeLookupResult>(`/api/nutrition/barcode/${encodeURIComponent(barcode)}`);
+}
+
+export async function searchFoods(query: string): Promise<Food[]> {
+  if (isMock) return delay(mockFoodSearch(query), 250);
+  const { results } = await request<{ results: Food[] }>(`/api/nutrition/search?q=${encodeURIComponent(query)}`);
+  return results;
+}
+
+export async function createManualFood(fields: {
+  barcode?: string | null;
+  name: string;
+  brand?: string | null;
+  serving_size?: number | null;
+  serving_unit?: string | null;
+  kcal_100g?: number | null;
+  protein_100g?: number | null;
+  carbs_100g?: number | null;
+  fat_100g?: number | null;
+  fiber_100g?: number | null;
+  sugar_100g?: number | null;
+  sodium_100g?: number | null;
+}): Promise<Food> {
+  if (isMock) return delay(createMockManualFood({ ...fields, barcode: fields.barcode ?? null } as Food), 200);
+  return request<Food>("/api/nutrition/foods", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+export async function fetchMyFoods(): Promise<MyFoodRow[]> {
+  if (isMock) return delay(mockMyFoods());
+  const { my_foods } = await request<{ my_foods: MyFoodRow[] }>("/api/nutrition/my-foods");
+  return my_foods;
+}
+
+export async function starFood(foodId: number, label?: string | null): Promise<MyFoodRow> {
+  if (isMock) return delay(starMockFood(foodId, label ?? null), 150);
+  const search = new URLSearchParams({ food_id: String(foodId) });
+  if (label) search.set("label", label);
+  return request<MyFoodRow>(`/api/nutrition/my-foods?${search.toString()}`, { method: "POST" });
+}
+
+export async function unstarFood(myFoodId: number): Promise<void> {
+  if (isMock) {
+    unstarMockFood(myFoodId);
+    return delay(undefined, 100);
+  }
+  await request(`/api/nutrition/my-foods/${myFoodId}`, { method: "DELETE" });
+}
+
+export async function fetchSavedMeals(): Promise<SavedMealRow[]> {
+  if (isMock) return delay(mockSavedMeals());
+  const { saved_meals } = await request<{ saved_meals: SavedMealRow[] }>("/api/nutrition/saved-meals");
+  return saved_meals;
+}
+
+export async function saveMeal(name: string, items: SavedMealItem[]): Promise<SavedMealRow> {
+  if (isMock) return delay(saveMockMeal(name, items), 200);
+  return request<SavedMealRow>("/api/nutrition/saved-meals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, items }),
+  });
+}
+
+export async function deleteSavedMeal(id: number): Promise<void> {
+  if (isMock) {
+    deleteMockSavedMeal(id);
+    return delay(undefined, 100);
+  }
+  await request(`/api/nutrition/saved-meals/${id}`, { method: "DELETE" });
+}
+
+export async function logSavedMeal(savedMealId: number, meal: Meal, ts?: string): Promise<number[]> {
+  if (isMock) return delay(logMockSavedMeal(savedMealId, meal, ts).map((r) => r.id), 200);
+  const { logged } = await request<{ logged: number[] }>(`/api/nutrition/saved-meals/${savedMealId}/log`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ meal, ts }),
+  });
+  return logged;
+}
+
+export async function fetchFoodLogs(from: string, to: string): Promise<FoodLogRow[]> {
+  if (isMock) return delay(listMockFoodLogs(from, to));
+  const search = new URLSearchParams({ from, to });
+  const { logs } = await request<{ logs: FoodLogRow[] }>(`/api/nutrition/logs?${search.toString()}`);
+  return logs;
+}
+
+type LogMutationResult = { id: number; kcal: number | null; protein: number | null; carbs: number | null; fat: number | null };
+
+export async function logFood(args: { ts?: string; meal: Meal; foodId: number; quantity: number; unit: "g" | "serving" }): Promise<LogMutationResult> {
+  if (isMock) return delay(createMockFoodLog(args.ts, args.meal, args.foodId, args.quantity, args.unit), 200);
+  return request<LogMutationResult>("/api/nutrition/logs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ts: args.ts, meal: args.meal, food_id: args.foodId, quantity: args.quantity, unit: args.unit }),
+  });
+}
+
+export async function updateFoodLog(logId: number, patch: { meal?: Meal; quantity?: number; unit?: "g" | "serving" }): Promise<LogMutationResult> {
+  if (isMock) return delay(updateMockFoodLog(logId, patch), 150);
+  return request<LogMutationResult>(`/api/nutrition/logs/${logId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteFoodLog(logId: number): Promise<void> {
+  if (isMock) {
+    deleteMockFoodLog(logId);
+    return delay(undefined, 100);
+  }
+  await request(`/api/nutrition/logs/${logId}`, { method: "DELETE" });
+}
+
+export async function copyDayLogs(fromDate: string, toDate: string, meal?: Meal): Promise<number[]> {
+  if (isMock) return delay(copyMockDayLogs(fromDate, toDate, meal).map((r) => r.id), 250);
+  const { logged } = await request<{ logged: number[] }>("/api/nutrition/logs/copy-day", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ from_date: fromDate, to_date: toDate, meal }),
+  });
+  return logged;
+}
+
+export async function fetchNutritionTargets(): Promise<NutritionTargetsResponse> {
+  if (isMock) return delay(mockNutritionTargets());
+  return request<NutritionTargetsResponse>("/api/nutrition/targets");
+}
+
+export async function saveNutritionTargets(patch: Partial<NutritionTargetSettings>): Promise<NutritionTargetsResponse> {
+  if (isMock) return delay(saveMockNutritionTargets(patch), 200);
+  return request<NutritionTargetsResponse>("/api/nutrition/targets", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function fetchDaySummary(day: string): Promise<DaySummary> {
+  if (isMock) return delay(mockDaySummary(day));
+  return request<DaySummary>(`/api/nutrition/summary/day?day=${day}`);
+}
+
+export async function fetchWeekSummary(from: string, to: string): Promise<WeekSummary> {
+  if (isMock) return delay(mockWeekSummary(from, to));
+  const search = new URLSearchParams({ from, to });
+  return request<WeekSummary>(`/api/nutrition/summary/week?${search.toString()}`);
+}
+
+// Multipart, not the usual JSON `request()` helper — the only upload this app does.
+export async function estimateMealPhoto(photo: Blob): Promise<PhotoEstimateResult> {
+  if (isMock) return delay(mockPhotoEstimate(), 1200);
+  const form = new FormData();
+  form.append("photo", photo, "meal.jpg");
+  const res = await fetch("/api/nutrition/photo-estimate", { method: "POST", credentials: "include", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, body.detail ?? res.statusText);
+  }
+  return res.json() as Promise<PhotoEstimateResult>;
+}
+
+export async function savePhotoEstimate(items: PhotoEstimateItem[], meal: Meal, ts?: string): Promise<number[]> {
+  if (isMock) return delay(savePhotoEstimateMock(items, meal, ts), 200);
+  const { logged } = await request<{ logged: number[] }>("/api/nutrition/photo-estimate/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ts, meal, items }),
+  });
+  return logged;
 }

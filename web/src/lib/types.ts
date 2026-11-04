@@ -622,3 +622,152 @@ export interface MemoryListing {
   events: MemoryEvent[];
   goals: MemoryGoal[];
 }
+
+// --- Nutrition (session 13) --------------------------------------------------
+
+export type Meal = "breakfast" | "lunch" | "dinner" | "snack" | "pre_workout" | "post_workout";
+export const MEALS: Meal[] = ["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"];
+
+export interface Food {
+  id: number;
+  source: string; // "off" | "usda" | "manual" | "estimate"
+  barcode: string | null;
+  name: string;
+  brand: string | null;
+  serving_size: number | null;
+  serving_unit: string | null;
+  kcal_100g: number | null;
+  protein_100g: number | null;
+  carbs_100g: number | null;
+  fat_100g: number | null;
+  fiber_100g: number | null;
+  sugar_100g: number | null;
+  sodium_100g: number | null;
+  verified: boolean;
+}
+
+export interface BarcodeLookupResult {
+  found: boolean;
+  barcode: string;
+  id?: number;
+  name?: string;
+  brand?: string | null;
+  [key: string]: unknown;
+}
+
+export interface FoodLogRow {
+  id: number;
+  ts: string;
+  meal: Meal;
+  food_id: number;
+  food_name: string | null;
+  food_brand: string | null;
+  quantity: number;
+  unit: "g" | "serving";
+  estimated: boolean;
+  kcal: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sodium: number | null;
+}
+
+export interface MyFoodRow extends Food {
+  my_food_id: number;
+  label: string | null;
+}
+
+export interface SavedMealItem {
+  food_id: number;
+  quantity: number;
+  unit: "g" | "serving";
+}
+
+export interface SavedMealRow {
+  id: number;
+  name: string;
+  items: SavedMealItem[];
+  created_at: string;
+}
+
+export type TrainingTier = "rest" | "moderate" | "double_day" | "pre_race";
+
+export interface NutritionTargetsComputed {
+  protein_g: number | null;
+  carb_g: number | null;
+  fat_g: number | null;
+  kcal_target: number | null;
+  tier: TrainingTier;
+  explanation: string;
+  weight_source: string | null;
+}
+
+export interface NutritionTargetSettings {
+  protein_g_per_kg: number;
+  carb_g_per_kg_rest: number;
+  carb_g_per_kg_moderate: number;
+  carb_g_per_kg_double_day: number;
+  carb_g_per_kg_pre_race: number;
+  kcal_target_source: "garmin_total" | "manual";
+  manual_kcal_target: number | null;
+}
+
+export interface NutritionTargetsResponse {
+  settings: NutritionTargetSettings;
+  today: NutritionTargetsComputed;
+}
+
+export interface MacroTotals {
+  kcal: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+}
+
+export interface DaySummary {
+  date: string;
+  intake: MacroTotals;
+  targets: NutritionTargetsComputed;
+  expenditure_kcal: number | null;
+  logs: FoodLogRow[];
+}
+
+export interface UnderFuelling {
+  flag: boolean;
+  logged_days: number;
+  avg_deficit_kcal?: number;
+  explanation: string;
+}
+
+export interface WeekDaySummary {
+  date: string;
+  intake_kcal: number;
+  protein: number;
+  expenditure_kcal: number | null;
+  has_log: boolean;
+}
+
+export interface WeekSummary {
+  days: WeekDaySummary[];
+  under_fuelling: UnderFuelling;
+}
+
+export interface PhotoEstimateItem {
+  name: string;
+  quantity_description: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}
+
+export interface PhotoEstimateResult {
+  items: PhotoEstimateItem[];
+  notes: string;
+  cost_usd: number;
+}

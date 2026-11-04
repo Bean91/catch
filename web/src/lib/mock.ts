@@ -2,6 +2,7 @@ import type {
   ActivityOverrides,
   ActivitySamplesResponse,
   ActivitySourceSummary,
+  BarcodeLookupResult,
   BodyCompReading,
   CoachConversation,
   CoachConversationDetail,
@@ -9,17 +10,27 @@ import type {
   CoachMessageRow,
   CoachModel,
   CoachSettings,
+  DaySummary,
   DeviceToken,
   DuplicatePair,
   ErgStrokesResponse,
   ErgTechnique,
+  Food,
+  FoodLogRow,
   IntervalSummary,
+  Meal,
   MemoryEvent,
   MemoryFact,
   MemoryGoal,
   MemoryListing,
+  MyFoodRow,
   Note,
+  NutritionTargetSettings,
+  NutritionTargetsResponse,
   PersonalBests,
+  PhotoEstimateResult,
+  SavedMealItem,
+  SavedMealRow,
   Settings,
   SeriesForMetric,
   SeriesResponse,
@@ -29,7 +40,9 @@ import type {
   Today,
   TrendMetric,
   TrendPoint,
+  UnderFuelling,
   VolumeWeek,
+  WeekSummary,
   WorkoutCategory,
   WorkoutDetail,
   WorkoutListItem,
@@ -37,6 +50,7 @@ import type {
   ZoneRow,
 } from "./types";
 import { ZONE_NAMES } from "./types";
+import { localDateString } from "./format";
 
 export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading" | "offline";
 
@@ -146,6 +160,7 @@ const FULL: Today = {
   },
   recommendation: "Recovery is green — you're clear for a harder session if it's on the plan.",
   next_a_race: { name: "Head of the Charles", date: shiftDate(TODAY, 9), days_to_go: 9, taper: true },
+  under_fuelling: { flag: false, logged_days: 6, explanation: "Intake has kept pace with expenditure over the last logged days." },
 };
 
 const CALIBRATING: Today = {
@@ -182,6 +197,7 @@ const EMPTY: Today = {
   predicted_2k: { value: null, band: "insufficient_data", components: [], explanation: "No usable pieces yet." },
   recommendation: "Not enough data yet to make a recommendation — keep syncing.",
   next_a_race: null,
+  under_fuelling: { flag: false, logged_days: 0, explanation: "Not enough logged days yet to assess fuelling." },
 };
 
 function shiftDate(iso: string, days: number): string {
@@ -1070,4 +1086,366 @@ export async function* streamMockMessage(conversationId: number, text: string): 
   if (conv) conv.updated_at = new Date().toISOString();
 
   yield { type: "done", stop_reason: "end_turn" };
+}
+
+// --- Nutrition (session 13) --------------------------------------------------
+
+function localDateFromIso(ts: string): string {
+  return localDateString(new Date(ts));
+}
+
+function isoAtLocalTime(dateStr: string, hour: number, minute = 0): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setHours(hour, minute, 0, 0);
+  return d.toISOString();
+}
+
+let nextMockFoodId = 100;
+let nextMockFoodLogId = 1000;
+let nextMockMyFoodId = 1;
+let nextMockSavedMealId = 1;
+
+const MOCK_FOODS: Food[] = [
+  {
+    id: 1, source: "manual", barcode: null, name: "Oats", brand: null, serving_size: 40, serving_unit: "g",
+    kcal_100g: 375, protein_100g: 13, carbs_100g: 61, fat_100g: 7, fiber_100g: 10, sugar_100g: 1, sodium_100g: 2, verified: true,
+  },
+  {
+    id: 2, source: "off", barcode: "5000112548167", name: "Banana", brand: null, serving_size: 118, serving_unit: "g",
+    kcal_100g: 89, protein_100g: 1.1, carbs_100g: 23, fat_100g: 0.3, fiber_100g: 2.6, sugar_100g: 12, sodium_100g: 1, verified: false,
+  },
+  {
+    id: 3, source: "usda", barcode: null, name: "Chicken breast, grilled", brand: null, serving_size: 172, serving_unit: "g",
+    kcal_100g: 165, protein_100g: 31, carbs_100g: 0, fat_100g: 3.6, fiber_100g: 0, sugar_100g: 0, sodium_100g: 74, verified: false,
+  },
+  {
+    id: 4, source: "usda", barcode: null, name: "White rice, cooked", brand: null, serving_size: 158, serving_unit: "g",
+    kcal_100g: 130, protein_100g: 2.7, carbs_100g: 28, fat_100g: 0.3, fiber_100g: 0.4, sugar_100g: 0.1, sodium_100g: 1, verified: false,
+  },
+  {
+    id: 5, source: "off", barcode: "3760020505701", name: "Greek yoghurt", brand: "Fage", serving_size: 170, serving_unit: "g",
+    kcal_100g: 59, protein_100g: 10, carbs_100g: 3.6, fat_100g: 0.4, fiber_100g: 0, sugar_100g: 3.6, sodium_100g: 36, verified: false,
+  },
+  {
+    id: 6, source: "off", barcode: "0810010300047", name: "Chocolate Chip Protein Bar", brand: "Clif", serving_size: 68, serving_unit: "g",
+    kcal_100g: 370, protein_100g: 20, carbs_100g: 40, fat_100g: 12, fiber_100g: 7, sugar_100g: 20, sodium_100g: 260, verified: false,
+  },
+];
+
+function findMockFood(id: number): Food | undefined {
+  return MOCK_FOODS.find((f) => f.id === id);
+}
+
+function gramsForMockQuantity(quantity: number, unit: "g" | "serving", servingSize: number | null): number | null {
+  if (quantity <= 0) return null;
+  if (unit === "g") return quantity;
+  return servingSize ? quantity * servingSize : null;
+}
+
+function scaleMockMacros(food: Food, grams: number) {
+  const factor = grams / 100;
+  const scale = (v: number | null) => (v != null ? v * factor : null);
+  return {
+    kcal: scale(food.kcal_100g),
+    protein: scale(food.protein_100g),
+    carbs: scale(food.carbs_100g),
+    fat: scale(food.fat_100g),
+    fiber: scale(food.fiber_100g),
+    sugar: scale(food.sugar_100g),
+    sodium: scale(food.sodium_100g),
+  };
+}
+
+let MOCK_FOOD_LOGS: FoodLogRow[] = (() => {
+  const today = localDateString();
+  const yesterday = shiftDate(today, -1);
+  const seed: { date: string; hour: number; meal: Meal; foodId: number; quantity: number; unit: "g" | "serving" }[] = [
+    { date: yesterday, hour: 7, meal: "breakfast", foodId: 1, quantity: 1, unit: "serving" },
+    { date: yesterday, hour: 12, meal: "lunch", foodId: 3, quantity: 1, unit: "serving" },
+    { date: yesterday, hour: 12, meal: "lunch", foodId: 4, quantity: 1, unit: "serving" },
+    { date: yesterday, hour: 19, meal: "dinner", foodId: 5, quantity: 1, unit: "serving" },
+    { date: today, hour: 7, meal: "breakfast", foodId: 1, quantity: 1, unit: "serving" },
+    { date: today, hour: 10, meal: "snack", foodId: 2, quantity: 1, unit: "serving" },
+  ];
+  return seed.map((s) => {
+    const food = findMockFood(s.foodId)!;
+    const grams = gramsForMockQuantity(s.quantity, s.unit, food.serving_size)!;
+    return {
+      id: nextMockFoodLogId++,
+      ts: isoAtLocalTime(s.date, s.hour),
+      meal: s.meal,
+      food_id: food.id,
+      food_name: food.name,
+      food_brand: food.brand,
+      quantity: s.quantity,
+      unit: s.unit,
+      estimated: false,
+      ...scaleMockMacros(food, grams),
+    };
+  });
+})();
+
+// A plausible trailing-30-day Garmin total-burn curve, so the day/week views and the targets
+// card have something believable to show without a real Garmin connection in mock mode.
+function mockExpenditureKcal(dateStr: string): number | null {
+  const today = localDateString();
+  const daysAgo = Math.round((new Date(today + "T00:00:00").getTime() - new Date(dateStr + "T00:00:00").getTime()) / 86_400_000);
+  if (daysAgo < 0 || daysAgo > 30) return null;
+  return Math.round(2750 + 220 * Math.sin(daysAgo / 3));
+}
+
+export function mockBarcodeLookup(barcode: string): BarcodeLookupResult {
+  const food = MOCK_FOODS.find((f) => f.barcode === barcode);
+  if (!food) return { found: false, barcode };
+  return { found: true, barcode, ...food };
+}
+
+export function mockFoodSearch(query: string): Food[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return MOCK_FOODS.filter((f) => f.name.toLowerCase().includes(q) || f.brand?.toLowerCase().includes(q)).slice(0, 20);
+}
+
+export function createMockManualFood(fields: Omit<Food, "id" | "source" | "verified" | "barcode"> & { barcode?: string | null }): Food {
+  const food: Food = { id: nextMockFoodId++, source: "manual", verified: true, barcode: fields.barcode ?? null, ...fields };
+  MOCK_FOODS.push(food);
+  return food;
+}
+
+let MOCK_MY_FOODS: { my_food_id: number; food_id: number; label: string | null }[] = [
+  { my_food_id: nextMockMyFoodId++, food_id: 1, label: "Morning oats" },
+  { my_food_id: nextMockMyFoodId++, food_id: 5, label: null },
+];
+
+export function mockMyFoods(): MyFoodRow[] {
+  return MOCK_MY_FOODS.map((m) => ({ my_food_id: m.my_food_id, label: m.label, ...findMockFood(m.food_id)! }));
+}
+
+export function starMockFood(foodId: number, label: string | null): MyFoodRow {
+  const existing = MOCK_MY_FOODS.find((m) => m.food_id === foodId);
+  const row = existing ?? { my_food_id: nextMockMyFoodId++, food_id: foodId, label };
+  if (!existing) MOCK_MY_FOODS = [...MOCK_MY_FOODS, row];
+  return { my_food_id: row.my_food_id, label: row.label, ...findMockFood(foodId)! };
+}
+
+export function unstarMockFood(myFoodId: number): boolean {
+  const before = MOCK_MY_FOODS.length;
+  MOCK_MY_FOODS = MOCK_MY_FOODS.filter((m) => m.my_food_id !== myFoodId);
+  return MOCK_MY_FOODS.length < before;
+}
+
+let MOCK_SAVED_MEALS: SavedMealRow[] = [
+  {
+    id: nextMockSavedMealId++,
+    name: "Post-workout shake",
+    items: [{ food_id: 5, quantity: 1, unit: "serving" }, { food_id: 2, quantity: 1, unit: "serving" }],
+    created_at: new Date().toISOString(),
+  },
+];
+
+export function mockSavedMeals(): SavedMealRow[] {
+  return MOCK_SAVED_MEALS;
+}
+
+export function saveMockMeal(name: string, items: SavedMealItem[]): SavedMealRow {
+  const row: SavedMealRow = { id: nextMockSavedMealId++, name, items, created_at: new Date().toISOString() };
+  MOCK_SAVED_MEALS = [...MOCK_SAVED_MEALS, row];
+  return row;
+}
+
+export function deleteMockSavedMeal(id: number): boolean {
+  const before = MOCK_SAVED_MEALS.length;
+  MOCK_SAVED_MEALS = MOCK_SAVED_MEALS.filter((m) => m.id !== id);
+  return MOCK_SAVED_MEALS.length < before;
+}
+
+function pushMockFoodLog(ts: string, meal: Meal, foodId: number, quantity: number, unit: "g" | "serving", estimated = false): FoodLogRow {
+  const food = findMockFood(foodId);
+  if (!food) throw new Error("Food not found");
+  const grams = gramsForMockQuantity(quantity, unit, food.serving_size);
+  if (grams == null) throw new Error(`Can't log ${food.name} by serving — no known serving size.`);
+  const row: FoodLogRow = {
+    id: nextMockFoodLogId++,
+    ts,
+    meal,
+    food_id: food.id,
+    food_name: food.name,
+    food_brand: food.brand,
+    quantity,
+    unit,
+    estimated,
+    ...scaleMockMacros(food, grams),
+  };
+  MOCK_FOOD_LOGS = [...MOCK_FOOD_LOGS, row];
+  return row;
+}
+
+export function createMockFoodLog(ts: string | undefined, meal: Meal, foodId: number, quantity: number, unit: "g" | "serving"): FoodLogRow {
+  return pushMockFoodLog(ts ?? new Date().toISOString(), meal, foodId, quantity, unit);
+}
+
+export function updateMockFoodLog(logId: number, patch: { meal?: Meal; quantity?: number; unit?: "g" | "serving" }): FoodLogRow {
+  const idx = MOCK_FOOD_LOGS.findIndex((l) => l.id === logId);
+  if (idx === -1) throw new Error("Log not found");
+  const row = MOCK_FOOD_LOGS[idx];
+  const food = findMockFood(row.food_id)!;
+  const quantity = patch.quantity ?? row.quantity;
+  const unit = patch.unit ?? row.unit;
+  const grams = gramsForMockQuantity(quantity, unit, food.serving_size);
+  if (grams == null) throw new Error(`Can't log ${food.name} by serving — no known serving size.`);
+  const updated: FoodLogRow = { ...row, meal: patch.meal ?? row.meal, quantity, unit, ...scaleMockMacros(food, grams) };
+  MOCK_FOOD_LOGS = [...MOCK_FOOD_LOGS.slice(0, idx), updated, ...MOCK_FOOD_LOGS.slice(idx + 1)];
+  return updated;
+}
+
+export function deleteMockFoodLog(logId: number): boolean {
+  const before = MOCK_FOOD_LOGS.length;
+  MOCK_FOOD_LOGS = MOCK_FOOD_LOGS.filter((l) => l.id !== logId);
+  return MOCK_FOOD_LOGS.length < before;
+}
+
+export function listMockFoodLogs(from?: string, to?: string): FoodLogRow[] {
+  return MOCK_FOOD_LOGS.filter((l) => {
+    const d = localDateFromIso(l.ts);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  }).sort((a, b) => (a.ts < b.ts ? -1 : 1));
+}
+
+export function copyMockDayLogs(fromDate: string, toDate: string, meal?: Meal): FoodLogRow[] {
+  const dayDeltaMs = new Date(toDate + "T00:00:00").getTime() - new Date(fromDate + "T00:00:00").getTime();
+  const source = listMockFoodLogs(fromDate, fromDate).filter((l) => !meal || l.meal === meal);
+  return source.map((l) => pushMockFoodLog(new Date(new Date(l.ts).getTime() + dayDeltaMs).toISOString(), l.meal, l.food_id, l.quantity, l.unit));
+}
+
+export function logMockSavedMeal(savedMealId: number, meal: Meal, ts?: string): FoodLogRow[] {
+  const saved = MOCK_SAVED_MEALS.find((m) => m.id === savedMealId);
+  if (!saved) throw new Error("Saved meal not found");
+  const at = ts ?? new Date().toISOString();
+  return saved.items.map((item) => pushMockFoodLog(at, meal, item.food_id, item.quantity, item.unit));
+}
+
+let MOCK_NUTRITION_TARGET_SETTINGS: NutritionTargetSettings = {
+  protein_g_per_kg: 1.6,
+  carb_g_per_kg_rest: 3,
+  carb_g_per_kg_moderate: 5,
+  carb_g_per_kg_double_day: 7,
+  carb_g_per_kg_pre_race: 8,
+  kcal_target_source: "garmin_total",
+  manual_kcal_target: null,
+};
+
+const MOCK_WEIGHT_KG = 79;
+
+function computeMockTargets(dateStr: string): NutritionTargetsResponse["today"] {
+  const s = MOCK_NUTRITION_TARGET_SETTINGS;
+  const logsToday = listMockFoodLogs(dateStr, dateStr);
+  const tier: NutritionTargetsResponse["today"]["tier"] = logsToday.length >= 2 ? "double_day" : logsToday.length === 1 ? "moderate" : "rest";
+  const carbPerKg = { rest: s.carb_g_per_kg_rest, moderate: s.carb_g_per_kg_moderate, double_day: s.carb_g_per_kg_double_day, pre_race: s.carb_g_per_kg_pre_race }[tier];
+  const proteinG = s.protein_g_per_kg * MOCK_WEIGHT_KG;
+  const carbG = carbPerKg * MOCK_WEIGHT_KG;
+  const kcalTarget = s.kcal_target_source === "manual" ? s.manual_kcal_target : mockExpenditureKcal(shiftDate(dateStr, -1));
+  let fatG: number | null = null;
+  let explanation = `Protein ${s.protein_g_per_kg}g/kg x ${MOCK_WEIGHT_KG}kg = ${proteinG.toFixed(0)}g. Carbs ${carbPerKg}g/kg (${tier.replace("_", " ")}) x ${MOCK_WEIGHT_KG}kg = ${carbG.toFixed(0)}g.`;
+  if (kcalTarget) {
+    const fatKcal = Math.max(0, kcalTarget - proteinG * 4 - carbG * 4);
+    fatG = fatKcal / 9;
+    explanation += ` Fat is the kcal remainder: (${kcalTarget.toFixed(0)} - ${(proteinG * 4).toFixed(0)} - ${(carbG * 4).toFixed(0)}) / 9 = ${fatG.toFixed(0)}g.`;
+  } else {
+    explanation += " No kcal target yet (no recent Garmin total-burn data), so no fat target either.";
+  }
+  return { protein_g: proteinG, carb_g: carbG, fat_g: fatG, kcal_target: kcalTarget, tier, explanation, weight_source: "withings" };
+}
+
+export function mockNutritionTargets(): NutritionTargetsResponse {
+  return { settings: { ...MOCK_NUTRITION_TARGET_SETTINGS }, today: computeMockTargets(localDateString()) };
+}
+
+export function saveMockNutritionTargets(patch: Partial<NutritionTargetSettings>): NutritionTargetsResponse {
+  MOCK_NUTRITION_TARGET_SETTINGS = { ...MOCK_NUTRITION_TARGET_SETTINGS, ...patch };
+  return mockNutritionTargets();
+}
+
+function sumMockDay(dateStr: string) {
+  const logs = listMockFoodLogs(dateStr, dateStr);
+  const totals = { kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0 };
+  for (const l of logs) {
+    totals.kcal += l.kcal ?? 0;
+    totals.protein += l.protein ?? 0;
+    totals.carbs += l.carbs ?? 0;
+    totals.fat += l.fat ?? 0;
+    totals.fiber += l.fiber ?? 0;
+    totals.sugar += l.sugar ?? 0;
+    totals.sodium += l.sodium ?? 0;
+  }
+  return { totals, logs };
+}
+
+export function mockDaySummary(dateStr: string): DaySummary {
+  const { totals, logs } = sumMockDay(dateStr);
+  return { date: dateStr, intake: totals, targets: computeMockTargets(dateStr), expenditure_kcal: mockExpenditureKcal(dateStr), logs };
+}
+
+function computeMockUnderFuelling(balances: { intake_kcal: number; expenditure_kcal: number | null; has_log: boolean }[]): UnderFuelling {
+  const logged = balances.filter((b) => b.has_log && b.expenditure_kcal);
+  if (logged.length < 3) return { flag: false, logged_days: logged.length, explanation: "Not enough logged days yet to assess fuelling." };
+  const recent = logged.slice(-3);
+  const deficitPcts = recent.map((b) => (b.expenditure_kcal! - b.intake_kcal) / b.expenditure_kcal!);
+  const flagged = deficitPcts.every((p) => p >= 0.25);
+  const avgDeficit = recent.reduce((sum, b) => sum + (b.expenditure_kcal! - b.intake_kcal), 0) / recent.length;
+  return {
+    flag: flagged,
+    logged_days: logged.length,
+    avg_deficit_kcal: avgDeficit,
+    explanation: flagged
+      ? `The last ${recent.length} logged days each ran 25%+ below expenditure (avg ${avgDeficit.toFixed(0)} kcal/day short) — worth a look at fuelling, not a reason to worry alone.`
+      : "Intake has kept pace with expenditure over the last logged days.",
+  };
+}
+
+export function mockWeekSummary(from: string, to: string): WeekSummary {
+  const days = [];
+  let cursor = from;
+  while (cursor <= to) {
+    const { totals, logs } = sumMockDay(cursor);
+    days.push({ date: cursor, intake_kcal: totals.kcal, protein: totals.protein, expenditure_kcal: mockExpenditureKcal(cursor), has_log: logs.length > 0 });
+    cursor = shiftDate(cursor, 1);
+  }
+  return { days, under_fuelling: computeMockUnderFuelling(days) };
+}
+
+const MOCK_PHOTO_ESTIMATE: PhotoEstimateResult = {
+  items: [
+    { name: "Grilled chicken breast", quantity_description: "~150g", kcal: 248, protein_g: 46, carbs_g: 0, fat_g: 5 },
+    { name: "White rice", quantity_description: "~1 cup cooked", kcal: 205, protein_g: 4, carbs_g: 44, fat_g: 0.5 },
+    { name: "Steamed broccoli", quantity_description: "~1 cup", kcal: 55, protein_g: 4, carbs_g: 11, fat_g: 0.5 },
+  ],
+  notes: "Estimate — portion sizes are a guess from a single photo angle, and any oil or sauce used in cooking isn't visible.",
+  cost_usd: 0.012,
+};
+
+export function mockPhotoEstimate(): PhotoEstimateResult {
+  return MOCK_PHOTO_ESTIMATE;
+}
+
+export function savePhotoEstimateMock(items: PhotoEstimateResult["items"], meal: Meal, ts?: string): number[] {
+  const at = ts ?? new Date().toISOString();
+  return items.map((item) => {
+    const food = createMockManualFood({
+      name: item.name,
+      serving_size: 100,
+      serving_unit: item.quantity_description || "serving",
+      kcal_100g: item.kcal,
+      protein_100g: item.protein_g,
+      carbs_100g: item.carbs_g,
+      fat_100g: item.fat_g,
+      fiber_100g: null,
+      sugar_100g: null,
+      sodium_100g: null,
+    });
+    food.source = "estimate";
+    food.verified = false;
+    return pushMockFoodLog(at, meal, food.id, 1, "serving", true).id;
+  });
 }
