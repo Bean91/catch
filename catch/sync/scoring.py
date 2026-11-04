@@ -9,8 +9,8 @@ from sqlmodel import Session, select
 
 from catch.analytics.load import training_load
 from catch.analytics.recovery import recovery_score
-from catch.analytics.strain import session_strain, strain_band
-from catch.core.models import CanonicalActivity, DailyScore, DailyWellness
+from catch.analytics.strain import daily_activity_strain, session_strain, strain_band
+from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness
 from catch.core.settings_store import get_settings
 
 _lock = threading.Lock()
@@ -55,10 +55,50 @@ def _note_rpe(session: Session, day: date) -> int | None:
     return rpes[-1] if rpes else None
 
 
+def _day_garmin_activity_totals(session: Session, day: date) -> tuple[int, float]:
+    """Sum of steps/active-kcal already attributed to a Garmin-sourced activity that day —
+    regardless of its canonical's `exclude_from_totals` flag, since the physical steps
+    happened either way. Never a Concept2-only member: Concept2 never contributes to
+    Garmin's own daily wellness totals, so there's nothing of its to double-subtract."""
+    start, end = _local_day_utc_range(day)
+    rows = session.exec(
+        select(Activity).where(Activity.source == "garmin", Activity.start >= start, Activity.start < end)
+    ).all()
+    steps = sum(r.steps or 0 for r in rows)
+    active_kcal = sum(max(0.0, (r.calories or 0.0) - (r.bmr_kcal or 0.0)) for r in rows)
+    return steps, active_kcal
+
+
+def _daily_activity_component(session: Session, day: date, settings: dict) -> dict:
+    """Task Part A: non-exercise steps/active-kcal, added to strain's 0-21 `value` only
+    (never `trimp_like`, so load/acute:chronic stay workout-only — see
+    `catch.analytics.strain.daily_activity_strain`)."""
+    wellness = session.get(DailyWellness, day)
+    if wellness is None or wellness.steps is None:
+        return daily_activity_strain(None, None, settings)
+    exercise_steps, exercise_kcal = _day_garmin_activity_totals(session, day)
+    non_exercise_steps = max(0, wellness.steps - exercise_steps)
+    non_exercise_kcal = max(0.0, (wellness.active_kcal or 0.0) - exercise_kcal)
+    return daily_activity_strain(non_exercise_steps, non_exercise_kcal, settings)
+
+
 def day_strain(session: Session, day: date, settings: dict) -> dict:
     activities = _day_activities(session, day)
     if not activities:
-        return {"value": 0.0, "band": "light", "trimp_like": 0.0, "components": [], "explanation": "No sessions logged."}
+        daily_activity = _daily_activity_component(session, day, settings)
+        value = min(21.0, daily_activity["value"])
+        return {
+            "value": value,
+            "band": strain_band(value),
+            "trimp_like": 0.0,
+            "rowing_trimp_like": 0.0,
+            "components": [],
+            "daily_activity": daily_activity,
+            "explanation": (
+                "No sessions logged."
+                + (f" Daily activity adds {daily_activity['value']:.1f}." if daily_activity["value"] else "")
+            ),
+        }
 
     day_rpe = _note_rpe(session, day)
     max_hr = settings.get("max_hr")
@@ -103,25 +143,51 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
         for s, a in zip(scores, activities)
         if s["value"] is not None and a.sport_family == "rowing"
     )
+    daily_activity = _daily_activity_component(session, day, settings)
     if total_trimp <= 0:
+        if daily_activity["value"] <= 0:
+            return {
+                "value": None,
+                "band": "insufficient_data",
+                "trimp_like": 0.0,
+                "rowing_trimp_like": 0.0,
+                "components": scores,
+                "daily_activity": daily_activity,
+                "explanation": "No session that day had enough data (HR or an RPE note) to score.",
+            }
+        # The workout itself couldn't be scored, but there's still real non-exercise
+        # daily-activity data for the day — report that rather than a flat "insufficient
+        # data" when a real (if small) number exists.
+        value = daily_activity["value"]
         return {
-            "value": None,
-            "band": "insufficient_data",
+            "value": value,
+            "band": strain_band(value),
             "trimp_like": 0.0,
             "rowing_trimp_like": 0.0,
             "components": scores,
-            "explanation": "No session that day had enough data (HR or an RPE note) to score.",
+            "daily_activity": daily_activity,
+            "explanation": (
+                "No session that day had enough data (HR or an RPE note) to score its workout strain; "
+                f"daily activity still adds {value:.1f}."
+            ),
         }
     # Combine via the same log-saturation curve rather than summing 0-21 scores directly, so
-    # several moderate sessions in one day don't just linearly stack toward "all out."
+    # several moderate sessions in one day don't just linearly stack toward "all out." The
+    # daily-activity component is added only here, on the final 0-21 value, after the
+    # log-saturation curve — never mixed into trimp_like (see daily_activity_strain).
     combined = min(21.0, settings["strain_log_a"] * math.log1p(total_trimp))
+    value = min(21.0, combined + daily_activity["value"])
     return {
-        "value": combined,
-        "band": strain_band(combined),
+        "value": value,
+        "band": strain_band(value),
         "trimp_like": total_trimp,
         "rowing_trimp_like": rowing_trimp,
         "components": scores,
-        "explanation": f"{len(activities)} session(s) that day combined via log-saturation of total trimp_like={total_trimp:.1f}.",
+        "daily_activity": daily_activity,
+        "explanation": (
+            f"{len(activities)} session(s) that day combined via log-saturation of total trimp_like="
+            f"{total_trimp:.1f} -> {combined:.1f}, plus daily activity {daily_activity['value']:.1f} = {value:.1f}."
+        ),
     }
 
 

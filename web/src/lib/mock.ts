@@ -85,13 +85,15 @@ const FULL: Today = {
     awake_seconds: 600,
   },
   strain_today: {
-    value: 8.2,
+    value: 8.9,
     band: "light",
     trimp_like: 48,
-    components: [],
-    explanation: "1 session today, Banister TRIMP from heart rate.",
+    components: [{ canonical_id: 1, title: "Morning row", value: 8.2, band: "light" }],
+    daily_activity: { value: 0.7, steps: 6400, active_kcal: 210 },
+    explanation: "1 session today, Banister TRIMP from heart rate -> 8.2, plus daily activity 0.7 = 8.9.",
   },
   strain_target_range: [10, 16],
+  daily_activity: { steps: 9800, active_kcal: 340 },
   load: {
     value: 1.08,
     band: "optimal",
@@ -171,6 +173,7 @@ const EMPTY: Today = {
   sleep_last_night: null,
   strain_today: null,
   strain_target_range: [0, 21],
+  daily_activity: null,
   load: null,
   rowing_load: null,
   hrv: { today: null, sparkline_14d: [], baseline_band: null },
@@ -797,6 +800,8 @@ let MOCK_SETTINGS: Settings = {
   min_zone_pct: 0.1,
   auto_trim_enabled: true,
   auto_trim_min_idle_s: 120,
+  daily_activity_strain_cap: 1.5,
+  daily_activity_strain_weight: 1.0,
 };
 
 export function mockSettings(): Settings {

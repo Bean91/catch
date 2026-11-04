@@ -50,7 +50,7 @@ export function TodayPage() {
       <div className="grid gap-4 sm:grid-cols-[220px_1fr] lg:grid-cols-[260px_1fr] lg:gap-5">
         <RecoveryRing recovery={data.recovery} />
         <div className="flex flex-col gap-4 lg:gap-5">
-          <StrainGauge strain={data.strain_today} targetRange={data.strain_target_range} />
+          <StrainGauge strain={data.strain_today} targetRange={data.strain_target_range} dailyActivity={data.daily_activity} />
           <div className="hidden lg:block">
             <SleepCard sleep={data.sleep_last_night} />
           </div>

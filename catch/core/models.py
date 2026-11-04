@@ -27,6 +27,19 @@ class DailyWellness(SQLModel, table=True):
     body_battery: Optional[int] = None
     spo2: Optional[float] = None
     respiration: Optional[float] = None
+    # Session 13 (see PLAN.md Part A): `v2/dailysummaries`' `movement`/`calories`/
+    # `intensityMinutes` nested objects — already present in the recorded fixture
+    # (`tests/fixtures/garmin/usersummary_range.json`) but unused until now. `active_kcal`
+    # and `bmr_kcal` are disjoint (Garmin's own split), `total_kcal` is their sum plus any
+    # other contributors Garmin tracks, not derived here.
+    steps: Optional[int] = None
+    active_kcal: Optional[int] = None
+    total_kcal: Optional[int] = None
+    bmr_kcal: Optional[int] = None
+    moderate_intensity_minutes: Optional[int] = None
+    vigorous_intensity_minutes: Optional[int] = None
+    floors_climbed: Optional[int] = None
+    floors_descended: Optional[int] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -70,6 +83,14 @@ class Activity(SQLModel, table=True):
     # Cycling") — task Part B.2's "keep the class name ... as the default title" needs a real
     # Peloton class name, not Garmin's own generic fallback text, to actually be useful.
     title_hint: Optional[str] = None
+    # Session 13 (see PLAN.md Part A): Garmin's `SummarizedActivityDTO.steps`/`bmrCalories` —
+    # used to subtract this activity's own steps/active-kcal out of the day's Garmin wellness
+    # totals so non-exercise daily-activity strain never double-counts a logged workout.
+    # `calories` (already stored) is the activity's total including BMR; active kcal for this
+    # purpose is `calories - bmr_kcal`. Backfilled for pre-session-13 rows from `raw_json`
+    # (`catch/core/db.py`'s `_migrate_garmin_activity_fields`) rather than a re-download.
+    steps: Optional[int] = None
+    bmr_kcal: Optional[float] = None
     raw_json: Optional[str] = None
     fit_path: Optional[str] = None
     # Concept2-specific, left NULL for other sources.

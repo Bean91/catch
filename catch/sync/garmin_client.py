@@ -158,6 +158,8 @@ class GarminClient:
                 max_hr=item.get("maxHR"),
                 avg_power=item.get("avgPower"),
                 calories=item.get("calories"),
+                steps=item.get("steps"),
+                bmr_kcal=item.get("bmrCalories"),
                 title_hint=item.get("activityName"),
                 raw_json=json.dumps(item),
             )
@@ -278,8 +280,8 @@ class GarminClient:
     def _sync_usersummary(self, start_date: date_, end_date: date_) -> int:
         # The OpenAPI spec types this response loosely; the real shape (confirmed against a
         # live call) nests each day's metrics under heartRate/stress/bodyBattery/respiration/
-        # pulseOx objects, not flat fields. This is also where whole-day (not just sleep-
-        # period) SpO2 and respiration come from.
+        # pulseOx/movement/calories/intensityMinutes objects, not flat fields. This is also
+        # where whole-day (not just sleep-period) SpO2 and respiration come from.
         resp = self._get(
             "/usersummary-service/v2/dailysummaries",
             params={"startDate": start_date.isoformat(), "endDate": end_date.isoformat()},
@@ -296,6 +298,16 @@ class GarminClient:
             body_battery = item.get("bodyBattery") or {}
             respiration = item.get("respiration") or {}
             pulse_ox = item.get("pulseOx") or {}
+            # Session 13 (see PLAN.md Part A): daily steps/calories/intensity minutes/floors,
+            # confirmed in the real recorded fixture (tests/fixtures/garmin/
+            # usersummary_range.json) though unused until now. Fractional floor `value`s are
+            # already floored by Garmin per the schema's own description.
+            movement = item.get("movement") or {}
+            calories = item.get("calories") or {}
+            intensity = item.get("intensityMinutes") or {}
+            steps = movement.get("steps") or {}
+            floors_up = movement.get("floorsAscended") or {}
+            floors_down = movement.get("floorsDescended") or {}
             upsert_daily_wellness(
                 self.db,
                 day,
@@ -304,6 +316,14 @@ class GarminClient:
                 body_battery=body_battery.get("latestValue"),
                 spo2=pulse_ox.get("avgValue"),
                 respiration=respiration.get("avgValue"),
+                steps=steps.get("value"),
+                active_kcal=calories.get("burnedActive"),
+                total_kcal=calories.get("burnedTotal"),
+                bmr_kcal=calories.get("burnedResting"),
+                moderate_intensity_minutes=intensity.get("moderate"),
+                vigorous_intensity_minutes=intensity.get("vigorous"),
+                floors_climbed=floors_up.get("value"),
+                floors_descended=floors_down.get("value"),
             )
             n += 1
         return n

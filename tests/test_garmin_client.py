@@ -120,6 +120,16 @@ def test_sync_health_merges_fields_from_multiple_endpoints(session):
     assert row.spo2 is not None
     assert row.respiration is not None
     assert row.sleep_score == 92
+    # Session 13 (see PLAN.md Part A): daily steps/calories/intensity minutes/floors from the
+    # same usersummary fixture, confirmed against its real recorded values.
+    assert row.steps == 15548
+    assert row.active_kcal == 639
+    assert row.total_kcal == 2630
+    assert row.bmr_kcal == 1991
+    assert row.moderate_intensity_minutes == 8
+    assert row.vigorous_intensity_minutes == 35
+    assert row.floors_climbed == 13
+    assert row.floors_descended == 3
 
 
 def test_sync_activities_upserts_and_downloads_fit(session, tmp_path):
@@ -133,6 +143,11 @@ def test_sync_activities_upserts_and_downloads_fit(session, tmp_path):
     assert len(rows) == 2
     assert all(r.fit_path and r.fit_path.endswith(".fit") for r in rows)
     assert all(r.type for r in rows)
+    # Session 13 (see PLAN.md Part A): bmr_kcal captured directly from the list response at
+    # sync time (no re-download). Both fixture activities are indoor cycling, so steps is
+    # genuinely absent on the real response, not a parsing bug.
+    assert all(r.bmr_kcal is not None for r in rows)
+    assert all(r.steps is None for r in rows)
 
     # Re-sync must not duplicate rows, and must skip re-downloading an existing fit file.
     count2 = client.sync_activities(start, end, tmp_path)

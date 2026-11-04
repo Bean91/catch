@@ -83,4 +83,13 @@ DEFAULT_SETTINGS: dict = {
     # "likely watch left running" and exclude it from UI averages; never from stored samples.
     "auto_trim_enabled": True,
     "auto_trim_min_idle_s": 120,
+    # Session 13 (see PLAN.md Part A) — non-exercise steps/active-kcal (Garmin daily totals
+    # minus whatever a logged Garmin activity already contributed) added onto the 0-21
+    # strain `value` only, never into `trimp_like`/load, so a high-step rest day never
+    # inflates acute:chronic load or looks like a training session. `cap` is the max points
+    # this component can ever add; `weight` scales the log-curve input before the cap is
+    # applied. See `catch/analytics/strain.py`'s `daily_activity_strain` and
+    # docs/analytics.md.
+    "daily_activity_strain_cap": 1.5,
+    "daily_activity_strain_weight": 1.0,
 }

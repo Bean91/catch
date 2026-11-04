@@ -66,6 +66,8 @@ def test_today_includes_sleep_strain_target_hrv_and_erg(client, session):
             sleep_score=85,
             deep_sleep_seconds=4000,
             rem_sleep_seconds=5000,
+            steps=9000,
+            active_kcal=400,
         )
     )
     session.add(
@@ -95,8 +97,15 @@ def test_today_includes_sleep_strain_target_hrv_and_erg(client, session):
     assert len(body["hrv"]["sparkline_14d"]) == 1
     assert body["hrv"]["baseline_band"]["baseline"] == pytest.approx(math.exp(4.0))
     assert body["latest_erg"]["external_id"] == "c1"
+    assert body["daily_activity"] == {"steps": 9000, "active_kcal": 400}
     assert "raw_json" not in body["latest_erg"]
     assert body["predicted_2k"]["value"] is not None
+
+
+def test_today_daily_activity_is_none_without_wellness_steps(client, session):
+    _login(client)
+    resp = client.get("/api/today")
+    assert resp.json()["daily_activity"] is None
 
 
 def test_trends_rejects_unknown_metric(client):

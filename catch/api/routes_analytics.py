@@ -150,6 +150,12 @@ def today(db: Session = Depends(get_db)):
         ),
         "strain_today": strain,
         "strain_target_range": strain_target,
+        # Task Part A.4: whole-day Garmin totals for Today's small, secondary steps/active-kcal
+        # line — deliberately the whole day's numbers, not the non-exercise-only figure inside
+        # strain_today["daily_activity"] (that one's for the strain breakdown specifically).
+        "daily_activity": (
+            {"steps": wellness.steps, "active_kcal": wellness.active_kcal} if wellness and wellness.steps is not None else None
+        ),
         "load": load,
         # Rowing-only load, parallel to "load"'s all-sport number (task Part B.3) — so
         # cycling/other volume never inflates the figure Today actually trains rowing

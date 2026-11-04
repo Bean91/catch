@@ -72,6 +72,40 @@ def session_strain(
     }
 
 
+def daily_activity_strain(
+    non_exercise_steps: float | None,
+    non_exercise_active_kcal: float | None,
+    settings: dict | None = None,
+) -> dict:
+    """Session 13 (see PLAN.md Part A): a small, capped, diminishing-returns contribution
+    from non-exercise daily movement (Garmin's whole-day steps/active-kcal, with any logged
+    activity's own steps/kcal already subtracted by the caller). Averages a log1p of steps
+    and of active kcal (each divided by an illustrative "one unit of noticeable activity"
+    scale — 2000 steps, 150 kcal — not a validated physiological constant) so a very high
+    non-exercise day saturates near the cap instead of scaling linearly, then applies
+    `weight` before capping at `cap`. Returns 0 (not None) when there's nothing to add —
+    the caller always has a number to add onto strain's `value`."""
+    settings = settings or DEFAULT_SETTINGS
+    cap = settings["daily_activity_strain_cap"]
+    weight = settings["daily_activity_strain_weight"]
+    steps = max(0.0, non_exercise_steps or 0.0)
+    kcal = max(0.0, non_exercise_active_kcal or 0.0)
+    steps_term = math.log1p(steps / 2000.0)
+    kcal_term = math.log1p(kcal / 150.0)
+    raw = (steps_term + kcal_term) / 2.0
+    value = min(cap, weight * raw)
+    return {
+        "value": value,
+        "steps": non_exercise_steps,
+        "active_kcal": non_exercise_active_kcal,
+        "explanation": (
+            f"Non-exercise steps ({non_exercise_steps if non_exercise_steps is not None else 0:.0f}) and "
+            f"active kcal ({non_exercise_active_kcal if non_exercise_active_kcal is not None else 0:.0f}) "
+            f"log-scaled and averaged, weight={weight}, capped at {cap} of the 0-21 scale."
+        ),
+    }
+
+
 def hr_sample_durations(ordered_t_hr: list[tuple[float, float | None]]) -> list[tuple[float, float]]:
     """ordered_t_hr: [(t, hr_or_None), ...] for one interval, already in recorded order
     (t resets to 0 at each interval boundary — caller groups by interval first). Each HR

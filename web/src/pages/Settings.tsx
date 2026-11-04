@@ -274,6 +274,37 @@ export function SettingsPage() {
         )}
       </Card>
 
+      <Card title="Daily activity in strain">
+        <p className="mb-3 text-xs text-text-tertiary">
+          Non-exercise steps and active kcal (outside logged workouts) add a small, capped contribution to today's strain —
+          workouts stay the dominant driver.
+        </p>
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-3 text-sm text-text-secondary">
+            Cap (of 0–21)
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={form.daily_activity_strain_cap}
+              onChange={(e) => update("daily_activity_strain_cap", Number(e.target.value))}
+              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            />
+          </label>
+          <label className="flex items-center gap-3 text-sm text-text-secondary">
+            Weight
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={form.daily_activity_strain_weight}
+              onChange={(e) => update("daily_activity_strain_weight", Number(e.target.value))}
+              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            />
+          </label>
+        </div>
+      </Card>
+
       <Card title="Profile & units">
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
           <label className="flex items-center gap-3 text-sm text-text-secondary">

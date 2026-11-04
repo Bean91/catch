@@ -23,6 +23,10 @@ export interface Strain {
   band: StrainBand;
   trimp_like?: number;
   components: ScoreComponent[];
+  /** Task Part A: non-exercise steps/active-kcal's own contribution to `value` — a separate
+   * key, not one of `components` (those are per-canonical-workout and assume `canonical_id`
+   * everywhere else they're read). */
+  daily_activity?: { value: number; steps: number | null; active_kcal: number | null };
   explanation: string;
 }
 
@@ -105,6 +109,9 @@ export interface Today {
   sleep_last_night: SleepLastNight | null;
   strain_today: Strain | null;
   strain_target_range: [number, number];
+  /** Task Part A.4: whole-day Garmin totals, for Today's small secondary steps/active-kcal
+   * line — not the non-exercise-only figure inside strain_today's own `daily_activity` key. */
+  daily_activity: { steps: number | null; active_kcal: number | null } | null;
   load: Load | null;
   /** Rowing-only load, parallel to `load`'s all-sport number (task Part B.3) — so cycling
    * volume never inflates the figure the athlete actually trains rowing against. */
@@ -487,6 +494,9 @@ export interface Settings {
   min_zone_pct: number;
   auto_trim_enabled: boolean;
   auto_trim_min_idle_s: number;
+  // --- Session 13 (see PLAN.md Part A) ---
+  daily_activity_strain_cap: number;
+  daily_activity_strain_weight: number;
 }
 
 // --- Coach (session 5) -------------------------------------------------------

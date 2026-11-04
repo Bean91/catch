@@ -39,6 +39,9 @@ _NEW_COLUMNS = {
         "hr_source_type": "TEXT",
         "laps_json": "TEXT",
         "title_hint": "TEXT",
+        # Session 13 (see PLAN.md Part A).
+        "steps": "INTEGER",
+        "bmr_kcal": "REAL",
     },
     "strokes": {
         "seq": "INTEGER NOT NULL DEFAULT 0",
@@ -46,6 +49,17 @@ _NEW_COLUMNS = {
     },
     "daily_scores": {
         "rowing_load_json": "TEXT",
+    },
+    "daily_wellness": {
+        # Session 13 (see PLAN.md Part A).
+        "steps": "INTEGER",
+        "active_kcal": "INTEGER",
+        "total_kcal": "INTEGER",
+        "bmr_kcal": "INTEGER",
+        "moderate_intensity_minutes": "INTEGER",
+        "vigorous_intensity_minutes": "INTEGER",
+        "floors_climbed": "INTEGER",
+        "floors_descended": "INTEGER",
     },
 }
 
@@ -98,10 +112,43 @@ def _migrate_linked_activities_to_canonical() -> None:
         session.commit()
 
 
+def _migrate_garmin_activity_fields() -> None:
+    """One-time, idempotent (session 13 — see PLAN.md Part A): backfill `steps`/`bmr_kcal`
+    for Garmin activities synced before this session from their already-stored `raw_json`,
+    rather than re-downloading anything from Garmin. Safe on every startup — only touches
+    rows where both are still unset."""
+    import json as _json
+
+    from sqlmodel import Session, select
+
+    from catch.core.models import Activity
+
+    with Session(engine) as session:
+        rows = session.exec(
+            select(Activity).where(
+                Activity.source == "garmin",
+                Activity.steps.is_(None),
+                Activity.bmr_kcal.is_(None),
+                Activity.raw_json.is_not(None),
+            )
+        ).all()
+        for row in rows:
+            try:
+                raw = _json.loads(row.raw_json)
+            except ValueError:
+                continue
+            row.steps = raw.get("steps")
+            row.bmr_kcal = raw.get("bmrCalories")
+            session.add(row)
+        if rows:
+            session.commit()
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
     _migrate_linked_activities_to_canonical()
+    _migrate_garmin_activity_fields()
 
 
 @contextmanager

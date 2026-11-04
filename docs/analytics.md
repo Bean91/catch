@@ -89,6 +89,61 @@ demand by `GET /api/erg/{id}/strokes` (which already has the strokes loaded) rat
 cached — each stroke's HR-reading duration is `t` minus the previous stroke's `t` within the
 same interval (the first stroke of an interval gets its own `t`).
 
+### 4.1 Daily activity in strain (`daily_activity_strain`), session 13
+
+A small, capped, diminishing-returns contribution from **non-exercise** steps and active kcal
+(Garmin's whole-day `steps`/`active_kcal` totals, minus whatever a logged Garmin activity that
+day already contributed — `catch/sync/scoring.py`'s `_day_garmin_activity_totals`: sum of
+`Activity.steps` and `max(0, calories - bmr_kcal)` for every Garmin-sourced activity starting
+that local day, regardless of a canonical's `exclude_from_totals` flag, since the physical
+steps happened either way; Concept2-only sessions are never subtracted — Concept2 never
+contributes to Garmin's own daily wellness totals in the first place, so there's nothing of
+its to double-subtract).
+
+Both clamp at ≥0 (an activity's own steps/kcal can exceed the day's current Garmin total on an
+odd sync window — e.g. the activity synced before that day's usersummary did), then:
+
+```
+steps_term = log1p(non_exercise_steps / 2000)
+kcal_term  = log1p(non_exercise_active_kcal / 150)
+raw        = (steps_term + kcal_term) / 2
+value      = min(cap, weight * raw)
+```
+
+2000 steps / 150 kcal are illustrative "one unit of noticeable non-exercise activity" scales,
+not validated physiological constants — like several other defaults in this file, flagged as a
+coaching default rather than a standard. `cap` (default 1.5) and `weight` (default 1.0) are
+both `Settings` keys (`daily_activity_strain_cap`/`_weight`), editable in Settings, and changing
+either triggers the usual full `recompute_scores` (same as every other settings PUT).
+
+**Added to strain's 0-21 `value` only, after the log-saturation curve — never into
+`trimp_like`/`rowing_trimp_like`.** This is deliberate: `load_json`/`rowing_load_json`'s
+acute:chronic EWMA is built from the `trimp_like` series (`recompute_scores`'s
+`trimp_series`), so a high-step rest day must never inflate training load or look like a
+training session there, only nudge the single day's displayed strain number by at most `cap`
+points. `day_strain`'s result dict carries the component separately as a `daily_activity` key
+(`{"value", "steps", "active_kcal", "explanation"}`), not inside `components` — every reader of
+`components` (Workouts list, WorkoutDetail) assumes each entry is a per-canonical session with
+a `canonical_id`, so mixing in a non-session entry there would break that assumption. The web
+`StrainGauge` breakdown dialog reads `daily_activity` directly and shows it as its own row with
+its share of the total `value`.
+
+Two of `day_strain`'s three return paths needed the component added, not just the "normal"
+combined-sessions path, both confirmed with tests (`tests/test_scoring.py`):
+- **No activities logged that day** (previously a flat `0.0`/`"light"`): now
+  `min(21, daily_activity_value)`, banded normally via `strain_band`. The task's explicit
+  example — a rest day with 15k steps — stays well under 10 ("light") with the default cap.
+- **Activities exist but none had enough data to score** (previously `None`/
+  `"insufficient_data"` unconditionally): if the daily-activity component is also 0, that's
+  unchanged; but if there's real non-exercise data, the day now reports that value/band instead
+  of a flat "insufficient data" — the day's *workout* genuinely couldn't be scored, but there's
+  still a real (if small) strain number to show.
+
+Today's small, secondary "N,NNN steps · NNN active kcal" line (task Part A.4) shows the
+**whole day's** Garmin totals (`GET /api/today`'s top-level `daily_activity` key), not the
+non-exercise-only figure inside `strain_today.daily_activity` — those are two different
+numbers by design (the breakdown's is deliberately the smaller, workout-subtracted one).
+
 ## 5. Load (`load.py`)
 
 Acute (7-day) and chronic (42-day) EWMA of each day's `trimp_like` total (not the compressed

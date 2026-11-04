@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from sqlmodel import select
 
 from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness, Note
@@ -162,3 +163,52 @@ def test_session_rpe_fallback_is_attached_by_calendar_date(session):
     strain = scoring.day_strain(session, day10, settings)
     assert strain["components"][0]["components"][0]["method"] == "srpe"
     assert strain["value"] is not None
+
+
+def test_rest_day_with_15k_steps_stays_low(session):
+    """Task Part A.3's explicit example: a rest day (no activities logged) with 15k steps
+    must not look like a training session — the daily-activity component alone is capped at
+    `daily_activity_strain_cap` (default 1.5 of the 0-21 scale)."""
+    day = START
+    session.add(DailyWellness(date=day, resting_hr=50, steps=15000, active_kcal=550))
+    session.commit()
+
+    settings = get_settings(session)
+    strain = scoring.day_strain(session, day, settings)
+    assert strain["value"] is not None
+    assert strain["value"] <= settings["daily_activity_strain_cap"]
+    assert strain["value"] < 10  # well within the "light" band
+    assert strain["band"] == "light"
+    assert strain["trimp_like"] == 0.0  # never leaks into load/acute:chronic
+    assert strain["daily_activity"]["steps"] == 15000
+
+
+def test_daily_activity_excludes_a_logged_garmin_workouts_own_steps(session):
+    """A Garmin activity's own steps/calories are already inside the day's wellness totals —
+    subtracting them out is what keeps a workout from being counted twice (task Part A.2)."""
+    day = START
+    session.add(DailyWellness(date=day, resting_hr=50, steps=12000, active_kcal=500))
+    session.add(
+        Activity(
+            source="garmin",
+            external_id="run1",
+            type="running",
+            start=datetime(day.year, day.month, day.day, 7, 0, 0, tzinfo=timezone.utc),
+            duration=1800.0,
+            avg_hr=150,
+            max_hr=180,
+            calories=300.0,
+            bmr_kcal=50.0,
+            steps=5000,
+        )
+    )
+    session.commit()
+    ensure_canonicals(session)
+
+    settings = get_settings(session)
+    settings = {**settings, "max_hr": 180}
+    strain = scoring.day_strain(session, day, settings)
+    daily_activity = strain["daily_activity"]
+    # non-exercise steps = 12000 - 5000 = 7000; non-exercise active kcal = 500 - (300-50) = 250.
+    assert daily_activity["steps"] == 7000
+    assert daily_activity["active_kcal"] == pytest.approx(250.0)
