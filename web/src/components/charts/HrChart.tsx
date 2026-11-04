@@ -31,6 +31,7 @@ function nearestPoint(points: SamplePoint[], targetS: number): SamplePoint | nul
 
 export function HrChart({
   points,
+  allPoints,
   zonesConfig,
   maxHrSetting,
   avgHr,
@@ -44,6 +45,9 @@ export function HrChart({
   onResetDomain,
 }: {
   points: SamplePoint[];
+  /** Full-recording points (any resolution) used only to pick stable axis bounds, so the
+   * y-axis doesn't rescale on every pan/zoom refetch of `points`. Falls back to `points`. */
+  allPoints?: SamplePoint[];
   zonesConfig: TrainingZones;
   maxHrSetting: number | null;
   avgHr: number | null;
@@ -87,14 +91,18 @@ export function HrChart({
   const width = plotWidthPx + PAD_X + padRight;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
 
-  const hrValues = points.map((p) => p.hr).filter((v): v is number => v != null);
+  const axisPoints = allPoints ?? points;
+  const hrValues = axisPoints.map((p) => p.hr).filter((v): v is number => v != null);
   // Starting the axis at the lowest observed HR (minus a small margin) instead of always 0
   // avoids a half-empty plot for a typical 120-180bpm session (advisor review finding).
+  // Computed from `allPoints` (the full recording), not the zoom-windowed `points`, so the
+  // axis doesn't rescale on every pan/zoom refetch.
   const hrMin = hrValues.length ? Math.max(0, Math.min(...hrValues) - 10) : 0;
   const hrMax = Math.max(maxHrSetting ?? 0, ...hrValues, 1) * 1.05;
   const hrRange = hrMax - hrMin || 1;
 
-  const overlayValues = overlay === "none" ? [] : points.map((p) => (overlay === "power" ? p.power : p.cadence)).filter((v): v is number => v != null);
+  const overlayValues =
+    overlay === "none" ? [] : axisPoints.map((p) => (overlay === "power" ? p.power : p.cadence)).filter((v): v is number => v != null);
   const overlayMax = Math.max(1, ...overlayValues) * 1.1;
 
   const x = (s: number) => PAD_X + ((s - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
@@ -106,7 +114,10 @@ export function HrChart({
     ? "M " + visible.filter((p) => p.hr != null).map((p) => `${x(p.elapsed_s)},${yHr(p.hr as number)}`).join(" L ")
     : null;
 
-  const trimStart = trimmedTailS > 0 ? Math.max(...points.map((p) => p.elapsed_s), 0) - trimmedTailS : null;
+  // Derived from fullDomain, not `points` — `points` is only the current zoom window since
+  // the live/settled windowed refetch, so computing this from it greys the wrong stretch of
+  // the chart whenever the view is zoomed in anywhere but the very end (advisor review finding).
+  const trimStart = trimmedTailS > 0 ? fullDomain.max - trimmedTailS : null;
 
   const hoverPoint = hoverX != null && !isPanning ? nearestPoint(points, hoverX) : null;
 
@@ -132,14 +143,23 @@ export function HrChart({
       >
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
           {zonesConfig.zones.map((z) => {
-            const lo = z.hr_lo ?? hrMin;
-            const hi = z.hr_hi ?? hrMax;
+            // Clamped to the visible HR range: with the axis no longer pinned at 0, a zone's
+            // configured hr_lo/hr_hi can fall outside [hrMin, hrMax], which would otherwise
+            // draw the band (and its label) over the x-axis labels (advisor review finding).
+            const lo = Math.max(z.hr_lo ?? hrMin, hrMin);
+            const hi = Math.min(z.hr_hi ?? hrMax, hrMax);
+            if (hi <= lo) return null;
             return (
               <g key={z.zone}>
                 <rect x={PAD_X} width={plotWidthPx} y={yHr(hi)} height={Math.max(yHr(lo) - yHr(hi), 0)} fill={zoneColor(z.zone as ZoneName)} opacity={0.35} />
-                <text x={PAD_X + plotWidthPx + 4} y={(yHr(lo) + yHr(hi)) / 2} fontSize={9} fill="var(--text-tertiary)" dominantBaseline="middle">
-                  {z.zone}
-                </text>
+                {/* Hidden when an overlay axis shares this gutter — the two labels can land at
+                    the same height (e.g. both near the plot top) and visually collide; the
+                    ZoneBar above this chart already names each zone (advisor review finding). */}
+                {overlay === "none" && (
+                  <text x={PAD_X + plotWidthPx + 4} y={(yHr(lo) + yHr(hi)) / 2} fontSize={9} fill="var(--text-tertiary)" dominantBaseline="middle">
+                    {z.zone}
+                  </text>
+                )}
               </g>
             );
           })}

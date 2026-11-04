@@ -1840,7 +1840,7 @@ findings after.
       `store_samples -> resolve_canonical -> day_strain` with the idle tail included
       (`tests/test_canonical.py`) — confirming the label is AN/TR-led (never UT2) and the
       day's strain exceeds a steady UT2 piece of the same average HR, both ways.
-- [x] 85+ new/updated tests this session (224 -> 312 total, `uv run pytest` all green),
+- [x] 85+ new/updated tests this session (224 -> 313 total, `uv run pytest` all green),
       including monkeypatched-`fitdecode`-frame coverage for FIT parsing (no real `.fit` file
       committed — it carries a user-profile/serial-number), a real-backoff test for the
       Garmin-429-resilience fix below, and regression tests for every bug the two advisor
@@ -1854,7 +1854,7 @@ findings after.
       mode), Workout detail (HR graph + Edit card + Sources panel), Duplicates (merge flow
       clicked through end to end), and Settings (the three new cards) — this first pass ran
       against **mock data** (`?mock=1`) and caught two real bugs (below). A second advisor
-      review then caught four more real bugs plus several missing requirements, verified with
+      review then caught five more real bugs plus several missing requirements, verified with
       a further pass against a **disposable real backend** (a throwaway uvicorn instance over
       a copy of the real local `data/catch.db`, real secrets never touched) — see "A second
       advisor review" below.
@@ -1946,14 +1946,15 @@ Other real findings from the same backfill:
   must use `file_id.manufacturer`, not `device_info`, or it would false-positive on this
   exact real case.
 
-## A second advisor review: four more real bugs, plus missing requirements
+## A second advisor review: five more real bugs, plus missing requirements
 
 A second advisor pass over the diff above (after the real-data verification, before this
-session's commit) caught four more real bugs — none visible to mock-mode or direct-function
-tests, all over real HTTP or real settled state — and several requirements the task asked for
-that the first pass had missed. Fixed, then re-verified with a **disposable real-backend
-Playwright pass**: a throwaway uvicorn instance over a copy of the real local `data/catch.db`
-(real secrets never touched, cleaned up after).
+session's commit) caught five more real bugs — none visible to mock-mode or direct-function
+tests, all over real HTTP, real settled state, or a real deployment path this account hasn't
+exercised yet — and several requirements the task asked for that the first pass had missed.
+Fixed, then re-verified with a **disposable real-backend Playwright pass**: a throwaway
+uvicorn instance over a copy of the real local `data/catch.db` (real secrets never touched,
+cleaned up after).
 
 - **The entire Duplicates feature was unreachable over real HTTP** — `GET
   /api/activities/duplicates` 422'd (`int_parsing` on `"duplicates"`). Root cause: Starlette
@@ -1984,6 +1985,26 @@ Playwright pass**: a throwaway uvicorn instance over a copy of the real local `d
   (166 on_water vs. 118 erg) a page could come back short or empty. Fixed by persisting
   `category` on `CanonicalActivity` (computed once in `resolve_canonical`) and filtering on it
   directly in SQL.
+- **A real latent Pi-deployment bug** — flagged non-blocking by the review, confirmed real by
+  reading `deploy/pi-bootstrap.sh` and `catch.service`: that script explicitly supports
+  adopting a staged `catch.db` + `fit/` directory copied from the laptop, landing FIT files at
+  `/var/lib/catch/fit/`. But rows synced on the laptop store `fit_path` as a path relative to
+  `CATCH_DB_PATH`'s parent (`data/fit/<id>.fit`, since the laptop's `.env` uses a relative
+  `CATCH_DB_PATH`). On the Pi, `catch.service`'s `WorkingDirectory=/opt/catch/app` (and
+  `ProtectSystem=strict`, read-only outside `ReadWritePaths=/var/lib/catch`) means that
+  relative path never resolves, and since `sync_activities` only re-downloaded when `fit_path`
+  was unset, a migrated row's samples would silently never populate on the Pi, with no error
+  logged. Fixed: `sync_activities` now also re-checks `Path(row.fit_path).exists()`, and if
+  the expected file already lives in the current run's `fit_dir` (as it does right after the
+  bootstrap's `fit/` copy), re-points to it instead of re-hitting Garmin's download-service.
+  Added a regression test reproducing the exact migration scenario (stale relative `fit_path`,
+  real file already present at the new location, asserts no network call for that activity).
+  **The fix only repairs an activity `sync_activities` actually processes** (a scheduled
+  sync's window, or an explicit `catch backfill --days N`) — it doesn't retroactively touch
+  every row already in a migrated DB on its own. After adopting a laptop DB on a fresh Pi
+  install, run `catch backfill --days N` (N covering the real history) once so every migrated
+  activity gets re-pointed (cheap — files already exist in `/var/lib/catch/fit/`, so this
+  costs no Garmin API calls, just the one-time per-sample zones/strain computation).
 - **Missing requirements, added**: per-activity notes/RPE inline editing on Workout detail
   (distinct from the existing per-day note/RPE journal entry); a stacked time-in-zone
   `ZoneBar` (Workouts list, compact, and Workout detail, with a legend); a second y-axis on
@@ -1991,23 +2012,34 @@ Playwright pass**: a throwaway uvicorn instance over a copy of the real local `d
   unreadable); live/settled-domain windowed refetch on the HR chart so zooming in actually
   requests full-resolution samples for the zoomed range instead of just stretching the same
   downsampled points.
-- **Non-blocking, also fixed**: `HrChart`'s y-axis always started at 0, making a typical
-  120-180bpm session plot half-empty — now starts at the lowest observed HR minus a small
-  margin (floored at 0).
-- **A real latent Pi-deployment bug, found by inspecting `deploy/pi-bootstrap.sh` rather than
-  from a review comment**: that script explicitly supports adopting a staged `catch.db` +
-  `fit/` directory copied from the laptop, landing FIT files at `/var/lib/catch/fit/`. But
-  rows synced on the laptop store `fit_path` as a path relative to `CATCH_DB_PATH`'s parent
-  (`data/fit/<id>.fit`, since the laptop's `.env` uses a relative `CATCH_DB_PATH`). On the Pi,
-  `catch.service`'s `WorkingDirectory=/opt/catch/app` (and `ProtectSystem=strict`, read-only
-  outside `ReadWritePaths=/var/lib/catch`) means that relative path never resolves, and since
-  `sync_activities` only re-downloaded when `fit_path` was unset, a migrated row's samples
-  would silently never populate on the Pi, forever, with no error logged. Fixed:
-  `sync_activities` now also re-checks `Path(row.fit_path).exists()`, and if the expected file
-  already lives in the current run's `fit_dir` (as it does right after the bootstrap's `fit/`
-  copy), re-points to it instead of re-hitting Garmin's download-service. Added a regression
-  test reproducing the exact migration scenario (stale relative `fit_path`, real file already
-  present at the new location, asserts no network call for that activity).
+- **`HrChart`'s y-axis always started at 0**, making a typical 120-180bpm session plot
+  half-empty (non-blocking, flagged against an earlier screenshot) — changed to start at the
+  lowest observed HR minus a small margin, floored at 0. That fix itself then had two bugs,
+  caught by a follow-up advisor pass over the diff before commit: the trimmed-tail grey region
+  was computed from `points` (the *zoom-windowed* sample array, since the live/settled
+  windowed refetch above), so panning or zooming greyed the wrong stretch of the chart instead
+  of the real idle tail — fixed to derive it from `fullDomain` instead. And the new non-zero
+  axis floor let a zone's configured `hr_lo`/`hr_hi` fall outside `[hrMin, hrMax]`, drawing
+  that zone's band and label past the plot edge over the x-axis time labels — fixed by
+  clamping each band to the visible range and skipping a zone that clamps to nothing. A third
+  issue surfaced live-checking the fix with Playwright at 390px (not from a review comment):
+  with the power/cadence overlay on, its own right-gutter axis labels could land at the same
+  height as a zone-name label and visually collide — fixed by hiding the inline zone-name
+  labels whenever an overlay is active (the `ZoneBar` above the chart already names each
+  zone). Also made the axis bounds themselves stable across pan/zoom by computing them from
+  the full-recording points (a new `allPoints` prop) rather than the zoom-windowed ones, so
+  the y-axis no longer visibly rescales on every refetch.
+- **`resolve_all_canonicals` runs synchronously on every `PUT /api/settings`** — a real Pi-3
+  cost worth checking per the review: timed at ~1ms/canonical against a disposable copy of the
+  real local `data/catch.db` (34 canonicals, 35ms total), which extrapolates to several real
+  seconds over this account's real 451-activity backfill history on the Pi 3's single ARM core
+  under one uvicorn worker — blocking every other request for that long on *any* settings
+  save, not just one that changes zones/strain. Fixed: `put_settings` now only calls
+  `resolve_all_canonicals` when the patch actually touches a field the zones/strain/
+  field-priority pipeline reads (`max_hr`, `ftp_watts`, `field_priority`, `zones`,
+  `trimp_exponent`, `min_zone_minutes`, `min_zone_pct`, `auto_trim_enabled`,
+  `auto_trim_min_idle_s`) — a `body_comp_priority`-only save, for example, now skips it
+  entirely. Added a regression test for both branches.
 
 ## Gotchas / deviations from the literal task spec
 

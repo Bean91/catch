@@ -288,6 +288,7 @@ export function WorkoutDetailPage() {
           )}
           <HrChart
             points={chartPoints}
+            allPoints={samples.points}
             zonesConfig={samples.zones_config}
             maxHrSetting={samples.max_hr_setting}
             avgHr={samples.avg_hr}

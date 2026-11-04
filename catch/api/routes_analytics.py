@@ -524,6 +524,20 @@ def get_settings_endpoint(db: Session = Depends(get_db)):
     return get_settings(db)
 
 
+# The exact settings keys resolve_canonical's zones/strain/field-priority pipeline reads
+# (catch/sync/canonical.py, catch/analytics/zones.py) — a PUT that touches none of these
+# can't change any already-resolved canonical's cached fields, so skipping the full
+# re-resolve for e.g. a body_comp_priority-only save avoids a real Pi-3 cost: measured at
+# ~1ms/canonical on a laptop, so the full real 451-activity history (docs/PLAN.md's backfill
+# report) could run several seconds on the Pi's single ARM core under a single uvicorn
+# worker, blocking every other request for that long on every settings save.
+_RESOLVE_AFFECTING_SETTINGS_KEYS = {
+    "max_hr", "ftp_watts", "field_priority", "zones",
+    "trimp_exponent", "min_zone_minutes", "min_zone_pct",
+    "auto_trim_enabled", "auto_trim_min_idle_s",
+}
+
+
 @router.put("/api/settings")
 def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
     try:
@@ -536,9 +550,10 @@ def put_settings(patch: dict = Body(...), db: Session = Depends(get_db)):
     # run_matching's own resolve calls touch (those only cover orphaned, blank, or
     # newly-merged canonicals) — re-resolve everything before recompute_scores reads the
     # (now-correct) cached CanonicalActivity.strain_trimp values back out.
-    from catch.sync.canonical import resolve_all_canonicals
+    if _RESOLVE_AFFECTING_SETTINGS_KEYS & patch.keys():
+        from catch.sync.canonical import resolve_all_canonicals
 
-    resolve_all_canonicals(db)
+        resolve_all_canonicals(db)
 
     from catch.sync.scoring import recompute_scores
 

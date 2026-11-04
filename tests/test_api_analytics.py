@@ -302,3 +302,22 @@ def test_put_settings_max_hr_change_updates_an_existing_activitys_cached_zones(c
 
     zones_after = session.get(CanonicalActivity, activity.canonical_id).zones_json
     assert zones_after != zones_before
+
+
+def test_put_settings_skips_the_full_resolve_when_nothing_zone_or_strain_affecting_changed(client, monkeypatch):
+    """A Pi-3 cost check (advisor review): resolve_all_canonicals walks every canonical
+    (~1ms each on a laptop, extrapolating to several real seconds over this account's real
+    451-activity history on a Pi 3's single core) and must not run for a settings save that
+    can't possibly change any canonical's cached fields, e.g. body_comp_priority alone."""
+    called = {"n": 0}
+    monkeypatch.setattr(
+        "catch.sync.canonical.resolve_all_canonicals", lambda db: called.__setitem__("n", called["n"] + 1)
+    )
+    _login(client)
+    resp = client.put("/api/settings", json={"body_comp_priority": {"weight": ["garmin", "withings"]}})
+    assert resp.status_code == 200
+    assert called["n"] == 0
+
+    resp = client.put("/api/settings", json={"max_hr": 188})
+    assert resp.status_code == 200
+    assert called["n"] == 1
