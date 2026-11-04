@@ -2299,8 +2299,9 @@ Commit: `1618418`.
       CRUD, targets round-trip, photo-estimate's 422s and its save path); the two coach
       tools; OFF free-text search's parsing/budget/opt-in fallthrough; a structural
       live-network-call guard (`tests/conftest.py`, patches httpx's default transport to
-      raise on any real outbound call) plus its own self-test. 395 backend tests total, 20
-      frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/production build.
+      raise on any real outbound call) plus its own self-test; a round-trip test logging a
+      food found through the opt-in OFF search by its returned id. 396 backend tests total,
+      20 frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/production build.
 - A real bug found and fixed mid-session: the test suite was making **live calls to the USDA
   API** whenever a test exercised `search_foods`/`lookup_or_fetch_barcode` without its own
   explicit monkeypatch, because the real dev `.env` has a genuine `USDA_FDC_API_KEY`
@@ -2376,6 +2377,7 @@ issues, each verified by actually reproducing it rather than inferring it from c
   `_get_or_create_cached_food` (which already did this correctly — confirmed by reading it
   and adding `tests/test_api_nutrition.py::test_off_search_hit_can_actually_be_logged`, a
   round-trip test: search with `include_off=true` → log the returned id → assert it succeeds).
-  This is the general lesson: a passing type-check/lint/unit-test pass does not verify
-  interaction state or a feature's actual end-to-end path, only that the code around it
-  compiles and the pieces each said didn't change.
+  This is the general lesson: a clean `tsc`/`oxlint`/unit-test pass only proves the code
+  compiles and each piece does what its own test says — it says nothing about whether the
+  pieces actually connect into a working end-to-end flow a person would use. That needs
+  driving the real UI, mock or not.

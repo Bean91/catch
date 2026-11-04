@@ -1219,8 +1219,11 @@ export function mockFoodSearch(query: string, includeOff = false): Food[] {
   if (!includeOff) return local.slice(0, 20);
   // Mirrors the real `search_foods`'s `_get_or_create_cached_food`: an OFF hit is cached into
   // the same store everything else logs against, so a food found through the opt-in button
-  // has a real, loggable id — never a detached result that fails at log time.
-  const offHits = MOCK_OFF_ONLY_FOODS.filter(matches).map((f) => {
+  // has a real, loggable id — never a detached result that fails at log time. Skips any OFF
+  // hit already in `local` (same mirroring as the backend's `seen_barcodes` dedup), since once
+  // cached into MOCK_FOODS on a prior search it would otherwise show up twice.
+  const localIds = new Set(local.map((f) => f.id));
+  const offHits = MOCK_OFF_ONLY_FOODS.filter((f) => matches(f) && !localIds.has(f.id)).map((f) => {
     const cached = findMockFood(f.id);
     if (cached) return cached;
     MOCK_FOODS.push(f);
