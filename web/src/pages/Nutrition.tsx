@@ -7,7 +7,7 @@ import { WeekView } from "../components/nutrition/WeekView";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
-import { copyDayLogs, fetchDaySummary, fetchWeekSummary } from "../lib/api";
+import { copyDayLogs, fetchCoachSettings, fetchDaySummary, fetchWeekSummary } from "../lib/api";
 import { localDateString } from "../lib/format";
 import { MEALS, type Meal } from "../lib/types";
 
@@ -42,6 +42,10 @@ export function NutritionPage() {
     queryKey: ["nutrition-week", shiftLocalDate(date, -6), date],
     queryFn: () => fetchWeekSummary(shiftLocalDate(date, -6), date),
   });
+  // Hidden rather than merely erroring on tap — the task requires the photo-estimate entry
+  // point itself to be absent when no Anthropic key is configured, not just the backend 422.
+  const coachSettings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings });
+  const photoEstimateAvailable = coachSettings.data?.anthropic_key.configured ?? false;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["nutrition-day"] });
@@ -138,9 +142,11 @@ export function NutritionPage() {
                     ? daySummary.data.targets.explanation
                     : "Starting points, based on your training load — adjust with a coach or dietitian."}
                 </p>
-                <button type="button" onClick={() => setPhotoOpen(true)} className="mt-3 min-h-9 rounded-md border border-dashed border-border px-3 text-xs text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary">
-                  📷 Estimate a meal from a photo
-                </button>
+                {photoEstimateAvailable && (
+                  <button type="button" onClick={() => setPhotoOpen(true)} className="mt-3 min-h-9 rounded-md border border-dashed border-border px-3 text-xs text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary">
+                    📷 Estimate a meal from a photo
+                  </button>
+                )}
               </Card>
 
               <Card title="Meals">

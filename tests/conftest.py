@@ -44,6 +44,21 @@ def _no_live_usda_calls(monkeypatch):
     monkeypatch.setattr(nutrition_module, "app_settings", dataclasses.replace(nutrition_module.app_settings, usda_fdc_api_key=""))
 
 
+@pytest.fixture(autouse=True)
+def _no_live_off_search_calls(monkeypatch):
+    """`search_foods` falls through to Open Food Facts' free-text search
+    (`OpenFoodFactsClient.search`) whenever local+USDA haven't filled the page — unlike
+    barcode lookup (which every test exercising it already monkeypatches per-test), nothing
+    guards this path, so a query with few/no local or USDA results (e.g. "nonexistent xyz
+    food") would make a real live call. Patched on the class itself, the same object every
+    `OpenFoodFactsClient()` instance shares — a test that wants to exercise a real OFF search
+    hit monkeypatches `OpenFoodFactsClient.search` again itself, the same override pattern
+    already used for its barcode-lookup sibling."""
+    from catch.sync.openfoodfacts_client import OpenFoodFactsClient
+
+    monkeypatch.setattr(OpenFoodFactsClient, "search", lambda self, query, page_size=10: [])
+
+
 def load_fixture(*parts: str) -> dict | list:
     return json.loads((FIXTURE_DIR.joinpath(*parts)).read_text())
 

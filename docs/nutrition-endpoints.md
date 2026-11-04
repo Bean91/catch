@@ -5,7 +5,7 @@ openfoodfacts_client.py` and `catch/sync/usda_client.py` actually call — nothi
 invented; every field mapping was checked against a real fetched response or the sources'
 live docs before being coded.
 
-## Open Food Facts (barcode lookup only — see "No free-text search" below)
+## Open Food Facts (barcode lookup + free-text search)
 
 Base URL: `https://world.openfoodfacts.org`. No API key. OFF's own usage policy asks every
 app to identify itself with a real `User-Agent`: this app sends
@@ -38,17 +38,57 @@ GET /api/v2/product/{barcode}.json?fields=product_name,brands,serving_size,servi
   here — no DB table or Redis needed) and negative-caches a miss for 24h so repeat scans of
   the same unknown barcode never themselves burn the limit.
 
-### No free-text search
+### Free-text search
 
-OFF's v2 API has **no plain free-text search endpoint** — confirmed against OFF's own API
-docs, not assumed. What exists is barcode-exact lookup (above) and a separate structured
-search API (`/api/v2/search` or the Algolia-backed search-a-licious service) built around
-faceted category/brand/nutrient filters, not a "type a few words, get ranked results" box.
-Neither fits this app's search-as-you-type UI. Given this, OFF's contribution to the app
-stays **barcode-scan lookup only**; all free-text search (`GET /api/nutrition/search`) goes
-through USDA FoodData Central instead (below). This is a deliberate scope decision, not a
-missing feature — if OFF ships a real free-text endpoint in the future, it would need its
-own research pass before adding it here.
+**Correction, confirmed by actually fetching both the live endpoint and OFF's current docs**
+(an earlier pass through this file wrongly concluded OFF has no free-text search at all —
+it was checking only the v2 API's own surface and missed the legacy endpoint OFF's own docs
+still point to): the only OFF-operated free-text search that exists today is the **legacy**
+endpoint:
+
+```
+GET /cgi/search.pl?search_terms={query}&json=1&page_size={n}&fields=code,product_name,brands,serving_size,serving_quantity,nutrition_data_per,nutriments
+```
+
+- OFF's own current docs (`openfoodfacts.github.io/openfoodfacts-server/api/`) mark full-text
+  search as **"⚠ Legacy `/cgi/search.pl` only"** for API v2 and **"❌ Not available"** for v3,
+  and say plain-text search "is not available in the v2 server-side API" — v2's
+  `/api/v2/search` is structured/filter-based only (categories, brands, nutrients), not a
+  "type a few words" box. The docs point forward to a newer **Search-a-licious** service
+  (`search.openfoodfacts.org`) as where full-text search "will be available," but as of this
+  research pass that site serves only a browsing UI with no documented public API endpoint —
+  nothing there to integrate against yet. So `/cgi/search.pl` is the real, working option
+  today, legacy label notwithstanding; confirmed live with `search_terms=banana` returning a
+  real ranked `products` array (`count: 12925`, 2 real yogurt/cookie results for page_size=2).
+- `fields=` narrows the response but isn't a strict whitelist — some unrequested fields
+  (`nutrition_data`, `nutrition_data_prepared_per`) came back anyway in a live check, and a
+  field like `serving_quantity` is simply absent from a product's object when that product
+  has none, rather than appearing as `null`. Parsing code must not assume every requested
+  field key is present.
+- Each result object has a top-level **`code`** field (the barcode) — confirmed live, e.g.
+  `"code": "6111242102941"`. Unlike the v2 product-read endpoint's `{"status": 1, "product":
+  {...}}` wrapper, `/cgi/search.pl`'s response is `{"count", "page", "page_count",
+  "page_size", "skip", "products": [...]}` — a flat list, no `status` field, no per-item
+  wrapper.
+- The `nutriments` object inside each search result uses the **same key convention** as the
+  v2 product-read endpoint (confirmed live: `energy-kcal_100g`, `proteins_100g`,
+  `carbohydrates_100g`, `fat_100g`, `fiber_100g`, `sugars_100g`, `sodium_100g`, with `_serving`
+  variants present only on some products) — the same per-100g/per-serving/kcal-vs-kJ/
+  sodium-in-grams parsing logic above applies unchanged; `catch/sync/openfoodfacts_client.py`
+  shares one `_parse_off_product_fields` helper between both endpoints rather than duplicating
+  it.
+- **Rate limit, and why this app treats it as a last resort**: OFF's docs state **10
+  requests/minute/IP for all search queries** (`GET /api/v*/search` or `GET /cgi/search.pl`)
+  — a *separate*, tighter budget than product-read's 15/min above — and explicitly warn:
+  *"don't use it for a search-as-you-type feature, you would be blocked very quickly."*
+  `OpenFoodFactsClient.search` enforces its own 10/min window (independent of the barcode-
+  lookup limiter) and fails open (returns `[]`, never raises) when it's spent for the minute.
+  `catch/sync/nutrition.py::search_foods` only reaches OFF **after** the local cache and USDA
+  free-text search haven't already filled the result page — OFF is the lowest-priority,
+  lowest-volume source, not the primary search path, specifically because of this limit and
+  warning. Every hit is still cached into `foods` immediately, same as a barcode hit.
+- No API key required for search (same as barcode lookup — OFF's docs only ask for a real
+  `User-Agent` on read operations).
 
 ### Attribution
 
@@ -116,5 +156,7 @@ prefilled with the scanned barcode). A found external result is cached into `foo
 immediately, so a repeat scan of the same barcode never re-hits either API.
 
 `search_foods`: local cache (ranked by recency/frequency of use in `food_logs`) first, then
-USDA free-text results appended and cached, deduplicated against anything the local cache
-already surfaced by barcode. OFF never participates in search (see above).
+USDA free-text results appended and cached, then OFF's legacy free-text search last (only if
+local+USDA haven't already filled the page) — deduplicated throughout against anything
+already surfaced by barcode. OFF goes last and gets called the least because of its tighter
+10/min budget and explicit "not for search-as-you-type" warning (see above).

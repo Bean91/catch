@@ -2154,8 +2154,19 @@ photo-estimate, targets that follow training load, and a calm under-fuelling not
 - [x] Tests: a rest day with 15k steps stays low-strain (the task's explicit check); fixture
       coverage for the new Garmin fields, the subtraction math, the capped curve, and the
       migration.
-- Historical recompute needed no separate backfill script — `recompute_scores` already runs
-  on every sync/note/settings change and applies the new formula live.
+- **Recomputing the *strain formula* against already-synced data needed no separate backfill
+  script** — `recompute_scores` already runs on every sync/note/settings change and applies
+  the new formula live. But that's a different thing from having the *new Garmin fields
+  themselves* on old days: `DailyWellness` has no `raw_json` column (unlike `Activity`, which
+  is why `_migrate_garmin_activity_fields` could backfill `steps`/`bmr_kcal` for existing
+  activities from already-stored data) — `steps`/`active_kcal`/etc. on any day the scheduler
+  hasn't re-fetched stay `NULL` until a real `catch backfill` run hits Garmin's
+  `/v2/dailysummaries` again for that day. The scheduler's own sync window is only a few
+  days (same limitation session 12's PLAN.md notes for FIT-sample zones/strain), so the
+  daily-activity strain component will silently read as 0 for every day before this session
+  on the real Pi until `catch backfill` (covers `BACKFILL_DAYS`, default 30) is run against
+  it — not automatic, and not done this session (a live-device action left for the user, same
+  call session 12 made for its own backfill).
 
 Commit: `1618418`.
 
@@ -2174,22 +2185,48 @@ Commit: `1618418`.
       state safe; negative-cached misses for 24h) -> USDA FoodData Central by GTIN (only if
       `USDA_FDC_API_KEY` is set) -> `None` (manual-entry form prefilled with the barcode). A
       found external hit is cached into `foods` immediately.
-- [x] **Free-text search**: OFF's v2 API has **no free-text search endpoint** (confirmed
-      against OFF's own docs, not assumed — see docs/nutrition-endpoints.md) — a deliberate,
-      documented scope decision, not a missing feature. Search is local cache (ranked by
-      recency/frequency of use in `food_logs`) + USDA free-text, deduplicated by barcode.
+- [x] **Free-text search** (local cache, ranked by recency/frequency of use in `food_logs`,
+      then USDA free-text, then OFF's legacy `/cgi/search.pl` last — each deduplicated by
+      barcode against what's already in the results). **A first pass wrongly concluded OFF
+      had no free-text search at all**, having checked only the v2 API's own surface; an
+      advisor review's "verify, don't assume" prompt led to actually fetching OFF's current
+      docs and the live endpoint, which confirmed `/cgi/search.pl?search_terms=...&json=1`
+      works today and is what OFF's own docs still point to for full-text search (v2 doesn't
+      have it; v3 doesn't either; a newer "Search-a-licious" service is referenced as the
+      future but exposed no documented public API at the time of this check). OFF search gets
+      its own separate 10/min/IP budget (OFF's own documented limit for search, distinct from
+      product-read's 15/min) and an explicit "not for search-as-you-type" warning from OFF
+      itself — this app respects both by only reaching OFF search once local+USDA haven't
+      already filled the results page, and by failing open (empty list) rather than raising
+      when the minute's budget is spent. See docs/nutrition-endpoints.md for the verified
+      field shapes (same nutriment-key convention as the v2 product-read endpoint, a
+      different top-level wrapper, a `fields=` param that isn't a strict whitelist).
 - [x] **Scanner** (`web/src/components/nutrition/BarcodeScanner.tsx`,
-      `web/src/lib/barcodeScan.ts`): native `window.BarcodeDetector` when present, else the
-      `barcode-detector` ponyfill over a **self-hosted** ZXing-wasm binary (Vite's `?url`
-      import serves it from `/assets`, cached by the service worker like any other build
-      asset, instead of the package's default jsDelivr-CDN fetch — this app runs offline-
-      first on a Pi with no reason to depend on an external CDN for a core feature). Rear
-      camera (`facingMode: {ideal: "environment"}`), feature-detected torch toggle (iOS
-      Safari doesn't expose `torch` in `getCapabilities()` at all — never assumed present),
-      every camera track stopped on close/unmount. Lazy-loaded (`React.lazy`) — the wasm
-      binary (~950KB) and its JS glue only ever load if the scan button is tapped, confirmed
-      by inspecting the production build's chunk list (`BarcodeScanner-*.js` is its own chunk,
-      separate from `Nutrition-*.js`).
+      `web/src/lib/barcodeScan.ts`): native `window.BarcodeDetector` when present (confirmed
+      by forcing the fallback in a real page — `addInitScript` deleting
+      `window.BarcodeDetector` before load — and checking the wasm request's `initiator`: it
+      genuinely only fires once `createBarcodeDetector()`'s fallback branch runs, and from
+      this app's own origin, not jsDelivr), else the `barcode-detector` ponyfill over a
+      **self-hosted** ZXing-wasm binary (Vite's `?url` import serves it from `/assets`,
+      instead of the package's default jsDelivr-CDN fetch — this app runs offline-first on a
+      Pi with no reason to depend on an external CDN for a core feature). **Correction**: the
+      wasm is *not* actually cached by the service worker, despite living under `/assets/*` —
+      checked by grepping the built `sw.js`'s precache list, which only ever includes `.js`/
+      `.css` chunks (`writeBundle` in `vite.config.ts` only pushes those two extensions), and
+      by reading the SW's own `/assets/*` fetch handler, whose cache-first branch
+      (`caches.match(req).then((cached) => cached || fetch(req))`) has no `cache.put()` on a
+      miss — unlike every other branch in that file, which explicitly writes back. A pre-
+      existing gap (the font files have the exact same characteristic), not something this
+      session introduced or fixed; revisit if the wasm's repeat-fetch cost on a slow
+      connection ever becomes a real complaint. It *is* still genuinely lazy — confirmed via
+      the production build's chunk list (`BarcodeScanner-*.js`, its own chunk separate from
+      `Nutrition-*.js`) and via the SW's precache list itself not containing it — so a user
+      who never opens the scanner never downloads it, which was the actual goal. Python's
+      stdlib `mimetypes` table already maps `.wasm` -> `application/wasm` (checked — no fix
+      needed in `catch/main.py`'s static file serving). Rear camera (`facingMode: {ideal:
+      "environment"}`), feature-detected torch toggle (iOS Safari doesn't expose `torch` in
+      `getCapabilities()` at all — never assumed present), every camera track stopped on
+      close/unmount.
 - [x] **Photo estimate** (`catch/coach/nutrition_vision.py`): one-shot Anthropic vision call
       against the athlete's own configured model (never hardcoded — this is bring-your-own-
       key), structured output via an auto-chosen strict tool rather than forced `tool_choice`
@@ -2244,8 +2281,8 @@ Commit: `1618418`.
       manual food creation, logging by grams/serving, the serving-size-unknown rejection,
       day/week summaries, copy-day with and without a meal filter, my-foods/saved-meals
       CRUD, targets round-trip, photo-estimate's 422s and its save path); the two coach
-      tools. 382 backend tests total, 20 frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/
-      production build.
+      tools; OFF free-text search's parsing/budget/fallthrough. 391 backend tests total, 20
+      frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/production build.
 - A real bug found and fixed mid-session: the test suite was making **live calls to the USDA
   API** whenever a test exercised `search_foods`/`lookup_or_fetch_barcode` without its own
   explicit monkeypatch, because the real dev `.env` has a genuine `USDA_FDC_API_KEY`
@@ -2260,16 +2297,26 @@ Commit: `1618418`.
 
 - **Real-phone barcode scanning was not verified this session** — same limitation session
   9/10 already noted for other camera/PWA-dependent features: this environment can't drive a
-  real device's camera. The scanner's chrome (viewfinder, torch toggle, native-vs-ZXing-
-  fallback branching, track cleanup) was checked in a desktop browser via Playwright; actual
-  decode accuracy against a real barcode, on a real rear camera, in the installed PWA, is
-  unverified. `web/tests/touch/`-style Playwright coverage with `--use-fake-device-for-
-  media-stream`/`--use-file-for-fake-video-capture` would close this gap properly — not
-  attempted this session given the time budget, same tradeoff session 8/12 made for the
-  equivalent touch-gesture suite.
+  real device's camera. What *was* verified in a desktop Playwright browser: the scanner's
+  chrome (viewfinder, torch toggle, track cleanup); the native-BarcodeDetector path (Chromium
+  has one); and, with `addInitScript` deleting `window.BarcodeDetector` to force it, the
+  **self-hosted ZXing-wasm fallback path end to end** — `createBarcodeDetector()` correctly
+  falls back, the wasm request genuinely goes to this app's own origin (not jsDelivr), and
+  `detect()` resolves cleanly (empty result) against a blank canvas rather than throwing. What
+  remains unverified is **decode accuracy against a real barcode on a real rear camera** in
+  the installed PWA — `getUserMedia` against an actual camera, a real product's barcode in
+  frame, real lighting. `web/tests/touch/`-style Playwright coverage with `--use-fake-device-
+  for-media-stream`/`--use-file-for-fake-video-capture` (feeding a recorded video of a real
+  barcode) would close this specific gap — not attempted this session given the time budget,
+  same tradeoff session 8/12 made for the equivalent touch-gesture suite.
 - **`USDA_FDC_API_KEY` must be added to the Pi's own `.env` before this ships for real** — the
   dev `.env` here has one, but nothing deploys secrets; `.env.example` documents the key, the
   Pi's copy needs it added by hand (same as every other credential in this app).
+- **The Pi needs a `catch backfill` run too, for a different reason than session 12's** — see
+  Part A's note above: `steps`/`active_kcal`/etc. are `NULL` on any day the scheduler's own
+  short sync window hasn't re-fetched, and there's no `raw_json` column on `DailyWellness` to
+  backfill from locally the way `Activity`'s migration could. The daily-activity strain
+  component reads as 0 for every pre-session day on the real Pi until that backfill runs.
 - **The photo estimate's `kcal`/`protein_g`/etc. fields on `Food` are a modeling shortcut**,
   not a real per-100g nutrition fact — `serving_size=100`/`serving_unit=<description>` exists
   so "1 serving" reproduces the estimate exactly, but if this `Food` row were ever logged

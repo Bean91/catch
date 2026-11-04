@@ -154,7 +154,8 @@ docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 peloton.md (session 8/12: Peloton-push detection mechanism + live findings —
                 no Peloton-pushed activity exists in this account yet to confirm it against),
                 nutrition-endpoints.md (session 13: Open Food Facts v2 + USDA FoodData
-                Central API facts — rate limits, field shapes, why OFF is barcode-lookup-only)
+                Central API facts — rate limits, field shapes, OFF's legacy free-text search
+                endpoint and why it's the lowest-priority search source)
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 

@@ -111,14 +111,22 @@ def _get_or_create_cached_food(session: Session, parsed: dict) -> Food:
 def search_foods(session: Session, query: str, limit: int = 20) -> list[dict]:
     """Local cache first, ranked by recency/frequency of use in `food_logs` (a food never
     logged sorts after any food that has been, newest-logged-first among those); USDA
-    free-text results are appended after, deduplicated against anything the local cache
-    already surfaced by barcode. **Open Food Facts has no free-text search in its v2 API**
-    (confirmed against its own docs — only exact-barcode lookup and a structured
-    category/brand/nutrient filter search exist, neither of which fits a plain text box) —
-    see docs/nutrition-endpoints.md; its contribution to this app stays barcode-scan-only."""
+    free-text results are appended next (deduplicated by barcode against what's already in
+    `results`), then Open Food Facts' legacy `/cgi/search.pl` free-text search last, only if
+    local+USDA haven't already filled the page — OFF's search endpoint has its own tight
+    10/min budget and an explicit "not for search-as-you-type" warning
+    (docs/nutrition-endpoints.md), so it's the lowest-priority, lowest-volume source rather
+    than hit on every call."""
     like = f"%{query}%"
     local = session.exec(
-        select(Food).where((Food.name.ilike(like)) | (Food.brand.ilike(like))).limit(limit * 2)
+        select(Food)
+        .where((Food.name.ilike(like)) | (Food.brand.ilike(like)))
+        # A photo-estimate Food (source="estimate") carries one item's absolute macros for
+        # whatever quantity the model described, keyed to its own serving_size=100 hack
+        # (save_photo_estimate) — it isn't a reusable per-100g nutrition fact, so it must
+        # never resurface as a search result someone could log again at a different quantity.
+        .where(Food.source != "estimate")
+        .limit(limit * 2)
     ).all()
 
     log_stats: dict[int, tuple[int, datetime]] = {}
@@ -134,15 +142,32 @@ def search_foods(session: Session, query: str, limit: int = 20) -> list[dict]:
     local_sorted = sorted(local, key=sort_key)[:limit]
     results = [food_dict(f) for f in local_sorted]
 
+    seen_barcodes = {f["barcode"] for f in results if f["barcode"]}
+
     remaining = limit - len(results)
     if remaining > 0 and app_settings.usda_fdc_api_key:
-        seen_barcodes = {f["barcode"] for f in results if f["barcode"]}
         usda = UsdaClient(app_settings.usda_fdc_api_key)
         for parsed in usda.search(query, page_size=remaining * 2)[:remaining]:
             if parsed.get("barcode") and parsed["barcode"] in seen_barcodes:
                 continue
             food = _get_or_create_cached_food(session, parsed)
             results.append(food_dict(food))
+            if food.barcode:
+                seen_barcodes.add(food.barcode)
+
+    # OFF last — its free-text search (the legacy `/cgi/search.pl`, see
+    # openfoodfacts_client.py) carries its own tight 10/min budget and an explicit "not for
+    # search-as-you-type" warning, so it only spends a call once local+USDA haven't already
+    # filled the page.
+    remaining = limit - len(results)
+    if remaining > 0:
+        for parsed in OpenFoodFactsClient().search(query, page_size=remaining * 2)[:remaining]:
+            if parsed.get("barcode") and parsed["barcode"] in seen_barcodes:
+                continue
+            food = _get_or_create_cached_food(session, parsed)
+            results.append(food_dict(food))
+            if food.barcode:
+                seen_barcodes.add(food.barcode)
 
     return results[:limit]
 
@@ -151,10 +176,15 @@ def search_foods(session: Session, query: str, limit: int = 20) -> list[dict]:
 
 
 def create_manual_food(session: Session, **fields) -> Food:
+    """Task Part B.1: "manual entry form prefilled with the barcode, saved to my_foods" — a
+    manually-entered food is something the athlete typed in for a reason and should resurface
+    as a quick pick next time, not just sit in the raw `foods` cache alongside every OFF/USDA
+    hit search ever returned."""
     food = Food(source="manual", verified=True, **fields)
     session.add(food)
     session.commit()
     session.refresh(food)
+    star_food(session, food.id)
     return food
 
 

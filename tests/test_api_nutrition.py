@@ -124,6 +124,17 @@ def test_manual_food_create_and_log_by_grams(client, session):
     assert body["kcal"] == pytest.approx(89 * 1.18)
 
 
+def test_manual_food_create_also_saves_to_my_foods(client, session):
+    _login(client)
+    resp = client.post(
+        "/api/nutrition/foods",
+        json={"name": "Homemade granola", "kcal_100g": 450, "protein_100g": 10, "carbs_100g": 55, "fat_100g": 18},
+    )
+    food_id = resp.json()["id"]
+    my_foods = client.get("/api/nutrition/my-foods").json()["my_foods"]
+    assert any(f["id"] == food_id for f in my_foods)
+
+
 def test_log_by_serving_uses_foods_serving_size(client, session):
     food = _seed_food(session)
     _login(client)
@@ -259,6 +270,53 @@ def test_photo_estimate_save_rejects_unknown_meal(client):
         json={"meal": "elevenses", "items": [{"name": "X", "kcal": 1, "protein_g": 1, "carbs_g": 1, "fat_g": 1}]},
     )
     assert resp.status_code == 422
+
+
+def test_search_falls_through_to_off_when_local_and_usda_are_empty(client, session, monkeypatch):
+    off_result = {
+        "source": "off",
+        "barcode": "9990000000001",
+        "name": "OFF Search Result",
+        "brand": None,
+        "serving_size": None,
+        "serving_unit": "g",
+        "kcal_100g": 250,
+        "protein_100g": 5,
+        "carbs_100g": 30,
+        "fat_100g": 8,
+        "fiber_100g": None,
+        "sugar_100g": None,
+        "sodium_100g": None,
+        "verified": False,
+    }
+    calls = []
+    monkeypatch.setattr("catch.sync.openfoodfacts_client.OpenFoodFactsClient.search", lambda self, query, page_size=10: (calls.append(query), [off_result])[1])
+
+    _login(client)
+    resp = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits"})
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["name"] == "OFF Search Result"
+    assert calls == ["something with no local or usda hits"]
+
+    # Every OFF hit is cached into `foods` by barcode — a second search that also reaches OFF
+    # (search always tops up to the page limit, so it's called again) must reuse the same
+    # cached row rather than insert a duplicate.
+    resp2 = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits"})
+    assert len(calls) == 2
+    assert resp2.json()["results"][0]["id"] == results[0]["id"]
+
+
+def test_estimate_foods_never_resurface_in_search(client, session):
+    _login(client)
+    client.post(
+        "/api/nutrition/photo-estimate/save",
+        json={"meal": "lunch", "items": [{"name": "Unique Estimated Rice Bowl", "kcal": 200, "protein_g": 4, "carbs_g": 44, "fat_g": 0.5}]},
+    )
+    resp = client.get("/api/nutrition/search", params={"q": "Unique Estimated Rice Bowl"})
+    assert resp.status_code == 200
+    assert resp.json()["results"] == []
 
 
 def test_my_foods_star_unstar(client, session):

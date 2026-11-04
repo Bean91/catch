@@ -1,0 +1,47 @@
+{
+  "count": "12925",
+  "page": 1,
+  "page_count": 2,
+  "page_size": 2,
+  "skip": 0,
+  "products": [
+    {
+      "code": "6111242102941",
+      "product_name": "Yogurt Bnine BANANA",
+      "brands": "Jaouda",
+      "nutrition_data_per": "100g",
+      "nutriments": {
+        "energy_100g": 372.3,
+        "energy-kcal_100g": 88.1,
+        "proteins_100g": 3.9,
+        "fat_100g": 1.7,
+        "carbohydrates_100g": 14.3,
+        "sugars_100g": 9.3,
+        "sodium_100g": 0
+      }
+    },
+    {
+      "code": "3175681272941",
+      "product_name": "Gerble - Organic Chocolate Cookie Flavored w/ Banana, 132g (4.7oz)",
+      "brands": "Gerblé, Gerblé Bio",
+      "serving_size": "14,7g",
+      "serving_quantity": 14.7,
+      "nutrition_data_per": "100g",
+      "nutriments": {
+        "energy_100g": 1921,
+        "energy-kcal_100g": 459,
+        "proteins_100g": 9,
+        "fat_100g": 19,
+        "carbohydrates_100g": 59,
+        "sugars_100g": 14,
+        "fiber_100g": 7.8,
+        "sodium_100g": 0.144
+      }
+    },
+    {
+      "code": "0000000000000",
+      "nutrition_data_per": "100g",
+      "nutriments": { "energy-kcal_100g": 100 }
+    }
+  ]
+}
