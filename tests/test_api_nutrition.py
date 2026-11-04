@@ -324,6 +324,21 @@ def test_include_off_true_falls_through_to_off_when_local_and_usda_are_empty(cli
     assert resp2.json()["results"][0]["id"] == results[0]["id"]
 
 
+def test_off_search_hit_can_actually_be_logged(client, session, monkeypatch):
+    """The "Also search Open Food Facts" button is useless if the food it surfaces can't then
+    be logged — `search_foods` must hand back a real, already-cached `Food.id`, not a
+    detached parsed dict with no id, since `POST /api/nutrition/logs` only accepts a food_id
+    it can look up in the `foods` table."""
+    _mock_off_search(monkeypatch)
+    _login(client)
+    search_resp = client.get("/api/nutrition/search", params={"q": "something with no local or usda hits", "include_off": "true"})
+    food_id = search_resp.json()["results"][0]["id"]
+
+    log_resp = client.post("/api/nutrition/logs", json={"meal": "lunch", "food_id": food_id, "quantity": 1, "unit": "g"})
+    assert log_resp.status_code == 200
+    assert log_resp.json()["kcal"] == pytest.approx(2.5)  # 250 kcal/100g * 1g
+
+
 def test_estimate_foods_never_resurface_in_search(client, session):
     _login(client)
     client.post(

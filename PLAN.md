@@ -2347,3 +2347,35 @@ Commit: `1618418`.
   foods ever need to be reused rather than treated as one-shot.
 - **No deploy this session** — unlike sessions 9/10, nothing in the task text asked for
   `./deploy.sh`; both parts are commit-only, ready to deploy whenever the user asks.
+
+**A final advisor-driven pass (after the above was believed done) found three more real
+issues, each verified by actually reproducing it rather than inferring it from code:**
+
+- **CLAUDE.md itself still carried the old, corrected-everywhere-else OFF claim** —
+  `openfoodfacts_client.py (barcode-only OFF v2 lookup...)` and `usda_client.py (... used for
+  free-text search since OFF has none)`, left over from before the opt-in redesign. A
+  targeted grep for the earlier `"debounce is sufficient"`-era wording had missed this
+  because the phrasing here predated even that — it was the *original* wrong claim, not a
+  later draft of the correct one. Fixed, since CLAUDE.md is loaded as instructions into every
+  future session and the stale claim could lead one to "clean up" OFF search as dead code.
+- **`searchOff`'s stale-request guard could leave the "Also search Open Food Facts" button
+  permanently disabled.** Its own `finally` only clears `searchingOff` when `queryRef.current`
+  still equals the query that started the call — exactly right for *that* call, but nothing
+  else ever cleared the flag for the *new* query once the athlete typed again before the old
+  call resolved. Reproduced live in a browser (not just read): removing the fix and replaying
+  tap-button-then-retype via a single Playwright script left the button `disabled: true`
+  after the query changed; restoring the fix (resetting `searchingOff` in the same effect that
+  already resets `offIncluded`/`error` on query change) made it `disabled: false`.
+- **The mock couldn't actually demonstrate the feature it was supposed to showcase.**
+  `mockFoodSearch` ignored `includeOff` entirely, so `?mock=1` had no way to show the OFF
+  fallthrough finding anything local/USDA mocks didn't already have. Added one OFF-only mock
+  food; discovered via the same live-browser test that merely *returning* it from search
+  wasn't enough — `logFood`'s mock only checks `MOCK_FOODS`, so picking the OFF-only result
+  and tapping "Log it" failed with "Couldn't log that food." Fixed by having the OFF branch
+  cache its hit into `MOCK_FOODS` on first search, mirroring the real backend's
+  `_get_or_create_cached_food` (which already did this correctly — confirmed by reading it
+  and adding `tests/test_api_nutrition.py::test_off_search_hit_can_actually_be_logged`, a
+  round-trip test: search with `include_off=true` → log the returned id → assert it succeeds).
+  This is the general lesson: a passing type-check/lint/unit-test pass does not verify
+  interaction state or a feature's actual end-to-end path, only that the code around it
+  compiles and the pieces each said didn't change.

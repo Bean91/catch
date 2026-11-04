@@ -1217,7 +1217,16 @@ export function mockFoodSearch(query: string, includeOff = false): Food[] {
   const matches = (f: Food) => f.name.toLowerCase().includes(q) || f.brand?.toLowerCase().includes(q);
   const local = MOCK_FOODS.filter(matches);
   if (!includeOff) return local.slice(0, 20);
-  return [...local, ...MOCK_OFF_ONLY_FOODS.filter(matches)].slice(0, 20);
+  // Mirrors the real `search_foods`'s `_get_or_create_cached_food`: an OFF hit is cached into
+  // the same store everything else logs against, so a food found through the opt-in button
+  // has a real, loggable id — never a detached result that fails at log time.
+  const offHits = MOCK_OFF_ONLY_FOODS.filter(matches).map((f) => {
+    const cached = findMockFood(f.id);
+    if (cached) return cached;
+    MOCK_FOODS.push(f);
+    return f;
+  });
+  return [...local, ...offHits].slice(0, 20);
 }
 
 export function createMockManualFood(fields: Omit<Food, "id" | "source" | "verified" | "barcode"> & { barcode?: string | null }): Food {
