@@ -22,7 +22,9 @@ catch/
   api/          FastAPI routers (routes_coach.py: shared tool endpoints + coach settings/
                 conversations/memory/device tokens; sse.py: cancels a streaming response's
                 generator on client disconnect — see PLAN.md's session 6 Findings for why
-                that needs its own polling helper, not just a per-event check)
+                that needs its own polling helper, not just a per-event check; session 13:
+                routes_nutrition.py — foods/barcode/logs/my-foods/saved-meals/targets/
+                photo-estimate)
   core/         SQLModel models, config, db, security
   sync/         garmin_client, withings_client, concept2_client, scheduler, upsert helpers;
                 session 8/12 (cross-source matching + Peloton + body comp + per-sample
@@ -37,24 +39,34 @@ catch/
                 writes ActivitySamples), body_comp.py (one resolved daily body-comp reading
                 across however many scales reported one), rowing_predict.py (shared
                 "recent best Concept2 pieces" gathering for GET /api/predict/2k and the erg
-                power-zone threshold)
+                power-zone threshold); session 13: nutrition.py (the DB-facing nutrition
+                layer — food search/barcode-lookup-or-fetch/logging/my-foods/saved-meals/
+                targets/week-summary, shared by routes_nutrition.py and the coach tools),
+                openfoodfacts_client.py (barcode-only OFF v2 lookup, rate-limited + negative-
+                cached), usda_client.py (USDA FDC branded-food search/barcode/detail, used
+                for free-text search since OFF has none)
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
                 load + FTP estimate), samples_codec.py (pack/unpack the compact per-sample
                 blobs), zones_samples.py (per-sample time-in-zone/Banister-TRIMP/session-
                 label/auto-trim-detection — the real zones/strain fix for a session whose
-                average HR undersells a short hard block inside a long easy one)
+                average HR undersells a short hard block inside a long easy one); session 13:
+                nutrition.py (pure target/macro-scaling/under-fuelling math, no I/O)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
                 SSE events, cost/cap accounting), memory.py (events/goals/athlete_facts
                 CRUD + recall + the compact system-prompt memory block), settings.py
                 (coach prefs + Fernet-encrypted API key — a separate table from `settings`,
-                see the Gotchas section), cost.py (usage -> $ from user-entered prices),
-                system_prompt.md (editable coach persona), providers/ (anthropic_provider.py,
-                ollama_provider.py — both yield the same normalized event stream)
-  mcp_server/   server.py (MCPServer + all 19 tools + 2 prompts, built once, shared by both
+                see the Gotchas section), cost.py (usage -> $ from user-entered prices,
+                incl. session 13's AiUsageEvent rows so photo-estimate spend counts against
+                the same daily cap as chat), system_prompt.md (editable coach persona),
+                providers/ (anthropic_provider.py, ollama_provider.py — both yield the same
+                normalized event stream), nutrition_vision.py (session 13: one-shot Anthropic
+                vision call for an itemised meal-photo macro estimate; lazy-imported, hidden
+                when no Anthropic key is configured, photos never stored after the estimate)
+  mcp_server/   server.py (MCPServer + all 21 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py

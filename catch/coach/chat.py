@@ -88,6 +88,8 @@ def _tool_label(name: str, args: dict) -> str:
         "set_goal": "Save goal",
         "forget": f"Forget {args.get('ref')}",
         "recall": "Search memory",
+        "get_nutrition": f"Read nutrition history{_range_phrase(args)}",
+        "log_food": f"Log {args.get('description') or args.get('barcode') or 'a food'}",
     }
     return labels.get(name, name)
 

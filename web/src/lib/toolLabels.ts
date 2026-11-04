@@ -44,6 +44,10 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Tag workout #${input.id}`;
     case "merge_activities":
       return input.confirm ? "Merge two workouts" : "Preview merging two workouts";
+    case "get_nutrition":
+      return `Read nutrition history${rangePhrase(input)}`;
+    case "log_food":
+      return `Log ${input.description ?? input.barcode ?? "a food"}`;
     default:
       return name;
   }

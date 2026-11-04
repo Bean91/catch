@@ -17,8 +17,9 @@ def build_server(backend: ToolBackend) -> MCPServer:
         instructions=(
             "Tools for Catch, a personal rowing training app: read-only access to recovery/"
             "strain/sleep/HRV, workouts, trends, body composition, training load, 2k "
-            "prediction, and zones, plus a small shared memory of events/goals/athlete facts "
-            "that the in-app coach also reads and writes."
+            "prediction, zones, and nutrition (intake vs. expenditure, under-fuelling), plus "
+            "food logging and a small shared memory of events/goals/athlete facts that the "
+            "in-app coach also reads and writes."
         ),
     )
 
@@ -84,6 +85,32 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def get_zones() -> dict:
         """Current HR and power training-zone boundaries, plus the default zone-mode view."""
         return await _call("get_zones")
+
+    @mcp.tool()
+    async def get_nutrition(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+        """Daily intake (kcal/protein) vs. Garmin expenditure over an ISO date range (default:
+        trailing 7 days), plus a calm under-fuelling flag when several recent logged days ran
+        well below expenditure. Unlogged days are never treated as zero intake."""
+        return await _call("get_nutrition", **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def log_food(
+        description: Optional[str] = None,
+        barcode: Optional[str] = None,
+        food_id: Optional[int] = None,
+        quantity: Optional[float] = None,
+        unit: Optional[Literal["g", "serving"]] = None,
+        meal: Optional[Literal["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"]] = None,
+    ) -> dict:
+        """Log a food to the nutrition diary. Identify the food by exactly one of description
+        (free text, searched against the local cache + USDA), barcode, or food_id (from a prior
+        ambiguous response's candidates). A description match that isn't a single confident hit
+        returns candidates instead of guessing — call again with the right food_id. Always
+        confirm in chat what was logged (food, quantity, kcal/protein/carbs/fat)."""
+        return await _call(
+            "log_food", description=description, barcode=barcode, food_id=food_id,
+            quantity=quantity, unit=unit, meal=meal,
+        )
 
     @mcp.tool()
     async def add_note(date: str, text: str, rpe: Optional[int] = None) -> dict:
