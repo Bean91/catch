@@ -133,27 +133,7 @@ class FoodLogRequest(BaseModel):
 @router.get("/api/nutrition/logs")
 def get_logs(from_: date | None = Query(None, alias="from"), to: date | None = Query(None), db: Session = Depends(get_db)):
     rows = nutrition.list_food_logs(db, from_, to)
-    return {
-        "logs": [
-            {
-                "id": r.id,
-                "ts": r.ts,
-                "meal": r.meal,
-                "food_id": r.food_id,
-                "quantity": r.quantity,
-                "unit": r.unit,
-                "estimated": r.estimated,
-                "kcal": r.kcal,
-                "protein": r.protein,
-                "carbs": r.carbs,
-                "fat": r.fat,
-                "fiber": r.fiber,
-                "sugar": r.sugar,
-                "sodium": r.sodium,
-            }
-            for r in rows
-        ]
-    }
+    return {"logs": [nutrition.food_log_dict(db, r) for r in rows]}
 
 
 @router.post("/api/nutrition/logs")
@@ -196,11 +176,14 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
 class CopyDayRequest(BaseModel):
     from_date: date
     to_date: date
+    meal: str | None = None
 
 
 @router.post("/api/nutrition/logs/copy-day")
 def post_copy_day(body: CopyDayRequest, db: Session = Depends(get_db)):
-    rows = nutrition.copy_day_logs(db, body.from_date, body.to_date)
+    if body.meal is not None:
+        _validate_meal(body.meal)
+    rows = nutrition.copy_day_logs(db, body.from_date, body.to_date, body.meal)
     return {"logged": [r.id for r in rows]}
 
 
@@ -267,3 +250,27 @@ async def post_photo_estimate(photo: UploadFile = File(...), db: Session = Depen
     except NutritionVisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result
+
+
+class PhotoEstimateItem(BaseModel):
+    name: str
+    quantity_description: str | None = None
+    kcal: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+
+
+class PhotoEstimateSaveRequest(BaseModel):
+    ts: datetime | None = None
+    meal: str
+    items: list[PhotoEstimateItem]
+
+
+@router.post("/api/nutrition/photo-estimate/save")
+def post_photo_estimate_save(body: PhotoEstimateSaveRequest, db: Session = Depends(get_db)):
+    _validate_meal(body.meal)
+    rows = nutrition.save_photo_estimate(
+        db, items=[i.model_dump() for i in body.items], meal=body.meal, ts=body.ts or datetime.now(timezone.utc)
+    )
+    return {"logged": [r.id for r in rows]}

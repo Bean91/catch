@@ -20,6 +20,9 @@ def test_today_with_no_data_yet(client):
     body = resp.json()
     assert body["recovery"] is None
     assert "recommendation" in body
+    # Session 13: get_today carries the under-fuelling flag too, so the coach sees it without
+    # a separate get_nutrition call — not enough logged days yet with no data at all.
+    assert body["under_fuelling"]["flag"] is False
 
 
 def test_today_generated_at_is_a_real_utc_timestamp(client):

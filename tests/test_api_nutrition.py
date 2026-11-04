@@ -193,6 +193,74 @@ def test_copy_day_recomputes_against_current_food_data(client, session):
     assert len(today_logs) == 1
 
 
+def test_copy_day_meal_filter_copies_only_that_meal(client, session):
+    food = _seed_food(session)
+    yesterday = date.today() - timedelta(days=1)
+    _login(client)
+    for meal in ("breakfast", "dinner"):
+        client.post(
+            "/api/nutrition/logs",
+            json={
+                "ts": datetime(yesterday.year, yesterday.month, yesterday.day, 8, 0, tzinfo=timezone.utc).isoformat(),
+                "meal": meal,
+                "food_id": food.id,
+                "quantity": 40,
+                "unit": "g",
+            },
+        )
+    resp = client.post(
+        "/api/nutrition/logs/copy-day",
+        json={"from_date": yesterday.isoformat(), "to_date": date.today().isoformat(), "meal": "breakfast"},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["logged"]) == 1
+
+    today_logs = client.get("/api/nutrition/logs", params={"from": date.today().isoformat(), "to": date.today().isoformat()}).json()["logs"]
+    assert len(today_logs) == 1
+    assert today_logs[0]["meal"] == "breakfast"
+
+
+def test_logs_include_food_name_and_brand(client, session):
+    food = _seed_food(session, name="Oats", brand="Acme")
+    _login(client)
+    client.post("/api/nutrition/logs", json={"meal": "breakfast", "food_id": food.id, "quantity": 40, "unit": "g"})
+    logs = client.get("/api/nutrition/logs", params={"from": date.today().isoformat(), "to": date.today().isoformat()}).json()["logs"]
+    assert logs[0]["food_name"] == "Oats"
+    assert logs[0]["food_brand"] == "Acme"
+
+
+def test_photo_estimate_save_creates_logs_from_edited_items(client, session):
+    _login(client)
+    resp = client.post(
+        "/api/nutrition/photo-estimate/save",
+        json={
+            "meal": "lunch",
+            "items": [
+                {"name": "Grilled chicken", "quantity_description": "150g", "kcal": 250, "protein_g": 45, "carbs_g": 0, "fat_g": 7},
+                {"name": "Rice", "quantity_description": "1 cup", "kcal": 200, "protein_g": 4, "carbs_g": 44, "fat_g": 0.5},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["logged"]) == 2
+
+    logs = client.get("/api/nutrition/logs", params={"from": date.today().isoformat(), "to": date.today().isoformat()}).json()["logs"]
+    assert len(logs) == 2
+    assert all(l["estimated"] is True for l in logs)
+    by_name = {l["food_name"]: l for l in logs}
+    assert by_name["Grilled chicken"]["kcal"] == pytest.approx(250)
+    assert by_name["Rice"]["carbs"] == pytest.approx(44)
+
+
+def test_photo_estimate_save_rejects_unknown_meal(client):
+    _login(client)
+    resp = client.post(
+        "/api/nutrition/photo-estimate/save",
+        json={"meal": "elevenses", "items": [{"name": "X", "kcal": 1, "protein_g": 1, "carbs_g": 1, "fat_g": 1}]},
+    )
+    assert resp.status_code == 422
+
+
 def test_my_foods_star_unstar(client, session):
     food = _seed_food(session)
     _login(client)

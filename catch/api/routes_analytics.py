@@ -19,7 +19,7 @@ from catch.api.deps import as_utc, get_db, require_auth
 from catch.coach.memory import next_a_race as _next_a_race
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
-from catch.sync import body_comp, rowing_predict
+from catch.sync import body_comp, nutrition, rowing_predict
 from catch.analytics.samples_codec import unpack_series
 from catch.sync.canonical import pick_hr
 
@@ -175,6 +175,9 @@ def today(db: Session = Depends(get_db)):
         "predicted_2k": _predict_2k(db, settings),
         "recommendation": _recommendation(recovery, load),
         "next_a_race": _next_a_race(db, today_date),
+        # Session 13: so the coach sees a calm under-fuelling note via get_today without
+        # having to separately call get_nutrition — and so Today can surface it too.
+        "under_fuelling": nutrition.week_summary(db, today_date - timedelta(days=6), today_date)["under_fuelling"],
     }
 
 

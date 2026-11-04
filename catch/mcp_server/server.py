@@ -95,12 +95,12 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def log_food(
+        quantity: float,
+        meal: Literal["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"],
         description: Optional[str] = None,
         barcode: Optional[str] = None,
         food_id: Optional[int] = None,
-        quantity: Optional[float] = None,
         unit: Optional[Literal["g", "serving"]] = None,
-        meal: Optional[Literal["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"]] = None,
     ) -> dict:
         """Log a food to the nutrition diary. Identify the food by exactly one of description
         (free text, searched against the local cache + USDA), barcode, or food_id (from a prior

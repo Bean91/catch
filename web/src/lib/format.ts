@@ -57,6 +57,16 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   return `${days}d ago`;
 }
 
+// `date.toISOString().slice(0, 10)` gives the *UTC* date, which is already tomorrow for
+// anyone west of UTC in the evening — this app's "today" (the date pickers, the day view
+// default, "copy yesterday") must always mean the browser's own local calendar day.
+export function localDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function formatShortDate(iso: string): string {
   // Accepts a bare "YYYY-MM-DD" (most callers, e.g. trend/sparkline points) or a full ISO
   // datetime (workout.start) — only append a time-of-day when one isn't already there, or

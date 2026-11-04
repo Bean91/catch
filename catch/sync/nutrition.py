@@ -158,6 +158,36 @@ def create_manual_food(session: Session, **fields) -> Food:
     return food
 
 
+def save_photo_estimate(session: Session, *, items: list[dict], meal: str, ts: datetime) -> list[FoodLog]:
+    """Task Part B.4: saves an (athlete-edited) photo estimate as real logs. Each item already
+    carries its own absolute kcal/protein/carbs/fat for the quantity the model (or the
+    athlete's edit) described — not a per-100g figure — so each becomes its own `Food` with
+    `serving_size=100`/`serving_unit="serving"` and `kcal_100g` etc. set to that absolute
+    value: logging `quantity=1, unit="serving"` through the normal grams_for_quantity ->
+    scale_macros_per_100g path then reproduces the item's macros exactly (100g / 100 == 1x),
+    without a separate "already-absolute" branch through create_food_log. `source="estimate",
+    verified=False` keeps these out of the verified local-cache food list; the resulting log
+    is `estimated=True` so the UI can always label it as such."""
+    rows = []
+    for item in items:
+        food = Food(
+            source="estimate",
+            verified=False,
+            name=item["name"],
+            serving_size=100,
+            serving_unit=item.get("quantity_description") or "serving",
+            kcal_100g=item.get("kcal"),
+            protein_100g=item.get("protein_g"),
+            carbs_100g=item.get("carbs_g"),
+            fat_100g=item.get("fat_g"),
+        )
+        session.add(food)
+        session.commit()
+        session.refresh(food)
+        rows.append(create_food_log(session, ts=ts, meal=meal, food_id=food.id, quantity=1, unit="serving", estimated=True))
+    return rows
+
+
 def star_food(session: Session, food_id: int, label: str | None = None) -> MyFood:
     existing = session.exec(select(MyFood).where(MyFood.food_id == food_id)).first()
     if existing:
@@ -242,13 +272,17 @@ def log_saved_meal(session: Session, saved_meal_id: int, ts: datetime, meal: str
     ]
 
 
-def copy_day_logs(session: Session, from_day: date_, to_day: date_) -> list[FoodLog]:
+def copy_day_logs(session: Session, from_day: date_, to_day: date_, meal: str | None = None) -> list[FoodLog]:
     """Task Part B.7's "copy yesterday's meal" — copies every log from `from_day` to the same
     time-of-day on `to_day`, recomputing macros fresh against each food's *current* per-100g
     data (not a byte-copy of the old row) so a since-corrected food doesn't carry a stale
-    number forward."""
+    number forward. `meal` narrows this to one meal section (e.g. "copy yesterday's
+    breakfast") — omit it to copy the whole day, as before."""
     start, end = _local_day_utc_range(from_day)
-    rows = session.exec(select(FoodLog).where(FoodLog.ts >= start, FoodLog.ts < end).order_by(FoodLog.ts)).all()
+    stmt = select(FoodLog).where(FoodLog.ts >= start, FoodLog.ts < end)
+    if meal is not None:
+        stmt = stmt.where(FoodLog.meal == meal)
+    rows = session.exec(stmt.order_by(FoodLog.ts)).all()
     day_delta = to_day - from_day
     out = []
     for row in rows:
@@ -294,6 +328,24 @@ def list_food_logs(session: Session, from_: date_ | None = None, to: date_ | Non
     if to:
         stmt = stmt.where(FoodLog.ts < _local_day_utc_range(to)[1])
     return session.exec(stmt).all()
+
+
+def food_log_dict(session: Session, row: FoodLog) -> dict:
+    """Joins in the food's name/brand — a bare `food_id` on its own can't render a day
+    view's "Oats · 40g" rows."""
+    food = session.get(Food, row.food_id)
+    return {
+        "id": row.id,
+        "ts": row.ts,
+        "meal": row.meal,
+        "food_id": row.food_id,
+        "food_name": food.name if food else None,
+        "food_brand": food.brand if food else None,
+        "quantity": row.quantity,
+        "unit": row.unit,
+        "estimated": row.estimated,
+        **{k: getattr(row, k) for k in _MACRO_FIELDS},
+    }
 
 
 # --- Targets and summaries (task Part B.5/B.6/B.7) --------------------------------------
@@ -395,19 +447,7 @@ def daily_summary(session: Session, day: date_) -> dict:
         "intake": {k: totals[k] for k in _MACRO_FIELDS},
         "targets": targets,
         "expenditure_kcal": expenditure,
-        "logs": [
-            {
-                "id": r.id,
-                "ts": r.ts,
-                "meal": r.meal,
-                "food_id": r.food_id,
-                "quantity": r.quantity,
-                "unit": r.unit,
-                "estimated": r.estimated,
-                **{k: getattr(r, k) for k in _MACRO_FIELDS},
-            }
-            for r in totals["logs"]
-        ],
+        "logs": [food_log_dict(session, r) for r in totals["logs"]],
     }
 
 

@@ -122,6 +122,9 @@ export interface Today {
   predicted_2k: Predicted2k;
   recommendation: string;
   next_a_race: NextARace | null;
+  /** Session 13: calm, non-judgemental under-fuelling note (never a streak/warning) — same
+   * shape as nutrition.week_summary's `under_fuelling`, over the trailing 7 days. */
+  under_fuelling: UnderFuelling;
 }
 
 export interface SyncSourceStatus {
