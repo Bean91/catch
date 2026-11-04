@@ -43,6 +43,7 @@ class Settings:
     sync_interval_hours: float
     backfill_days: int
     mcp_http_enabled: bool
+    usda_fdc_api_key: str
 
     @property
     def db_file(self) -> Path:
@@ -72,6 +73,7 @@ def load_settings() -> Settings:
         # Off by default: the `mcp` package is only imported when this is set, so a Pi
         # deployment that never uses Claude Desktop over Tailscale doesn't pay for it.
         mcp_http_enabled=_get("CATCH_MCP_HTTP_ENABLED", "0") == "1",
+        usda_fdc_api_key=_get("USDA_FDC_API_KEY"),
     )
 
 

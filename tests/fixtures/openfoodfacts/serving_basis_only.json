@@ -1,0 +1,20 @@
+{
+  "code": "5449000000996",
+  "status": 1,
+  "status_verbose": "product found",
+  "product": {
+    "product_name": "Coca-Cola Original",
+    "brands": "Coca-Cola",
+    "serving_size": "1 portion (330 ml)",
+    "serving_quantity": 330,
+    "nutrition_data_per": "serving",
+    "nutriments": {
+      "energy-kcal_serving": 140,
+      "fat_serving": 0,
+      "carbohydrates_serving": 35,
+      "sugars_serving": 35,
+      "proteins_serving": 0,
+      "sodium_serving": 0
+    }
+  }
+}

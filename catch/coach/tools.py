@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from catch.analytics.predict import predict_2k as predict_2k_fn
 from catch.analytics.zones import training_zones
 from catch.api import routes_activities, routes_analytics, routes_body, routes_wellness
-from catch.core.models import Activity, DailyScore
+from catch.core.models import Activity, DailyScore, Food
 from catch.core.settings_store import get_settings
 from catch.coach import memory
 from catch.sync.upsert import upsert_note
@@ -116,6 +116,18 @@ def _get_zones(session: Session, args: dict, ctx: dict) -> dict:
     return {**zones, "zone_mode": settings.get("zone_mode")}
 
 
+def _get_nutrition(session: Session, args: dict, ctx: dict) -> dict:
+    """Task Part B.8. Defaults to the trailing week so "how's my fuelling been" needs no
+    arguments — the same week_summary the Nutrition page's week view reads, including the
+    under-fuelling flag (relatable to recovery/strain without medical claims, per the system
+    prompt)."""
+    from catch.sync import nutrition as nutrition_module
+
+    to = _parse_date(args.get("to")) or date.today()
+    from_ = _parse_date(args.get("from")) or (to - timedelta(days=6))
+    return nutrition_module.week_summary(session, from_, to)
+
+
 # --- Write tools --------------------------------------------------------------
 
 
@@ -157,6 +169,60 @@ def _merge_activities(session: Session, args: dict, ctx: dict) -> dict:
 
     recompute_scores(session)
     return routes_activities.get_activity(canonical.id, db=session)
+
+
+def _log_food(session: Session, args: dict, ctx: dict) -> dict:
+    """Task Part B.8. Resolves a food three ways, in order: an explicit `food_id` (the
+    athlete/model picked one from a previous ambiguous response, or already knows it);
+    `barcode` (same lookup_or_fetch_barcode the scanner uses); `description` (a free-text
+    search). A description match that isn't a single confident hit returns `candidates`
+    instead of guessing which one the athlete meant — call again with the right `food_id`."""
+    from catch.sync import nutrition as nutrition_module
+
+    food_id = args.get("food_id")
+    if food_id is None:
+        barcode = args.get("barcode")
+        description = args.get("description")
+        if barcode:
+            food = nutrition_module.lookup_or_fetch_barcode(session, barcode)
+            if food is None:
+                return {"logged": False, "message": f"No food found for barcode {barcode}. It can be added manually in the app."}
+            food_id = food.id
+        elif description:
+            matches = nutrition_module.search_foods(session, description, limit=5)
+            if not matches:
+                return {"logged": False, "message": f"No food found matching '{description}'. Try a more specific description."}
+            if len(matches) > 1:
+                return {
+                    "logged": False,
+                    "ambiguous": True,
+                    "candidates": [{"food_id": m["id"], "name": m["name"], "brand": m["brand"]} for m in matches],
+                    "message": "More than one match — call log_food again with the right food_id from candidates.",
+                }
+            food_id = matches[0]["id"]
+        else:
+            raise ValueError("Provide a description, a barcode, or a food_id.")
+
+    row = nutrition_module.create_food_log(
+        session,
+        ts=datetime.now(timezone.utc),
+        meal=args["meal"],
+        food_id=food_id,
+        quantity=float(args["quantity"]),
+        unit=args.get("unit", "g"),
+        estimated=True,
+    )
+    food = session.get(Food, food_id)
+    return {
+        "logged": True,
+        "food": food.name,
+        "quantity": row.quantity,
+        "unit": row.unit,
+        "kcal": row.kcal,
+        "protein": row.protein,
+        "carbs": row.carbs,
+        "fat": row.fat,
+    }
 
 
 def _add_note(session: Session, args: dict, ctx: dict) -> dict:
@@ -318,6 +384,16 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Current HR and power training-zone boundaries (UT2/UT1/AT/TR/AN), plus which mode (hr/power) is the default view.",
         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
+    "get_nutrition": {
+        "fn": _get_nutrition,
+        "write": False,
+        "description": (
+            "Daily intake (kcal/protein) vs. Garmin expenditure over a date range (default: trailing 7 days), plus a "
+            "calm under-fuelling flag when several recent logged days ran well below expenditure. Unlogged days are "
+            "never treated as zero intake."
+        ),
+        "input_schema": {"type": "object", "properties": dict(_DATE_RANGE_PROPS), "additionalProperties": False},
+    },
     "add_note": {
         "fn": _add_note,
         "write": True,
@@ -330,6 +406,29 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "rpe": {"type": "integer", "minimum": 0, "maximum": 10},
             },
             "required": ["date", "text"],
+            "additionalProperties": False,
+        },
+    },
+    "log_food": {
+        "fn": _log_food,
+        "write": True,
+        "description": (
+            "Log a food to the nutrition diary. Identify the food by exactly one of description (free text, searched "
+            "against the local cache + USDA), barcode, or food_id (from a prior ambiguous response's candidates). A "
+            "description match that isn't a single confident hit returns candidates instead of guessing — call again "
+            "with the right food_id. Always confirm in chat what was logged (food, quantity, kcal/protein/carbs/fat)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "Free-text food description, e.g. 'grilled chicken breast'."},
+                "barcode": {"type": "string"},
+                "food_id": {"type": "integer", "description": "A specific food id, e.g. from a previous ambiguous candidates list."},
+                "quantity": {"type": "number"},
+                "unit": {"type": "string", "enum": ["g", "serving"], "description": "Defaults to g."},
+                "meal": {"type": "string", "enum": ["breakfast", "lunch", "dinner", "snack", "pre_workout", "post_workout"]},
+            },
+            "required": ["quantity", "meal"],
             "additionalProperties": False,
         },
     },

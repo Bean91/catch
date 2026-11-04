@@ -1,0 +1,27 @@
+{
+  "totalHits": 1,
+  "currentPage": 1,
+  "totalPages": 1,
+  "foods": [
+    {
+      "fdcId": 2156832,
+      "description": "CHEDDAR CHEESE",
+      "dataType": "Branded",
+      "gtinUpc": "828653282457",
+      "brandOwner": "MDS Foods Inc.",
+      "brandName": "AMISH CLASSICS",
+      "servingSize": 28.0,
+      "servingSizeUnit": "g",
+      "householdServingFullText": "1 ONZ",
+      "foodNutrients": [
+        {"nutrientId": 1008, "nutrientName": "Energy", "nutrientNumber": "208", "unitName": "KCAL", "value": 432},
+        {"nutrientId": 1003, "nutrientName": "Protein", "nutrientNumber": "203", "unitName": "G", "value": 25.0},
+        {"nutrientId": 1004, "nutrientName": "Total lipid (fat)", "nutrientNumber": "204", "unitName": "G", "value": 35.71},
+        {"nutrientId": 1005, "nutrientName": "Carbohydrate, by difference", "nutrientNumber": "205", "unitName": "G", "value": 3.57},
+        {"nutrientId": 1079, "nutrientName": "Fiber, total dietary", "nutrientNumber": "291", "unitName": "G", "value": 0},
+        {"nutrientId": 2000, "nutrientName": "Total Sugars", "nutrientNumber": "269", "unitName": "G", "value": 0},
+        {"nutrientId": 1093, "nutrientName": "Sodium, Na", "nutrientNumber": "307", "unitName": "MG", "value": 643}
+      ]
+    }
+  ]
+}

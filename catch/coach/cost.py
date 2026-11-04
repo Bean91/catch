@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from catch.core.models import CoachMessage
+from catch.core.models import AiUsageEvent, CoachMessage
 
 _RATE_KEYS = ("input", "output", "cache_write", "cache_read")
 _USAGE_TO_RATE = {
@@ -40,11 +40,25 @@ def _local_day_utc_range(day: date) -> tuple[datetime, datetime]:
 
 
 def today_spend_usd(session: Session, today: date | None = None) -> float:
+    """Session 13 (see PLAN.md Part B): also sums `AiUsageEvent` — Anthropic spend outside
+    the coach chat loop (the nutrition photo-estimate call) — so the daily cap covers every
+    Anthropic call this app makes, not just conversation turns."""
     start, end = _local_day_utc_range(today or date.today())
-    rows = session.exec(
+    coach_rows = session.exec(
         select(CoachMessage.cost_usd).where(CoachMessage.created_at >= start, CoachMessage.created_at < end)
     ).all()
-    return sum(c for c in rows if c)
+    other_rows = session.exec(
+        select(AiUsageEvent.cost_usd).where(AiUsageEvent.created_at >= start, AiUsageEvent.created_at < end)
+    ).all()
+    return sum(c for c in (*coach_rows, *other_rows) if c)
+
+
+def record_usage_event(session: Session, kind: str, usage: dict | None, cost_usd: float | None) -> AiUsageEvent:
+    row = AiUsageEvent(kind=kind, usage_json=json.dumps(usage) if usage else None, cost_usd=cost_usd)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
 
 
 def conversation_usage(session: Session, conversation_id: int) -> dict:

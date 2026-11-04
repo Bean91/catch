@@ -1,0 +1,12 @@
+{
+  "code": "1234567891234",
+  "status": 1,
+  "status_verbose": "product found",
+  "product": {
+    "product_name": "Generic Protein Bar",
+    "nutriments": {
+      "energy-kcal_100g": 380,
+      "proteins_100g": 30
+    }
+  }
+}

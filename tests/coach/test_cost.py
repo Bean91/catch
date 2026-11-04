@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from catch.coach import cost
-from catch.core.models import CoachConversation, CoachMessage
+from catch.core.models import AiUsageEvent, CoachConversation, CoachMessage
 
 
 def test_estimate_cost_usd_includes_all_four_rates():
@@ -35,6 +35,22 @@ def test_today_spend_sums_only_todays_messages(session):
     session.commit()
 
     assert cost.today_spend_usd(session) == 2.0
+
+
+def test_today_spend_includes_ai_usage_events_outside_the_coach_chat_loop(session):
+    """Session 13 (see PLAN.md Part B): the nutrition photo-estimate call isn't a coach chat
+    turn, but it must still count against the daily cap, or that cap stops meaning what the
+    Settings UI says it means."""
+    cost.record_usage_event(session, "nutrition_photo_estimate", {"input_tokens": 1000}, 0.75)
+    assert cost.today_spend_usd(session) == 0.75
+
+
+def test_record_usage_event_persists_usage_json(session):
+    event = cost.record_usage_event(session, "nutrition_photo_estimate", {"input_tokens": 500, "output_tokens": 100}, 0.3)
+    fetched = session.get(AiUsageEvent, event.id)
+    assert fetched.kind == "nutrition_photo_estimate"
+    assert fetched.cost_usd == 0.3
+    assert "500" in fetched.usage_json
 
 
 def test_conversation_usage_sums_tokens_and_cost(session):

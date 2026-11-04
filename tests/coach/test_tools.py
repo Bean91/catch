@@ -4,7 +4,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 
 from catch.coach import tools
-from catch.core.models import Activity, ApiToken, CoachCredential, DailyWellness, OAuthToken, Stroke
+from catch.core.models import Activity, ApiToken, CoachCredential, DailyWellness, Food, OAuthToken, Stroke
 from catch.sync.matching import run_matching
 
 
@@ -50,6 +50,62 @@ def test_add_note_then_get_load_is_consistent(session):
 def test_add_note_rejects_out_of_range_rpe(session):
     try:
         tools.call_tool(session, "add_note", {"date": date.today().isoformat(), "text": "x", "rpe": 99})
+        assert False, "should have raised"
+    except ValueError:
+        pass
+
+
+def _seed_oats(session) -> Food:
+    food = Food(
+        source="manual", name="Oats", serving_size=40, serving_unit="g",
+        kcal_100g=375, protein_100g=13, carbs_100g=61, fat_100g=7, verified=True,
+    )
+    session.add(food)
+    session.commit()
+    session.refresh(food)
+    return food
+
+
+def test_get_nutrition_defaults_to_trailing_week(session):
+    out = tools.call_tool(session, "get_nutrition", {})
+    assert len(out["days"]) == 7
+    assert "under_fuelling" in out
+
+
+def test_log_food_by_explicit_food_id(session):
+    food = _seed_oats(session)
+    out = tools.call_tool(session, "log_food", {"food_id": food.id, "quantity": 1, "unit": "serving", "meal": "breakfast"})
+    assert out["logged"] is True
+    assert out["food"] == "Oats"
+    assert out["kcal"] == 150.0  # 40g serving * 375 kcal/100g
+
+
+def test_log_food_by_description_single_match_logs_directly(session):
+    _seed_oats(session)
+    out = tools.call_tool(session, "log_food", {"description": "Oats", "quantity": 50, "unit": "g", "meal": "breakfast"})
+    assert out["logged"] is True
+    assert out["food"] == "Oats"
+
+
+def test_log_food_by_description_ambiguous_returns_candidates_not_a_guess(session):
+    session.add(Food(source="manual", name="Chicken Breast", kcal_100g=165, verified=True))
+    session.add(Food(source="manual", name="Chicken Thigh", kcal_100g=209, verified=True))
+    session.commit()
+    out = tools.call_tool(session, "log_food", {"description": "chicken", "quantity": 100, "unit": "g", "meal": "lunch"})
+    assert out["logged"] is False
+    assert out["ambiguous"] is True
+    assert len(out["candidates"]) == 2
+
+
+def test_log_food_no_match_reports_clearly(session):
+    out = tools.call_tool(session, "log_food", {"description": "nonexistent xyz food", "quantity": 100, "unit": "g", "meal": "lunch"})
+    assert out["logged"] is False
+    assert "No food found" in out["message"]
+
+
+def test_log_food_requires_an_identifier(session):
+    try:
+        tools.call_tool(session, "log_food", {"quantity": 100, "unit": "g", "meal": "lunch"})
         assert False, "should have raised"
     except ValueError:
         pass
@@ -235,6 +291,7 @@ def test_tool_outputs_never_leak_secrets(session):
         ("predict_2k", {}),
         ("get_zones", {}),
         ("recall", {}),
+        ("get_nutrition", {}),
     ]
     for name, args in read_only_calls:
         dumped = json.dumps(tools.call_tool(session, name, args))

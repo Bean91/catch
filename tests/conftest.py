@@ -30,6 +30,20 @@ def session(engine):
         yield s
 
 
+@pytest.fixture(autouse=True)
+def _no_live_usda_calls(monkeypatch):
+    """The real `.env` this suite runs against may have a real `USDA_FDC_API_KEY` set —
+    without this, any test that reaches `catch.sync.nutrition.search_foods`/
+    `lookup_or_fetch_barcode` without its own explicit monkeypatch would make live network
+    calls to the USDA API, violating "no live network calls in the suite" (CLAUDE.md) and
+    making those tests non-deterministic. Tests that specifically want to exercise the USDA
+    fallback path override `catch.sync.nutrition.app_settings` themselves (see
+    tests/test_api_nutrition.py)."""
+    import catch.sync.nutrition as nutrition_module
+
+    monkeypatch.setattr(nutrition_module, "app_settings", dataclasses.replace(nutrition_module.app_settings, usda_fdc_api_key=""))
+
+
 def load_fixture(*parts: str) -> dict | list:
     return json.loads((FIXTURE_DIR.joinpath(*parts)).read_text())
 

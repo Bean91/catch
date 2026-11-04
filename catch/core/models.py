@@ -415,3 +415,125 @@ class AthleteFact(SQLModel, table=True):
     valid_until: Optional[date_] = None
     created_at: datetime = Field(default_factory=_utcnow)
     source_conversation: Optional[int] = None
+
+
+# --- Session 13 (see PLAN.md Part B): nutrition ------------------------------------------
+
+
+class Food(SQLModel, table=True):
+    """Every macro field is per 100g, regardless of `source` — the single canonical basis a
+    `FoodLog` scales from, so quantity math never has to branch on where a food came from.
+    `source="off"`/`"usda"` rows are a local cache of an external lookup (re-fetched only
+    when stale is acceptable to the task's "cache every hit" ask — never re-fetched at all
+    here, since branded-food nutrition data essentially never changes); `source="manual"` is
+    a user-entered food, which also becomes the first local-cache hit for that barcode on a
+    future scan."""
+
+    __tablename__ = "foods"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source: str  # "off" | "usda" | "manual"
+    barcode: Optional[str] = Field(default=None, index=True)
+    name: str
+    brand: Optional[str] = None
+    serving_size: Optional[float] = None
+    serving_unit: Optional[str] = None
+    kcal_100g: Optional[float] = None
+    protein_100g: Optional[float] = None
+    carbs_100g: Optional[float] = None
+    fat_100g: Optional[float] = None
+    fiber_100g: Optional[float] = None
+    sugar_100g: Optional[float] = None
+    sodium_100g: Optional[float] = None
+    verified: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class FoodLog(SQLModel, table=True):
+    """Macros are computed and stored at log time (`quantity`/`unit` against the food's
+    per-100g basis at that moment), not re-derived from the live `Food` row on every read —
+    a later correction to a food's data (or a re-verified OFF value) must never silently
+    change the athlete's past daily totals."""
+
+    __tablename__ = "food_logs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime
+    meal: str  # breakfast | lunch | dinner | snack | pre_workout | post_workout
+    food_id: int = Field(foreign_key="foods.id")
+    quantity: float
+    unit: str  # "g" | "serving"
+    kcal: Optional[float] = None
+    protein: Optional[float] = None
+    carbs: Optional[float] = None
+    fat: Optional[float] = None
+    fiber: Optional[float] = None
+    sugar: Optional[float] = None
+    sodium: Optional[float] = None
+    # Set only on a coach/MCP `log_food` write or a saved photo-estimate item — distinguishes
+    # an AI-assisted log from a manually-entered one without a separate table.
+    estimated: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class MyFood(SQLModel, table=True):
+    """A starred quick-access shortcut to a `Food` row — distinct from the `foods` cache
+    itself, which holds every food ever looked up/logged, most of which the athlete will
+    never want to see again in a "my foods" quick-add list."""
+
+    __tablename__ = "my_foods"
+    __table_args__ = (UniqueConstraint("food_id", name="uq_my_foods_food_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    food_id: int = Field(foreign_key="foods.id")
+    label: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class SavedMeal(SQLModel, table=True):
+    __tablename__ = "saved_meals"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    # [{"food_id", "quantity", "unit"}, ...] — same shape as a FoodLog's own quantity/unit,
+    # kept as JSON rather than a join table since a saved meal is small and always read/
+    # written whole (never queried per-item).
+    items_json: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class NutritionTarget(SQLModel, table=True):
+    """Singleton (id=1), same pattern as `AppSettings`/`CoachSettings` — kept out of the
+    shared `settings` JSON blob deliberately: every `PUT /api/settings` triggers a full
+    `recompute_scores`, which has nothing to do with nutrition targets (session 5's
+    precedent for `coach_settings`). Every number here is a "starting point, adjust with a
+    coach or dietitian" default — task Part B.5 — never a validated prescription."""
+
+    __tablename__ = "nutrition_targets"
+
+    id: int = Field(default=1, primary_key=True)
+    protein_g_per_kg: float = 1.6
+    carb_g_per_kg_rest: float = 3.0
+    carb_g_per_kg_moderate: float = 5.0
+    carb_g_per_kg_double_day: float = 7.0
+    carb_g_per_kg_pre_race: float = 8.0
+    kcal_target_source: str = "garmin_total"  # "garmin_total" | "manual"
+    manual_kcal_target: Optional[int] = None
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class AiUsageEvent(SQLModel, table=True):
+    """Anthropic spend that isn't a coach chat turn (so far: the nutrition photo-estimate
+    vision call) — `CoachMessage.cost_usd` only covers conversation turns, but the daily
+    spend cap (`coach_settings.daily_cap_usd`) must cover *every* Anthropic call this app
+    makes, or a feature outside the chat loop could silently blow straight through it.
+    `catch.coach.cost.today_spend_usd` sums both tables."""
+
+    __tablename__ = "ai_usage_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    kind: str  # "nutrition_photo_estimate"
+    usage_json: Optional[str] = None
+    cost_usd: Optional[float] = None
+    created_at: datetime = Field(default_factory=_utcnow)
