@@ -1132,6 +1132,17 @@ const MOCK_FOODS: Food[] = [
   },
 ];
 
+// Only returned when a search opts into OFF (`includeOff`) — lets the mock UI actually
+// demonstrate the "Also search Open Food Facts" flow finding something the local cache/USDA
+// mocks above don't have, the same way the real OFF fallthrough surfaces results local/USDA
+// didn't.
+const MOCK_OFF_ONLY_FOODS: Food[] = [
+  {
+    id: 7, source: "off", barcode: "7622210449283", name: "Oreo Cookies", brand: "Nabisco", serving_size: 29, serving_unit: "g",
+    kcal_100g: 480, protein_100g: 5, carbs_100g: 68, fat_100g: 20, fiber_100g: 3, sugar_100g: 38, sodium_100g: 420, verified: false,
+  },
+];
+
 function findMockFood(id: number): Food | undefined {
   return MOCK_FOODS.find((f) => f.id === id);
 }
@@ -1200,10 +1211,13 @@ export function mockBarcodeLookup(barcode: string): BarcodeLookupResult {
   return { found: true, ...food };
 }
 
-export function mockFoodSearch(query: string): Food[] {
+export function mockFoodSearch(query: string, includeOff = false): Food[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  return MOCK_FOODS.filter((f) => f.name.toLowerCase().includes(q) || f.brand?.toLowerCase().includes(q)).slice(0, 20);
+  const matches = (f: Food) => f.name.toLowerCase().includes(q) || f.brand?.toLowerCase().includes(q);
+  const local = MOCK_FOODS.filter(matches);
+  if (!includeOff) return local.slice(0, 20);
+  return [...local, ...MOCK_OFF_ONLY_FOODS.filter(matches)].slice(0, 20);
 }
 
 export function createMockManualFood(fields: Omit<Food, "id" | "source" | "verified" | "barcode"> & { barcode?: string | null }): Food {

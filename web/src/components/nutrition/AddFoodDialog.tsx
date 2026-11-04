@@ -58,6 +58,11 @@ export function AddFoodDialog({
   useEffect(() => {
     setOffIncluded(false);
     setError(null);
+    // A query change also invalidates any in-flight searchOff() call — its own `finally`
+    // guards on queryRef so it won't clear this for the *new* query, but nothing else would
+    // ever clear it for the old one, leaving the button stuck disabled after the query moves
+    // on from under it.
+    setSearchingOff(false);
     if (step !== "search" || !query.trim()) {
       setResults([]);
       setSearching(false);

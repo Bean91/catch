@@ -45,9 +45,12 @@ catch/
                 power-zone threshold); session 13: nutrition.py (the DB-facing nutrition
                 layer — food search/barcode-lookup-or-fetch/logging/my-foods/saved-meals/
                 targets/week-summary, shared by routes_nutrition.py and the coach tools),
-                openfoodfacts_client.py (barcode-only OFF v2 lookup, rate-limited + negative-
-                cached), usda_client.py (USDA FDC branded-food search/barcode/detail, used
-                for free-text search since OFF has none)
+                openfoodfacts_client.py (barcode lookup via OFF v2, rate-limited + negative-
+                cached, plus opt-in free-text search via OFF's legacy `/cgi/search.pl` — see
+                `include_off` in nutrition.py and docs/nutrition-endpoints.md for why it's
+                opt-in rather than part of the debounced search box), usda_client.py (USDA
+                FDC branded-food search/barcode/detail, the free-text search source that's
+                always in-budget since it has no as-you-type restriction)
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
