@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createManualFood, fetchMyFoods, fetchSavedMeals, logFood, logSavedMeal, searchFoods, starFood } from "../../lib/api";
 import type { Food, Meal, MyFoodRow, SavedMealRow } from "../../lib/types";
 
@@ -50,8 +50,14 @@ export function AddFoodDialog({
     fetchSavedMeals().then(setSavedMeals).catch(() => undefined);
   }, [open]);
 
+  const queryRef = useRef(query);
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+
   useEffect(() => {
     setOffIncluded(false);
+    setError(null);
     if (step !== "search" || !query.trim()) {
       setResults([]);
       setSearching(false);
@@ -81,14 +87,21 @@ export function AddFoodDialog({
   }, [query, step]);
 
   const searchOff = async () => {
-    if (!query.trim()) return;
+    const q = query;
+    if (!q.trim()) return;
     setSearchingOff(true);
     try {
-      const r = await searchFoods(query, true);
-      setResults(r);
-      setOffIncluded(true);
+      const r = await searchFoods(q, true);
+      // The query may have changed while this was in flight — an old query's OFF results
+      // must never overwrite whatever the current query is now showing.
+      if (queryRef.current === q) {
+        setResults(r);
+        setOffIncluded(true);
+      }
+    } catch {
+      if (queryRef.current === q) setError("Couldn't reach Open Food Facts — try again.");
     } finally {
-      setSearchingOff(false);
+      if (queryRef.current === q) setSearchingOff(false);
     }
   };
 

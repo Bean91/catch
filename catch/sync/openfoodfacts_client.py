@@ -26,10 +26,12 @@ _miss_cache: dict[str, float] = {}
 # A *separate* budget for search.pl — OFF's docs state "10 req/min/IP for all search queries
 # (GET /api/v*/search or GET /cgi/search.pl)" as its own limit category, distinct from the
 # 15/min product-read limit above, and explicitly warn "don't use it for a search-as-you-type
-# feature, you would be blocked very quickly" (docs/nutrition-endpoints.md). This app's search
-# box is debounced (250ms, frontend) rather than firing per keystroke, and silently skips (not
-# raises) when this budget is spent for the minute — same fail-open shape as the barcode
-# limiter above, so a burst of typing degrades to "no OFF results this call," never an error.
+# feature, you would be blocked very quickly" (docs/nutrition-endpoints.md). This is kept as a
+# backstop even though catch/sync/nutrition.py::search_foods already makes OFF opt-in
+# (`include_off`) rather than part of the debounced as-you-type search box — a debounce alone
+# doesn't satisfy that warning, since the trigger is still every keystroke pause, not an
+# explicit action. Silently skips (not raises) when this budget is spent for the minute — same
+# fail-open shape as the barcode limiter above.
 _SEARCH_MAX_CALLS_PER_MINUTE = 10
 _search_call_times: list[float] = []
 
@@ -84,9 +86,11 @@ class OpenFoodFactsClient:
         ranked results; OFF's own current docs call v2/v3 structured-filter-only and point
         here for full text — docs/nutrition-endpoints.md). Its own documented limit (10/min/
         IP, distinct from product-read's 15/min) and explicit "don't use this for search-as-
-        you-type" warning are why this fails open (empty list, never raises) when the budget
-        is spent for the minute — the caller's debounce already keeps real call volume low,
-        but a burst must degrade silently, not error the search box."""
+        you-type" warning are why `catch/sync/nutrition.py::search_foods` only ever calls this
+        when its caller explicitly opts in (`include_off=True`) — never from a plain debounced
+        search box, which is still search-as-you-type regardless of debounce length. This
+        still fails open (empty list, never raises) rather than erroring when this method's
+        own budget is spent for the minute, as a backstop even for an opted-in call."""
         if not _rate_limit_ok(_search_call_times, _SEARCH_MAX_CALLS_PER_MINUTE):
             logger.warning("Open Food Facts search rate limit reached (10/min); skipping search for %r", query)
             return []

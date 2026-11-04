@@ -86,14 +86,15 @@ def _no_live_usda_calls(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_live_off_search_calls(monkeypatch):
-    """`search_foods` falls through to Open Food Facts' free-text search
-    (`OpenFoodFactsClient.search`) whenever local+USDA haven't filled the page — unlike
-    barcode lookup (which every test exercising it already monkeypatches per-test), nothing
-    guards this path, so a query with few/no local or USDA results (e.g. "nonexistent xyz
-    food") would make a real live call. Patched on the class itself, the same object every
-    `OpenFoodFactsClient()` instance shares — a test that wants to exercise a real OFF search
-    hit monkeypatches `OpenFoodFactsClient.search` again itself, the same override pattern
-    already used for its barcode-lookup sibling."""
+    """`search_foods`'s OFF free-text search is opt-in (`include_off=True`) — the plain
+    debounced search box never reaches it, but the coach's `log_food` tool always passes
+    `include_off=True` (one call per tool use, not as-you-type — see
+    `catch/sync/nutrition.py::search_foods`'s docstring), so any coach-tool test exercising
+    `log_food` by description, or a route test passing `include_off=true` explicitly, would
+    still make a real live call without this. Patched on the class itself, the same object
+    every `OpenFoodFactsClient()` instance shares — a test that wants to exercise a real OFF
+    search hit monkeypatches `OpenFoodFactsClient.search` again itself, the same override
+    pattern already used for its barcode-lookup sibling."""
     from catch.sync.openfoodfacts_client import OpenFoodFactsClient
 
     monkeypatch.setattr(OpenFoodFactsClient, "search", lambda self, query, page_size=10: [])
