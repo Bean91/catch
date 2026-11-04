@@ -2113,3 +2113,169 @@ cleaned up after).
   (like the one this session ran against a scratch DB) runs against the Pi's real database.
   Deploying and running it was intentionally left for the user rather than done automatically
   this session (a real, hard-to-reverse action against the live device).
+
+## Session 13 checklist
+
+The task that opened this session called it "session 9" — PLAN.md's own numbering already
+used that number (the real Pi deployment work, above), so this continues the file's own
+sequence, same resolution session 8/12 used for their own identical collisions.
+
+Two independent parts: daily non-exercise activity as a small, capped strain component
+(Part A), and a full nutrition-logging feature — barcode scan, Open Food Facts/USDA lookup,
+photo-estimate, targets that follow training load, and a calm under-fuelling note (Part B).
+
+### Part A — daily activity in strain
+
+- [x] **New fields from Garmin's `dailysummaries`** (already present in the real recorded
+      fixture, `tests/fixtures/garmin/usersummary_range.json` — checked before writing any
+      code, per CLAUDE.md's "never invent a Garmin field" rule): `DailyWellness` gains
+      `steps`, `active_kcal`, `total_kcal`, `bmr_kcal`, `moderate_intensity_minutes`,
+      `vigorous_intensity_minutes`, `floors_climbed`, `floors_descended`; `Activity` gains
+      `steps`/`bmr_kcal` per workout (from the activity-list response, not the daily
+      summary) so a workout's own contribution can be subtracted out. One-time idempotent
+      migration (`catch/core/db.py::_migrate_garmin_activity_fields`) backfills `steps`/
+      `bmr_kcal` for Garmin activities synced before this session from their already-stored
+      `raw_json`, so a re-sync isn't needed just to populate the two new columns.
+- [x] **Non-exercise load**: `catch/sync/scoring.py::_day_garmin_activity_totals` sums each
+      canonical activity's own steps/active-kcal (its Garmin member's time window) and
+      subtracts from the day's whole-day totals — a workout never counts twice.
+- [x] **Strain component** (`catch/analytics/strain.py::daily_activity_strain`): a log1p
+      curve on non-exercise steps/2000 and active-kcal/150, averaged, then capped (default
+      1.5 of the 0-21 scale) and weighted — both configurable in Settings
+      (`daily_activity_strain_cap`/`_weight`). **Additive on the final 0-21 `value`, never
+      mixed into `trimp_like`** — an explicit advisor call-out: folding it into the load-
+      bearing TRIMP figure would have inflated the acute:chronic ratio every time the athlete
+      went for a long walk, exactly the "25k steps looks like a training session" failure the
+      task asked to avoid.
+- [x] **UI**: StrainGauge rewritten as a tap-to-open dialog (mirrors RecoveryRing's pattern)
+      showing session components plus a "Daily activity" row with its % share of the total;
+      Today gets a small, secondary steps/active-kcal line below strain/recovery.
+- [x] Settings card ("Daily activity in strain") for the cap/weight knobs.
+- [x] Tests: a rest day with 15k steps stays low-strain (the task's explicit check); fixture
+      coverage for the new Garmin fields, the subtraction math, the capped curve, and the
+      migration.
+- Historical recompute needed no separate backfill script — `recompute_scores` already runs
+  on every sync/note/settings change and applies the new formula live.
+
+Commit: `1618418`.
+
+### Part B — nutrition
+
+- [x] **Tables**: `Food` (source/barcode/name/brand/serving/per-100g macros/`verified`),
+      `FoodLog` (ts/meal/food_id/quantity+unit/computed macros/`estimated`), `MyFood`,
+      `SavedMeal` (items as JSON), `NutritionTarget` (one row, id=1 — mirrors the existing
+      `Settings`/`NutritionTarget` singleton-row pattern), `AiUsageEvent` (a second cost
+      ledger alongside `CoachMessage.cost_usd`, specifically so photo-estimate spend counts
+      against the same daily cap as chat — an advisor call-out that this would otherwise
+      silently bypass the cap).
+- [x] **Barcode lookup** (`catch/sync/nutrition.py::lookup_or_fetch_barcode`): local `foods`
+      cache -> Open Food Facts (`docs/nutrition-endpoints.md`: 15 req/min/IP, OFF's own
+      documented limit, enforced in-process since a single uvicorn worker makes module-level
+      state safe; negative-cached misses for 24h) -> USDA FoodData Central by GTIN (only if
+      `USDA_FDC_API_KEY` is set) -> `None` (manual-entry form prefilled with the barcode). A
+      found external hit is cached into `foods` immediately.
+- [x] **Free-text search**: OFF's v2 API has **no free-text search endpoint** (confirmed
+      against OFF's own docs, not assumed — see docs/nutrition-endpoints.md) — a deliberate,
+      documented scope decision, not a missing feature. Search is local cache (ranked by
+      recency/frequency of use in `food_logs`) + USDA free-text, deduplicated by barcode.
+- [x] **Scanner** (`web/src/components/nutrition/BarcodeScanner.tsx`,
+      `web/src/lib/barcodeScan.ts`): native `window.BarcodeDetector` when present, else the
+      `barcode-detector` ponyfill over a **self-hosted** ZXing-wasm binary (Vite's `?url`
+      import serves it from `/assets`, cached by the service worker like any other build
+      asset, instead of the package's default jsDelivr-CDN fetch — this app runs offline-
+      first on a Pi with no reason to depend on an external CDN for a core feature). Rear
+      camera (`facingMode: {ideal: "environment"}`), feature-detected torch toggle (iOS
+      Safari doesn't expose `torch` in `getCapabilities()` at all — never assumed present),
+      every camera track stopped on close/unmount. Lazy-loaded (`React.lazy`) — the wasm
+      binary (~950KB) and its JS glue only ever load if the scan button is tapped, confirmed
+      by inspecting the production build's chunk list (`BarcodeScanner-*.js` is its own chunk,
+      separate from `Nutrition-*.js`).
+- [x] **Photo estimate** (`catch/coach/nutrition_vision.py`): one-shot Anthropic vision call
+      against the athlete's own configured model (never hardcoded — this is bring-your-own-
+      key), structured output via an auto-chosen strict tool rather than forced `tool_choice`
+      (newer models 400 on forced tool use, per the claude-api skill). Client resizes to
+      ~1500px JPEG before upload. Editable itemized result, labelled "estimate" throughout,
+      hidden when no Anthropic key is configured. The photo is never written to disk or
+      logged — only its bytes pass through the one API call.
+      - A real gap an advisor review caught: the original `/photo-estimate` endpoint only
+        *returned* an estimate with no way to *save* an edited one correctly (`create_manual_
+        food` hard-codes `source="manual", verified=True`, and each item's macros are
+        already absolute for its described quantity, not per-100g). Added
+        `POST /api/nutrition/photo-estimate/save` + `nutrition.save_photo_estimate`, which
+        gives each item a `serving_size=100`/`serving_unit=<quantity description>` `Food` row
+        so logging "1 serving" reproduces the item's exact estimated macros, tagged
+        `source="estimate", verified=False`, `FoodLog.estimated=True`.
+- [x] **Targets** (`catch/analytics/nutrition.py` — pure math; `catch/sync/nutrition.py` — DB
+      gathering): protein g/kg x latest resolved body-comp weight (any source, never
+      Withings-only despite the task's literal phrasing — this account's Withings OAuth may
+      be incomplete); carbs g/kg x weight, tier (`rest`/`moderate`/`double_day`/`pre_race`)
+      from the day's logged canonical-activity count plus A-race taper proximity (no
+      training-plan feature exists to read a *planned* load from instead); kcal from a
+      trailing 7-day Garmin total-burn average (today's own partial total excluded); fat as
+      the kcal remainder after protein/carbs, never its own knob. All defaults configurable
+      in Settings, labelled "starting points, adjust with a coach or dietitian" everywhere
+      they're shown (docs/analytics.md §21 has the full formulas).
+- [x] **Under-fuelling note**: flags only when the last 3 *logged* days each ran >=25% below
+      that day's Garmin expenditure — an unlogged day is never treated as a zero-intake
+      deficit day (the task's explicit "no streaks, no shaming" ask). Calm, factual copy; no
+      red/"over" state anywhere in the nutrition UI. Surfaced on `GET /api/today` (so the
+      coach sees it via `get_today` without a separate call) and the Nutrition week view.
+- [x] **UI** (`web/src/pages/Nutrition.tsx` + `web/src/components/nutrition/`): day view
+      (macro bars vs. targets — neutral fill, no red, capped visually at 100%; six meal
+      sections with quick-add/copy-yesterday's-meal/inline-edit/delete; My Foods and Saved
+      Meals quick-pick chips when the search box is empty); week view (energy-in-vs-out and
+      protein-consistency bar rows, the under-fuelling note). `AddFoodDialog` is one flow for
+      search, scan, My Foods/Saved Meals quick picks, and manual entry — picking anything
+      feeds into one quantity-confirmation step before logging.
+- [x] **Coach + MCP**: `get_nutrition`/`log_food` added to the shared tool registry
+      (`catch/coach/tools.py`), the MCP server (19 -> 21 tools,
+      `catch/mcp_server/server.py`), and both chip-label mirrors (`catch/coach/chat.py`,
+      `web/src/lib/toolLabels.ts`). `system_prompt.md` documents the nutrition tools and an
+      explicit no-medical-claims guardrail (no eating-disorder-adjacent guidance, no calorie
+      prescriptions, no supplement dosing).
+- [x] **Nav**: added to both `Sidebar.tsx` ("Nutrition") and `BottomNav.tsx` — labelled
+      "Fuel" there instead, since 390px/7 items leaves too little width for "Nutrition" at
+      the bottom nav's 12px label size (screenshotted at 390px to confirm "Fuel" fits
+      cleanly; this was a design risk flagged in review before any code was written).
+- [x] **Tests**: fixture-based parsing tests for OFF (missing fields, kJ-vs-kcal, per-
+      serving-vs-per-100g, the gram/milligram sodium-unit mismatch) and USDA (search vs.
+      detail shape, GTIN matching, SHOUTY-case titles); steps-in-strain math (Part A); target/
+      under-fuelling math; the full nutrition REST API (barcode fallthrough and caching,
+      manual food creation, logging by grams/serving, the serving-size-unknown rejection,
+      day/week summaries, copy-day with and without a meal filter, my-foods/saved-meals
+      CRUD, targets round-trip, photo-estimate's 422s and its save path); the two coach
+      tools. 382 backend tests total, 20 frontend (Vitest) unit tests, clean `tsc -b`/`oxlint`/
+      production build.
+- A real bug found and fixed mid-session: the test suite was making **live calls to the USDA
+  API** whenever a test exercised `search_foods`/`lookup_or_fetch_barcode` without its own
+  explicit monkeypatch, because the real dev `.env` has a genuine `USDA_FDC_API_KEY`
+  configured and nothing stopped it from being used — a direct violation of CLAUDE.md's "no
+  live network calls in the suite" rule, caught because three new tests returned real-looking-
+  but-wrong results (5 search candidates instead of the fixture's 2, etc.) rather than
+  failing outright. Fixed with an autouse `tests/conftest.py` fixture
+  (`_no_live_usda_calls`) that zeroes the key by default; the handful of tests that
+  specifically want to exercise the USDA fallback override it back themselves.
+
+**Findings / follow-ups for next time**
+
+- **Real-phone barcode scanning was not verified this session** — same limitation session
+  9/10 already noted for other camera/PWA-dependent features: this environment can't drive a
+  real device's camera. The scanner's chrome (viewfinder, torch toggle, native-vs-ZXing-
+  fallback branching, track cleanup) was checked in a desktop browser via Playwright; actual
+  decode accuracy against a real barcode, on a real rear camera, in the installed PWA, is
+  unverified. `web/tests/touch/`-style Playwright coverage with `--use-fake-device-for-
+  media-stream`/`--use-file-for-fake-video-capture` would close this gap properly — not
+  attempted this session given the time budget, same tradeoff session 8/12 made for the
+  equivalent touch-gesture suite.
+- **`USDA_FDC_API_KEY` must be added to the Pi's own `.env` before this ships for real** — the
+  dev `.env` here has one, but nothing deploys secrets; `.env.example` documents the key, the
+  Pi's copy needs it added by hand (same as every other credential in this app).
+- **The photo estimate's `kcal`/`protein_g`/etc. fields on `Food` are a modeling shortcut**,
+  not a real per-100g nutrition fact — `serving_size=100`/`serving_unit=<description>` exists
+  so "1 serving" reproduces the estimate exactly, but if this `Food` row were ever logged
+  again at a *different* quantity (it currently never is — `savePhotoEstimate` always logs
+  exactly 1 serving), the math would silently assume the original estimated amount scales
+  linearly with grams, which it was never designed to represent. Revisit if photo-estimate
+  foods ever need to be reused rather than treated as one-shot.
+- **No deploy this session** — unlike sessions 9/10, nothing in the task text asked for
+  `./deploy.sh`; both parts are commit-only, ready to deploy whenever the user asks.

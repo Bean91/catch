@@ -646,14 +646,7 @@ export interface Food {
   verified: boolean;
 }
 
-export interface BarcodeLookupResult {
-  found: boolean;
-  barcode: string;
-  id?: number;
-  name?: string;
-  brand?: string | null;
-  [key: string]: unknown;
-}
+export type BarcodeLookupResult = ({ found: true } & Food) | { found: false; barcode: string };
 
 export interface FoodLogRow {
   id: number;

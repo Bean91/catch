@@ -1,13 +1,14 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CoachIcon, LogoutIcon, MoonIcon, SettingsIcon, SunIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, LogoutIcon, MoonIcon, NutritionIcon, SettingsIcon, SunIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
   { to: "/body", label: "Body", Icon: BodyIcon },
+  { to: "/nutrition", label: "Nutrition", Icon: NutritionIcon },
   { to: "/coach", label: "Coach", Icon: CoachIcon },
   { to: "/settings", label: "Settings", Icon: SettingsIcon },
 ];

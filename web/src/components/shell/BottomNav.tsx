@@ -1,11 +1,15 @@
 import { NavLink } from "react-router-dom";
-import { BodyIcon, CoachIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, NutritionIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
+// "Fuel" rather than "Nutrition" — at 390px/7 items there's ~40px of text width per item
+// after padding, and "Nutrition" at the bottom nav's 12px label size doesn't comfortably fit
+// (see PLAN.md's session 13 notes); screenshot this at 390px before changing it back.
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
   { to: "/body", label: "Body", Icon: BodyIcon },
+  { to: "/nutrition", label: "Fuel", Icon: NutritionIcon },
   { to: "/coach", label: "Coach", Icon: CoachIcon },
   { to: "/settings", label: "Settings", Icon: SettingsIcon },
 ];

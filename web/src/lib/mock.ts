@@ -1197,7 +1197,7 @@ function mockExpenditureKcal(dateStr: string): number | null {
 export function mockBarcodeLookup(barcode: string): BarcodeLookupResult {
   const food = MOCK_FOODS.find((f) => f.barcode === barcode);
   if (!food) return { found: false, barcode };
-  return { found: true, barcode, ...food };
+  return { found: true, ...food };
 }
 
 export function mockFoodSearch(query: string): Food[] {
@@ -1340,8 +1340,9 @@ const MOCK_WEIGHT_KG = 79;
 
 function computeMockTargets(dateStr: string): NutritionTargetsResponse["today"] {
   const s = MOCK_NUTRITION_TARGET_SETTINGS;
-  const logsToday = listMockFoodLogs(dateStr, dateStr);
-  const tier: NutritionTargetsResponse["today"]["tier"] = logsToday.length >= 2 ? "double_day" : logsToday.length === 1 ? "moderate" : "rest";
+  // The real backend's tier comes from the day's *workouts* (today_training_tier), never food
+  // logs — one erg session in FULL's mock Today fixture is a plausible single-session day.
+  const tier: NutritionTargetsResponse["today"]["tier"] = "moderate";
   const carbPerKg = { rest: s.carb_g_per_kg_rest, moderate: s.carb_g_per_kg_moderate, double_day: s.carb_g_per_kg_double_day, pre_race: s.carb_g_per_kg_pre_race }[tier];
   const proteinG = s.protein_g_per_kg * MOCK_WEIGHT_KG;
   const carbG = carbPerKg * MOCK_WEIGHT_KG;
@@ -1434,6 +1435,7 @@ export function savePhotoEstimateMock(items: PhotoEstimateResult["items"], meal:
   return items.map((item) => {
     const food = createMockManualFood({
       name: item.name,
+      brand: null,
       serving_size: 100,
       serving_unit: item.quantity_description || "serving",
       kcal_100g: item.kcal,

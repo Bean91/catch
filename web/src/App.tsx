@@ -15,6 +15,7 @@ const DuplicatesPage = lazy(() => import("./pages/Duplicates").then((m) => ({ de
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
+const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
 
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/body" element={<BodyPage />} />
+          <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/coach" element={<CoachPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />

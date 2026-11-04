@@ -11,7 +11,10 @@ Python 3.12 via `uv`, FastAPI + uvicorn, SQLModel on SQLite (WAL mode), httpx, A
 3.x, pytest, `cryptography` (Fernet), `argon2-cffi` (verify the password hash already in
 `.env`), `anthropic` (official SDK, lazy-imported), `mcp` (official Python SDK, lazy-imported
 for the optional HTTP transport). Frontend: React + Vite + TS, Tailwind v4 (CSS-first config,
-tokens as CSS vars), Radix primitives, Framer Motion, TanStack Query, React Router — built to
+tokens as CSS vars), Radix primitives, Framer Motion, TanStack Query, React Router,
+`barcode-detector` (session 13: a ponyfill over a self-hosted ZXing-wasm binary — Vite's
+`?url` import serves it from `/assets` rather than the package's default jsDelivr-CDN fetch —
+used only as a fallback when `window.BarcodeDetector` is absent, e.g. iOS Safari) — built to
 `catch/api/static` (gitignored), served by FastAPI. No Docker, no Postgres, no Redis, no Node
 at runtime (Node is a build-time-only dependency; the Pi never runs `npm`).
 
@@ -90,7 +93,13 @@ web/
                 never the `<svg>` itself — WebKit's touch-action support on SVG root elements
                 has real gaps, see DESIGN.md's "Chart touch-action" note), shell/ (AppShell,
                 Sidebar, BottomNav, UpdateToast — the "New version — tap to reload" banner),
-                coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard)
+                coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard),
+                nutrition/ (session 13: AddFoodDialog — search/My-Foods/saved-meals quick
+                picks/barcode-scan/manual-entry, one flow; BarcodeScanner — lazy-loaded,
+                native BarcodeDetector or the self-hosted ZXing-wasm fallback via
+                lib/barcodeScan.ts, stops every camera track on close; PhotoEstimateDialog —
+                lazy-loaded, client-side ~1500px JPEG resize before upload, editable itemised
+                estimate; MealSection, MacroBar, WeekView, NutritionTargetsCard)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -108,15 +117,20 @@ web/
                 isn't reliable enough on a real iOS PWA to be the only signal), timeline.ts
                 (merges a conversation's tool_call/tool_result block pairs — stored on two
                 separate message rows — into one display entry), toolLabels.ts (mirrors
-                catch/coach/chat.py's chip-label templates for persisted history)
+                catch/coach/chat.py's chip-label templates for persisted history),
+                barcodeScan.ts (session 13: createBarcodeDetector() — native
+                window.BarcodeDetector when present, else the self-hosted ZXing-wasm ponyfill;
+                one detect() shape either way)
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
                 WorkoutDetail (inline title/sport/tags/RPE/exclude editing with
                 revert-to-source, a per-metric field-source panel, the HrChart), Trends,
                 Body (session 8/12: per-day resolved weight/fat%/muscle with its source,
-                a manual-weight-entry form), Coach, Settings, Memory (React.lazy, one chunk
-                per route — keeps the initial bundle under budget)
+                a manual-weight-entry form), Nutrition (session 13: day/week toggle, macro
+                bars vs. targets, per-meal quick-add/copy-yesterday/edit/delete, barcode scan
+                and photo-estimate entry points), Coach, Settings, Memory (React.lazy, one
+                chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
                 here — vite.config.ts's serviceWorkerPlugin writes it at build time with
@@ -138,7 +152,9 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector),
                 peloton.md (session 8/12: Peloton-push detection mechanism + live findings —
-                no Peloton-pushed activity exists in this account yet to confirm it against)
+                no Peloton-pushed activity exists in this account yet to confirm it against),
+                nutrition-endpoints.md (session 13: Open Food Facts v2 + USDA FoodData
+                Central API facts — rate limits, field shapes, why OFF is barcode-lookup-only)
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 

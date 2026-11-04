@@ -434,3 +434,48 @@ configured order (a real scale reading should never lose to a manual entry). Gar
 schema claims — confirmed against two real entries (docs/garmin-endpoints.md); `muscleMass`/
 `boneMass`/`bodyWater` are left unmapped since this account's real entries have them all
 `null`, with nothing to confirm their unit against.
+
+## 21. Nutrition targets and under-fuelling (`catch/analytics/nutrition.py`), session 13
+
+**Protein target**: `protein_g_per_kg × latest resolved body-comp weight` (any source —
+Withings, a Garmin scale, or a manual entry; `catch.sync.body_comp.resolve_daily`'s most
+recent non-null weight, never averaged). `None` when no weight is on record yet — the UI
+shows a "log a weight on the Body page" prompt rather than a target computed from nothing.
+
+**Carb target**: `carb_g_per_kg_{tier} × weight`, where `tier` comes from
+`today_training_tier` — the day's logged canonical activities plus A-race proximity (the same
+`next_a_race`/taper window the Today screen and coach memory already use), since this app has
+no separate training-plan feature to read a *planned* load from:
+
+| Tier | Condition | Default g/kg |
+|---|---|---|
+| `rest` | 0 canonical activities today | 3 |
+| `moderate` | exactly 1 | 5 |
+| `double_day` | 2+ | 7 |
+| `pre_race` | inside an A-race's taper window *and* ≤3 days out (narrower than the 14-day taper window itself, which is lower volume, not yet peak carb need) | 8 |
+
+**Kcal target**: either a manual figure (`NutritionTarget.manual_kcal_target`) or a trailing
+7-day average of Garmin's `DailyWellness.total_kcal` over *completed* days only — today's own
+still-accumulating total is excluded (at 8am it's a few hundred kcal and would set a nonsense
+target). `None` with no recent Garmin data.
+
+**Fat target**: deliberately not its own g/kg knob — it's the kcal remainder after protein
+and carbs are costed at 4 kcal/g each: `(kcal_target - protein_g×4 - carb_g×4) / 9`, floored
+at 0. This mirrors common sports-nutrition guidance (set protein and carbs to need, let fat
+fill the rest of the energy budget) rather than adding a third independently-tunable target
+that could silently conflict with `kcal_target`. `None` whenever `kcal_target` itself is
+`None`.
+
+All four targets are explicitly labelled in the UI as "starting points, adjust with a coach
+or dietitian" — defaults are configurable per-field in Settings, never hard-coded assumptions
+the app treats as correct for a given athlete.
+
+**Under-fuelling flag** (`under_fuelling_flag`, used by `GET /api/today`, `GET /api/nutrition/
+summary/week`, and the coach's `get_nutrition` tool): flags only when the **last 3 logged
+days** (unlogged days are *never* treated as a zero-intake deficit — the task's explicit "no
+streaks, no shaming" ask would be badly undercut by flagging a day the athlete simply didn't
+open the app) each ran at least 25% below that day's Garmin expenditure. Needs at least 3
+logged days with a real expenditure figure to say anything at all; otherwise reports "not
+enough logged days yet." The explanation string is calm and factual by design ("worth a look
+at fuelling, not a reason to worry alone") — there is no red/"over" state anywhere in the
+nutrition UI, consistent with this.

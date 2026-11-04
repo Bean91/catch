@@ -53,6 +53,20 @@ export function BodyIcon({ className }: IconProps) {
   );
 }
 
+export function NutritionIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M12 7.5c-2-2.8-5.5-2.6-6.8-.6-1.4 2.2-.4 6.3 2.4 9.6 1.6 1.9 3.2 3 4.4 3.5 1.2-.5 2.8-1.6 4.4-3.5 2.8-3.3 3.8-7.4 2.4-9.6-1.3-2-4.8-2.2-6.8.6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path d="M12 7.5V4.3c0-.5.4-.9.9-1h.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
