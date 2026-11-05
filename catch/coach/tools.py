@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -171,6 +173,201 @@ def _merge_activities(session: Session, args: dict, ctx: dict) -> dict:
     return routes_activities.get_activity(canonical.id, db=session)
 
 
+# --- Gym logger tools (session 14 — see PLAN.md Part D) -------------------------------------
+
+_SETSXREPS_RE = re.compile(r"(\d+)\s*x\s*(\d+)", re.I)
+_SETS_OF_RE = re.compile(r"(\d+)\s*sets?\s*(?:of)?\s*(\d+)", re.I)
+_WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|lbs?)\b", re.I)
+_STACK_RE = re.compile(r"stack\s*(\d+(?:\.\d+)?)", re.I)
+_STATION_RE = re.compile(r"station\s*(\d+)", re.I)
+_RIR_RE = re.compile(r"\brir\s*(\d+(?:\.\d+)?)", re.I)
+_RPE_RE = re.compile(r"\brpe\s*(\d+(?:\.\d+)?)", re.I)
+_LB_TO_KG = 0.453592
+
+
+def _parse_strength_text(text: str) -> dict:
+    """A deliberately simple regex parser, not full NLP — exactly why log_strength always
+    returns a preview before saving (task Part D's "confirms parsed sets before saving"), so a
+    misparse gets caught by the athlete rather than silently logged. Handles one exercise per
+    call (e.g. "3x8 cable row stack 12 on station 2"), matching the task's own example."""
+    remaining = text
+    sets_count, reps = 1, 0
+    m = _SETSXREPS_RE.search(remaining)
+    if not m:
+        m = _SETS_OF_RE.search(remaining)
+    if m:
+        sets_count, reps = int(m.group(1)), int(m.group(2))
+        remaining = remaining[: m.start()] + remaining[m.end() :]
+
+    load_kg: float | None = None
+    equipment_hint: str | None = None
+    m = _STACK_RE.search(remaining)
+    if m:
+        load_kg = float(m.group(1))
+        equipment_hint = "cable"
+        remaining = remaining[: m.start()] + remaining[m.end() :]
+    else:
+        m = _WEIGHT_RE.search(remaining)
+        if m:
+            value = float(m.group(1))
+            load_kg = value * _LB_TO_KG if m.group(2).lower().startswith("lb") else value
+            remaining = remaining[: m.start()] + remaining[m.end() :]
+
+    station: int | None = None
+    m = _STATION_RE.search(remaining)
+    if m:
+        station = int(m.group(1))
+        remaining = remaining[: m.start()] + remaining[m.end() :]
+
+    rir: float | None = None
+    m = _RIR_RE.search(remaining)
+    if m:
+        rir = float(m.group(1))
+        remaining = remaining[: m.start()] + remaining[m.end() :]
+    rpe: float | None = None
+    m = _RPE_RE.search(remaining)
+    if m:
+        rpe = float(m.group(1))
+        remaining = remaining[: m.start()] + remaining[m.end() :]
+
+    if equipment_hint is None:
+        lowered = remaining.lower()
+        if "cable" in lowered:
+            equipment_hint = "cable"
+        elif "dumbbell" in lowered or re.search(r"\bdb\b", lowered):
+            equipment_hint = "dumbbell"
+        elif "kettlebell" in lowered or re.search(r"\bkb\b", lowered):
+            equipment_hint = "kettlebell"
+        elif "smith" in lowered:
+            equipment_hint = "smith"
+        elif "machine" in lowered:
+            equipment_hint = "machine_plate"
+        elif "bodyweight" in lowered or "body weight" in lowered:
+            equipment_hint = "bodyweight"
+        else:
+            equipment_hint = "barbell"
+
+    exercise_name = re.sub(r"\s+", " ", remaining).strip()
+    return {
+        "exercise_name": exercise_name,
+        "sets_count": sets_count,
+        "reps": reps,
+        "load_kg": load_kg,
+        "equipment_type": equipment_hint,
+        "station": station,
+        "rir": rir,
+        "rpe": rpe,
+    }
+
+
+def _resolve_exercise(session: Session, name: str) -> dict | None:
+    from catch.sync import gym
+
+    matches = gym.list_exercises(session, query=name)
+    return matches[0] if matches else None
+
+
+def _log_strength(session: Session, args: dict, ctx: dict) -> dict:
+    """Task Part D: free text (one exercise per call, e.g. "3x8 cable row stack 12 on station
+    2") or a structured `sets` list. Always previews first — `confirm=true` is required to
+    actually save, same two-step pattern as merge_activities, so a misparsed exercise/load
+    never gets written without the athlete seeing it first. Effective load is always computed
+    server-side from the real equipment math (catch/analytics/equipment.py), never trusted
+    from whatever number the model/athlete typed."""
+    from catch.sync import gym
+
+    parsed_sets = args.get("sets")
+    if not parsed_sets:
+        text = args.get("text")
+        if not text:
+            raise ValueError("Provide either `text` or a structured `sets` list.")
+        parsed = _parse_strength_text(text)
+        exercise = _resolve_exercise(session, parsed["exercise_name"])
+        if exercise is None:
+            return {
+                "saved": False,
+                "message": f"No exercise found matching '{parsed['exercise_name']}'. Ask the athlete for the exact exercise name, or add it as a custom exercise first.",
+            }
+        parsed_sets = [
+            {
+                "exercise_id": exercise["id"],
+                "exercise_name": exercise["name"],
+                "equipment_type": parsed["equipment_type"],
+                "reps": parsed["reps"],
+                "load_kg": parsed["load_kg"],
+                "rir": parsed["rir"],
+                "rpe": parsed["rpe"],
+            }
+            for _ in range(parsed["sets_count"])
+        ]
+    else:
+        resolved = []
+        for s in parsed_sets:
+            s = dict(s)
+            if not s.get("exercise_id") and s.get("exercise_name"):
+                exercise = _resolve_exercise(session, s["exercise_name"])
+                if exercise is None:
+                    return {"saved": False, "message": f"No exercise found matching '{s['exercise_name']}'."}
+                s["exercise_id"] = exercise["id"]
+                s["exercise_name"] = exercise["name"]
+            resolved.append(s)
+        parsed_sets = resolved
+
+    if not args.get("confirm"):
+        return {
+            "saved": False,
+            "preview": parsed_sets,
+            "message": "Preview only — confirm these sets with the athlete, then call log_strength again with the same sets and confirm=true.",
+        }
+
+    client_session_id = gym.get_or_create_todays_session_id(session)
+    seq_start = len(gym.list_session_sets(session, client_session_id))
+    saved = []
+    for i, s in enumerate(parsed_sets):
+        saved.append(
+            gym.upsert_set(
+                session,
+                client_session_id,
+                {
+                    "client_id": str(uuid.uuid4()),
+                    "exercise_id": s["exercise_id"],
+                    "equipment_type": s.get("equipment_type") or "other",
+                    "load_kg": s.get("load_kg"),
+                    "bar_weight_kg": s.get("bar_weight_kg"),
+                    "pulley_multiplier": s.get("pulley_multiplier"),
+                    "reps": int(s.get("reps") or 0),
+                    "rir": s.get("rir"),
+                    "rpe": s.get("rpe"),
+                    "set_type": s.get("set_type", "working"),
+                    "seq": seq_start + i,
+                },
+            )
+        )
+    from catch.sync.scoring import recompute_scores
+
+    recompute_scores(session)
+    return {"saved": True, "sets": saved}
+
+
+def _get_strength(session: Session, args: dict, ctx: dict) -> dict:
+    from catch.sync import gym
+
+    to = _parse_date(args.get("to")) or date.today()
+    from_ = _parse_date(args.get("from")) or (to - timedelta(days=28))
+    exercise_id = args.get("exercise_id")
+    if exercise_id is None and args.get("exercise_name"):
+        exercise = _resolve_exercise(session, args["exercise_name"])
+        exercise_id = exercise["id"] if exercise else None
+    rows = gym.list_sets_in_range(session, from_, to, exercise_id)
+    return {"from": from_, "to": to, "sets": _downsample(rows, _MAX_ROWS)}
+
+
+def _get_muscle_readiness(session: Session, args: dict, ctx: dict) -> dict:
+    from catch.sync import gym
+
+    return gym.muscle_readiness(session)
+
+
 def _log_food(session: Session, args: dict, ctx: dict) -> dict:
     """Task Part B.8. Resolves a food three ways, in order: an explicit `food_id` (the
     athlete/model picked one from a previous ambiguous response, or already knows it);
@@ -328,7 +525,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 **_DATE_RANGE_PROPS,
-                "type": {"type": "string", "enum": ["erg", "on_water", "other"], "description": "Workout category filter."},
+                "type": {"type": "string", "enum": ["erg", "on_water", "strength", "other"], "description": "Workout category filter."},
             },
             "additionalProperties": False,
         },
@@ -475,6 +672,69 @@ TOOLS: dict[str, dict[str, Any]] = {
             "required": ["canonical_id_a", "canonical_id_b"],
             "additionalProperties": False,
         },
+    },
+    "log_strength": {
+        "fn": _log_strength,
+        "write": True,
+        "description": (
+            "Log a lifting set, from free text (one exercise per call, e.g. '3x8 cable row stack 12 on "
+            "station 2') or a structured sets list. Always call once without confirm=true first — this "
+            "returns a preview of the parsed exercise/reps/load for the athlete to check (parsing free text "
+            "is best-effort and can get the exercise or load wrong). Only call again with the same sets and "
+            "confirm=true once the athlete has confirmed it's right. Appends to today's session if one "
+            "already exists."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Free-text description of one exercise's sets."},
+                "sets": {
+                    "type": "array",
+                    "description": "Alternative to text — one entry per set.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "exercise_id": {"type": "integer"},
+                            "exercise_name": {"type": "string", "description": "Used to look up exercise_id if exercise_id isn't given."},
+                            "equipment_type": {
+                                "type": "string",
+                                "enum": ["barbell", "dumbbell", "kettlebell", "machine_plate", "machine_selectorized", "smith", "cable", "bodyweight", "weighted", "assisted", "band", "other"],
+                            },
+                            "reps": {"type": "integer"},
+                            "load_kg": {"type": "number", "description": "The raw number read off the equipment — plates added for barbell/smith, per-hand for dumbbell/kettlebell, stack number for cable/selectorized."},
+                            "bar_weight_kg": {"type": "number"},
+                            "pulley_multiplier": {"type": "number"},
+                            "rir": {"type": "number"},
+                            "rpe": {"type": "number"},
+                            "set_type": {"type": "string", "enum": ["warmup", "working", "drop", "failure", "amrap"]},
+                        },
+                        "required": ["reps"],
+                    },
+                },
+                "confirm": {"type": "boolean", "description": "Only set true after the athlete has confirmed the preview."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "get_strength": {
+        "fn": _get_strength,
+        "write": False,
+        "description": "Logged strength sets over a date range (defaults to the last 28 days), optionally filtered to one exercise by exercise_id or exercise_name. Capped to 180 rows.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                **_DATE_RANGE_PROPS,
+                "exercise_id": {"type": "integer"},
+                "exercise_name": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "get_muscle_readiness": {
+        "fn": _get_muscle_readiness,
+        "write": False,
+        "description": "Raw muscular load (AU) per muscle group over the trailing 72 hours — which muscle groups are still loaded from recent lifting, for planning what to train next or whether to go heavy again.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     "remember": {
         "fn": _remember,

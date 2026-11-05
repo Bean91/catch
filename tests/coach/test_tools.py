@@ -308,8 +308,123 @@ def test_tool_outputs_never_leak_secrets(session):
         ("get_zones", {}),
         ("recall", {}),
         ("get_nutrition", {}),
+        ("get_strength", {}),
+        ("get_muscle_readiness", {}),
     ]
     for name, args in read_only_calls:
         dumped = json.dumps(tools.call_tool(session, name, args))
         for secret in secrets_:
             assert secret not in dumped, f"{name} leaked a secret"
+
+
+# -- gym logger tools (session 14 — see PLAN.md Part D) ------------------------------------
+
+
+def _seed_squat(session):
+    from catch.core.models import Exercise
+
+    row = Exercise(
+        name="Barbell Squat",
+        default_equipment_type="barbell",
+        movement_pattern="squat",
+        primary_muscles_json='["quadriceps"]',
+        secondary_muscles_json='["glutes"]',
+        custom=True,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def test_parse_strength_text_basic_example():
+    parsed = tools._parse_strength_text("3x8 cable row stack 12 on station 2")
+    assert parsed["sets_count"] == 3
+    assert parsed["reps"] == 8
+    assert parsed["load_kg"] == 12.0
+    assert parsed["equipment_type"] == "cable"
+    assert parsed["station"] == 2
+    assert "row" in parsed["exercise_name"].lower()
+
+
+def test_parse_strength_text_barbell_with_kg():
+    parsed = tools._parse_strength_text("squat 5x5 100kg")
+    assert parsed["sets_count"] == 5
+    assert parsed["reps"] == 5
+    assert parsed["load_kg"] == 100.0
+    assert parsed["equipment_type"] == "barbell"
+
+
+def test_parse_strength_text_pounds_converted_to_kg():
+    parsed = tools._parse_strength_text("bench press 3 sets of 8 at 135lbs")
+    assert parsed["sets_count"] == 3
+    assert parsed["reps"] == 8
+    assert abs(parsed["load_kg"] - 135 * 0.453592) < 0.01
+
+
+def test_parse_strength_text_rir_and_rpe():
+    parsed = tools._parse_strength_text("deadlift 1x5 140kg rir 1")
+    assert parsed["rir"] == 1.0
+    parsed2 = tools._parse_strength_text("deadlift 1x5 140kg rpe 9")
+    assert parsed2["rpe"] == 9.0
+
+
+def test_log_strength_from_text_previews_before_saving(session):
+    _seed_squat(session)
+    out = tools.call_tool(session, "log_strength", {"text": "squat 3x5 100kg"})
+    assert out["saved"] is False
+    assert len(out["preview"]) == 3
+    assert out["preview"][0]["exercise_name"] == "Barbell Squat"
+
+    from catch.core.models import StrengthSet
+    from sqlmodel import select
+
+    assert session.exec(select(StrengthSet)).all() == []  # nothing written yet.
+
+
+def test_log_strength_confirm_true_saves_sets(session):
+    _seed_squat(session)
+    preview = tools.call_tool(session, "log_strength", {"text": "squat 3x5 100kg"})
+    confirmed = tools.call_tool(session, "log_strength", {"sets": preview["preview"], "confirm": True})
+    assert confirmed["saved"] is True
+    assert len(confirmed["sets"]) == 3
+    assert confirmed["sets"][0]["effective_load_kg"] == 120.0  # 100kg + default 20kg bar.
+
+
+def test_log_strength_unknown_exercise_asks_rather_than_guesses(session):
+    out = tools.call_tool(session, "log_strength", {"text": "some made up exercise 3x5 50kg"})
+    assert out["saved"] is False
+    assert "no exercise found" in out["message"].lower()
+
+
+def test_log_strength_second_call_same_day_appends_to_one_session(session):
+    _seed_squat(session)
+    preview1 = tools.call_tool(session, "log_strength", {"text": "squat 3x5 100kg"})
+    tools.call_tool(session, "log_strength", {"sets": preview1["preview"], "confirm": True})
+    preview2 = tools.call_tool(session, "log_strength", {"text": "squat 2x3 120kg"})
+    tools.call_tool(session, "log_strength", {"sets": preview2["preview"], "confirm": True})
+
+    from catch.core.models import Activity
+    from sqlmodel import select
+
+    sessions = session.exec(select(Activity).where(Activity.source == "catch_strength")).all()
+    assert len(sessions) == 1  # both calls landed in the same day's session.
+
+
+def test_get_strength_filters_by_exercise_name(session):
+    squat = _seed_squat(session)
+    preview = tools.call_tool(session, "log_strength", {"text": "squat 2x5 80kg"})
+    tools.call_tool(session, "log_strength", {"sets": preview["preview"], "confirm": True})
+
+    out = tools.call_tool(session, "get_strength", {"exercise_name": "squat"})
+    assert len(out["sets"]) == 2
+    assert all(s["exercise_id"] == squat.id for s in out["sets"])
+
+
+def test_get_muscle_readiness_reflects_a_logged_session(session):
+    _seed_squat(session)
+    preview = tools.call_tool(session, "log_strength", {"text": "squat 3x5 100kg"})
+    tools.call_tool(session, "log_strength", {"sets": preview["preview"], "confirm": True})
+
+    out = tools.call_tool(session, "get_muscle_readiness", {})
+    assert out["by_muscle"]["quadriceps"] > 0

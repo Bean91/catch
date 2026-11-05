@@ -85,11 +85,14 @@ def _source_summary(member: Activity) -> dict:
 def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[Activity] | None = None) -> dict:
     members = members if members is not None else _members(db, canonical.id)
     overrides = _overrides(canonical)
-    data = canonical.model_dump(exclude={"overrides_json", "field_sources_json", "zones_json"})
+    data = canonical.model_dump(exclude={"overrides_json", "field_sources_json", "zones_json", "muscular_by_muscle_json"})
     # canonical.category is already in `data` (a real persisted column, set by
     # resolve_canonical) — nothing to recompute here.
     data["field_sources"] = json.loads(canonical.field_sources_json) if canonical.field_sources_json else {}
     data["zones"] = json.loads(canonical.zones_json) if canonical.zones_json else None
+    # Session 14 (see PLAN.md Part C.4): workout detail shows both the cardio (strain_trimp,
+    # already above) and muscular component of the same session.
+    data["muscular_by_muscle"] = json.loads(canonical.muscular_by_muscle_json) if canonical.muscular_by_muscle_json else None
     data["notes"] = overrides.get("notes")
     data["rpe"] = overrides.get("rpe")
     data["exclude_from_totals"] = bool(overrides.get("exclude_from_totals"))
@@ -187,6 +190,14 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
     data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
     data["day_note"] = note
     data["has_samples"] = any(db.get(ActivitySamples, m.id) is not None for m in members)
+    if canonical.sport_family == "strength":
+        from catch.sync import gym
+
+        # Catch's own sets, if any (every member's activity_id, not just a catch_strength
+        # one — a confirmed Garmin draft lives on the Garmin activity's own id). Checking
+        # every member rather than assuming one catch_strength row exists covers a
+        # Garmin-only session with no Catch session at all (task Part B.3).
+        data["strength_sets"] = [s for m in members for s in gym.list_sets_for_activity(db, m.id)]
     return data
 
 

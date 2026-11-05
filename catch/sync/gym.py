@@ -230,6 +230,46 @@ def get_or_create_session(session: Session, client_session_id: str) -> Activity:
     return upsert_activity(session, SESSION_SOURCE, client_session_id, type="catch_strength", sport_family="strength")
 
 
+def get_or_create_todays_session_id(session: Session) -> str:
+    """For the coach's `log_strength` tool (session 14 — see PLAN.md Part D), which has no
+    client-generated session id of its own: appends to today's existing Catch session if one
+    was logged today (from the app or an earlier coach turn in the same conversation), so
+    chatting several exercises over a conversation doesn't fragment one real workout into
+    several canonical activities. A new UUID starts a fresh session otherwise."""
+    today = datetime.now(timezone.utc).astimezone().date()
+    rows = session.exec(
+        select(StrengthSet)
+        .where(StrengthSet.deleted.is_(False), StrengthSet.source == "catch")
+        .order_by(StrengthSet.created_at.desc())
+    ).all()
+    for r in rows:
+        if r.created_at.astimezone().date() == today:
+            activity = session.get(Activity, r.activity_id)
+            if activity and activity.source == SESSION_SOURCE:
+                return activity.external_id
+            break  # today's most recent set belongs to a non-Catch session; start a fresh one.
+    import uuid
+
+    return str(uuid.uuid4())
+
+
+def list_sets_in_range(session: Session, from_, to, exercise_id: Optional[int] = None) -> list[dict]:
+    """For the coach's `get_strength` tool — confirmed "catch" sets only (never an unconfirmed
+    garmin_draft), optionally filtered to one exercise."""
+    rows = session.exec(
+        select(StrengthSet).where(StrengthSet.deleted.is_(False), StrengthSet.source == "catch").order_by(StrengthSet.created_at)
+    ).all()
+    out = []
+    for r in rows:
+        local_day = r.created_at.astimezone().date()
+        if not (from_ <= local_day <= to):
+            continue
+        if exercise_id is not None and r.exercise_id != exercise_id:
+            continue
+        out.append(_set_out(r))
+    return out
+
+
 def _recompute_session_window(session: Session, activity: Activity) -> None:
     sets = session.exec(
         select(StrengthSet).where(StrengthSet.activity_id == activity.id, StrengthSet.deleted.is_(False))
@@ -395,18 +435,22 @@ def _set_out(row: StrengthSet, load_note: Optional[str] = None) -> dict:
     }
 
 
+def list_sets_for_activity(session: Session, activity_id: int) -> list[dict]:
+    """By raw `Activity.id` — used for a Garmin activity's own (`garmin_draft`) sets, which
+    have no client-generated session id to look them up by."""
+    rows = session.exec(
+        select(StrengthSet).where(StrengthSet.activity_id == activity_id, StrengthSet.deleted.is_(False)).order_by(StrengthSet.seq)
+    ).all()
+    return [_set_out(r) for r in rows]
+
+
 def list_session_sets(session: Session, client_session_id: str) -> list[dict]:
     activity = session.exec(
         select(Activity).where(Activity.source == SESSION_SOURCE, Activity.external_id == client_session_id)
     ).first()
     if activity is None:
         return []
-    rows = session.exec(
-        select(StrengthSet)
-        .where(StrengthSet.activity_id == activity.id, StrengthSet.deleted.is_(False))
-        .order_by(StrengthSet.seq)
-    ).all()
-    return [_set_out(r) for r in rows]
+    return list_sets_for_activity(session, activity.id)
 
 
 def last_session_sets_for_exercise(session: Session, exercise_id: int, before: Optional[datetime] = None) -> list[dict]:

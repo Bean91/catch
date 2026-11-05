@@ -5,8 +5,9 @@ in-app coach uses — read-only training data (canonical activities only, sessio
 PLAN.md: every id a tool takes or returns is a canonical id, never a raw per-source activity
 id), the `remember`/`add_event`/`update_event`/`set_goal`/`forget`/`recall` memory tools,
 (session 8/12) `rename_activity`/`tag_activity`/`merge_activities` for the cross-source
-matching/editing tools, and (session 13) `get_nutrition`/`log_food` for the nutrition diary —
-21 tools total — to Claude Desktop (or any MCP client) over two transports:
+matching/editing tools, (session 13) `get_nutrition`/`log_food` for the nutrition diary, and
+(session 14) `log_strength`/`get_strength`/`get_muscle_readiness` for the gym logger —
+24 tools total — to Claude Desktop (or any MCP client) over two transports:
 
 - **stdio** — for Claude Desktop, running on your laptop while Catch itself runs on the Pi.
   Tool calls are thin `httpx` calls to Catch's `POST /api/coach/tools/{name}`, authenticated

@@ -41,7 +41,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def list_workouts(
-        from_: Optional[str] = None, to: Optional[str] = None, type: Optional[Literal["erg", "on_water", "other"]] = None
+        from_: Optional[str] = None, to: Optional[str] = None, type: Optional[Literal["erg", "on_water", "strength", "other"]] = None
     ) -> dict:
         """Recent workouts (Garmin + Concept2, deduped), newest first, up to 50."""
         return await _call("list_workouts", **{"from": from_, "to": to, "type": type})
@@ -135,6 +135,33 @@ def build_server(backend: ToolBackend) -> MCPServer:
         duplicate of the same ride) into one. Call once without confirm to preview, tell
         the athlete what will merge, and only call again with confirm=true once they agree."""
         return await _call("merge_activities", canonical_id_a=canonical_id_a, canonical_id_b=canonical_id_b, confirm=confirm)
+
+    @mcp.tool()
+    async def log_strength(
+        text: Optional[str] = None,
+        sets: Optional[list[dict]] = None,
+        confirm: Optional[bool] = None,
+    ) -> dict:
+        """Log a lifting set, from free text (one exercise per call, e.g. '3x8 cable row
+        stack 12 on station 2') or a structured sets list. Always call once without
+        confirm=true first — this returns a preview of the parsed exercise/reps/load for the
+        athlete to check. Only call again with the same sets and confirm=true once the
+        athlete has confirmed it's right."""
+        return await _call("log_strength", text=text, sets=sets, confirm=confirm)
+
+    @mcp.tool()
+    async def get_strength(
+        from_: Optional[str] = None, to: Optional[str] = None, exercise_id: Optional[int] = None, exercise_name: Optional[str] = None
+    ) -> dict:
+        """Logged strength sets over an ISO date range (default: last 28 days), optionally
+        filtered to one exercise. Capped to 180 rows."""
+        return await _call("get_strength", **{"from": from_, "to": to}, exercise_id=exercise_id, exercise_name=exercise_name)
+
+    @mcp.tool()
+    async def get_muscle_readiness() -> dict:
+        """Raw muscular load (AU) per muscle group over the trailing 72 hours — which muscle
+        groups are still loaded from recent lifting."""
+        return await _call("get_muscle_readiness")
 
     @mcp.tool()
     async def remember(

@@ -90,6 +90,9 @@ def _tool_label(name: str, args: dict) -> str:
         "recall": "Search memory",
         "get_nutrition": f"Read nutrition history{_range_phrase(args)}",
         "log_food": f"Log {args.get('description') or args.get('barcode') or 'a food'}",
+        "log_strength": "Log a set" if args.get("confirm") else "Preview a logged set",
+        "get_strength": f"Read strength history{_range_phrase(args)}",
+        "get_muscle_readiness": "Read muscle readiness",
     }
     return labels.get(name, name)
 

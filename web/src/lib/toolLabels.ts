@@ -48,6 +48,12 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Read nutrition history${rangePhrase(input)}`;
     case "log_food":
       return `Log ${input.description ?? input.barcode ?? "a food"}`;
+    case "log_strength":
+      return input.confirm ? "Log a set" : "Preview a logged set";
+    case "get_strength":
+      return `Read strength history${rangePhrase(input)}`;
+    case "get_muscle_readiness":
+      return "Read muscle readiness";
     default:
       return name;
   }

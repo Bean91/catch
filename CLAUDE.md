@@ -72,7 +72,7 @@ catch/
                 normalized event stream), nutrition_vision.py (session 13: one-shot Anthropic
                 vision call for an itemised meal-photo macro estimate; lazy-imported, hidden
                 when no Anthropic key is configured, photos never stored after the estimate)
-  mcp_server/   server.py (MCPServer + all 21 tools + 2 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 24 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py
