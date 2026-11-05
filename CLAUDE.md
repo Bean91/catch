@@ -27,7 +27,9 @@ catch/
                 generator on client disconnect — see PLAN.md's session 6 Findings for why
                 that needs its own polling helper, not just a per-event check; session 13:
                 routes_nutrition.py — foods/barcode/logs/my-foods/saved-meals/targets/
-                photo-estimate)
+                photo-estimate; session 14: routes_gym.py — exercise library/gyms/stations,
+                the idempotent sets-sync endpoint the offline queue flushes to, templates,
+                repeat-last-workout, muscle readiness, Garmin-draft confirm)
   core/         SQLModel models, config, db, security
   sync/         garmin_client, withings_client, concept2_client, scheduler, upsert helpers;
                 session 8/12 (cross-source matching + Peloton + body comp + per-sample
@@ -50,7 +52,11 @@ catch/
                 `include_off` in nutrition.py and docs/nutrition-endpoints.md for why it's
                 opt-in rather than part of the debounced search box), usda_client.py (USDA
                 FDC branded-food search/barcode/detail, the free-text search source that's
-                always in-budget since it has no as-you-type restriction)
+                always in-budget since it has no as-you-type restriction); session 14:
+                gym.py (the DB-facing gym-logger layer — exercise library, gyms/stations,
+                idempotent set upsert keyed on client-generated UUIDs, e1RM/PR detection,
+                muscular-load caching onto CanonicalActivity, Garmin-draft set import/
+                confirm; catch/analytics/equipment.py and strength.py hold the pure math)
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
@@ -58,7 +64,12 @@ catch/
                 blobs), zones_samples.py (per-sample time-in-zone/Banister-TRIMP/session-
                 label/auto-trim-detection — the real zones/strain fix for a session whose
                 average HR undersells a short hard block inside a long easy one); session 13:
-                nutrition.py (pure target/macro-scaling/under-fuelling math, no I/O)
+                nutrition.py (pure target/macro-scaling/under-fuelling math, no I/O);
+                session 14: equipment.py (effective-load math per equipment type + the plate
+                calculator, catch/seed/exercises.json's vocabulary — see docs/analytics.md
+                §22), strength.py (Epley e1RM/PR detection, per-set muscular-load AU and its
+                28-day-baseline normalization, a cardio session's small above-threshold-power
+                muscular share)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -71,7 +82,9 @@ catch/
                 providers/ (anthropic_provider.py, ollama_provider.py — both yield the same
                 normalized event stream), nutrition_vision.py (session 13: one-shot Anthropic
                 vision call for an itemised meal-photo macro estimate; lazy-imported, hidden
-                when no Anthropic key is configured, photos never stored after the estimate)
+                when no Anthropic key is configured, photos never stored after the estimate);
+                session 14: tools.py gained log_strength (free-text or structured, always
+                previews before a confirm=true save)/get_strength/get_muscle_readiness
   mcp_server/   server.py (MCPServer + all 24 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
@@ -80,6 +93,11 @@ catch/
                 auth middleware)
   cli.py        argparse entry point (`uv run catch ...`, now incl. `token create`/`list`)
   main.py       FastAPI app factory
+  seed/         exercises.json (session 14: the gym logger's exercise library, seeded
+                idempotently on startup by catch/core/db.py — yuhonas/free-exercise-db,
+                Unlicense/public domain, vendored JSON only at build time, no images; lives
+                outside catch/data/ deliberately, since the repo's gitignored `data/` rule is
+                unanchored and would otherwise swallow a catch/data/ subdirectory too)
 web/
   src/
     components/ ui/ (Card, Badge, Skeleton, …), today/ (RecoveryRing, StrainGauge, …),
@@ -102,7 +120,15 @@ web/
                 native BarcodeDetector or the self-hosted ZXing-wasm fallback via
                 lib/barcodeScan.ts, stops every camera track on close; PhotoEstimateDialog —
                 lazy-loaded, client-side ~1500px JPEG resize before upload, editable itemised
-                estimate; MealSection, MacroBar, WeekView, NutritionTargetsCard)
+                estimate; MealSection, MacroBar, WeekView, NutritionTargetsCard),
+                gym/ (session 14: ExerciseBlock — equipment config + set logging + last-
+                session-inline numbers in one card; ExercisePicker, Stepper — the shared
+                reps/load input with plate-sensible increments per equipment, see
+                lib/equipment.ts; RestTimer — auto-starts, computed from a stored end
+                timestamp rather than accumulated setInterval ticks since a backgrounded PWA
+                suspends JS timers, Web Audio beep since iOS Safari has no navigator.vibrate;
+                PlateCalculatorDialog; MuscleBodyMap — a schematic (not anatomical) front/
+                back SVG, see DESIGN.md's "Muscle readiness body map" note; SyncStatusBadge)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -123,7 +149,22 @@ web/
                 catch/coach/chat.py's chip-label templates for persisted history),
                 barcodeScan.ts (session 13: createBarcodeDetector() — native
                 window.BarcodeDetector when present, else the self-hosted ZXing-wasm ponyfill;
-                one detect() shape either way)
+                one detect() shape either way); session 14: equipment.ts (a TS port of
+                catch/analytics/equipment.py's effective-load math + the plate calculator —
+                duplicated, not shared, so the offline logger can preview a real effective
+                load with zero network; keep in sync by hand), gymDb.ts (hand-rolled raw
+                IndexedDB, no wrapper library — one `sets` object store, dirty/deleted
+                flags, keyed on each set's client-generated UUID), gymSync.ts (the offline
+                queue's flush: idempotent upsert to POST /api/gym/sessions/sync, never
+                required for a local write to "succeed" — library/gyms/templates/readiness
+                reads need no bespoke IndexedDB mirror of their own, since every GET under
+                /api/* already gets network-first-with-cache-fallback from the service
+                worker itself), useGymSync.ts (wires useOnlineStatus — never
+                navigator.onLine — plus the browser's own `online` event and
+                visibilitychange to the flush, each a real trigger on its own: the
+                online-status hook's 15s-interval probe can go a whole short reconnect
+                window without ever toggling, so the plain `online` event is load-bearing,
+                not just belt-and-suspenders, confirmed by web/tests/gym-offline/)
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
@@ -132,8 +173,12 @@ web/
                 Body (session 8/12: per-day resolved weight/fat%/muscle with its source,
                 a manual-weight-entry form), Nutrition (session 13: day/week toggle, macro
                 bars vs. targets, per-meal quick-add/copy-yesterday/edit/delete, barcode scan
-                and photo-estimate entry points), Coach, Settings, Memory (React.lazy, one
-                chunk per route — keeps the initial bundle under budget)
+                and photo-estimate entry points), Coach, Settings, Memory, Gym (session 14:
+                hub + active-workout logging in one page — resumes today's IndexedDB session
+                on mount, offline-first; reads the exercise library/gyms/templates/repeat-
+                last-workout over the network as usual, mock-gated like every other page),
+                MuscleReadiness (session 14: the 72h front/back body map + list) (React.lazy,
+                one chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
                 here — vite.config.ts's serviceWorkerPlugin writes it at build time with
@@ -151,7 +196,17 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 `CATCH_BUILD_ID`s, serves one then the other from an in-process swappable static
                 server (server.mjs, not catch.main — booting the real app starts APScheduler
                 against the real .env) to confirm a client on build A actually detects and
-                reloads to build B, plus the offline-banner scenarios)
+                reloads to build B, plus the offline-banner scenarios) and `web/tests/
+                gym-offline/` (session 14, `playwright.gym.config.ts` — the one Playwright
+                suite that *does* boot the real `catch.main` app, via a `webServer` entry:
+                `uv run uvicorn` against a disposable scratch DB + freshly generated secrets
+                (never the real `.env`/`data/catch.db`, same precedent as every prior
+                session's by-hand disposable-instance checks, just automated here), a real
+                registered service worker, and real IndexedDB — logs a full workout with
+                `context.setOffline(true)`, reloads mid-offline to confirm nothing is lost,
+                reconnects, and asserts the synced result directly against the backend. The
+                substitute for "use the logger on my phone with airplane mode on," which this
+                environment has no real iPhone to do live)
 docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 analytics.md, mcp.md (Claude Desktop config, device tokens, Inspector),
                 peloton.md (session 8/12: Peloton-push detection mechanism + live findings —
@@ -188,6 +243,10 @@ DESIGN.md       palette/type/motion decisions for the web frontend
 - `cd web && npm run test:update` — Playwright service-worker update + offline-banner tests;
   builds two real production bundles itself (no `.env`/backend needed) and serves them from its
   own swappable static server on port 5192
+- `cd web && npm run test:gym` — Playwright offline gym-logger test; builds the real frontend
+  into `catch/api/static` and boots a real disposable `uv run uvicorn` backend (scratch DB +
+  generated secrets, port 8731) via Playwright's `webServer`, needs `uv` on PATH but no running
+  `.env`-backed instance of its own
 - `./deploy.sh` — build the frontend + rsync the backend to the Pi + restart + health-check
   (needs `deploy/pi-bootstrap.sh` to have been run on the Pi at least once; see that file)
 

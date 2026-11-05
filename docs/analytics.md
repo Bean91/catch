@@ -479,3 +479,98 @@ logged days with a real expenditure figure to say anything at all; otherwise rep
 enough logged days yet." The explanation string is calm and factual by design ("worth a look
 at fuelling, not a reason to worry alone") — there is no red/"over" state anywhere in the
 nutrition UI, consistent with this.
+
+## 22. Equipment load math, muscular load, and cardio/muscular strain split (`catch/analytics/equipment.py`, `catch/analytics/strength.py`, `catch/sync/gym.py`), session 14
+
+**Effective load** — what the lifter actually moved, computed server-side from whatever they
+entered plus the equipment's own config, never trusted as typed:
+
+| Equipment | `load_kg` means | Effective load |
+|---|---|---|
+| Barbell | plates added, both sides | `load_kg + bar_weight_kg` (bar defaults to 20kg) |
+| Smith machine | plates added | `load_kg + bar_weight_kg`, `bar_weight_kg` per-gym and **unset by default** (many Smith bars are counterbalanced, often 6-15kg rather than 20kg) — unset uses a flagged-estimated 10kg guess until entered once in gym setup |
+| Dumbbell / kettlebell | per-hand weight | `load_kg × 2` if bilateral, else `load_kg` (unilateral exercise + a logged side) |
+| Plate-loaded machine | weight on the pin/sled | `load_kg + base_weight_kg` (a station's own carriage weight, default 0) |
+| Selectorized machine | the stack number shown | `load_kg × stack_kg_per_increment + base_weight_kg` — stack numbers are only ever compared on the *same* station, never across gyms, since this calibration is per-station |
+| Cable | the stack number shown | `load_kg × pulley_multiplier` (1.0 for 1:1, 0.5 for 2:1, 0.25 for 4:1 — the felt-load fraction, not the ratio notation itself) |
+| Bodyweight | — | the latest resolved weight (`catch/sync/body_comp.py`'s `nearest_resolved_weight_kg`) |
+| Weighted | added weight | bodyweight + added |
+| Assisted | assistance amount | `max(0, bodyweight - assistance)` |
+| Band | a light/medium/heavy tag | a fixed approximate kg per tag (10/20/35) — always flagged `is_estimated`, since band tension isn't a measured value |
+
+Every one of these is snapshotted onto the `StrengthSet` row at log time (`bar_weight_kg`,
+`pulley_multiplier`, `bodyweight_kg_used`, ...), never re-derived later — a later change to a
+station's config or the athlete's bodyweight must never silently rewrite a past session's
+numbers. The plate calculator (`plates_per_side`) is a separate, purely illustrative helper —
+a greedy largest-plates-first split of the barbell/smith `load_kg` across one side.
+
+**Estimated 1RM**: Epley, `weight × (1 + reps/30)`, reps capped at 10 for the estimate (task's
+explicit ask) — a 15-rep set is treated as a 10-rep set for this formula only, not extrapolated
+further, since Epley's own accuracy degrades past that point.
+
+**Muscular load (AU — arbitrary units, not 0-21)**, per working set (warm-ups contribute 0):
+
+```
+reps_to_failure      = reps + (rir, or 10-rpe, or a default of 2 if neither logged)
+intensity_factor     = 1 / (1 + reps_to_failure / 30)   # reuses Epley's own reps<->%1RM shape
+set_au               = reps × effective_load_kg × intensity_factor
+```
+
+Reusing Epley's curve for "how close to failure" (rather than inventing a second constant)
+means a near-failure set (low `reps_to_failure`) keeps most of its AU, and a set left a long
+way from failure counts for much less — the task's explicit "sets far from failure count
+less." Each set's AU is distributed to its exercise's muscles: every **primary** muscle gets
+full credit, every **secondary** muscle gets half credit — not divided across how many
+muscles are listed, since a compound lift genuinely loads each one, not a fraction of each.
+
+**Normalization against a 28-day baseline** (`normalize_muscle_au`, used only for the *strain*
+contribution, never for the muscle-readiness view's raw numbers): each muscle's today-AU is
+clamped to `[0.4×, 2×]` its own trailing-28-day daily average — a lifter who already trains a
+muscle hard every week isn't penalized for their own normal heavy session, and a one-off spike
+well past normal doesn't blow the day's strain out on its own. A muscle with no baseline
+history yet (first-ever session) uses its raw today value — there's nothing to normalize
+against, and treating that as "0× baseline" would wrongly zero out a real first session.
+
+**Daily strain's cardio/muscular split** (`catch/sync/scoring.py`'s `day_strain`, task Part
+C.2): the existing cardio half (HR/power `trimp_like`, §4's log-saturation curve) and a new
+muscular half go through their **own independent log-saturation curves**, then sum as 0-21
+values, with daily-activity (§4.1) added last:
+
+```
+cardio_component    = min(21, strain_log_a * ln(1 + total_trimp_like))
+muscular_component  = min(21, muscular_strain_weight * muscular_strain_log_a * ln(1 + Σ normalized_muscle_au))
+value                = min(21, cardio_component + muscular_component + daily_activity_value)
+```
+
+Keeping the two curves independent (rather than feeding a combined cardio+muscular number
+through one curve) is what guarantees the task's explicit requirement: **a heavy lifting day
+with low/no HR must still register meaningful strain** — `cardio_component` can be exactly 0
+while `muscular_component` alone lands "high." `muscular_strain_log_a` (default 1.1) and
+`muscular_strain_weight` (default 1.0) are both `Settings` keys, calibrated so a realistic
+heavy squat day's AU total (summed across the several muscle groups a squat loads, each
+getting full/half credit — see `tests/test_scoring.py`'s heavy-squat/light-pump/long-erg
+comparison) lands around "high" at zero cardio trimp. `day_strain`'s result dict carries
+`cardio: {value, trimp_like}` and `muscular: {value, total_normalized_au, explanation}`
+alongside the existing `daily_activity` key, for the Today strain gauge's three-way split and
+workout detail's per-session breakdown.
+
+**Cardio's own small muscular share** (erg/bike, task Part C.1.2): time spent with per-sample
+power ≥110% of threshold (the rowing erg threshold from `catch/sync/rowing_predict.py`'s
+`rowing_watts_2k`, or cycling's FTP — whichever the session already resolves power zones
+against) contributes `seconds_above × threshold_watts × 0.01` AU — deliberately **no
+per-muscle breakdown** (there's no exercise/muscle data for a cardio session) and **no 28-day
+normalization** (the scale constant already keeps it small by construction, default "low" per
+the task). Added to the same muscular total as a flat addend, not run through
+`normalize_muscle_au` itself.
+
+**Garmin-strength merge field priority** (task Part B.2, `catch/sync/canonical.py`): for a
+`sport_family == "strength"` canonical, `start`/`duration`/`calories`/HR use priority
+`["garmin", "catch_strength"]` (Garmin wins when both exist) rather than the default
+source-priority list — `catch_strength` still has to be last in that list, not absent, so a
+Catch-only session (no watch) falls back to its own computed window instead of every field
+coming back `None`. Sets themselves are never touched by field priority — they always come
+from `StrengthSet` rows, which the merge leaves alone regardless of which Activity they're
+attached to. The match rule itself (`catch/analytics/matching.py`'s `_match_strength_pair`) is
+simple time-overlap, not the generic 3-minute-start/duration-ratio rule — a Catch session's
+window is deliberately padded (first set −10min, last set +5min), which the generic rule's
+duration-ratio check would often reject.

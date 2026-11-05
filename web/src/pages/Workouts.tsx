@@ -11,6 +11,7 @@ const FILTERS: { value: WorkoutCategory | "all"; label: string }[] = [
   { value: "all", label: "All" },
   { value: "erg", label: "Erg" },
   { value: "on_water", label: "On-water" },
+  { value: "strength", label: "Strength" },
   { value: "other", label: "Other" },
 ];
 

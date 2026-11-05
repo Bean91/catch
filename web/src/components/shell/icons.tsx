@@ -122,3 +122,13 @@ export function MoonIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function GymIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M5 12h14M3 12h1M20 12h1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6 9v6M18 9v6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M8.5 7.5v9M15.5 7.5v9" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    </svg>
+  );
+}

@@ -2,11 +2,14 @@ import {
   copyMockDayLogs,
   createMockConversation,
   createMockEvent,
+  createMockExercise,
   createMockFact,
   createMockGoal,
+  createMockGym,
   createMockManualFood,
   createMockFoodLog,
   createMockToken,
+  deleteMockTemplate,
   deleteMockAnthropicKey,
   deleteMockConversation,
   deleteMockFoodLog,
@@ -26,18 +29,25 @@ import {
   mockDaySummary,
   mockDuplicates,
   mockErgStrokes,
+  mockExercises,
   mockFoodSearch,
+  mockGyms,
+  mockLastSetsForExercise,
   mockMemory,
+  mockMuscleReadiness,
   mockMyFoods,
   mockNote,
   mockNutritionTargets,
   mockPbs,
   mockPhotoEstimate,
+  mockRepeatLastWorkout,
   mockSavedMeals,
   mockScenarioFromQuery,
   mockSeries,
   mockSettings,
+  mockStations,
   mockSyncStatus,
+  mockTemplates,
   mockTestConnection,
   mockToday,
   mockTokens,
@@ -55,6 +65,7 @@ import {
   saveMockNote,
   saveMockNutritionTargets,
   saveMockSettings,
+  saveMockTemplate,
   savePhotoEstimateMock,
   setMockAnthropicKey,
   splitMockActivity,
@@ -62,9 +73,11 @@ import {
   streamMockMessage,
   unstarMockFood,
   updateMockEvent,
+  updateMockExercise,
   updateMockFact,
   updateMockFoodLog,
   updateMockGoal,
+  upsertMockStation,
 } from "./mock";
 import type {
   ActivityOverrides,
@@ -80,13 +93,17 @@ import type {
   DeviceToken,
   DuplicatePair,
   ErgStrokesResponse,
+  Exercise,
   Food,
   FoodLogRow,
+  GymRow,
+  GymStation,
   Meal,
   MemoryEvent,
   MemoryFact,
   MemoryGoal,
   MemoryListing,
+  MuscleReadiness,
   MyFoodRow,
   Note,
   NutritionTargetSettings,
@@ -94,10 +111,14 @@ import type {
   PersonalBests,
   PhotoEstimateItem,
   PhotoEstimateResult,
+  RepeatWorkoutPlanItem,
   SavedMealItem,
   SavedMealRow,
   Settings,
   SeriesResponse,
+  StrengthSetRow,
+  StrengthTemplate,
+  StrengthTemplateItem,
   SyncResult,
   SyncSourceStatus,
   Today,
@@ -741,4 +762,108 @@ export async function savePhotoEstimate(items: PhotoEstimateItem[], meal: Meal, 
     body: JSON.stringify({ ts, meal, items }),
   });
   return logged;
+}
+
+// --- Gym logger (session 14) ----------------------------------------------------------
+//
+// The active-session logging screen reads/writes IndexedDB directly (gymDb.ts/gymSync.ts) —
+// these are the library/gyms/templates/history/readiness reads, mock-gated like every other
+// page in the app.
+
+export async function fetchExercises(query?: string): Promise<Exercise[]> {
+  if (isMock) return delay(mockExercises(query));
+  const search = query ? `?q=${encodeURIComponent(query)}` : "";
+  const { exercises } = await request<{ exercises: Exercise[] }>(`/api/gym/exercises${search}`);
+  return exercises;
+}
+
+export async function createExercise(fields: Omit<Exercise, "id" | "external_id" | "custom">): Promise<Exercise> {
+  if (isMock) return delay(createMockExercise(fields), 200);
+  return request<Exercise>("/api/gym/exercises", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+export async function updateExercise(id: number, patch: Partial<Exercise>): Promise<Exercise> {
+  if (isMock) return delay(updateMockExercise(id, patch), 200);
+  return request<Exercise>(`/api/gym/exercises/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function fetchGyms(): Promise<GymRow[]> {
+  if (isMock) return delay(mockGyms());
+  const { gyms } = await request<{ gyms: GymRow[] }>("/api/gym/gyms");
+  return gyms;
+}
+
+export async function createGym(name: string): Promise<GymRow> {
+  if (isMock) return delay(createMockGym(name), 200);
+  return request<GymRow>("/api/gym/gyms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function fetchStations(gymId: number): Promise<GymStation[]> {
+  if (isMock) return delay(mockStations(gymId));
+  const { stations } = await request<{ stations: GymStation[] }>(`/api/gym/gyms/${gymId}/stations`);
+  return stations;
+}
+
+export async function upsertStation(
+  gymId: number,
+  fields: { name: string; equipment_type: GymStation["equipment_type"]; config: GymStation["config"] },
+  stationId?: number,
+): Promise<GymStation> {
+  if (isMock) return delay(upsertMockStation(gymId, fields, stationId), 200);
+  const path = stationId ? `/api/gym/gyms/${gymId}/stations/${stationId}` : `/api/gym/gyms/${gymId}/stations`;
+  return request<GymStation>(path, {
+    method: stationId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });
+}
+
+export async function fetchTemplates(): Promise<StrengthTemplate[]> {
+  if (isMock) return delay(mockTemplates());
+  const { templates } = await request<{ templates: StrengthTemplate[] }>("/api/gym/templates");
+  return templates;
+}
+
+export async function saveTemplate(name: string, items: StrengthTemplateItem[], templateId?: number): Promise<StrengthTemplate> {
+  if (isMock) return delay(saveMockTemplate(name, items, templateId), 200);
+  const path = templateId ? `/api/gym/templates/${templateId}` : "/api/gym/templates";
+  return request<StrengthTemplate>(path, {
+    method: templateId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, items }),
+  });
+}
+
+export async function deleteTemplate(id: number): Promise<void> {
+  if (isMock) return delay(deleteMockTemplate(id), 150);
+  await request<{ deleted: true }>(`/api/gym/templates/${id}`, { method: "DELETE" });
+}
+
+export async function fetchRepeatLastWorkout(): Promise<RepeatWorkoutPlanItem[]> {
+  if (isMock) return delay(mockRepeatLastWorkout());
+  const { plan } = await request<{ plan: RepeatWorkoutPlanItem[] }>("/api/gym/repeat-last-workout");
+  return plan;
+}
+
+export async function fetchLastSetsForExercise(exerciseId: number): Promise<StrengthSetRow[]> {
+  if (isMock) return delay(mockLastSetsForExercise(exerciseId));
+  const { sets } = await request<{ sets: StrengthSetRow[] }>(`/api/gym/exercises/${exerciseId}/last`);
+  return sets;
+}
+
+export async function fetchMuscleReadiness(): Promise<MuscleReadiness> {
+  if (isMock) return delay(mockMuscleReadiness());
+  return request<MuscleReadiness>("/api/gym/muscle-readiness");
 }

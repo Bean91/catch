@@ -1,12 +1,13 @@
 import { NavLink } from "react-router-dom";
-import { BodyIcon, CoachIcon, NutritionIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, GymIcon, NutritionIcon, SettingsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
-// "Fuel" rather than "Nutrition" — at 390px/7 items there's ~40px of text width per item
-// after padding, and "Nutrition" at the bottom nav's 12px label size doesn't comfortably fit
-// (see PLAN.md's session 13 notes); screenshot this at 390px before changing it back.
+// "Fuel"/"Gym" rather than "Nutrition"/"Workouts" repeated — at 390px/8 items there's even
+// less text width per item than session 13's 7-item note already flagged; screenshot this at
+// 390px before lengthening any label back (see PLAN.md's session 13 and session 14 notes).
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
-  { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
+  { to: "/workouts", label: "Log", Icon: WorkoutsIcon },
+  { to: "/gym", label: "Gym", Icon: GymIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
   { to: "/body", label: "Body", Icon: BodyIcon },
   { to: "/nutrition", label: "Fuel", Icon: NutritionIcon },
@@ -23,18 +24,18 @@ export function BottomNav() {
     >
       <ul className="mx-auto flex max-w-3xl items-stretch justify-between sm:justify-center sm:gap-2">
         {ITEMS.map(({ to, label, Icon }) => (
-          <li key={to} className="flex-1 sm:flex-none">
+          <li key={to} className="min-w-0 flex-1 sm:flex-none">
             <NavLink
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `flex min-h-11 flex-col items-center justify-center gap-1 px-2 py-2 text-xs transition-colors sm:flex-row sm:gap-2 sm:rounded-md sm:px-3 ${
+                `flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 px-0.5 py-2 text-[11px] transition-colors sm:flex-row sm:gap-2 sm:rounded-md sm:px-3 sm:text-xs ${
                   isActive ? "text-accent" : "text-text-tertiary hover:text-text-secondary"
                 }`
               }
             >
-              <Icon className="h-5 w-5" />
-              <span>{label}</span>
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="w-full truncate text-center leading-none">{label}</span>
             </NavLink>
           </li>
         ))}

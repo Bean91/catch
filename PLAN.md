@@ -2381,3 +2381,257 @@ issues, each verified by actually reproducing it rather than inferring it from c
   compiles and each piece does what its own test says — it says nothing about whether the
   pieces actually connect into a working end-to-end flow a person would use. That needs
   driving the real UI, mock or not.
+
+## Session 14 checklist
+
+The task: a gym logger (offline-first, equipment-aware load math, exercise library, rest
+timer, templates, PRs), merging a Catch lifting session with a Garmin strength activity, and
+splitting daily strain into cardiovascular and muscular components. **Numbering note**: the
+task's own prompt called itself "session 10," but that slot (an offline-detection bug fix and
+a PWA-update-toast rewrite) and session 11 (chart-zoom-button removal) were already taken in
+this file, with sessions 12/13 after them — recorded here as **session 14**, the next free
+slot, to keep this log's numbering consistent with the repo's actual history; CLAUDE.md's
+inline references use "session 8/12"-style dual numbering for exactly this reason elsewhere.
+
+### Part A — pure math + data model
+
+- [x] **Equipment load math** (`catch/analytics/equipment.py`, TS port `web/src/lib/
+      equipment.ts`): barbell/smith (plates-added + a per-gym bar weight, Smith's defaulting
+      to "unknown, enter once" per the task), dumbbell/kettlebell (per-hand, doubled when
+      bilateral), plate-loaded/selectorized machine (a station's own base weight/stack
+      calibration), cable (stack number x a 1:1/2:1/4:1 pulley multiplier — compared only on
+      the same station, never across gyms), bodyweight/weighted/assisted (the latest resolved
+      Withings/Garmin/manual weight, `catch/sync/body_comp.py`), band (an approximate
+      light/medium/heavy kg tag, always flagged estimated). A greedy plate calculator.
+      `tests/analytics/test_equipment.py` (29 cases) + `web/src/lib/equipment.test.ts` (16).
+- [x] **e1RM, PR detection, muscular load** (`catch/analytics/strength.py`): Epley e1RM capped
+      at 10 reps; rep-PR (heaviest at that exact rep count) and e1RM-PR, warm-ups excluded
+      from both; per-working-set muscular AU = `reps x effective_load x intensity_factor`,
+      where `intensity_factor` reuses Epley's own reps-to-%1RM shape over an RIR/RPE-derived
+      "reps to failure" estimate (sets far from failure count less, task's explicit ask);
+      distributed to primary (full credit)/secondary (half credit) muscles; normalized against
+      a 28-day per-muscle baseline, clamped `[0.4x, 2x]`, cold-start-safe. Full formulas in
+      `docs/analytics.md` §22. `tests/analytics/test_strength.py` (24 cases).
+- [x] **Exercise library seed** (`catch/seed/exercises.json`): yuhonas/free-exercise-db
+      (Unlicense/public domain — confirmed via a web fetch of the repo's own README badge,
+      the LICENSE file itself 404'd so the Unlicense reading rests on that badge, not the raw
+      license text), filtered to strength/powerlifting/olympic-weightlifting/strongman
+      categories (678 of 876), vendored JSON only (no images), `movement_pattern`/
+      `unilateral` derived by a documented name/force/category heuristic (the source dataset
+      has neither field) and always user-editable. Seeded idempotently on every startup
+      (`catch/core/db.py`'s `_seed_exercise_library`) — never overwrites an athlete's edit to
+      an already-seeded row. Lives at `catch/seed/`, not `catch/data/` — the repo's `data/`
+      gitignore rule is unanchored and silently swallowed the file on the first attempt;
+      caught before committing, not after.
+- [x] **Models** (`catch/core/models.py`): `Exercise`, `Gym`, `GymStation` (per-gym equipment
+      config, "one tap next time" — task's explicit ask), `StrengthSet` (every equipment-math
+      input snapshotted at log time, `client_id` the idempotent upsert key, `exercise_id`
+      nullable only for an unmatched Garmin-draft import), `StrengthTemplate`. No Activity
+      schema change needed at all — a Catch lifting session reuses the existing table as-is
+      (`source="catch_strength"`). `CanonicalActivity` gained `muscular_load_au`/
+      `muscular_by_muscle_json` (cached the same way `strain_trimp`/`zones_json` already are).
+
+### Part B — merging with Garmin
+
+- [x] **A Catch lifting session is an `Activity` row** (`catch/sync/gym.py`'s
+      `get_or_create_session`, reusing `catch.sync.upsert.upsert_activity` unchanged) with
+      `source="catch_strength"`, `external_id=` the client-generated session UUID — the
+      matching engine, canonical resolution, and every "an activity" reader work on it with
+      no special-casing beyond what's below. Session window = first set −10min / last set
+      +5min, recomputed on every set add/delete.
+- [x] **Matching**: `catch_strength`'s `sport_family`/`is_indoor` added to
+      `catch/analytics/matching.py`; a dedicated `_match_strength_pair` rule (simple time-
+      overlap, scored on overlap fraction) replaces the generic 3-minute-start/duration-ratio
+      rule for the strength family — the padded Catch window and a real Garmin
+      `strength_training` recording's own duration have no reason to track each other closely,
+      which the generic rule's duration-ratio check would often wrongly reject.
+- [x] **Field priority** (`catch/sync/canonical.py`): HR/calories/duration/start use
+      `["garmin", "catch_strength"]` when merged (Garmin wins when both exist, task's literal
+      ask) — `catch_strength` still has to be last in that list, not absent, so a Catch-only
+      session falls back to its own computed window rather than every field going `None`.
+      Sets are untouched by field priority either way — always `StrengthSet` rows.
+- [x] **Garmin-draft import** (task's "if the FIT file contains exercise sets and I logged
+      nothing in Catch, import them as a draft I can fix"): `catch/sync/fit_parse.py`'s
+      `parse_fit_sets` reads FIT `set` messages (`repetitions`/`weight`/`category`/
+      `set_type`) — field *names* confirmed live against this account's one real strength FIT
+      file (`data/fit/24650449177.fit`), but that file's single `set` message is the
+      unstructured whole-workout wrapper (`set_type="active"`, `repetitions`/`weight`/
+      `category` all `None` — the watch never used its own rep-counting feature for that
+      session), so the *populated* shape is unverified against live data, same situation
+      session 2 documented for Concept2 before any real result existed; synthetic-fixture
+      tested instead (`tests/test_fit_parse.py`). `catch/sync/gym.py`'s
+      `import_garmin_draft_sets`/`confirm_draft_set`: only imports when no real Catch-logged
+      set already exists for that physical session, best-effort exercise-name matching
+      against the raw category (no reliable mapping onto Garmin's own ~100-value enum
+      exists), `exercise_id=None` left honestly unmatched rather than guessed, counted toward
+      nothing (PRs/muscular load) until the athlete confirms it.
+- [x] **No-watch sessions still count** (task Part B.3): a Catch-only session has no Garmin
+      counterpart to merge with, keeps its own computed window via the field-priority
+      fallback above, `category_for_canonical` gives it a dedicated `"strength"` category
+      (was folded into `"other"` before this session — `category === "other"` call sites in
+      the frontend needed updating to `"strength"` once this changed, caught by `tsc`/the
+      mock-data build, not a runtime surprise).
+
+### Part C — cardio/muscular strain split
+
+- [x] **`catch/sync/scoring.py`'s `day_strain`** now combines cardio (existing HR/power
+      `trimp_like`, its own log-saturation curve) and muscular (today's per-muscle AU,
+      28-day-normalized, summed, its own independent log-saturation curve) **before** summing
+      as 0-21 values, with daily-activity (session 13) added last — kept independent
+      specifically so a heavy lifting day with zero cardio trimp still registers real strain
+      (task's explicit requirement), which one shared curve over a combined number couldn't
+      guarantee. New `Settings` keys `muscular_strain_log_a`/`muscular_strain_weight`,
+      calibrated (not just asserted) against a heavy-squat-day/light-pump-day/long-UT2-erg
+      comparison test. Full curve in `docs/analytics.md` §22.
+      `tests/test_scoring.py`: zero-cardio-still-meaningful, heavy > light > erg (erg's own
+      muscular share is exactly 0 with no lifting that day), and a repeat-of-a-normal-week
+      lands near its own baseline rather than spiking.
+- [x] **Cardio's own small muscular share** (erg/bike, task Part C.1.2): time above ~110% of
+      threshold power (the existing rowing/cycling threshold resolution) x a small scale
+      constant, added to canonical.muscular_load_au directly in `catch/sync/canonical.py`'s
+      `_resolve_zones` (generalized to run for rowing too, not just the cycling-only TSS
+      branch it used to be scoped inside) — no per-muscle breakdown, no 28-day normalization,
+      "default low" per the task.
+- [x] **Muscle readiness** (`GET /api/gym/muscle-readiness`, `catch/sync/gym.py`): raw
+      (non-normalized — a display of real recent load, not a strain-curve input) per-muscle
+      AU over the trailing 72h. Frontend: `MuscleReadiness.tsx` + `MuscleBodyMap.tsx`, a
+      schematic (not anatomical) front/back SVG shaded by load (one accent-opacity ramp, same
+      idea as `zoneColors.ts`'s training-zone ramp — see DESIGN.md), plus a numeric list
+      (never colour alone).
+- [x] **UI**: Today's `StrainGauge` shows a three-segment fill (cardio/muscular/daily-
+      activity, three opacities of the one accent) plus a text legend; `WorkoutDetail.tsx`
+      gained a `"strength"` category branch (muscular-load-per-muscle card + a sets table
+      with PR badges and unconfirmed-draft flagging); Workouts' category filter and the
+      coach's `list_workouts`/MCP `type` enum all gained `"strength"` alongside erg/on_water/
+      other.
+
+### Part D — gym logger frontend + coach/MCP
+
+- [x] **Offline-first** (task's explicit "never lose a set"): `web/src/lib/gymDb.ts`
+      (hand-rolled raw IndexedDB — one `sets` object store, no wrapper library, matching this
+      app's existing hand-rolled-over-small-dependency precedent) + `gymSync.ts` (every write
+      lands in IndexedDB *before* any network attempt; a background flush upserts to the new
+      idempotent `POST /api/gym/sessions/sync`, safe to retry/resend freely). **No bespoke
+      IndexedDB mirror of the exercise library/gyms/templates/readiness was needed** — every
+      GET under `/api/*` already gets network-first-with-cache-fallback from the service
+      worker itself (`vite.config.ts`), the same generic mechanism Today/Workouts already
+      lean on for offline viewing; building a second, gym-specific cache for the same data
+      would have been pure duplication, caught and removed before committing.
+- [x] **Sync trigger, a real gap found by the Playwright suite below, not guessed**:
+      `useOnlineStatus`'s own 15s-interval probe can go an entire short reconnect window
+      without ever toggling its boolean (nothing forces a tick), which left the queue
+      genuinely stuck after a `context.setOffline(false)` in testing — not a test-timing
+      quirk, a real gap "never lose a set" doesn't cover if sync never resumes. Fixed by also
+      listening for the browser's own `online` event directly in `useGymSync.ts`, independent
+      of the debounced probe value.
+- [x] **Equipment-aware logging UI** (`web/src/components/gym/`): `ExerciseBlock` (equipment-
+      type picker with the right follow-on fields per type — bar weight/plate-calc for
+      barbell+smith, station+pulley-ratio for cable, bodyweight-missing warning for
+      bodyweight/weighted/assisted, a band-tag select), `Stepper` (big tap targets,
+      plate-sensible load increments per equipment family), `ExercisePicker` (search the
+      cached library or add a custom exercise inline), `RestTimer` (auto-starts, computed
+      from a stored end timestamp rather than accumulated `setInterval` ticks — a
+      backgrounded PWA suspends JS timers, so an accumulate-based countdown would be wrong by
+      however long it was backgrounded; Web Audio beep since iOS Safari has never implemented
+      `navigator.vibrate`), `PlateCalculatorDialog`, last-session numbers shown inline
+      (`GET /api/gym/exercises/{id}/last`), "same as last set," repeat-last-workout and
+      templates to start a session.
+- [x] **`Gym.tsx`**: hub (start blank / repeat last workout / templates / muscle-readiness
+      link) and active-session logging in one page — resumes today's existing IndexedDB
+      session on mount (so a closed-and-reopened app, or a second coach-logged set later the
+      same day, lands in the same session rather than fragmenting it), offline-first
+      throughout. New `GymIcon`, added to both `Sidebar` and `BottomNav`.
+- [x] **Coach/MCP** (`catch/coach/tools.py`, `catch/mcp_server/server.py`): `log_strength`
+      (free text via a documented best-effort regex parser — one exercise per call, matching
+      the task's own example — or a structured sets list; always previews first, a confirm=
+      true call is required to actually save, same two-step pattern `merge_activities`
+      already established, since a misparsed exercise/load should never write silently),
+      `get_strength`, `get_muscle_readiness`. 24 MCP tools now (was 21); `chat.py`'s tool-chip
+      labels and `web/src/lib/toolLabels.ts`'s mirror both updated; `system_prompt.md` gained
+      guidance on checking muscle readiness before commenting on lifting and avoiding heavy
+      leg work the day before a hard erg session/2k test.
+
+### Quality bar / real verification
+
+- [x] `uv run pytest` — **496 passed** (was 476 before this session's backend-only commit,
+      441 before this session at all). `cd web && npx tsc -b && npm run build` — clean,
+      `Gym`/`MuscleReadiness` each their own lazy chunk (27.8KB/4.2KB gzip). `cd web && npm
+      run test` (Vitest) — **36 passed** (20 prior + 16 new `equipment.test.ts` cases).
+      `cd web && npm run test:touch` — unchanged, 17 run / 7 correctly skipped. `cd web && npm
+      run test:update` — unchanged, 4 passed.
+- [x] **`cd web && npm run test:gym`** — a new Playwright suite (`playwright.gym.config.ts`)
+      built specifically for this session's offline requirement: a real disposable
+      `uv run uvicorn catch.main:app` backend (scratch SQLite DB in a temp dir, a freshly
+      argon2-hashed password and a freshly generated Fernet key, `SYNC_INTERVAL_HOURS=24` so
+      APScheduler's own first-fire-after-one-interval behavior means no real Garmin/Withings/
+      Concept2 sync job can fire during the run even with every source's key left unset — no
+      live-network-call risk per CLAUDE.md's rule), a real registered service worker, real
+      IndexedDB. Logs in for real, visits `/gym` once online (populating the SW's own API
+      cache), goes offline via `context.setOffline(true)`, starts a session, adds "Barbell
+      Squat" from the real seeded library, logs 3 sets with real plate-math effective loads,
+      **reloads the page while still offline** (confirms nothing is lost on a closed/reopened
+      app, not just a dropped connection), reconnects, confirms the sync-status badge settles
+      to "Synced" with no user action, then asks the real backend directly (`GET /api/
+      activities?category=strength`, `GET /api/activities/{id}`) that the three sets actually
+      landed with the correct effective loads (`[80, 90, 100]` — 60/70/80kg entered + the
+      default 20kg bar). Ran 3 times in a row, no flakes. This is the substitute for the
+      task's "use the logger on my phone as the installed PWA with airplane mode on" — this
+      environment has no real iPhone, same documented gap as session 10's equivalent
+      placeholder.
+- [x] **Screenshots at 390px, both themes** (Playwright MCP, `?mock=1`): Gym hub, an active
+      session with a logged set + running rest timer, the exercise picker, Muscle Readiness
+      (front/back map + list), Today's three-way strain-gauge split, and a strength
+      `WorkoutDetail` (muscular-load card + sets table with a PR badge) — all reviewed in both
+      light and dark. Found and fixed one real layout bug this way, not by reasoning about the
+      CSS: adding an 8th bottom-nav item clipped "Workouts" and "Settings" off the right edge
+      of a 390px screen (not just visually tight — actually unreadable); fixed with `min-w-0`
+      + `truncate` (session 4's established flexbox-overflow fix, applied here too) plus
+      shortening "Workouts" to "Log" in the bottom nav specifically, so nothing has to
+      truncate in practice. See DESIGN.md's "Bottom nav at 8 items" note.
+- [x] **Not attempted this session, by explicit scope choice**: a `GymStation`/`Gym` CRUD
+      *page* (stations/gyms can currently only be created/edited via the API directly, or via
+      a future Settings addition — `ExerciseBlock`'s cable-station picker reads existing
+      stations but there's no in-app "add a gym/station" form yet); Trends gained no new
+      muscular-load-over-time chart or weekly-volume-per-muscle-group view (the data exists —
+      `CanonicalActivity.muscular_by_muscle_json` — but wiring a new Trends metric + chart was
+      judged lower priority than the offline logging core and the strain split, given the
+      session's time budget); superset/circuit grouping has a `superset_group` column end to
+      end but no dedicated UI for entering or displaying a group as a unit (sets log and
+      display individually regardless of the field). None of these block the core loop —
+      logging a set, equipment math, offline sync, the Garmin merge, or the strain split —
+      flagged here honestly rather than silently left out.
+- [x] **Live Pi deployment not attempted this session** — same as several prior sessions,
+      nothing in the task asked for `./deploy.sh`; this is commit-only, ready to deploy
+      whenever asked. The real strength FIT file's field-name verification above *was* done
+      against this account's live data (read-only, via `sqlite3 -readonly` against the real
+      `data/catch.db` and `fitdecode` against the real FIT file on disk) — the one piece of
+      "real data" verification this session's scope allowed without a live deploy.
+
+## Gotchas / deviations from the literal task spec
+
+- **Session numbering**: this is "session 14" in this file's own sequence, not literally
+  "session 10" as the task text called itself — see the checklist's own numbering note above.
+- **Exercise category assignment, movement pattern, and the unilateral flag are a documented
+  heuristic**, not data the source dataset provides (it has neither field) — see Part A above
+  and the seed-build note in this session's own history. Always user-editable; never treated
+  as authoritative by anything downstream (muscular-load math reads the *current*, possibly
+  user-corrected, row at log time).
+- **Smith-machine and cable-pulley conventions have no universal standard**, so this session
+  picked one and documented it rather than guessing at "the" right answer:
+  `load_kg` for barbell/smith is plates-added, not a total (a separate `bar_weight_kg`
+  completes it); a cable's `pulley_multiplier` is the felt-load *fraction* (0.5 for a 2:1
+  block that halves the load), not the ratio notation itself. Both are spelled out in
+  `catch/analytics/equipment.py`'s module docstring and `docs/analytics.md` §22 specifically
+  so a future session doesn't have to re-derive the convention from the code.
+- **Muscular-load AU is an arbitrary unit scale**, calibrated only so the relative comparisons
+  the task cares about hold (heavy day > light day, lifting > cardio's small share) — not
+  validated against any external measure of training load, same epistemic status as
+  `trimp_like`/sRPE already had before this session.
+- **The coach's `log_strength` free-text parser is a plain regex, not real NLP** — handles
+  the task's own example shape (`"3x8 cable row stack 12 on station 2"`) and similar
+  one-exercise-per-call phrasings, not arbitrary natural language. This is exactly why the
+  tool always previews before `confirm=true` saves, rather than a documentation caveat papering
+  over a real gap.
+- **No `GymStation`/`Gym` management page** — see the checklist's "not attempted" note. A
+  station already in the DB (seeded by hand or via the coach/API) works fully in the logger;
+  creating a new one from the app itself needs direct API calls for now.

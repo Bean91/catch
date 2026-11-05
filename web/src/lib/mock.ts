@@ -48,6 +48,14 @@ import type {
   WorkoutListItem,
   WorkoutsPage,
   ZoneRow,
+  Exercise,
+  GymRow,
+  GymStation,
+  MuscleReadiness,
+  RepeatWorkoutPlanItem,
+  StrengthSetRow,
+  StrengthTemplate,
+  StrengthTemplateItem,
 } from "./types";
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
@@ -102,8 +110,10 @@ const FULL: Today = {
     value: 8.9,
     band: "light",
     trimp_like: 48,
-    components: [{ canonical_id: 1, title: "Morning row", value: 8.2, band: "light" }],
+    components: [{ canonical_id: 1, title: "Morning row", value: 8.2, band: "light", muscular_au: 0 }],
     daily_activity: { value: 0.7, steps: 6400, active_kcal: 210 },
+    cardio: { value: 8.2, trimp_like: 48 },
+    muscular: { value: 0, total_normalized_au: 0, explanation: "No muscular load logged." },
     explanation: "1 session today, Banister TRIMP from heart rate -> 8.2, plus daily activity 0.7 = 8.9.",
   },
   strain_target_range: [10, 16],
@@ -276,7 +286,7 @@ function mockWorkout(i: number): WorkoutListItem {
     source = "garmin";
     type = "rowing_v2";
   } else if (bucket === 3) {
-    category = "other";
+    category = "strength";
     sportFamily = "strength";
     source = "garmin";
     type = "strength_training";
@@ -287,14 +297,14 @@ function mockWorkout(i: number): WorkoutListItem {
     type = source === "concept2" ? "rower" : "indoor_rowing";
   }
 
-  const distance = category === "other" ? null : category === "on_water" ? 8000 + (i % 5) * 600 : 5000 + (i % 4) * 1000;
+  const distance = category === "strength" ? null : category === "on_water" ? 8000 + (i % 5) * 600 : 5000 + (i % 4) * 1000;
   const paceS500 = category === "on_water" ? 118 + (i % 6) : 108 + (i % 5) * 2;
-  const duration = category === "other" ? 2700 + (i % 3) * 300 : distance ? (distance / 500) * paceS500 : null;
-  const avgHr = category === "other" ? 128 + (i % 4) * 3 : 150 + (i % 6) * 3;
+  const duration = category === "strength" ? 2700 + (i % 3) * 300 : distance ? (distance / 500) * paceS500 : null;
+  const avgHr = category === "strength" ? 128 + (i % 4) * 3 : 150 + (i % 6) * 3;
   const strainValue = 4 + (i % 8) * 1.6;
   const sourceRow = mockSource(source, type, source === "concept2" ? "concept2" : "garmin", source === "garmin" ? "watch" : null);
   const canonicalId = i + 1;
-  const title = category === "other" ? "Strength" : category === "on_water" ? "Row" : source === "concept2" ? "Erg 60'" : "Steady state 60'";
+  const title = category === "strength" ? "Strength" : category === "on_water" ? "Row" : source === "concept2" ? "Erg 60'" : "Steady state 60'";
 
   return {
     id: canonicalId,
@@ -305,16 +315,16 @@ function mockWorkout(i: number): WorkoutListItem {
     avg_hr: avgHr,
     max_hr: avgHr + 18,
     avg_power: category === "erg" ? 180 + (i % 5) * 15 : null,
-    avg_cadence: category !== "other" ? 22 + (i % 5) : null,
+    avg_cadence: category !== "strength" ? 22 + (i % 5) : null,
     calories: duration ? Math.round(duration * 0.17) : null,
     title,
     strain_method: "trimp_samples",
-    session_label: category === "other" ? null : i % 7 === 0 ? "AN (9 min) + UT2" : "UT2 (52 min)",
+    session_label: category === "strength" ? null : i % 7 === 0 ? "AN (9 min) + UT2" : "UT2 (52 min)",
     auto_trimmed_tail_s: i % 11 === 0 ? 95 : null,
     category,
     field_sources: { start: `${sourceRow.source}:${sourceRow.external_id}`, avg_hr: `${sourceRow.source}:${sourceRow.external_id}` },
     zones:
-      category === "other"
+      category === "strength"
         ? null
         : { hr: { UT2: 3120, UT1: 540, AT: 0, TR: 0, AN: i % 7 === 0 ? 540 : 0 }, power: null },
     notes: null,
@@ -361,6 +371,15 @@ const MOCK_ZONES: ZoneRow[] = [
   { zone: "AN", hr_pct_lo: 93, hr_pct_hi: null, hr_lo: 177, hr_hi: null, power_pct_lo: 95, power_pct_hi: null, power_lo: 247, power_hi: null },
 ];
 
+const MOCK_STRENGTH_MUSCULAR_BY_MUSCLE: Record<string, number> = { quadriceps: 1800, glutes: 1600, hamstrings: 900, chest: 1100, triceps: 650, abdominals: 300 };
+
+function mockStrengthSets(canonicalId: number): StrengthSetRow[] {
+  return [
+    { client_id: `mock-wd-${canonicalId}-1`, exercise_id: 1, seq: 0, set_type: "working", reps: 5, equipment_type: "barbell", load_kg: 100, bar_weight_kg: 20, effective_load_kg: 120, load_is_estimated: false, bodyweight_kg_used: null, is_rep_pr: true, is_e1rm_pr: false, muscular_au: 500, source: "catch", is_confirmed: true, created_at: new Date().toISOString() },
+    { client_id: `mock-wd-${canonicalId}-2`, exercise_id: 2, seq: 1, set_type: "working", reps: 8, equipment_type: "barbell", load_kg: 60, bar_weight_kg: 20, effective_load_kg: 80, load_is_estimated: false, bodyweight_kg_used: null, is_rep_pr: false, is_e1rm_pr: false, muscular_au: 350, source: "catch", is_confirmed: true, created_at: new Date().toISOString() },
+  ];
+}
+
 export function mockWorkoutDetail(id: number): WorkoutDetail {
   const base = MOCK_WORKOUTS.find((w) => w.id === id) ?? MOCK_WORKOUTS[0];
   const localDate = (base.start ?? TODAY).slice(0, 10);
@@ -373,7 +392,9 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
       id % 3 === 0
         ? { id: 1, date: localDate, text: "Felt strong on the back half.", rpe: 6, created_at: new Date().toISOString() }
         : null,
-    has_samples: base.category !== "other",
+    has_samples: base.category !== "other" && base.category !== "strength",
+    strength_sets: base.category === "strength" ? mockStrengthSets(id) : undefined,
+    muscular_by_muscle: base.category === "strength" ? MOCK_STRENGTH_MUSCULAR_BY_MUSCLE : null,
   };
 }
 
@@ -1476,4 +1497,159 @@ export function savePhotoEstimateMock(items: PhotoEstimateResult["items"], meal:
     food.verified = false;
     return pushMockFoodLog(at, meal, food.id, 1, "serving", true).id;
   });
+}
+
+// --- Session 14 (see PLAN.md): gym logger --------------------------------------------------
+//
+// The active-logging screen reads/writes IndexedDB directly (gymDb.ts/gymSync.ts), real in a
+// real browser even under ?mock=1 — only the library/history/readiness reads below go through
+// this mock switch, same as every other page.
+
+let nextMockExerciseId = 1;
+let MOCK_EXERCISES: Exercise[] = [
+  { id: nextMockExerciseId++, external_id: "Barbell_Squat", name: "Barbell Squat", default_equipment_type: "barbell", movement_pattern: "squat", unilateral: false, primary_muscles: ["quadriceps", "glutes"], secondary_muscles: ["hamstrings"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Barbell_Bench_Press", name: "Barbell Bench Press", default_equipment_type: "barbell", movement_pattern: "push_horizontal", unilateral: false, primary_muscles: ["chest"], secondary_muscles: ["triceps", "shoulders"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Conventional_Deadlift", name: "Conventional Deadlift", default_equipment_type: "barbell", movement_pattern: "hinge", unilateral: false, primary_muscles: ["hamstrings", "lower back"], secondary_muscles: ["glutes", "traps"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Seated_Cable_Row", name: "Seated Cable Row", default_equipment_type: "cable", movement_pattern: "pull_horizontal", unilateral: false, primary_muscles: ["lats", "middle back"], secondary_muscles: ["biceps"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Dumbbell_Shoulder_Press", name: "Dumbbell Shoulder Press", default_equipment_type: "dumbbell", movement_pattern: "push_vertical", unilateral: false, primary_muscles: ["shoulders"], secondary_muscles: ["triceps"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Pull-up", name: "Pull-up", default_equipment_type: "bodyweight", movement_pattern: "pull_vertical", unilateral: false, primary_muscles: ["lats"], secondary_muscles: ["biceps", "middle back"], custom: false },
+  { id: nextMockExerciseId++, external_id: "Walking_Lunge", name: "Walking Lunge", default_equipment_type: "dumbbell", movement_pattern: "lunge", unilateral: true, primary_muscles: ["quadriceps", "glutes"], secondary_muscles: ["hamstrings"], custom: false },
+];
+
+export function mockExercises(query?: string): Exercise[] {
+  if (!query) return MOCK_EXERCISES;
+  const q = query.trim().toLowerCase();
+  return MOCK_EXERCISES.filter((e) => e.name.toLowerCase().includes(q));
+}
+
+export function createMockExercise(fields: Omit<Exercise, "id" | "external_id" | "custom">): Exercise {
+  const row: Exercise = { id: nextMockExerciseId++, external_id: null, custom: true, ...fields };
+  MOCK_EXERCISES = [...MOCK_EXERCISES, row];
+  return row;
+}
+
+export function updateMockExercise(id: number, patch: Partial<Exercise>): Exercise {
+  MOCK_EXERCISES = MOCK_EXERCISES.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  return MOCK_EXERCISES.find((e) => e.id === id)!;
+}
+
+let nextMockGymId = 1;
+let nextMockStationId = 1;
+let MOCK_GYMS: GymRow[] = [{ id: nextMockGymId++, name: "Home gym" }];
+let MOCK_STATIONS: GymStation[] = [
+  { id: nextMockStationId++, gym_id: 1, name: "Cable station 2", equipment_type: "cable", config: { dual_stack: true, pulley_multiplier: 0.5 } },
+];
+
+export function mockGyms(): GymRow[] {
+  return MOCK_GYMS;
+}
+
+export function createMockGym(name: string): GymRow {
+  const row: GymRow = { id: nextMockGymId++, name };
+  MOCK_GYMS = [...MOCK_GYMS, row];
+  return row;
+}
+
+export function mockStations(gymId: number): GymStation[] {
+  return MOCK_STATIONS.filter((s) => s.gym_id === gymId);
+}
+
+export function upsertMockStation(
+  gymId: number,
+  fields: { name: string; equipment_type: GymStation["equipment_type"]; config: GymStation["config"] },
+  stationId?: number,
+): GymStation {
+  if (stationId) {
+    MOCK_STATIONS = MOCK_STATIONS.map((s) => (s.id === stationId ? { ...s, gym_id: gymId, ...fields } : s));
+    return MOCK_STATIONS.find((s) => s.id === stationId)!;
+  }
+  const row: GymStation = { id: nextMockStationId++, gym_id: gymId, ...fields };
+  MOCK_STATIONS = [...MOCK_STATIONS, row];
+  return row;
+}
+
+let nextMockTemplateId = 1;
+let MOCK_TEMPLATES: StrengthTemplate[] = [
+  {
+    id: nextMockTemplateId++,
+    name: "Push day",
+    items: [
+      { exercise_id: 2, target_sets: 4, target_reps: 6 },
+      { exercise_id: 5, target_sets: 3, target_reps: 10 },
+    ],
+  },
+];
+
+export function mockTemplates(): StrengthTemplate[] {
+  return MOCK_TEMPLATES;
+}
+
+export function saveMockTemplate(name: string, items: StrengthTemplateItem[], templateId?: number): StrengthTemplate {
+  if (templateId) {
+    MOCK_TEMPLATES = MOCK_TEMPLATES.map((t) => (t.id === templateId ? { id: templateId, name, items } : t));
+    return MOCK_TEMPLATES.find((t) => t.id === templateId)!;
+  }
+  const row: StrengthTemplate = { id: nextMockTemplateId++, name, items };
+  MOCK_TEMPLATES = [...MOCK_TEMPLATES, row];
+  return row;
+}
+
+export function deleteMockTemplate(id: number): void {
+  MOCK_TEMPLATES = MOCK_TEMPLATES.filter((t) => t.id !== id);
+}
+
+export function mockRepeatLastWorkout(): RepeatWorkoutPlanItem[] {
+  return [
+    { exercise_id: 1, gym_station_id: null, equipment_type: "barbell", set_type: "working", target_reps: 5 },
+    { exercise_id: 3, gym_station_id: null, equipment_type: "barbell", set_type: "working", target_reps: 5 },
+  ];
+}
+
+export function mockLastSetsForExercise(exerciseId: number): StrengthSetRow[] {
+  if (exerciseId !== 1) return [];
+  const createdAt = new Date(Date.now() - 4 * 86_400_000).toISOString();
+  return [0, 1, 2].map((i) => ({
+    client_id: `mock-last-${exerciseId}-${i}`,
+    exercise_id: exerciseId,
+    seq: i,
+    set_type: "working",
+    reps: 5,
+    equipment_type: "barbell",
+    load_kg: 100,
+    bar_weight_kg: 20,
+    effective_load_kg: 120,
+    load_is_estimated: false,
+    bodyweight_kg_used: null,
+    is_rep_pr: false,
+    is_e1rm_pr: false,
+    muscular_au: 500,
+    source: "catch",
+    is_confirmed: true,
+    created_at: createdAt,
+  }));
+}
+
+export function mockMuscleReadiness(): MuscleReadiness {
+  return {
+    window_hours: 72,
+    by_muscle: {
+      quadriceps: 1800,
+      glutes: 1600,
+      hamstrings: 900,
+      chest: 1100,
+      shoulders: 700,
+      triceps: 650,
+      lats: 950,
+      "middle back": 500,
+      biceps: 300,
+      "lower back": 800,
+      abdominals: 200,
+      calves: 0,
+      traps: 400,
+      forearms: 100,
+      adductors: 0,
+      abductors: 0,
+      neck: 0,
+    },
+  };
 }

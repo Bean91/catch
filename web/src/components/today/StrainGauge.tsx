@@ -34,6 +34,13 @@ export function StrainGauge({
   const dailyActivityComponent = strain?.daily_activity as
     | { value: number; steps: number | null; active_kcal: number | null }
     | undefined;
+  // Session 14 (see PLAN.md Part C.4): the gauge fill splits into cardio/muscular/daily
+  // segments — three opacities of the one accent, not a second hue, per DESIGN.md's "no
+  // other component introduces a new hue" rule; always paired with the legend text below.
+  const cardioValue = strain?.cardio?.value ?? 0;
+  const muscularValue = strain?.muscular?.value ?? 0;
+  const dailyValue = dailyActivityComponent?.value ?? 0;
+  const hasSplit = hasValue && (cardioValue > 0 || muscularValue > 0 || dailyValue > 0);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -50,12 +57,25 @@ export function StrainGauge({
             </div>
             <div className="relative mt-4 h-3 w-full">
               <div className="absolute inset-0 overflow-hidden rounded-full bg-surface-2">
-                <motion.div
-                  className="absolute inset-y-0 left-0 rounded-full bg-accent"
-                  initial={{ width: reduced ? `${pct}%` : "0%" }}
-                  animate={{ width: `${pct}%` }}
-                  transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
-                />
+                {hasSplit ? (
+                  <motion.div
+                    className="absolute inset-y-0 left-0 flex overflow-hidden rounded-full"
+                    initial={{ width: reduced ? `${pct}%` : "0%" }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    <div className="h-full bg-accent" style={{ width: `${(cardioValue / Math.max(value, 0.01)) * 100}%` }} />
+                    <div className="h-full bg-accent/60" style={{ width: `${(muscularValue / Math.max(value, 0.01)) * 100}%` }} />
+                    <div className="h-full bg-accent/30" style={{ width: `${(dailyValue / Math.max(value, 0.01)) * 100}%` }} />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="absolute inset-y-0 left-0 rounded-full bg-accent"
+                    initial={{ width: reduced ? `${pct}%` : "0%" }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                )}
               </div>
               {/* Target-range boundary ticks sit above the fill (not a translucent band under
                   it) so they stay visible even once the fill passes through or past the
@@ -78,6 +98,19 @@ export function StrainGauge({
               </span>
               <span>{MAX}</span>
             </div>
+            {hasSplit && (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-tertiary font-mono-nums">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-accent" aria-hidden /> Cardio {cardioValue.toFixed(1)}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-accent/60" aria-hidden /> Muscular {muscularValue.toFixed(1)}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-accent/30" aria-hidden /> Daily activity {dailyValue.toFixed(1)}
+                </span>
+              </div>
+            )}
             {dailyActivity && (dailyActivity.steps != null || dailyActivity.active_kcal != null) && (
               <div className="mt-3 flex gap-4 text-xs text-text-tertiary font-mono-nums">
                 {dailyActivity.steps != null && <span>{dailyActivity.steps.toLocaleString()} steps</span>}

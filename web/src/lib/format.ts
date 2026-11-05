@@ -96,7 +96,7 @@ export function bandLabel(band: string | null | undefined): string {
   return BAND_LABELS[band] ?? band;
 }
 
-const CATEGORY_LABELS: Record<string, string> = { erg: "Erg", on_water: "On-water", other: "Other" };
+const CATEGORY_LABELS: Record<string, string> = { erg: "Erg", on_water: "On-water", strength: "Strength", other: "Other" };
 
 export function categoryLabel(category: string | null | undefined): string {
   if (!category) return "Other";

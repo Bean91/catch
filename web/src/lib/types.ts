@@ -27,6 +27,12 @@ export interface Strain {
    * key, not one of `components` (those are per-canonical-workout and assume `canonical_id`
    * everywhere else they're read). */
   daily_activity?: { value: number; steps: number | null; active_kcal: number | null };
+  /** Session 14 (see PLAN.md Part C): the cardio half of `value` (existing HR/power trimp,
+   * log-saturated) and the muscular half (per-muscle-group AU, normalized against a 28-day
+   * baseline, log-saturated) — summed together, then daily_activity added on top, to make
+   * `value`. Shown as a split on the Today strain gauge. */
+  cardio?: { value: number; trimp_like: number };
+  muscular?: { value: number; total_normalized_au: number; explanation: string };
   explanation: string;
 }
 
@@ -145,7 +151,7 @@ export interface SyncResult {
 
 // --- Workouts (session 4; canonical activities + matching/editing, session 8/12) -------
 
-export type WorkoutCategory = "erg" | "on_water" | "other";
+export type WorkoutCategory = "erg" | "on_water" | "strength" | "other";
 export type SportFamily = "cycling" | "rowing" | "running" | "strength" | "other";
 
 export interface ActivityStrain {
@@ -278,6 +284,11 @@ export interface WorkoutDetail extends WorkoutListItem {
   hr_zone: string | null;
   day_note: Note | null;
   has_samples: boolean;
+  /** Session 14 (see PLAN.md Part C.4) — present only when category === "strength": this
+   * session's own logged/draft sets, and its per-muscle-group raw AU breakdown (the same
+   * cache catch/sync/gym.py writes onto the canonical). */
+  strength_sets?: StrengthSetRow[];
+  muscular_by_muscle?: Record<string, number> | null;
 }
 
 // --- Per-activity HR/power/cadence samples (task Part E.8) -------------------
@@ -763,4 +774,130 @@ export interface PhotoEstimateResult {
   items: PhotoEstimateItem[];
   notes: string;
   cost_usd: number;
+}
+
+// --- Session 14 (see PLAN.md): gym logger -------------------------------------------------
+
+export type EquipmentType =
+  | "barbell"
+  | "dumbbell"
+  | "kettlebell"
+  | "machine_plate"
+  | "machine_selectorized"
+  | "smith"
+  | "cable"
+  | "bodyweight"
+  | "weighted"
+  | "assisted"
+  | "band"
+  | "other";
+
+export type MovementPattern =
+  | "squat"
+  | "hinge"
+  | "lunge"
+  | "push_horizontal"
+  | "push_vertical"
+  | "pull_horizontal"
+  | "pull_vertical"
+  | "carry"
+  | "core"
+  | "other";
+
+export type SetType = "warmup" | "working" | "drop" | "failure" | "amrap";
+
+export interface Exercise {
+  id: number;
+  external_id: string | null;
+  name: string;
+  default_equipment_type: EquipmentType;
+  movement_pattern: MovementPattern;
+  unilateral: boolean;
+  primary_muscles: string[];
+  secondary_muscles: string[];
+  custom: boolean;
+}
+
+export interface GymStation {
+  id: number;
+  gym_id: number;
+  name: string;
+  equipment_type: EquipmentType;
+  config: {
+    bar_weight_kg?: number;
+    base_weight_kg?: number;
+    stack_kg_per_increment?: number;
+    pulley_multiplier?: number;
+    dual_stack?: boolean;
+    default_attachment?: string;
+  };
+}
+
+export interface GymRow {
+  id: number;
+  name: string;
+}
+
+/** The shape both the local offline queue (gymDb.ts) and `POST /api/gym/sessions/sync` use —
+ * every field the equipment math needs is here so a set can be computed/displayed before the
+ * server has ever seen it. */
+export interface StrengthSetInput {
+  client_id: string;
+  exercise_id: number;
+  gym_station_id?: number | null;
+  seq: number;
+  superset_group?: number | null;
+  set_type: SetType;
+  reps: number;
+  side?: "left" | "right" | null;
+  tempo?: string | null;
+  rir?: number | null;
+  rpe?: number | null;
+  equipment_type: EquipmentType;
+  load_kg?: number | null;
+  bar_weight_kg?: number | null;
+  pulley_multiplier?: number | null;
+  added_weight_kg?: number | null;
+  assistance_kg?: number | null;
+  band_tag?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
+export interface StrengthSetRow extends StrengthSetInput {
+  effective_load_kg: number | null;
+  load_is_estimated: boolean;
+  load_note?: string | null;
+  bodyweight_kg_used: number | null;
+  is_rep_pr: boolean;
+  is_e1rm_pr: boolean;
+  muscular_au: number | null;
+  source: "catch" | "garmin_draft";
+  is_confirmed: boolean;
+}
+
+export interface StrengthTemplateItem {
+  exercise_id: number;
+  target_sets?: number;
+  target_reps?: number;
+  gym_station_id?: number | null;
+}
+
+export interface StrengthTemplate {
+  id: number;
+  name: string;
+  items: StrengthTemplateItem[];
+}
+
+export interface RepeatWorkoutPlanItem {
+  exercise_id: number;
+  gym_station_id: number | null;
+  equipment_type: EquipmentType;
+  set_type: SetType;
+  target_reps: number;
+}
+
+export interface MuscleReadiness {
+  window_hours: number;
+  by_muscle: Record<string, number>;
 }

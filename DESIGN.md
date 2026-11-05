@@ -141,6 +141,37 @@ actions). Don't re-add on-chart buttons for this; if zoom/reset ever needs a vis
 again, it belongs outside the plot area (e.g. next to the range presets), never floating over
 the data.
 
+## Gym logger (session 14)
+
+**Bottom nav at 8 items.** Adding Gym pushed the bottom nav past what session 13's "Fuel"
+abbreviation note already flagged as tight at 7. At 390px, "Workouts" and "Settings" both
+overflowed their equal-width flex item and got clipped against the screen edge (not just
+visually cramped — actually unreadable). Fixed two ways together, not either alone: `min-w-0`
++ `truncate` on each nav item (a safety net, same `min-w-0` flexbox fix session 4 already
+established for this exact "intrinsic content width bubbling up through a flex ancestor"
+class of bug) so a long label degrades to an ellipsis instead of overflowing the viewport, and
+shortening "Workouts" to "Log" in the bottom nav specifically (the Sidebar keeps the full
+"Workouts" label — same already-established pattern as "Fuel" vs. "Nutrition") so no label
+actually needs to truncate at 390px. Screenshot this at 390px before adding a 9th item.
+
+**Strain gauge's cardio/muscular/daily-activity split is three opacities of the one accent,
+not a new hue** — `bg-accent`, `bg-accent/60`, `bg-accent/30`, stacked as three segments
+within the existing fill, plus a text legend below (the "never colour alone" rule already
+applies to opacity-as-the-only-signal too, hence the legend). Consistent with the existing
+rule that recovery/strain bands are the only other strong colours in the UI; this is also no
+different from `zoneColors.ts`'s existing one-hue training-zone ramp, applied to a stacked bar
+instead of a sparkline point.
+
+**Muscle readiness body map is schematic, not anatomical** — plain rounded rects/ellipses
+standing in for each muscle group on a front and a back figure, shaded by the same
+accent-opacity-ramp idea as training zones (`loadColor` in `MuscleBodyMap.tsx`), never a
+second hue. Each of the 17 muscle names in `catch/seed/exercises.json`'s vocabulary gets
+exactly one home — front *or* back, whichever side it's actually visible on in real life
+(chest/abdominals/quadriceps front; lats/glutes/hamstrings/triceps back; etc.) — never both,
+so there's no ambiguity about where a given AU value is shown. A numeric list under the map
+carries the same information in text, since the map's colour-only signal would otherwise be
+the sole source for anyone who can't distinguish the opacity ramp.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

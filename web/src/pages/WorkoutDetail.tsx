@@ -353,6 +353,45 @@ export function WorkoutDetailPage() {
         </Card>
       )}
 
+      {workout.category === "strength" && (
+        <>
+          {workout.muscular_by_muscle && Object.keys(workout.muscular_by_muscle).length > 0 && (
+            <Card title="Muscular load">
+              <ul className="flex flex-col gap-1.5">
+                {Object.entries(workout.muscular_by_muscle)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([muscle, value]) => (
+                    <li key={muscle} className="flex items-center justify-between text-sm">
+                      <span className="capitalize text-text-secondary">{muscle}</span>
+                      <span className="font-mono-nums text-text-primary">{Math.round(value)} AU</span>
+                    </li>
+                  ))}
+              </ul>
+            </Card>
+          )}
+          <Card title="Sets">
+            {!workout.strength_sets || workout.strength_sets.length === 0 ? (
+              <p className="text-sm text-text-tertiary">No sets logged for this session.</p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {workout.strength_sets.map((s) => (
+                  <li key={s.client_id} className="flex items-center justify-between rounded-md bg-surface-2 px-3 py-2 text-sm">
+                    <span className="text-text-secondary">
+                      {s.reps} reps{s.set_type !== "working" ? ` (${s.set_type})` : ""}
+                      {!s.is_confirmed && <span className="ml-2 text-xs text-band-yellow">unconfirmed — imported from Garmin</span>}
+                    </span>
+                    <span className="flex items-center gap-2 font-mono-nums text-text-primary">
+                      {s.effective_load_kg != null ? `${Math.round(s.effective_load_kg * 10) / 10}kg` : "—"}
+                      {s.is_rep_pr && <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs font-semibold text-accent">PR</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </>
+      )}
+
       <Card title="Edit">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
