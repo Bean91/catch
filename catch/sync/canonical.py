@@ -16,7 +16,8 @@ from catch.analytics.cycling_load import best_rolling_power, cycling_tss, estima
 from catch.analytics.matching import category_for_canonical, is_indoor
 from catch.analytics.matching import sport_family as _sport_family
 from catch.analytics.samples_codec import unpack_series
-from catch.analytics.strength import cardio_muscular_au
+from catch.analytics.strain import banister_trimp
+from catch.analytics.strength import cardio_muscular_au, cardio_muscular_au_from_hr_trimp
 from catch.analytics.zones_samples import (
     banister_trimp_from_samples,
     detect_trailing_idle,
@@ -36,6 +37,14 @@ _DEFAULT_PRIORITY = ["concept2", "peloton", "garmin"]
 # counterpart) falls back to its own computed start/duration rather than getting None from
 # every member having an unlisted provenance.
 _STRENGTH_PRIORITY = ["garmin", "catch_strength"]
+
+# Thresholds for the erg/bike muscular-AU split below, as a fraction of threshold_watts
+# (FTP for cycling, predicted-2k watts for rowing). SPRINT catches the old ">=110%"
+# sprints/starts band; MODERATE catches real sustained hard work below that — FTP-and-up
+# efforts can only be held briefly, so without this band a steady-at-threshold ride or a hard
+# steady piece both registered 0 muscular AU, not "default low."
+_MUSCULAR_SPRINT_RATIO = 1.10
+_MUSCULAR_MODERATE_RATIO = 0.55
 
 
 def provenance(activity: Activity) -> str:
@@ -261,11 +270,39 @@ def _resolve_zones(
     power_samples = _activity_samples(session, power_member.id) if power_member and power_member.id else None
     has_power = bool(power_samples) and any(v is not None for v in power_samples["power"])
 
+    # Reset once up front (session 15) rather than only inside each branch below that might
+    # set a new value — otherwise a stale muscular_load_au from an earlier resolve (e.g. before
+    # a max_hr/resting-HR change, or before enough Concept2 history existed for a rowing
+    # threshold) would survive untouched whenever this re-run's branches don't happen to set a
+    # new one, breaking this module's "cache never goes stale" contract. Guarded to rowing/
+    # cycling only (and never when a muscular_by_muscle_json already exists) so a strength
+    # session's own cache from catch/sync/gym.py's _recompute_canonical_muscular_load is never
+    # touched here.
+    if canonical.sport_family in ("rowing", "cycling") and not canonical.muscular_by_muscle_json:
+        canonical.muscular_load_au = None
+
     if not has_hr and not has_power:
         canonical.zones_json = None
         canonical.strain_trimp = None
         canonical.session_label = None
         canonical.auto_trimmed_tail_s = None
+        # Session 15: a rowing/cycling session with no per-sample data at all (most on-water
+        # rowing — Garmin has no power for it and often no per-sample HR either — or a Garmin
+        # erg entry that only has a summary avg_hr) still gets a small HR-trimp-based muscular
+        # share here, from the same whole-session Banister formula catch/sync/scoring.py's
+        # day_strain already falls back to for the cardio side when strain_trimp is None. This
+        # is the common case for real rowing data, not an edge case — without it, those
+        # sessions always read as exactly 0 muscular load regardless of how hard they were.
+        # (muscular_load_au was already reset to None above for rowing/cycling, so there's
+        # nothing to clobber for any other sport_family reaching this branch.)
+        if canonical.sport_family in ("rowing", "cycling") and canonical.avg_hr and canonical.duration:
+            resting_hr = _resting_hr_for(session, canonical.start)
+            trimp = banister_trimp(
+                canonical.duration / 60.0, canonical.avg_hr, resting_hr, max_hr=settings.get("max_hr"),
+                trimp_exponent=settings["trimp_exponent"],
+            )
+            if trimp:
+                canonical.muscular_load_au = cardio_muscular_au_from_hr_trimp(trimp) or None
         return
 
     max_hr = settings.get("max_hr")
@@ -321,8 +358,22 @@ def _resolve_zones(
     # the cycling-only TSS branch above — rowing has no cycling_tss but still has real
     # per-sample power to check against an erg threshold.
     if threshold_watts and power_for_ui:
-        seconds_above = float(sum(1 for v in power_for_ui if v is not None and v >= 1.10 * threshold_watts))
-        canonical.muscular_load_au = cardio_muscular_au(seconds_above, threshold_watts) or None
+        sprint_floor = _MUSCULAR_SPRINT_RATIO * threshold_watts
+        moderate_floor = _MUSCULAR_MODERATE_RATIO * threshold_watts
+        seconds_above = float(sum(1 for v in power_for_ui if v is not None and v >= sprint_floor))
+        seconds_moderate = float(
+            sum(1 for v in power_for_ui if v is not None and moderate_floor <= v < sprint_floor)
+        )
+        canonical.muscular_load_au = cardio_muscular_au(seconds_above, threshold_watts, seconds_moderate) or None
+
+    # Fallback for a rowing/cycling session that never got a power-based muscular share above
+    # (on-water rowing has no power at all; an erg/bike session can also have power but no
+    # resolved threshold yet, e.g. rowing before enough Concept2 history exists for a
+    # predicted-2k watts) — this covers most real rowing/cycling sessions, not an edge case,
+    # so leaving it at the power-only share would mean those almost never show any muscular
+    # strain. See catch/analytics/strength.py's cardio_muscular_au_from_hr_trimp docstring.
+    if canonical.muscular_load_au is None and canonical.sport_family in ("rowing", "cycling") and hr_trimp:
+        canonical.muscular_load_au = cardio_muscular_au_from_hr_trimp(hr_trimp) or None
 
     label = _session_label(
         hr_zones, hr_moving_s or power_moving_s, power_zones, settings["min_zone_minutes"], settings["min_zone_pct"]

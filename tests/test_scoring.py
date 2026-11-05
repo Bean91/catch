@@ -282,6 +282,11 @@ def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
     light_day = START + timedelta(days=1)
     erg_day = START + timedelta(days=2)
 
+    # Persisted (not just passed locally to day_strain below) since resolve_canonical — run as
+    # part of run_matching, below — reads max_hr itself via get_settings for the erg piece's
+    # own HR-trimp-based muscular share (session 15).
+    update_settings(session, {"max_hr": 180})
+
     squat = _squat_exercise(session)
     _log_working_sets(session, heavy_day, squat.id, n_sets=5, reps=5, load_kg=130.0, rir=1)
     _log_working_sets(session, light_day, squat.id, n_sets=3, reps=12, load_kg=40.0, rir=6)
@@ -303,7 +308,10 @@ def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
 
     assert heavy["muscular"]["value"] > light["muscular"]["value"]
     assert light["muscular"]["value"] > erg["muscular"]["value"]
-    assert erg["muscular"]["value"] == 0.0  # no lifting, no above-threshold power -> no muscular share.
+    # Session 15: an HR-only erg (no power at all) now gets a small HR-trimp-derived muscular
+    # share instead of a hard 0 — see cardio_muscular_au_from_hr_trimp's docstring for why a
+    # power-only share left most real rowing/cycling sessions undersold.
+    assert erg["muscular"]["value"] > 0.0
     assert erg["cardio"]["value"] > 0  # the erg piece still registers plenty of cardio strain.
 
 

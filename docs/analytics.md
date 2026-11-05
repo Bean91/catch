@@ -554,14 +554,21 @@ comparison) lands around "high" at zero cardio trimp. `day_strain`'s result dict
 alongside the existing `daily_activity` key, for the Today strain gauge's three-way split and
 workout detail's per-session breakdown.
 
-**Cardio's own small muscular share** (erg/bike, task Part C.1.2): time spent with per-sample
-power ≥110% of threshold (the rowing erg threshold from `catch/sync/rowing_predict.py`'s
+**Cardio's own small muscular share** (erg/bike, task Part C.1.2, broadened in session 15):
+two tiers against threshold (the rowing erg threshold from `catch/sync/rowing_predict.py`'s
 `rowing_watts_2k`, or cycling's FTP — whichever the session already resolves power zones
-against) contributes `seconds_above × threshold_watts × 0.01` AU — deliberately **no
-per-muscle breakdown** (there's no exercise/muscle data for a cardio session) and **no 28-day
-normalization** (the scale constant already keeps it small by construction, default "low" per
-the task). Added to the same muscular total as a flat addend, not run through
-`normalize_muscle_au` itself.
+against) — per-sample power ≥110% of threshold ("sprint", `seconds_above ×
+threshold_watts × 0.01` AU) and 55-110% of threshold ("moderate", `seconds_moderate ×
+threshold_watts × 0.00025` AU — well under the sprint rate per second, since sustained steady
+effort is diffuse/low-force next to a near-max sprint). The moderate tier was added because
+≥110%-only meant almost no real session ever registered anything — riding steadily *at* FTP
+(100%, by definition already a hard ~20-60min effort) or a hard steady erg piece at
+2k-predicted watts both landed at exactly 0 AU otherwise, which read as "cardio never loads
+muscle" rather than "default low." Both tiers are summed into one flat addend — deliberately
+**no per-muscle breakdown** (there's no exercise/muscle data for a cardio session) and **no
+28-day normalization** (the scale constants already keep it small by construction). See
+`catch/sync/canonical.py`'s `_MUSCULAR_SPRINT_RATIO`/`_MUSCULAR_MODERATE_RATIO` and
+`catch/analytics/strength.py`'s `cardio_muscular_au`.
 
 **Garmin-strength merge field priority** (task Part B.2, `catch/sync/canonical.py`): for a
 `sport_family == "strength"` canonical, `start`/`duration`/`calories`/HR use priority

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from catch.analytics.strength import (
     PrResult,
     WorkingSet,
@@ -114,6 +116,25 @@ def test_cardio_muscular_au_is_small_relative_to_a_real_lifting_session():
 
 def test_cardio_muscular_au_zero_when_no_time_above_threshold():
     assert cardio_muscular_au(0.0, 300.0) == 0.0
+
+
+def test_cardio_muscular_au_moderate_tier_is_nonzero_and_well_under_the_sprint_rate():
+    # A full 30-minute piece held steadily in the 55-110%-of-threshold band (e.g. a hard
+    # steady row or a ride held at FTP) now contributes something — before the moderate tier
+    # existed, this landed at exactly 0 AU since none of it crossed the old 110% sprint bar.
+    moderate_only = cardio_muscular_au(0.0, 300.0, seconds_moderate=1800.0)
+    assert moderate_only > 0.0
+    # Per-second, moderate effort earns much less than sprint effort, not just a smaller window.
+    sprint_equivalent = cardio_muscular_au(1800.0, 300.0)
+    assert moderate_only < sprint_equivalent
+
+
+def test_cardio_muscular_au_moderate_tier_still_small_relative_to_a_real_lifting_session():
+    # A full hour held at threshold must still read as clearly less muscular load than a
+    # single hard working set, same "default low" guarantee as the sprint tier.
+    hour_at_threshold_au = cardio_muscular_au(0.0, 250.0, seconds_moderate=3600.0)
+    lifting_set = WorkingSet(exercise_id=1, date="2026-11-01", reps=5, effective_load_kg=120.0, rir=1)
+    assert hour_at_threshold_au < set_muscular_au(lifting_set)
 
 
 def test_detect_pr_first_ever_set_is_both_prs():

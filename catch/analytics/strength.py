@@ -114,14 +114,56 @@ def normalize_muscle_au(today_au: float, baseline_daily_au: list[float], clamp_l
     return baseline_avg * ratio
 
 
-def cardio_muscular_au(seconds_above_threshold: float, threshold_power_watts: float, scale: float = 0.01) -> float:
-    """A small muscular contribution from erg/bike time spent above ~110% of threshold power
-    (sprints, starts — task Part C.1.2), "default low" per the task: `scale` keeps this well
-    below what a real strength session produces for the same AU formula's units (power x
-    seconds), so an all-out erg piece doesn't masquerade as a leg day."""
-    if seconds_above_threshold <= 0 or threshold_power_watts <= 0:
+def cardio_muscular_au(
+    seconds_above_threshold: float,
+    threshold_power_watts: float,
+    seconds_moderate: float = 0.0,
+    sprint_scale: float = 0.01,
+    moderate_scale: float = 0.00025,
+) -> float:
+    """A small muscular contribution from erg/bike time spent pushing real power, split into
+    two tiers against `threshold_power_watts` (FTP for cycling, predicted-2k watts for
+    rowing): `seconds_above_threshold` (originally ~110%+, sprints/starts — task Part C.1.2)
+    at `sprint_scale`, and `seconds_moderate` (a lower band — see the ratio canonical.py
+    applies before calling this, currently ~55-110%) at `moderate_scale`, a fraction of that —
+    sustained steady effort is diffuse/low-force next to a near-max sprint, so it earns much
+    less AU per second, not just a smaller time window.
+
+    The moderate tier exists because an unqualified ">=110% of threshold" bar means almost no
+    real session ever registers any muscular share at all: riding steadily *at* FTP (100% of
+    threshold, by definition a seriously hard ~20-60min effort) or rowing a hard steady piece
+    at 2k-predicted watts both landed at exactly 0 AU before this tier existed, which read as
+    "rowing/biking never load muscle" rather than "default low." Both scales stay well below
+    what a real strength session produces for the same AU formula's units (power x seconds) —
+    `moderate_scale` specifically keeps even a full hour held at threshold under what one
+    single hard working set contributes — so an all-out erg/bike session still doesn't
+    masquerade as a leg day; see tests/analytics/test_strength.py's relative-size assertions."""
+    if threshold_power_watts <= 0:
         return 0.0
-    return seconds_above_threshold * threshold_power_watts * scale
+    au = max(0.0, seconds_above_threshold) * threshold_power_watts * sprint_scale
+    au += max(0.0, seconds_moderate) * threshold_power_watts * moderate_scale
+    return au
+
+
+def cardio_muscular_au_from_hr_trimp(trimp: float, scale: float = 0.25) -> float:
+    """Fallback muscular AU for a rowing/cycling session with no per-sample power at all —
+    most on-water rowing (Garmin has no power for it), HR-only Garmin erg entries, a
+    non-power-metered ride, or an erg/bike session whose power-based threshold isn't resolved
+    yet (e.g. rowing before enough Concept2 history exists for a predicted-2k watts). Without
+    this, those sessions get a hard 0 regardless of how hard they actually were, which is most
+    real rowing/cycling sessions, not an edge case — see `cardio_muscular_au`'s docstring for
+    why the power-based tiers alone already undersold this before this fallback existed.
+
+    Derived from the session's own HR-based TRIMP (`catch/analytics/zones_samples.py`'s
+    `banister_trimp_from_samples`, already computed for the cardio side of strain) rather than
+    introducing a second intensity signal. `scale` is calibrated so a solid ~1hr moderate-hard
+    row (trimp ~77 at HR 130, max_hr 180, resting_hr 50 — see
+    tests/test_scoring.py's heavy/light/erg comparison) lands clearly under even a light
+    accessory lifting day's muscular value, the same "default low" guarantee as the power-based
+    tiers."""
+    if trimp <= 0:
+        return 0.0
+    return trimp * scale
 
 
 # -- PRs (task Part A.6) -------------------------------------------------------------------

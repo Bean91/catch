@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from catch.core.models import Activity, CanonicalActivity, DailyWellness
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync.canonical import _is_generic_garmin_title, auto_title, resolve_all_canonicals, resolve_canonical
@@ -61,6 +63,57 @@ def test_cycling_power_strain_uses_tss_not_hr_banister(session):
     canonical = session.get(CanonicalActivity, activity.canonical_id)
     assert canonical.strain_method == "cycling_tss"
     assert canonical.strain_trimp == 50.0
+
+
+def test_rowing_with_hr_samples_but_no_power_gets_a_muscular_share_that_tracks_max_hr(session):
+    """Most real on-water rowing (and plenty of indoor erg entries) has per-sample HR but no
+    power at all, so it never reaches the power-based sprint/moderate tiers — session 15's
+    HR-trimp fallback is what gives these a nonzero muscular share. This also covers the
+    "cache never goes stale" regression the max_hr test above guards for strain_trimp/zones:
+    muscular_load_au must track a later max_hr change the same way, not freeze at whatever the
+    first resolve computed."""
+    update_settings(session, {"max_hr": 190})
+    session.add(DailyWellness(date=T0.date(), resting_hr=50))
+    activity = Activity(source="garmin", external_id="row-hr-only", type="rowing_v2", start=T0, duration=1800.0, avg_hr=150.0)
+    session.add(activity)
+    session.commit()
+    store_samples(session, activity.id, start=T0, hr=_jitter(150.0, 1800), power=[None] * 1800, cadence=[None] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+
+    canonical = session.get(CanonicalActivity, activity.canonical_id)
+    assert canonical.sport_family == "rowing"
+    au_at_190 = canonical.muscular_load_au
+    assert au_at_190 is not None and au_at_190 > 0.0
+
+    # A lower max_hr reads the same 150bpm as a harder effort (higher HRr) -> more trimp ->
+    # more muscular AU. Must change on re-resolve, not stay frozen at the first value.
+    update_settings(session, {"max_hr": 160})
+    resolve_all_canonicals(session)
+    session.refresh(canonical)
+    assert canonical.muscular_load_au is not None and canonical.muscular_load_au > au_at_190
+
+
+def test_cycling_held_steadily_at_ftp_now_registers_some_muscular_share(session):
+    """Session 15: before the moderate-tier muscular AU existed, holding power right at (or
+    below) FTP the whole ride — the realistic case, since you can only hold *above* FTP for
+    seconds to a couple minutes — scored exactly 0 muscular share, which read as "biking never
+    loads muscle." It should now register something, while still staying well under what a
+    short all-out effort above threshold would add."""
+    update_settings(session, {"max_hr": 190, "ftp_watts": 200.0})
+    activity = Activity(source="garmin", external_id="bike-steady", type="indoor_cycling", start=T0, duration=1800.0, avg_power=200.0)
+    session.add(activity)
+    session.commit()
+
+    store_samples(session, activity.id, start=T0, hr=[None] * 1800, power=[200.0] * 1800, cadence=[85.0] * 1800)
+    run_matching(session)
+    session.refresh(activity)
+
+    canonical = session.get(CanonicalActivity, activity.canonical_id)
+    assert canonical.muscular_load_au is not None
+    assert canonical.muscular_load_au > 0.0
+    # 1800s at exactly the moderate rate (100% of FTP is inside the 55-110% band) -> 1800 * 200 * 0.00025.
+    assert canonical.muscular_load_au == pytest.approx(90.0)
 
 
 def test_cycling_power_strain_estimates_ftp_when_unset(session):
