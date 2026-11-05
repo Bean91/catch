@@ -16,6 +16,7 @@ from catch.analytics.cycling_load import best_rolling_power, cycling_tss, estima
 from catch.analytics.matching import category_for_canonical, is_indoor
 from catch.analytics.matching import sport_family as _sport_family
 from catch.analytics.samples_codec import unpack_series
+from catch.analytics.strength import cardio_muscular_au
 from catch.analytics.zones_samples import (
     banister_trimp_from_samples,
     detect_trailing_idle,
@@ -27,8 +28,14 @@ from catch.analytics.zones_samples import (
 )
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity
 from catch.core.settings_store import get_settings
+from catch.sync.rowing_predict import rowing_watts_2k
 
 _DEFAULT_PRIORITY = ["concept2", "peloton", "garmin"]
+# Session 14 (see PLAN.md Part B.2): "HR, calories, duration from Garmin [when both exist]."
+# catch_strength still has to be in this list (last) so a Catch-only session (no Garmin
+# counterpart) falls back to its own computed start/duration rather than getting None from
+# every member having an unlisted provenance.
+_STRENGTH_PRIORITY = ["garmin", "catch_strength"]
 
 
 def provenance(activity: Activity) -> str:
@@ -162,14 +169,15 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     overrides = _overrides(canonical)
 
     sport = members[0].sport_family or _sport_family(members[0].source, members[0].type)
-    start, start_src = _pick(members, "start", _DEFAULT_PRIORITY)
-    duration, duration_src = _pick(members, "duration", _DEFAULT_PRIORITY)
+    base_priority = _STRENGTH_PRIORITY if sport == "strength" else _DEFAULT_PRIORITY
+    start, start_src = _pick(members, "start", base_priority)
+    duration, duration_src = _pick(members, "duration", base_priority)
     distance_field = "distance"
-    distance_priority = priority["distance_indoor_bike"] + _DEFAULT_PRIORITY if sport == "cycling" else _DEFAULT_PRIORITY
+    distance_priority = priority["distance_indoor_bike"] + _DEFAULT_PRIORITY if sport == "cycling" else base_priority
     distance, distance_src = _pick(members, distance_field, distance_priority)
     power, power_src = _pick(members, "avg_power", priority["power"] + _DEFAULT_PRIORITY)
     cadence, cadence_src = _pick(members, "avg_cadence", priority["cadence"] + _DEFAULT_PRIORITY)
-    calories, calories_src = _pick(members, "calories", _DEFAULT_PRIORITY)
+    calories, calories_src = _pick(members, "calories", base_priority)
     avg_hr, max_hr, hr_src = pick_hr(members)
 
     field_sources = {}
@@ -282,23 +290,39 @@ def _resolve_zones(
     power_zones: Optional[dict] = None
     power_tss: Optional[float] = None
     power_moving_s = 0.0
-    if canonical.sport_family == "cycling" and has_power:
+    power_for_ui: list = []
+    threshold_watts: Optional[float] = None
+    if has_power:
         power_trimmed_s = _trim_tail(session, settings, power_samples)
         p_usable_n = len(power_samples["power"]) - int(power_trimmed_s)
         power_for_ui = power_samples["power"][:p_usable_n] if power_trimmed_s else power_samples["power"]
         power_moving_s = float(p_usable_n)
 
+    if canonical.sport_family == "cycling" and has_power:
         ftp = settings.get("ftp_watts")
         ftp_is_estimated = False
         if not ftp:
             ftp = estimate_ftp_watts(best_rolling_power(power_for_ui))
             ftp_is_estimated = True
         if ftp:
+            threshold_watts = ftp
             power_zones = power_time_in_zone_seconds(smooth(power_for_ui), ftp, settings)
             defined = [v for v in power_for_ui if v is not None]
             avg_power = sum(defined) / len(defined) if defined else None
             power_tss = cycling_tss(power_moving_s, avg_power, ftp)
             canonical.strain_method = "cycling_tss_estimated_ftp" if ftp_is_estimated else "cycling_tss"
+    elif canonical.sport_family == "rowing" and has_power:
+        threshold_watts = rowing_watts_2k(session, settings)
+
+    # Session 14 (see PLAN.md Part C.1.2): a small muscular-load share from erg/bike time
+    # spent above ~110% of threshold power (sprints, starts) — "default low" per the task, so
+    # an all-out piece never reads as a lifting session; see
+    # catch/analytics/strength.py's cardio_muscular_au docstring for the scale. Independent of
+    # the cycling-only TSS branch above — rowing has no cycling_tss but still has real
+    # per-sample power to check against an erg threshold.
+    if threshold_watts and power_for_ui:
+        seconds_above = float(sum(1 for v in power_for_ui if v is not None and v >= 1.10 * threshold_watts))
+        canonical.muscular_load_au = cardio_muscular_au(seconds_above, threshold_watts) or None
 
     label = _session_label(
         hr_zones, hr_moving_s or power_moving_s, power_zones, settings["min_zone_minutes"], settings["min_zone_pct"]

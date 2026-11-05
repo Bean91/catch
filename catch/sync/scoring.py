@@ -9,7 +9,8 @@ from sqlmodel import Session, select
 
 from catch.analytics.load import training_load
 from catch.analytics.recovery import recovery_score
-from catch.analytics.strain import daily_activity_strain, session_strain, strain_band
+from catch.analytics.strain import daily_activity_strain, muscular_strain_component, session_strain, strain_band
+from catch.analytics.strength import normalize_muscle_au
 from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness
 from catch.core.settings_store import get_settings
 
@@ -82,11 +83,65 @@ def _daily_activity_component(session: Session, day: date, settings: dict) -> di
     return daily_activity_strain(non_exercise_steps, non_exercise_kcal, settings)
 
 
+def _muscle_baseline(session: Session, day: date) -> dict[str, list[float]]:
+    """Trailing 28-day daily per-muscle AU totals (one number per day it appears — missing
+    days are simply absent), for catch/analytics/strength.py's normalize_muscle_au baseline.
+    One query, not a 28-iteration loop — cheap enough for recompute_scores' own per-day loop
+    over full history."""
+    baseline_start, _ = _local_day_utc_range(day - timedelta(days=28))
+    day_start, _ = _local_day_utc_range(day)
+    rows = session.exec(
+        select(CanonicalActivity).where(
+            CanonicalActivity.start >= baseline_start,
+            CanonicalActivity.start < day_start,
+            CanonicalActivity.muscular_by_muscle_json.is_not(None),
+        )
+    ).all()
+    by_day_muscle: dict[tuple, float] = {}
+    for a in rows:
+        if _overrides(a).get("exclude_from_totals"):
+            continue
+        local_day = a.start.astimezone().date()
+        for muscle, au in json.loads(a.muscular_by_muscle_json).items():
+            key = (local_day, muscle)
+            by_day_muscle[key] = by_day_muscle.get(key, 0.0) + au
+    baseline: dict[str, list[float]] = {}
+    for (_, muscle), au in by_day_muscle.items():
+        baseline.setdefault(muscle, []).append(au)
+    return baseline
+
+
+def _muscular_component(session: Session, day: date, activities: list[CanonicalActivity], settings: dict) -> dict:
+    """Task Part C.1/C.2: a strength session's per-muscle AU (catch/sync/gym.py's cache) is
+    normalized against its own 28-day baseline before being summed; an erg/bike session's
+    small above-threshold-power AU (task Part C.1.2 — no per-muscle breakdown to normalize)
+    is added in raw, since it's "default low" by construction and doesn't need baselining."""
+    today_by_muscle: dict[str, float] = {}
+    cardio_only_au = 0.0
+    for a in activities:
+        if a.muscular_by_muscle_json:
+            for muscle, au in json.loads(a.muscular_by_muscle_json).items():
+                today_by_muscle[muscle] = today_by_muscle.get(muscle, 0.0) + au
+        elif a.muscular_load_au:
+            cardio_only_au += a.muscular_load_au
+
+    if not today_by_muscle and not cardio_only_au:
+        return muscular_strain_component(0.0, settings)
+
+    baseline = _muscle_baseline(session, day)
+    total_normalized = cardio_only_au
+    for muscle, au in today_by_muscle.items():
+        total_normalized += normalize_muscle_au(au, baseline.get(muscle, []))
+    return muscular_strain_component(total_normalized, settings)
+
+
 def day_strain(session: Session, day: date, settings: dict) -> dict:
     activities = _day_activities(session, day)
+    daily_activity = _daily_activity_component(session, day, settings)
+    muscular = _muscular_component(session, day, activities, settings)
+
     if not activities:
-        daily_activity = _daily_activity_component(session, day, settings)
-        value = min(21.0, daily_activity["value"])
+        value = min(21.0, daily_activity["value"] + muscular["value"])
         return {
             "value": value,
             "band": strain_band(value),
@@ -94,9 +149,12 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
             "rowing_trimp_like": 0.0,
             "components": [],
             "daily_activity": daily_activity,
+            "cardio": {"value": 0.0, "trimp_like": 0.0},
+            "muscular": muscular,
             "explanation": (
                 "No sessions logged."
                 + (f" Daily activity adds {daily_activity['value']:.1f}." if daily_activity["value"] else "")
+                + (f" Muscular load adds {muscular['value']:.1f}." if muscular["value"] else "")
             ),
         }
 
@@ -133,7 +191,7 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
                 rpe=rpe,
                 settings=settings,
             )
-        scores.append({"canonical_id": activity.id, "title": activity.title, **result})
+        scores.append({"canonical_id": activity.id, "title": activity.title, "muscular_au": activity.muscular_load_au or 0.0, **result})
 
     total_trimp = sum(s["components"][0]["trimp_like"] for s in scores if s["value"] is not None)
     # Rowing-specific trimp, summed separately so Today can show rowing load apart from
@@ -143,40 +201,25 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
         for s, a in zip(scores, activities)
         if s["value"] is not None and a.sport_family == "rowing"
     )
-    daily_activity = _daily_activity_component(session, day, settings)
-    if total_trimp <= 0:
-        if daily_activity["value"] <= 0:
-            return {
-                "value": None,
-                "band": "insufficient_data",
-                "trimp_like": 0.0,
-                "rowing_trimp_like": 0.0,
-                "components": scores,
-                "daily_activity": daily_activity,
-                "explanation": "No session that day had enough data (HR or an RPE note) to score.",
-            }
-        # The workout itself couldn't be scored, but there's still real non-exercise
-        # daily-activity data for the day — report that rather than a flat "insufficient
-        # data" when a real (if small) number exists.
-        value = daily_activity["value"]
+    # Cardio and muscular each go through their own log-saturation curve independently (task
+    # Part C.2/C.3 — a heavy lifting day with zero HR must still register meaningful strain,
+    # which a single shared curve over a combined trimp+AU number couldn't guarantee), then
+    # sum as 0-21 values; daily-activity is added last, same as before (never mixed into
+    # trimp_like/muscular AU — see daily_activity_strain/muscular_strain_component).
+    cardio_combined = min(21.0, settings["strain_log_a"] * math.log1p(total_trimp)) if total_trimp > 0 else 0.0
+    if total_trimp <= 0 and daily_activity["value"] <= 0 and muscular["value"] <= 0:
         return {
-            "value": value,
-            "band": strain_band(value),
+            "value": None,
+            "band": "insufficient_data",
             "trimp_like": 0.0,
             "rowing_trimp_like": 0.0,
             "components": scores,
             "daily_activity": daily_activity,
-            "explanation": (
-                "No session that day had enough data (HR or an RPE note) to score its workout strain; "
-                f"daily activity still adds {value:.1f}."
-            ),
+            "cardio": {"value": 0.0, "trimp_like": 0.0},
+            "muscular": muscular,
+            "explanation": "No session that day had enough data (HR, muscular load, or an RPE note) to score.",
         }
-    # Combine via the same log-saturation curve rather than summing 0-21 scores directly, so
-    # several moderate sessions in one day don't just linearly stack toward "all out." The
-    # daily-activity component is added only here, on the final 0-21 value, after the
-    # log-saturation curve — never mixed into trimp_like (see daily_activity_strain).
-    combined = min(21.0, settings["strain_log_a"] * math.log1p(total_trimp))
-    value = min(21.0, combined + daily_activity["value"])
+    value = min(21.0, min(21.0, cardio_combined + muscular["value"]) + daily_activity["value"])
     return {
         "value": value,
         "band": strain_band(value),
@@ -184,9 +227,12 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
         "rowing_trimp_like": rowing_trimp,
         "components": scores,
         "daily_activity": daily_activity,
+        "cardio": {"value": cardio_combined, "trimp_like": total_trimp},
+        "muscular": muscular,
         "explanation": (
-            f"{len(activities)} session(s) that day combined via log-saturation of total trimp_like="
-            f"{total_trimp:.1f} -> {combined:.1f}, plus daily activity {daily_activity['value']:.1f} = {value:.1f}."
+            f"{len(activities)} session(s) that day: cardio trimp_like={total_trimp:.1f} -> "
+            f"{cardio_combined:.1f}, muscular {muscular['value']:.1f}, daily activity "
+            f"{daily_activity['value']:.1f} = {value:.1f}."
         ),
     }
 

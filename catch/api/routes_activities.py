@@ -30,8 +30,8 @@ def _members(db: Session, canonical_id: int) -> list[Activity]:
 
 
 def _category_filter(category: str):
-    if category not in ("erg", "on_water", "other"):
-        raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Allowed: erg, on_water, other")
+    if category not in ("erg", "on_water", "strength", "other"):
+        raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Allowed: erg, on_water, strength, other")
     # A pure SQL predicate on the persisted column — category_for_canonical's erg-vs-on_water
     # split within the "rowing" sport family used to only be knowable in Python, *after* a
     # SQL-level sport_family filter and the page's LIMIT had already applied, which could
@@ -106,7 +106,7 @@ def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[
 def list_activities(
     from_: datetime | None = Query(None, alias="from"),
     to: datetime | None = Query(None),
-    category: str | None = Query(None, description="erg | on_water | other"),
+    category: str | None = Query(None, description="erg | on_water | strength | other"),
     limit: int = Query(_PAGE_SIZE_DEFAULT, ge=1, le=_PAGE_SIZE_MAX),
     cursor: str | None = Query(None, description="opaque, from the previous page's next_cursor"),
     db: Session = Depends(get_db),

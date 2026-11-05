@@ -106,6 +106,30 @@ def daily_activity_strain(
     }
 
 
+def muscular_strain_component(total_normalized_au: float, settings: dict | None = None) -> dict:
+    """Session 14 (see PLAN.md Part C.2) — the muscular half of the day's 0-21 strain, kept on
+    the same log-saturation shape as the cardio half (`strain_log_a`) rather than inventing an
+    unrelated curve, with its own constant/weight so a heavy lifting day can register
+    meaningful strain *even at zero cardio trimp* — `catch/sync/scoring.py`'s `day_strain`
+    adds this directly onto the cardio component rather than feeding it into the same
+    log(1+trimp) call, so neither accidentally saturates the other out."""
+    settings = settings or DEFAULT_SETTINGS
+    if total_normalized_au <= 0:
+        return {"value": 0.0, "total_normalized_au": 0.0, "explanation": "No muscular load logged."}
+    log_a = settings["muscular_strain_log_a"]
+    weight = settings["muscular_strain_weight"]
+    value = min(21.0, weight * log_a * math.log1p(total_normalized_au))
+    return {
+        "value": value,
+        "total_normalized_au": total_normalized_au,
+        "explanation": (
+            f"Muscular AU ({total_normalized_au:.0f}, per-muscle-group-normalized against a 28-day "
+            f"baseline, summed) -> {value:.1f} via log-saturation (muscular_strain_log_a={log_a}, "
+            f"weight={weight})."
+        ),
+    }
+
+
 def hr_sample_durations(ordered_t_hr: list[tuple[float, float | None]]) -> list[tuple[float, float]]:
     """ordered_t_hr: [(t, hr_or_None), ...] for one interval, already in recorded order
     (t resets to 0 at each interval boundary — caller groups by interval first). Each HR

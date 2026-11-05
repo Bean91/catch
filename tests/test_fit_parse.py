@@ -3,7 +3,7 @@ from __future__ import annotations
 import types
 from datetime import datetime, timezone
 
-from catch.sync.fit_parse import parse_fit
+from catch.sync.fit_parse import parse_fit, parse_fit_sets
 
 # Fake fitdecode frames rather than a committed real .fit file — a real one carries a
 # user_profile/serial_number (PII), and fitdecode's public interface (frame.name,
@@ -176,3 +176,82 @@ def test_parse_fit_returns_none_on_a_malformed_file(monkeypatch, tmp_path):
     path.write_bytes(b"garbage")
 
     assert parse_fit(path) is None
+
+
+# -- session 14 (see PLAN.md Part B.2): draft-import Garmin watch-counted sets --------------
+#
+# This account's only real strength-training FIT file (data/fit/24650449177.fit) has exactly
+# one "set" message, and it's the unstructured whole-workout wrapper: set_type="active" but
+# repetitions/weight/category all None (the watch never used its own rep-counting feature for
+# that session). Confirmed live via fitdecode directly against that file during this session
+# — real field *names* are right, but a populated set (a real device actually counting reps)
+# is unverified against live data, same situation session 2 documented for Concept2 before any
+# real result existed. These tests use synthetic fake frames for that reason.
+
+
+def _set_msg(ts, *, reps=None, weight=None, duration=None, set_type="active", category=(None, None, None)):
+    return FakeDataMessage(
+        "set",
+        {
+            "timestamp": ts,
+            "start_time": ts,
+            "duration": duration,
+            "repetitions": reps,
+            "weight": weight,
+            "category": category,
+            "category_subtype": (None, None, None),
+            "weight_display_unit": 0,
+            "set_type": set_type,
+        },
+    )
+
+
+def test_parse_fit_sets_real_account_shape_is_empty(monkeypatch, tmp_path):
+    """The real, unstructured whole-workout "set" message this account actually has: active,
+    but no rep count — correctly produces zero importable drafts, not a crash or a fake set."""
+    frames = [FakeDataMessage("file_id", {"manufacturer": "garmin"}), _record(T0, hr=120), _set_msg(T0, duration=2454.7)]
+    _patch_fitdecode(monkeypatch, frames)
+    path = tmp_path / "x.fit"
+    path.write_bytes(b"x")
+
+    assert parse_fit_sets(path) == []
+
+
+def test_parse_fit_sets_extracts_populated_working_sets(monkeypatch, tmp_path):
+    frames = [
+        FakeDataMessage("file_id", {"manufacturer": "garmin"}),
+        _record(T0, hr=120),
+        _set_msg(T0, set_type="rest", duration=60.0),  # the gap before the first real set — skipped.
+        _set_msg(datetime(2026, 1, 1, 7, 1, 0, tzinfo=timezone.utc), reps=5, weight=100.0, duration=30.0, category=("squat", None, None)),
+        _set_msg(datetime(2026, 1, 1, 7, 3, 0, tzinfo=timezone.utc), reps=8, weight=60.0, duration=25.0),
+    ]
+    _patch_fitdecode(monkeypatch, frames)
+    path = tmp_path / "x.fit"
+    path.write_bytes(b"x")
+
+    drafts = parse_fit_sets(path)
+    assert len(drafts) == 2
+    assert drafts[0].reps == 5
+    assert drafts[0].weight_kg == 100.0
+    assert drafts[0].category == "squat"
+    assert drafts[0].offset_s == 60.0
+    assert drafts[1].reps == 8
+    assert drafts[1].offset_s == 180.0
+
+
+def test_parse_fit_sets_skips_rest_and_unrepped_messages(monkeypatch, tmp_path):
+    frames = [
+        FakeDataMessage("file_id", {"manufacturer": "garmin"}),
+        _record(T0, hr=120),
+        _set_msg(T0, set_type="active", duration=2454.7),  # this account's real shape — no reps.
+        _set_msg(T0, set_type="rest", reps=5, weight=100.0),  # a rest message, even with reps, is never a set.
+    ]
+    _patch_fitdecode(monkeypatch, frames)
+    path = tmp_path / "x.fit"
+    path.write_bytes(b"x")
+
+    assert parse_fit_sets(path) == []
+
+
+def test_parse_fit_sets_missing_file_returns_empty():
+    assert parse_fit_sets("/nonexistent/path.fit") == []

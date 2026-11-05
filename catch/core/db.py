@@ -50,6 +50,11 @@ _NEW_COLUMNS = {
     "daily_scores": {
         "rowing_load_json": "TEXT",
     },
+    "canonical_activities": {
+        # Session 14 (see PLAN.md Part C).
+        "muscular_load_au": "REAL",
+        "muscular_by_muscle_json": "TEXT",
+    },
     "daily_wellness": {
         # Session 13 (see PLAN.md Part A).
         "steps": "INTEGER",
@@ -73,6 +78,8 @@ def _migrate_columns() -> None:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strokes_activity_id ON strokes(activity_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_activities_canonical_id ON activities(canonical_id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strength_sets_activity_id ON strength_sets(activity_id)")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_gym_stations_gym_id ON gym_stations(gym_id)")
         conn.commit()
 
 
@@ -144,11 +151,56 @@ def _migrate_garmin_activity_fields() -> None:
             session.commit()
 
 
+def _seed_exercise_library() -> None:
+    """Idempotent: inserts any seed exercise (`catch/seed/exercises.json` —
+    yuhonas/free-exercise-db, vendored at build time, see PLAN.md's session 14 section for
+    the licence/derivation) whose `external_id` isn't already in the table. Lives under
+    `catch/seed/`, not `catch/data/` — the repo's `.gitignore` has an unanchored `data/` rule
+    for the *runtime* `data/` directory (the SQLite DB, downloaded FIT files) at the repo
+    root, which would have silently excluded a `catch/data/` subdirectory too. Never touches a
+    row the athlete has since edited — `Exercise.external_id` is only set at seed time and
+    never rewritten, so a user edit (e.g. correcting `movement_pattern`) survives every
+    restart untouched."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from sqlmodel import Session, select
+
+    from catch.core.models import Exercise
+
+    seed_path = _Path(__file__).resolve().parent.parent / "seed" / "exercises.json"
+    if not seed_path.exists():
+        return
+    with Session(engine) as session:
+        existing = set(session.exec(select(Exercise.external_id).where(Exercise.external_id.is_not(None))).all())
+        seed = _json.loads(seed_path.read_text())
+        added = 0
+        for e in seed:
+            if e["external_id"] in existing:
+                continue
+            session.add(
+                Exercise(
+                    external_id=e["external_id"],
+                    name=e["name"],
+                    default_equipment_type=e["default_equipment_type"],
+                    movement_pattern=e["movement_pattern"],
+                    unilateral=e["unilateral"],
+                    primary_muscles_json=_json.dumps(e["primary_muscles"]),
+                    secondary_muscles_json=_json.dumps(e["secondary_muscles"]),
+                    custom=False,
+                )
+            )
+            added += 1
+        if added:
+            session.commit()
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
     _migrate_linked_activities_to_canonical()
     _migrate_garmin_activity_fields()
+    _seed_exercise_library()
 
 
 @contextmanager

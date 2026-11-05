@@ -92,4 +92,12 @@ DEFAULT_SETTINGS: dict = {
     # docs/analytics.md.
     "daily_activity_strain_cap": 1.5,
     "daily_activity_strain_weight": 1.0,
+    # Session 14 (see PLAN.md Part C.2) — the muscular half of daily strain, same
+    # log-saturation shape as strain_log_a (catch/analytics/strain.py's
+    # muscular_strain_component). Calibrated so an all-out heavy-squat-day's typical AU total
+    # (several thousand, summed across the quads/glutes/hamstrings/core it loads — see
+    # tests/analytics/test_strain.py) lands around "high" on its own, at zero cardio trimp —
+    # task Part C.2's "a heavy lifting day with low HR must still register meaningful strain."
+    "muscular_strain_log_a": 1.1,
+    "muscular_strain_weight": 1.0,
 }

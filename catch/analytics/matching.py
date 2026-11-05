@@ -85,6 +85,10 @@ def sport_family(source: str | None, type_: str | None) -> str:
     than erg/on_water/other, since matching must treat a Garmin road ride and a Peloton ride
     as the same family even though classify.py's categories would call one "on_water"-adjacent
     and the other indoor."""
+    if source == "catch_strength":
+        # Session 14 (see PLAN.md) — a Catch-logged lifting session is always "strength",
+        # regardless of `type_` (always "catch_strength" itself, carrying no useful info here).
+        return "strength"
     if source == "garmin":
         return _GARMIN_FAMILY.get(type_ or "", "other")
     if source == "concept2":
@@ -93,17 +97,23 @@ def sport_family(source: str | None, type_: str | None) -> str:
 
 
 def category_for_canonical(sport_family_: str, indoor: Optional[bool]) -> str:
-    """erg/on_water/other for the Workouts-list filter, generalizing
+    """erg/on_water/strength/other for the Workouts-list filter, generalizing
     catch/analytics/classify.py's workout_category (kept as-is for raw per-source rows) to a
-    canonical activity — rowing is "erg" indoors, "on_water" outdoors; everything else
-    (cycling, running, strength, unclassified) is "other", same as the original scheme."""
-    if sport_family_ != "rowing":
-        return "other"
-    return "erg" if indoor is not False else "on_water"
+    canonical activity — rowing is "erg" indoors, "on_water" outdoors; strength (session 14)
+    gets its own category rather than falling into "other" alongside cycling/running, since
+    the gym logger makes it common enough to want its own Workouts filter tab; everything
+    else (cycling, running, unclassified) is "other", same as the original scheme."""
+    if sport_family_ == "rowing":
+        return "erg" if indoor is not False else "on_water"
+    if sport_family_ == "strength":
+        return "strength"
+    return "other"
 
 
 def is_indoor(source: str | None, type_: str | None) -> Optional[bool]:
     """True/False where the source/type tells us, else None (unknown — e.g. "other")."""
+    if source == "catch_strength":
+        return True  # a gym session is always indoor.
     if source == "garmin":
         return _GARMIN_INDOOR.get(type_ or "")
     if source == "concept2":
@@ -162,6 +172,24 @@ def _td(seconds: float):
     return timedelta(seconds=seconds)
 
 
+def _match_strength_pair(a: MatchInput, b: MatchInput) -> MatchResult:
+    """Session 14 (see PLAN.md Part B.1): a Catch lifting session's window is deliberately
+    padded (first set -10min, last set +5min — catch/sync/gym.py) and has nothing to do with
+    how long a Garmin watch happened to record a "strength_training" activity for, so the
+    generic rule's 3-minute-start/0.8-1.25-duration-ratio checks would wrongly reject a real
+    match whenever the watch was started a few minutes early or stopped a few minutes late.
+    Any overlap at all between the two windows is enough to flag/auto-merge — there's no
+    "two different strength sessions happening at once" scenario to guard against the way
+    "two different rides" is for cycling."""
+    overlap = _overlap_fraction(a, b)
+    if overlap <= 0:
+        return MatchResult(False, 0.0, False, ["no time overlap"])
+    # Scored purely on overlap fraction (of the shorter window) — a near-total overlap is a
+    # near-certain match; a sliver of overlap (e.g. the watch running into the next exercise's
+    # warm-up) is flagged for review rather than silently merged.
+    return MatchResult(True, overlap, False, [f"{overlap:.0%} time overlap"])
+
+
 def match_pair(a: MatchInput, b: MatchInput) -> MatchResult:
     """No I/O; both inputs are small dataclasses the caller (catch/sync/matching.py) builds
     from real Activity rows."""
@@ -171,6 +199,9 @@ def match_pair(a: MatchInput, b: MatchInput) -> MatchResult:
         return MatchResult(False, 0.0, False, ["different or unclassified sport family"])
     if a.start is None or b.start is None or not a.duration or not b.duration:
         return MatchResult(False, 0.0, False, ["missing start/duration"])
+
+    if a.sport_family == "strength":
+        return _match_strength_pair(a, b)
 
     start_diff_s = abs((a.start - b.start).total_seconds())
     overlap = _overlap_fraction(a, b)

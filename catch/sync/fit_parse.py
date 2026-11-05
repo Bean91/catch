@@ -54,6 +54,77 @@ class FitSamples:
     laps: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class FitDraftSet:
+    """One Garmin-watch-recorded "set" message (session 14 — see PLAN.md Part B.2), used only
+    as a draft import when Catch has nothing logged for the matching session — real sets
+    always come from Catch, never overwritten by this. Field names (`repetitions`, `weight`,
+    `category`/`category_subtype` tuples, `set_type`) are confirmed against this account's one
+    real Garmin strength-training FIT file (`data/fit/24650449177.fit`, 2026-10-08) via
+    `fitdecode` — but that file's single `set` message has `set_type="active"` and
+    `repetitions`/`weight`/`category` all `None` (the watch recorded the whole session as one
+    unstructured block, never using its own rep-counting feature), so the *populated* shape
+    below (a real rep count/weight/category on a real device) is unverified against live data
+    — same situation session 2 documented for Concept2's result/stroke shapes before any real
+    result existed. `weight_kg` assumes fitdecode already returns the FIT profile's base unit
+    (kg) regardless of `weight_display_unit` (the unit the watch *displayed*, not a scale
+    factor) — also unverified for the same reason."""
+
+    offset_s: float
+    duration_s: Optional[float]
+    reps: Optional[int]
+    weight_kg: Optional[float]
+    category: Optional[str]
+    set_type: Optional[str]
+
+
+def parse_fit_sets(path: str | Path) -> list[FitDraftSet]:
+    """Only `set_type == "active"` messages with a real `repetitions` count are returned — a
+    `"rest"` message is the gap between sets, not a set itself, and a message with no rep
+    count (this account's only real example) has nothing a draft import could show."""
+    path = Path(path)
+    if not path.exists():
+        return []
+
+    out: list[FitDraftSet] = []
+    try:
+        with fitdecode.FitReader(str(path)) as fit:
+            session_start: Optional[datetime] = None
+            for frame in fit:
+                if not isinstance(frame, fitdecode.FitDataMessage):
+                    continue
+                if frame.name == "record" and session_start is None:
+                    ts = _field_value(frame, "timestamp")
+                    if ts is not None:
+                        session_start = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+                elif frame.name == "set":
+                    if _field_value(frame, "set_type") != "active":
+                        continue
+                    reps = _field_value(frame, "repetitions")
+                    if reps is None:
+                        continue
+                    ts = _field_value(frame, "timestamp")
+                    if ts is not None and ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    offset_s = max(0.0, (ts - session_start).total_seconds()) if ts and session_start else 0.0
+                    category_tuple = _field_value(frame, "category")
+                    category = str(category_tuple[0]) if category_tuple and category_tuple[0] is not None else None
+                    out.append(
+                        FitDraftSet(
+                            offset_s=offset_s,
+                            duration_s=_field_value(frame, "duration"),
+                            reps=int(reps),
+                            weight_kg=_field_value(frame, "weight"),
+                            category=category,
+                            set_type="active",
+                        )
+                    )
+    except Exception:
+        logger.exception("failed to parse FIT set messages from %s", path)
+        return []
+    return out
+
+
 def parse_fit(path: str | Path) -> Optional[FitSamples]:
     path = Path(path)
     if not path.exists():

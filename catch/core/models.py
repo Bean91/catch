@@ -161,6 +161,13 @@ class CanonicalActivity(SQLModel, table=True):
     strain_method: Optional[str] = None
     session_label: Optional[str] = None
     auto_trimmed_tail_s: Optional[float] = None
+    # Session 14 (see PLAN.md Part C): raw muscular-load AU (not 0-21 — see
+    # catch/analytics/strength.py) for a strength session's working sets, or an erg/bike's
+    # small above-threshold-power contribution; `by_muscle_json` is {"quadriceps": au, ...}
+    # for the muscle-readiness view and the day-level strain normalization in
+    # catch/sync/scoring.py. Cached here at resolve time, same pattern as strain_trimp.
+    muscular_load_au: Optional[float] = None
+    muscular_by_muscle_json: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
@@ -537,3 +544,124 @@ class AiUsageEvent(SQLModel, table=True):
     usage_json: Optional[str] = None
     cost_usd: Optional[float] = None
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# --- Session 14 (see PLAN.md): gym logger, Garmin-strength merge, cardio/muscular strain ----
+
+
+class Exercise(SQLModel, table=True):
+    """Seeded from `catch/seed/exercises.json` (yuhonas/free-exercise-db, Unlicense/
+    public domain — vendored JSON only, no images, at build time) plus any user-added custom
+    exercise (`custom=True`, `external_id=None`). `movement_pattern`/`unilateral` are a
+    documented heuristic derived from the source dataset's name/force/category (it has no such
+    fields itself — see the seed-build note in PLAN.md's session 14 section), always
+    user-editable afterward rather than treated as authoritative."""
+
+    __tablename__ = "exercises"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    external_id: Optional[str] = Field(default=None, index=True)  # free-exercise-db's own id; None for custom.
+    name: str
+    default_equipment_type: str  # one of EQUIPMENT_TYPES below — just a UI pre-select, never load math.
+    movement_pattern: str  # squat | hinge | lunge | push_horizontal | push_vertical | pull_horizontal | pull_vertical | carry | core | other
+    unilateral: bool = False
+    primary_muscles_json: str = "[]"
+    secondary_muscles_json: str = "[]"
+    custom: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Gym(SQLModel, table=True):
+    __tablename__ = "gyms"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class GymStation(SQLModel, table=True):
+    """A saved per-gym equipment setup (task Part A.3's "save stations per gym ... one tap
+    next time") — e.g. "Uni gym cable 2: dual stack, 2:1". `config_json` holds whichever of
+    `bar_weight_kg`/`base_weight_kg`/`stack_kg_per_increment`/`pulley_multiplier`/
+    `dual_stack`/`default_attachment` apply to `equipment_type` (catch/analytics/equipment.py's
+    functions each take a subset); irrelevant keys are just absent rather than every equipment
+    type sharing one rigid column set."""
+
+    __tablename__ = "gym_stations"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    gym_id: int = Field(foreign_key="gyms.id")
+    name: str
+    equipment_type: str
+    config_json: str = "{}"
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class StrengthSet(SQLModel, table=True):
+    """One logged set. `client_id` (a UUID the phone generates offline) is the idempotent
+    upsert key — matching CLAUDE.md's "(source, external_id)" convention, generalized to a
+    child row: a dropped-response retry from a flaky gym signal must never duplicate a set.
+    `activity_id` points at the `Activity` row that *is* this lifting session
+    (`source="catch_strength"`, `external_id=`the client-generated session UUID) — the
+    matching engine, canonical resolution, and every existing "an activity" reader all work on
+    it unchanged (task Part B.1).
+
+    Every equipment-math input is snapshotted here at log time (`bar_weight_kg`,
+    `pulley_multiplier`, `bodyweight_kg_used`, ...), not re-derived later from the station or
+    current bodyweight — a later change to either must never silently rewrite a past session's
+    numbers."""
+
+    __tablename__ = "strength_sets"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    client_id: str = Field(index=True, unique=True)
+    activity_id: int = Field(foreign_key="activities.id")
+    # Nullable only for an unmatched "garmin_draft" import (task Part B.2) — the raw Garmin
+    # exercise-category enum has no reliable mapping onto this app's exercise library, so an
+    # unmatched draft is surfaced with exercise_id=None rather than guessed, and excluded from
+    # muscular-load math until the athlete picks the real exercise and confirms it.
+    exercise_id: Optional[int] = Field(default=None, foreign_key="exercises.id")
+    gym_station_id: Optional[int] = Field(default=None, foreign_key="gym_stations.id")
+    seq: int = 0  # logging order within the session — the display/edit order.
+    superset_group: Optional[int] = None
+    set_type: str = "working"  # warmup | working | drop | failure | amrap
+    reps: int = 0
+    side: Optional[str] = None  # left | right | None (bilateral)
+    tempo: Optional[str] = None
+    rir: Optional[float] = None
+    rpe: Optional[float] = None
+    equipment_type: str = "other"
+    load_kg: Optional[float] = None  # the raw number the lifter entered/read off the equipment.
+    bar_weight_kg: Optional[float] = None
+    pulley_multiplier: Optional[float] = None
+    bodyweight_kg_used: Optional[float] = None
+    added_weight_kg: Optional[float] = None
+    assistance_kg: Optional[float] = None
+    effective_load_kg: Optional[float] = None
+    load_is_estimated: bool = False
+    muscular_au: Optional[float] = None
+    is_rep_pr: bool = False
+    is_e1rm_pr: bool = False
+    # "catch" (logged by the athlete) | "garmin_draft" (imported from a Garmin FIT `set`
+    # message when nothing was logged in Catch — task Part B.2, confirmed before it counts
+    # toward anything by `is_confirmed`).
+    source: str = "catch"
+    is_confirmed: bool = True
+    deleted: bool = False  # tombstone, for an offline delete to survive a sync retry.
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class StrengthTemplate(SQLModel, table=True):
+    """A reusable routine (task Part A.5) — `items_json` is
+    `[{"exercise_id", "target_sets", "target_reps", "gym_station_id"}, ...]`, same
+    read/written-whole pattern as `SavedMeal.items_json`."""
+
+    __tablename__ = "strength_templates"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    items_json: str = "[]"
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

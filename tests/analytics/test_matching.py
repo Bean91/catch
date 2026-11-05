@@ -116,3 +116,38 @@ def test_other_family_never_auto_matches_even_if_identical():
     b = _mi("garmin", "paddle_boarding_made_up", T0, 1800.0, offset_s=5)
     result = match_pair(a, b)
     assert not result.is_candidate
+
+
+# -- session 14 (see PLAN.md Part B.1): catch_strength <-> Garmin strength_training ----------
+
+
+def test_catch_strength_sport_family_and_indoor():
+    assert sport_family("catch_strength", "catch_strength") == "strength"
+    assert is_indoor("catch_strength", "catch_strength") is True
+
+
+def test_catch_strength_merges_with_garmin_strength_training_on_overlap_alone():
+    """Catch's own window is padded 10min before/5min after the logged sets
+    (catch/sync/gym.py) — far outside the generic rule's 3-minute-start window — but still
+    merges, since the strength match rule only requires time overlap."""
+    garmin = _mi("garmin", "strength_training", T0, 2400.0)  # 40 real minutes on the watch.
+    # Catch's padded window: starts 9 min before the watch did, runs 20 min longer.
+    catch = _mi("catch_strength", "catch_strength", T0, 2400.0 + 15 * 60, offset_s=-9 * 60)
+    result = match_pair(garmin, catch)
+    assert result.is_candidate
+    assert result.auto_merge
+    assert not result.hard_block
+
+
+def test_catch_strength_no_overlap_is_not_a_candidate():
+    garmin = _mi("garmin", "strength_training", T0, 1800.0)
+    catch = _mi("catch_strength", "catch_strength", T0, 1800.0, offset_s=3600)  # a different day's lift.
+    result = match_pair(garmin, catch)
+    assert not result.is_candidate
+
+
+def test_catch_strength_never_matches_a_different_sport_family():
+    garmin_cardio = _mi("garmin", "indoor_cycling", T0, 1800.0)
+    catch = _mi("catch_strength", "catch_strength", T0, 1800.0)
+    result = match_pair(garmin_cardio, catch)
+    assert not result.is_candidate

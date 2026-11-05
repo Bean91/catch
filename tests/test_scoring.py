@@ -212,3 +212,118 @@ def test_daily_activity_excludes_a_logged_garmin_workouts_own_steps(session):
     # non-exercise steps = 12000 - 5000 = 7000; non-exercise active kcal = 500 - (300-50) = 250.
     assert daily_activity["steps"] == 7000
     assert daily_activity["active_kcal"] == pytest.approx(250.0)
+
+
+# -- session 14 (see PLAN.md Part C): cardio/muscular strain split -------------------------
+
+
+def _squat_exercise(session):
+    from catch.core.models import Exercise
+
+    row = Exercise(
+        name="Barbell Squat",
+        default_equipment_type="barbell",
+        movement_pattern="squat",
+        primary_muscles_json=json.dumps(["quadriceps", "glutes"]),
+        secondary_muscles_json=json.dumps(["hamstrings"]),
+        custom=True,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def _log_working_sets(session, day, exercise_id, *, n_sets, reps, load_kg, rir):
+    from catch.sync import gym
+
+    import uuid as _uuid
+
+    day_dt = datetime(day.year, day.month, day.day, 17, 0, 0, tzinfo=timezone.utc)
+    session_id = str(_uuid.uuid4())
+    for i in range(n_sets):
+        gym.upsert_set(
+            session,
+            session_id,
+            {
+                "client_id": str(_uuid.uuid4()),
+                "exercise_id": exercise_id,
+                "equipment_type": "barbell",
+                "load_kg": load_kg,
+                "bar_weight_kg": 20.0,
+                "reps": reps,
+                "rir": rir,
+                "created_at": (day_dt + timedelta(minutes=5 * i)).isoformat(),
+            },
+        )
+    return session_id
+
+
+def test_heavy_squat_day_registers_meaningful_strain_at_zero_hr(session):
+    """Task Part C.2's explicit example: a heavy lifting day with no HR data must still show
+    real strain, not fall into "insufficient data" just because trimp_like is 0."""
+    squat = _squat_exercise(session)
+    day = START
+    _log_working_sets(session, day, squat.id, n_sets=5, reps=5, load_kg=130.0, rir=1)
+    run_matching(session)
+
+    settings = get_settings(session)
+    strain = scoring.day_strain(session, day, settings)
+    assert strain["trimp_like"] == 0.0  # no HR at all.
+    assert strain["value"] is not None
+    assert strain["value"] >= 6.0  # a real, meaningful number — not "insufficient data".
+    assert strain["muscular"]["value"] > 0
+
+
+def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
+    from catch.sync import gym
+
+    heavy_day = START
+    light_day = START + timedelta(days=1)
+    erg_day = START + timedelta(days=2)
+
+    squat = _squat_exercise(session)
+    _log_working_sets(session, heavy_day, squat.id, n_sets=5, reps=5, load_kg=130.0, rir=1)
+    _log_working_sets(session, light_day, squat.id, n_sets=3, reps=12, load_kg=40.0, rir=6)
+
+    # A long UT2 erg piece — all HR, no power above threshold, no lifting at all that day.
+    session.add(DailyWellness(date=erg_day, resting_hr=50))
+    erg_start = datetime(erg_day.year, erg_day.month, erg_day.day, 7, 0, 0, tzinfo=timezone.utc)
+    session.add(
+        Activity(source="garmin", external_id="erg-ut2", type="indoor_rowing", start=erg_start, duration=3600.0, avg_hr=130)
+    )
+    session.commit()
+    run_matching(session)
+
+    settings = get_settings(session)
+    settings = {**settings, "max_hr": 180}
+    heavy = scoring.day_strain(session, heavy_day, settings)
+    light = scoring.day_strain(session, light_day, settings)
+    erg = scoring.day_strain(session, erg_day, settings)
+
+    assert heavy["muscular"]["value"] > light["muscular"]["value"]
+    assert light["muscular"]["value"] > erg["muscular"]["value"]
+    assert erg["muscular"]["value"] == 0.0  # no lifting, no above-threshold power -> no muscular share.
+    assert erg["cardio"]["value"] > 0  # the erg piece still registers plenty of cardio strain.
+
+
+def test_muscular_strain_normalizes_against_28_day_baseline(session):
+    """A lifter who trains the same muscle heavy every week shouldn't see every single
+    session read as a baseline-busting spike — catch/analytics/strength.py's
+    normalize_muscle_au clamps a day at/near its own established baseline."""
+    squat = _squat_exercise(session)
+    base_day = START
+    for i in range(4):  # 4 weekly heavy squat days establish a real baseline.
+        _log_working_sets(session, base_day + timedelta(days=7 * i), squat.id, n_sets=5, reps=5, load_kg=130.0, rir=1)
+    run_matching(session)
+    settings = get_settings(session)
+
+    today = base_day + timedelta(days=28)
+    strain_at_baseline = scoring.day_strain(session, base_day + timedelta(days=21), settings)
+    # One more identical session, same load/volume as every prior week.
+    _log_working_sets(session, today, squat.id, n_sets=5, reps=5, load_kg=130.0, rir=1)
+    run_matching(session)
+    strain_today = scoring.day_strain(session, today, settings)
+
+    # A repeat of the lifter's own normal week should land close to prior weeks, not spike.
+    assert strain_today["muscular"]["value"] == pytest.approx(strain_at_baseline["muscular"]["value"], rel=0.15)
