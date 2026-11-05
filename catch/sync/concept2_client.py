@@ -162,7 +162,12 @@ def _activity_fields(item: dict) -> dict:
 
 
 def _extract_strokes(item: dict) -> list[dict]:
+    # A result with no stroke data has been observed to carry `stroke_data: false` rather than
+    # omit the key (the embed's no-strokes shape isn't documented — see
+    # docs/concept2-endpoints.md) — guard against treating that flag as the array itself.
     raw = item.get("stroke_data") or item.get("strokes") or []
+    if not isinstance(raw, list):
+        raw = []
     erg_type = item.get("type")
     can_derive_watts = erg_type in WATTS_DERIVABLE_TYPES
     out = []
@@ -236,11 +241,12 @@ def sync(
     results = 0
     strokes_total = 0
     for item in list_results(http, updated_after=updated_after, from_date=from_date):
-        detail = item
-        if not (item.get("stroke_data") or item.get("strokes")):
-            # The list endpoint doesn't carry workout/drag_factor/stroke_rate/heart_rate
-            # (per the documented response shape), so always fetch the full result once.
-            detail = get_result_detail(http, item["id"], include="strokes,metadata")
+        # The list endpoint doesn't carry workout/drag_factor/stroke_rate/heart_rate (per the
+        # documented response shape), and a live account has shown `stroke_data` on a list
+        # item as a bare presence flag (bool) rather than the embedded array — so a prior
+        # "skip the fetch if stroke_data is already here" shortcut could mistake that flag for
+        # real data and crash enumerating it. Always fetch the full result instead.
+        detail = get_result_detail(http, item["id"], include="strokes,metadata")
         activity = upsert_activity(session, SOURCE, str(item["id"]), **_activity_fields(detail))
         strokes = _extract_strokes(detail)
         if strokes:

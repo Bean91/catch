@@ -51,6 +51,9 @@ _NEW_COLUMNS = {
         "rowing_load_json": "TEXT",
     },
     "canonical_activities": {
+        # Session 12 (see PLAN.md): erg/on_water split, persisted so GET /api/activities'
+        # category filter can run entirely in SQL — see the field's docstring in models.py.
+        "category": "TEXT",
         # Session 14 (see PLAN.md Part C).
         "muscular_load_au": "REAL",
         "muscular_by_muscle_json": "TEXT",
