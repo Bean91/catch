@@ -53,6 +53,9 @@ function DeleteButton({ onClick }: { onClick: () => void }) {
 }
 
 function FactRow({ fact, onUpdate, onDelete }: { fact: MemoryFact; onUpdate: (patch: Partial<MemoryFact>) => void; onDelete: () => void }) {
+  // Lifted to state (not just defaultValue) so the dashed empty-state border below can react
+  // live as the user clears/sets a date, same as GoalRow's targetDate.
+  const [validUntil, setValidUntil] = useState(fact.valid_until ?? "");
   return (
     <div className={rowCls}>
       <Field label="Category" className="sm:w-32">
@@ -68,7 +71,15 @@ function FactRow({ fact, onUpdate, onDelete }: { fact: MemoryFact; onUpdate: (pa
         <input defaultValue={fact.text} onBlur={(e) => onUpdate({ text: e.target.value })} className={inputCls} />
       </Field>
       <Field label={fact.expired ? "Valid until (expired)" : "Valid until"} className="sm:w-36">
-        <input type="date" defaultValue={fact.valid_until ?? ""} onChange={(e) => onUpdate({ valid_until: e.target.value || null })} className={inputCls} />
+        <input
+          type="date"
+          value={validUntil}
+          onChange={(e) => {
+            setValidUntil(e.target.value);
+            onUpdate({ valid_until: e.target.value || null });
+          }}
+          className={`${inputCls} ${validUntil ? "" : "border-dashed"}`}
+        />
       </Field>
       <DeleteButton onClick={onDelete} />
     </div>
@@ -141,7 +152,7 @@ function GoalRow({ goal, onUpdate, onDelete }: { goal: MemoryGoal; onUpdate: (pa
             setTargetDate(e.target.value);
             onUpdate({ text, target_date: e.target.value || null, status });
           }}
-          className={inputCls}
+          className={`${inputCls} ${targetDate ? "" : "border-dashed"}`}
         />
       </Field>
       <Field label="Status" className="sm:w-28">
@@ -231,7 +242,18 @@ export function MemoryPage() {
             <input required placeholder="e.g. Head of the Charles" value={newEvent.name} onChange={(e) => setNewEvent({ ...newEvent, name: e.target.value })} className={inputCls} />
           </Field>
           <Field label="Date" className="sm:w-36">
-            <input required type="date" value={newEvent.date} onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })} className={inputCls} />
+            {/* iOS Safari renders an empty type=date input with no "mm/dd/yyyy" placeholder
+                at all (unlike desktop browsers), so it otherwise looks like dead space next
+                to Type — a dashed border (same empty-state convention as EmptyState.tsx)
+                signals "fillable" without risking a duplicate placeholder on browsers that
+                do render their own. */}
+            <input
+              required
+              type="date"
+              value={newEvent.date}
+              onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
+              className={`${inputCls} ${newEvent.date ? "" : "border-dashed"}`}
+            />
           </Field>
           <Field label="Type" className="sm:w-28">
             <select value={newEvent.type} onChange={(e) => setNewEvent({ ...newEvent, type: e.target.value })} className={inputCls}>
@@ -280,7 +302,12 @@ export function MemoryPage() {
             <input required placeholder="e.g. Break 6:40 for 2k" value={newGoal.text} onChange={(e) => setNewGoal({ ...newGoal, text: e.target.value })} className={inputCls} />
           </Field>
           <Field label="Target date" className="sm:w-36">
-            <input type="date" value={newGoal.target_date} onChange={(e) => setNewGoal({ ...newGoal, target_date: e.target.value })} className={inputCls} />
+            <input
+              type="date"
+              value={newGoal.target_date}
+              onChange={(e) => setNewGoal({ ...newGoal, target_date: e.target.value })}
+              className={`${inputCls} ${newGoal.target_date ? "" : "border-dashed"}`}
+            />
           </Field>
           <button
             type="submit"
