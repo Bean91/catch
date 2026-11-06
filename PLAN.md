@@ -2771,3 +2771,167 @@ test center (Part C).
   misclassified candidate can still be tagged correctly via the existing generic workout-edit
   tag UI, just not from the test-candidates list itself. Flagged honestly rather than
   silently narrowed in scope.
+
+## Session 16 checklist
+
+The task called itself "session 12." This file's numbering already used sessions 11 and 12
+(see session 15's own note above) — continuing that established precedent, this is session
+16. Session 15's `IllnessAck` docstring had already anticipated this exact session
+("a future notifier... whichever session adds notifications") by leaving `first_flagged_at`
+in place for it.
+
+The task: push notifications (Part A), monitoring (Part B), and CI (Part C).
+
+- [x] **Part A, push notifications**: Web Push implemented directly on `py-vapid` +
+      `http-ece` + `httpx` (`catch/notify/push.py`) rather than the full `pywebpush` package,
+      which transitively pulls in `requests` *and* `aiohttp` (plus aiohttp's compiled deps)
+      for a `.send()` method this app never calls — the real POST goes through `httpx`
+      directly, so the existing live-call guard covers it for free. VAPID keys generated and
+      written to `.env` (see "Secrets" below). Round-trip tested for real: encrypt with
+      `push.py`, decrypt with `http_ece.decrypt` using a fake browser subscriber's own
+      private key — the actual security property Web Push depends on, not just a mocked HTTP
+      call. `PushSubscription`/`NotificationLog` tables; `catch/api/routes_push.py`
+      (vapid-public-key served at runtime — never baked into the build, since the laptop that
+      builds doesn't necessarily have the Pi's `.env` — subscribe/unsubscribe/list/per-device
+      test-send, prunes a subscription on 404/410). Five notification types
+      (`catch/notify/triggers.py`, full trigger/dedup table in `docs/notifications.md`):
+      morning brief (wake time from Garmin sleep data via a new `DailyWellness.
+      wake_time_minutes`, syncs Garmin first so it's never describing yesterday), illness
+      (hooks the `first_flagged_at` session 15 left waiting, re-checks the *current* level in
+      case a later recompute downgraded it), Garmin-key-expiry (14/3/1 days), sync-broken
+      (edge-triggered on `SyncState.consecutive_failures` crossing 3, or 36h with no
+      successful sync), test-center day-before reminder. Quiet hours + per-type toggles live
+      in the existing settings JSON blob. Frontend: `lib/push.ts` (iOS's user-activation
+      ordering constraint — `Notification.requestPermission()` must be the tap handler's
+      first call, so the VAPID key is fetched separately on mount), `NotificationsCard`
+      (enable/disable, per-device test-send, toggles, quiet hours, an "add to home screen
+      first" message for un-installed iOS Safari), and `push`/`notificationclick` handlers in
+      the generated service worker (`App.tsx` navigates via a `postMessage`, not
+      `WindowClient.navigate()`, which has real gaps on iOS standalone WebKit).
+- [x] **Part B, monitoring**: `GET /api/status` + its own Status page (`/settings/status` —
+      not a Settings card, so the sync-broken/Garmin-key push notifications have an
+      operational screen to deep-link to): per-source sync health, Garmin key expiry, backup
+      status, disk/DB size, uptime, build/commit. Dead-man's-switch pings to healthchecks.io
+      — the app itself pings after every successful individual-source sync (the three
+      sources run as independent scheduler jobs, not one combined "cycle"); the nightly
+      backup pings separately from `deploy/backup.sh`, since that runs entirely outside the
+      Python app via its own systemd timer. `deploy/backup.sh` gained a `PRAGMA
+      integrity_check` on the local copy, an off-Pi scp copy to a laptop over Tailscale
+      (`BACKUP_SCP_TARGET`) when it happens to be reachable right now — skipped silently, not
+      alerted, when it isn't, since the task asks for "when reachable," not guaranteed
+      delivery — remote 30-backup retention (scp can't delete, so this prunes over the same
+      ssh connection), and a `status.json` (temp file + `mv`) the Status page reads.
+      `deploy/pi-bootstrap.sh` now generates the `catch` user's own SSH key for this and
+      prints the laptop-side setup steps. ntfy.sh as an optional second ops-alert channel for
+      sync-broken specifically. Dry-run tested by hand against a scratch SQLite file (a real
+      backup + prune-to-14 run, and a deliberately corrupt DB exercising the integrity-check
+      failure path) — `backup.sh` has no CI coverage (dash, Pi-only tools: `sqlite3`, real
+      SSH), so this is the extent of pre-deploy verification possible from here.
+- [x] **Part C, CI**: `.github/workflows/ci.yml` — Python (`uv sync --locked`, `ruff check`,
+      `pytest`) and frontend (typecheck, lint, Vitest, production build, a 250KB-gzip
+      bundle-size check, `node --check` on the generated service worker, then the full
+      Playwright suite — now three projects: the two existing iPhone-profile ones plus a new
+      `desktop-mouse` project for the task's "mouse ... profile" requirement — against that
+      real build via `vite preview`) as two parallel jobs, nothing needing secrets. `ruff`
+      added (minimal ruleset — F + a few E7xx logic checks, no stylistic churn); 18
+      pre-existing unused-import/variable findings fixed, zero behavior change. `Makefile`'s
+      `make check` runs the exact commands CI does. `deploy.sh` refuses a dirty working tree
+      or a failing `make check`, and prints the build/commit actually live on the Pi after a
+      successful deploy. README badge + a short "before pushing" note.
+- [x] Also fixed, pre-existing but unrelated, found along the way: `catch/sync/
+      withings_client.py`'s `getmeas` URL (`/v2/measure` → `/measure`, confirmed against
+      Withings' own spec) — this was sitting uncommitted in the working tree at the start of
+      this session (noted, but not touched, by session 15's own writeup); committed first,
+      separately, before any session-16 work.
+
+## Bugs an advisor review caught before this session's work was declared done
+
+- **The test suite had a hidden dependency on the real `.env`'s `CATCH_FERNET_KEY`/VAPID/
+  ntfy/healthchecks values** — 17 tests calling `security.encrypt`/`decrypt` had no fixture
+  setting a Fernet key at all, silently riding on whatever real key happened to be in
+  whichever machine's `.env`. Invisible locally (563/563 passing) until the very first real
+  GitHub Actions run (no `.env`, by design) turned it into 17 failures. Fixed with one
+  autouse fixture giving every test a fixed, test-only Fernet key — then, when the same
+  pattern threatened to bite again for the new VAPID/ntfy/healthchecks settings (this
+  laptop's `.env` now has real-looking values for those too), fixed generally: those fields
+  are blanked once, directly on the shared `Settings` singleton every module's own `from
+  catch.core.config import settings` already points at (`object.__setattr__`, bypassing the
+  frozen dataclass — `monkeypatch.setattr` hits the same frozen guard a plain `setattr` call
+  does). Both are real, load-bearing reasons to stand up CI now rather than later: a passing
+  local suite was never proof the suite would pass anywhere else.
+- **`check_illness` would have fired one push per historical "likely" night on first
+  deploy.** `recompute_scores` is insert-only on `IllnessAck` (by design — see its
+  docstring), so session 15's already-live DB has any number of `first_flagged_at`-set rows
+  with `notified_at` still NULL, simply because the notifier didn't exist yet when they were
+  flagged. Fixed: only today's/yesterday's flag is ever considered; anything older (or a
+  flag a later recompute has since downgraded away from "likely") is marked handled without
+  ever sending.
+- **`check_morning_brief` would have described yesterday most mornings** — built straight
+  from whatever `GET /api/today` already had cached, which at "wake + 30 minutes" is usually
+  still yesterday's sync (the regular job runs on a 2h interval, not on waking). Fixed: calls
+  `run_sync("garmin", days=1)` first (non-blocking — a no-op if the regular job happens to
+  already be mid-run).
+- **Verified, not assumed, that a real auth failure actually reaches `record_error`** — the
+  task's own "break a source on purpose" quality-bar check depends on this. Concept2's
+  `_check()` raises `Concept2AuthError` on a 401 (confirmed by reading the code, then locked
+  in with a test); Garmin's regular per-call `_get()` does the same. The one place that *does*
+  fail open — `garmin_client.py`'s `_call_with_backoff`, which swallows a persistent 401 into
+  "0 rows for this window" — is backfill-only (`uv run catch backfill`), never used by the
+  regular scheduled sync this feature actually watches.
+- **The app's own `.env` parser doesn't support inline `"KEY=value  # comment"` trailers** —
+  two of this session's own new keys (`VAPID_SUBJECT`, `NTFY_TOPIC`) were written that way in
+  the real `.env` and silently picked up the comment text as part of their value (confirmed:
+  `NTFY_TOPIC` came back as the literal string `"# optional, long random topic name"`, and
+  `VAPID_SUBJECT` would have failed `py_vapid`'s `sub`-claim validation the first time a real
+  push was attempted). Fixed those two lines directly. Deliberately did **not** change
+  `load_dotenv`'s parsing behavior — `CATCH_SESSION_SECRET`/`CATCH_FERNET_KEY` already use
+  the same inline-comment style and currently "work" only by luck (HMAC accepts any bytes as
+  a key; Python's `base64.urlsafe_b64decode` silently discards non-alphabet characters before
+  decoding, and the comment text's own letters happen to still assemble into something that
+  decodes to 32 bytes). Changing the parser now would re-derive a *different* Fernet key than
+  whatever key already encrypted any real OAuth tokens sitting in the live DB — flagged here
+  for the user to decide whether to clean up those two lines' formatting themselves, rather
+  than silently fixed by a session that can't verify what's already encrypted with the old
+  (accidental) value.
+- **A stuck CI run** — "Install Playwright browsers" hung for 30+ minutes on one push mid-
+  session (an apparent GitHub-runner-side flake, nothing in this repo) while two later
+  pushes' runs completed normally in ~1.5 minutes each, because no `concurrency` group
+  existed to cancel the stale one. Added one.
+
+## Secrets
+
+- **VAPID keys were generated this session and written directly into the laptop's `.env`**
+  (never printed to chat — only the public key, which isn't sensitive, was ever surfaced in
+  conversation) — see `.env.example` for the regeneration one-liner if the user wants to
+  rotate them. No device has subscribed yet as of this writeup, so rotating is still free;
+  once a real phone subscribes, rotating means re-subscribing every device.
+- **This session's `Read` of the real `.env`** (to append the VAPID values alongside the
+  existing keys, matching session 2's `.env`-handling precedent) put every secret already in
+  that file into this session's own transcript, the same category of exposure session 2
+  flagged for a leaked Concept2 token. Nothing was echoed to chat or to any external service,
+  but the user should decide for themselves whether any of those values are worth rotating
+  given that exposure.
+
+## Not yet done — needs the user
+
+The task's own quality bar asks for live checks this environment cannot complete alone:
+
+- **A real push notification to an installed phone PWA, confirming it arrives and deep-
+  links.** Everything up to "the browser successfully subscribed and the server successfully
+  POSTed an encrypted, VAPID-signed payload to the real push service" is built and testable
+  from here; whether it actually surfaces on a lock screen and taps through to the right
+  screen needs a real device.
+- **Breaking a source on purpose (bad Concept2 token) and confirming the alert fires once,
+  not repeatedly, then clears on fix** — safe to do live (Concept2 vs. Garmin specifically,
+  since Garmin's token lives behind an OAuth exchange, Concept2's is a single stored static
+  value — see `docs/notifications.md`), but it touches the real stored access token and
+  should be a deliberate, watched action, not something run unattended.
+- **A healthchecks.io account + its two check URLs** (sync, backup) — setup steps are in
+  `.env.example`; both pings no-op harmlessly until they're filled in.
+- **The off-Pi backup's laptop-side setup** (macOS Remote Login, adding the `catch` user's
+  public key to `authorized_keys`) — `deploy/pi-bootstrap.sh` prints the exact steps and the
+  key itself at the end of a run; nothing on the backup side depends on this being done
+  immediately, the local 14-backup rotation runs regardless.
+- **The actual Pi deployment** — `./deploy.sh`, after the two steps above (or without them;
+  both are optional and no-op cleanly) and after copying this session's new `VAPID_*`/
+  `HEALTHCHECKS_*`/`NTFY_TOPIC`/`BACKUP_SCP_TARGET` keys into `/var/lib/catch/catch.env`.

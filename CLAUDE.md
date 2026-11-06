@@ -36,8 +36,16 @@ catch/
                 illness early-warning flag; routes_tests.py — candidates/list/detail/
                 pacing-plan/projection for the erg test center, `{canonical_id}` registered
                 *last* in the file — same `/api/activities/duplicates`-style route-order
-                pitfall as routes_activities.py, caught by a test here too)
-  core/         SQLModel models, config, db, security
+                pitfall as routes_activities.py, caught by a test here too; session 16:
+                routes_push.py — VAPID public key, subscribe/unsubscribe/list/per-device
+                test-send, the notification log; routes_status.py — GET /api/status, the
+                Settings → Status page's one call: per-source sync health, Garmin key
+                expiry, backup status (reads backups/status.json, written by
+                deploy/backup.sh — null on any instance that's never backed up), disk/DB
+                size, uptime, build)
+  core/         SQLModel models, config, db, security; session 16: healthchecks.py (the
+                sync dead-man's-switch ping), uptime.py (process-start timestamp, its own
+                module so routes_status.py can import it without a main.py cycle)
   sync/         garmin_client, withings_client, concept2_client, scheduler, upsert helpers;
                 session 8/12 (cross-source matching + Peloton + body comp + per-sample
                 zones/strain — see PLAN.md): matching.py (the DB-facing half of the matching
@@ -67,7 +75,16 @@ catch/
                 session 15: erg_test.py (the DB-facing half of the erg test center —
                 list/candidate-detection/next-upcoming-event lookup/pacing-plan save; a
                 "test" is just a CanonicalActivity with `{"tags": [..., "test"],
-                "test_type": "2000m"}` in its existing overrides_json, no new table)
+                "test_type": "2000m"}` in its existing overrides_json, no new table);
+                session 16: state.py gained SyncState.consecutive_failures/alert_sent_at
+                (edge-triggered sync-broken alerting — record_error crosses the 3-in-a-row
+                threshold exactly once per broken episode, record_success clears both and
+                pings healthchecks.io) and a ping on every successful sync;
+                garmin_client.py's sleep sync gained wake_time_minutes (parsed from
+                `sleepEndTimestampLocal` — see docs/garmin-endpoints.md's gotcha on why
+                that field, unlike its GMT sibling, isn't a real UTC instant);
+                scheduler.py gained check_notifications (the 10-minute job driving all
+                five catch/notify/triggers.py checks)
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
@@ -84,7 +101,9 @@ catch/
                 recovery sub-score + the separate "badness" figure the illness signal uses —
                 §6.1), illness.py (the illness early-warning scoring rule — §23), erg_test.py
                 (test-type auto-detect, pacing-plan generation, pacing analysis, trend
-                projection — §24)
+                projection — §24); session 16: wake_time.py (one pure function — a plain
+                arithmetic mean over a trailing window of wake_time_minutes samples, the
+                morning-brief notification's send-time baseline)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -105,6 +124,13 @@ catch/
                 payload (not a new tool) now also carries today's check-in/niggle flag and
                 the illness early-warning level, and the per-turn memory block
                 (memory.py::memory_block) surfaces both unprompted
+  notify/       session 16 (see PLAN.md Part A/B): push.py (Web Push from scratch —
+                py-vapid + http-ece + httpx directly, not the full pywebpush package, which
+                transitively pulls in requests+aiohttp for a .send() this app never calls;
+                send_to_subscription/notify, round-trip tested against real decryption in
+                tests/notify/test_push.py), triggers.py (the five notification types'
+                trigger logic + the shared quiet-hours/type-toggle gate — see
+                docs/notifications.md), ntfy.py (the optional second ops-alert channel)
   mcp_server/   server.py (MCPServer + all 27 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
@@ -158,7 +184,11 @@ web/
                 flagged-nights list + correct/wrong marks + precision, task Part B.4); tests/
                 (PacingPlanDialog — goal-time/style/test-type form, saves to the next event by
                 default; SplitBarChart — a small static actual-vs-target-per-500m bar chart,
-                deliberately not built on ErgChart's pan/zoom machinery, see DESIGN.md)
+                deliberately not built on ErgChart's pan/zoom machinery, see DESIGN.md);
+                session 16: settings/NotificationsCard (enable/disable push on this device,
+                per-device list + test-send, per-type toggles, quiet hours — detects "iOS
+                Safari, not installed to home screen" and says so rather than showing a
+                button that can't work there)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -199,7 +229,12 @@ web/
                 (confirmTest reuses patchActivity, no new endpoint); types.ts gained
                 CheckIn/TodayCheckin/IllnessState/ErgTestDetail/PacingPlan/ProjectionResult
                 etc., plus `test_type` on ActivityOverrides/WorkoutListItem (a confirmed test
-                is just a tagged CanonicalActivity — see catch/sync/erg_test.py)
+                is just a tagged CanonicalActivity — see catch/sync/erg_test.py); session 16:
+                push.ts (subscribe/unsubscribe, the iOS-installed-PWA detection heuristic,
+                enablePush()'s Notification.requestPermission()-first-in-the-tap-handler
+                ordering — see docs/notifications.md); api.ts/mock.ts/types.ts gained the
+                push-subscription/status functions and AppStatus/PushSubscriptionRow types;
+                format.ts gained formatBytes/formatUptime
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
@@ -220,13 +255,25 @@ web/
                 MuscleReadiness already use), TestDetail (`/tests/:id` — pacing chart +
                 segment/even-split/worst-split numbers, compare-to-earlier, w/kg; links out to
                 the real workout-detail page for the full ErgChart/HrChart pan-zoom
-                experience rather than duplicating it) (React.lazy,
+                experience rather than duplicating it); session 16: Status (`/settings/
+                status` — per-source sync health, Garmin key expiry, backup status, disk/DB
+                size, uptime, build; its own route rather than a Settings card specifically
+                so the sync_broken/garmin_key_expiring push notifications' deep links have
+                somewhere operational to point at — no bottom-nav slot, same
+                Duplicates/Tests pattern, reached via a "Status" link on Settings' Connected
+                sources card) (React.lazy,
                 one chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
                 here — vite.config.ts's serviceWorkerPlugin writes it at build time with
-                the real hashed asset list, so it can't be a static passthrough file
-tests/          fixtures/ has recorded JSON; no live network calls in the suite; coach/ has
+                the real hashed asset list, so it can't be a static passthrough file;
+                session 16: that same generated sw.js gained push/notificationclick
+                handlers (see docs/notifications.md), syntax-checked in CI/`make check`
+                via `node --check` since nothing else exercises the template string
+tests/          fixtures/ has recorded JSON; no live network calls in the suite; notify/ has
+                the Web Push round-trip (real encrypt-then-decrypt against a fake browser
+                keypair, not just a mocked HTTP call) and the five trigger types' gating
+                logic (session 16); coach/ has
                 the tool-layer, chat-loop, and provider tests (Anthropic client mocked,
                 Ollama mocked via httpx.MockTransport). `web/` has its own test trees:
                 `web/src/**/*.test.ts` (Vitest, pure-function unit tests, e.g. chartRange.ts) and
@@ -234,7 +281,12 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 `playwright.config.ts` runs a Chromium+iPhone-profile project driven via CDP
                 multi-touch, since Playwright's own WebKit bindings only support a single tap
                 with no move/multi-touch; a real-WebKit project covers what a tap alone can
-                verify, e.g. computed `touch-action`) and `web/tests/update/` (Playwright,
+                verify, e.g. computed `touch-action`; session 16 added a third project,
+                `desktop-mouse` — plain Chromium, no touch emulation, scoped via testMatch to
+                its own mouse.spec.ts — covering ctrl/cmd+wheel zoom and mouse drag-to-pan,
+                which the CDP-touch suite can't exercise; CI/`make check` run this suite
+                against a real production build via `vite preview`, not the dev server, set
+                by `CI=1`) and `web/tests/update/` (Playwright,
                 `playwright.update.config.ts` — builds two real production bundles with distinct
                 `CATCH_BUILD_ID`s, serves one then the other from an in-process swappable static
                 server (server.mjs, not catch.main — booting the real app starts APScheduler
@@ -257,7 +309,9 @@ docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 nutrition-endpoints.md (session 13: Open Food Facts v2 + USDA FoodData
                 Central API facts — rate limits, field shapes, OFF's legacy free-text search
                 endpoint and why it's opt-in (`include_off`) rather than part of the
-                debounced as-you-type search box)
+                debounced as-you-type search box), notifications.md (session 16: the five
+                push notification types' exact trigger/dedup/deep-link rules, the Web Push
+                implementation, GET /api/status's fields, the off-Pi backup design)
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 
