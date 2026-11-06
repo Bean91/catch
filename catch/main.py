@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -68,6 +69,15 @@ async def lifespan(app: FastAPI):
         yield
     stop_scheduler()
 
+
+# Nothing in this app calls logging.basicConfig()/dictConfig(), so every logger — including
+# apscheduler's own "Running job..."/"executed successfully" lines — already defaults to
+# Python's WARNING-level "handler of last resort" (confirmed: getEffectiveLevel() == 30 with
+# zero config). Explicit here rather than relying on that default by accident: the new
+# 10-minute notification-check job (session 16, see PLAN.md Part A) would otherwise be ~288
+# extra INFO lines/day straight onto the Pi's SD card the moment anything upstream (a future
+# dependency, a debugging session) ever does call basicConfig() and raises the root level.
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 app = FastAPI(title="Catch", lifespan=lifespan)
 

@@ -16,5 +16,6 @@ check-frontend:
 	cd web && npm run lint
 	cd web && npm run test
 	cd web && npm run build
+	node --check catch/api/static/sw.js
 	cd web && npm run check:bundle-size
-	cd web && npx playwright test
+	cd web && CI=1 npx playwright test

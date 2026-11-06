@@ -37,6 +37,12 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      - name: Syntax-check the generated service worker
+        # Nothing else exercises sw.js's template-string-generated JS before it ships — a
+        # syntax error in vite.config.ts's serviceWorkerPlugin would otherwise only surface
+        # as a silent registration failure in a real browser (breaking offline + the update
+        # flow), not a build error.
+        run: node --check ../catch/api/static/sw.js
       - run: npm run check:bundle-size
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium webkit
