@@ -14,6 +14,21 @@ from sqlalchemy.pool import StaticPool
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 TEST_PASSWORD = "correct-horse-battery-staple"
 
+# Session 16: blanked once, here, directly on the one shared `Settings` singleton every
+# module's `from catch.core.config import settings` already points to (bypassing the frozen
+# dataclass's own `__setattr__` — `monkeypatch.setattr` would still hit that same guard) —
+# so every module sees the change, not just whichever one a test happens to import by name.
+# Scoped to the fields this session added, which a real `.env`/`catch.env` now plausibly has
+# non-empty values for (VAPID keys, an ntfy topic, healthchecks URLs): without this, whether
+# catch.notify.push/ntfy/healthchecks attempt a real network call in a test that never
+# touches them on purpose depends on whose laptop or CI runner the suite happens to run on —
+# exactly the class of hidden-environment dependency that made 17 Fernet-dependent tests here
+# pass locally and fail in CI (see `_fernet_key_always_set` below) before this fixture existed.
+from catch.core.config import settings as _real_settings  # noqa: E402
+
+for _field in ("vapid_private_key", "vapid_public_key", "ntfy_topic", "healthchecks_sync_url", "healthchecks_backup_url"):
+    object.__setattr__(_real_settings, _field, "")
+
 
 class _LiveNetworkCallError(Exception):
     """Deliberately NOT an `httpx.HTTPError` subclass — every external-API client in this app
