@@ -71,6 +71,23 @@ def session(engine):
 
 
 @pytest.fixture(autouse=True)
+def _fernet_key_always_set(monkeypatch):
+    """`catch.core.security._fernet` is built once at import time from the real `.env`'s
+    `CATCH_FERNET_KEY` — on a laptop that already has a real `.env`, every test calling
+    `security.encrypt`/`decrypt` (OAuth token storage, the coach's Anthropic key) silently
+    rides on that real key and passes. CI has no `.env` at all (by design — this suite must
+    run on fixtures only), which turned that hidden dependency into 17 real failures the first
+    time this suite ran there (`RuntimeError: CATCH_FERNET_KEY is not set`) despite passing
+    locally. A fixed, test-only key makes every test deterministic regardless of the ambient
+    environment, local or CI."""
+    from cryptography.fernet import Fernet
+
+    from catch.core import security
+
+    monkeypatch.setattr(security, "_fernet", Fernet(Fernet.generate_key()))
+
+
+@pytest.fixture(autouse=True)
 def _no_live_usda_calls(monkeypatch):
     """The real `.env` this suite runs against may have a real `USDA_FDC_API_KEY` set —
     without this, any test that reaches `catch.sync.nutrition.search_foods`/
