@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 from sqlmodel import Session, select
 
-from catch.analytics.erg_test import TEST_SPECS, detect_test_type
+from catch.analytics.erg_test import detect_test_type
 from catch.core.models import Activity, CanonicalActivity, Event
 from catch.sync.rowing_predict import CONTINUOUS_WORKOUT_TYPES
 

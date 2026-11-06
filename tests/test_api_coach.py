@@ -102,10 +102,10 @@ def test_memory_crud_endpoints(client):
     fact = client.post("/api/coach/memory/facts", json={"category": "injury", "text": "sore knee"}).json()
     assert fact["ref"].startswith("fact:")
 
-    event = client.post(
+    client.post(
         "/api/coach/memory/events", json={"name": "Club 2k test", "date": "2026-12-01", "type": "2k_test"}
     ).json()
-    goal = client.post("/api/coach/memory/goals", json={"text": "Sub 6:40"}).json()
+    client.post("/api/coach/memory/goals", json={"text": "Sub 6:40"}).json()
 
     listing = client.get("/api/coach/memory").json()
     assert any(f["text"] == "sore knee" for f in listing["facts"])

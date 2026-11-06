@@ -1,5 +1,7 @@
 # Catch
 
+[![CI](https://github.com/Bean91/catch/actions/workflows/ci.yml/badge.svg)](https://github.com/Bean91/catch/actions/workflows/ci.yml)
+
 Self-hosted, single-user rowing training app. Garmin + Withings + Concept2 data, Whoop-style
 recovery/strain, an AI coach (bring-your-own Anthropic key or a local Ollama model) with a
 shared MCP server for Claude Desktop. Designed to run 24/7 on a Raspberry Pi 3 alongside
@@ -145,3 +147,12 @@ laptop's Ollama if you go that route.
 
 See `CLAUDE.md` for the full directory breakdown and engineering conventions (upsert
 semantics, Garmin/Withings field-mapping rules, Pi memory constraints, etc.).
+
+## 6. Before pushing (a note to future-me)
+
+Run `make check` first — it's the exact same commands `.github/workflows/ci.yml` runs
+(Python: `ruff` + `pytest`; frontend: typecheck, lint, Vitest, a production build, the
+250 KB-gzip bundle-size budget, then the full Playwright suite against that build). Nothing
+in CI needs secrets — everything runs on fixtures/mocks, never a live API — so a failure on
+GitHub always reproduces locally. `deploy.sh` also refuses to run if `make check` fails or the
+working tree is dirty, so there's no faster path to a bad deploy than just fixing it here first.

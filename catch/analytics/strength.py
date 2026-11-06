@@ -11,7 +11,6 @@ back, neck, quadriceps, shoulders, traps, triceps) plus whatever a user-added cu
 names; there's no separate canonical muscle list to keep in sync.
 """
 
-import math
 from dataclasses import dataclass
 from typing import Optional
 

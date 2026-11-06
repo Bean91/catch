@@ -32,7 +32,7 @@ def test_remember_rejects_unknown_category(session):
 def test_add_event_and_next_a_race(session):
     today = date.today()
     memory.add_event(session, "Club regatta", today + timedelta(days=30), "race", priority="B")
-    a_race = memory.add_event(session, "Head of the Charles", today + timedelta(days=10), "race", priority="A")
+    memory.add_event(session, "Head of the Charles", today + timedelta(days=10), "race", priority="A")
 
     result = memory.next_a_race(session, today)
     assert result is not None

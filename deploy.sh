@@ -9,8 +9,15 @@ HOST=opensky-pi
 REMOTE_APP_DIR=/opt/catch/app
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "==> Building frontend (web/ -> catch/api/static)"
-(cd web && npm run build)
+echo "==> Checking working tree is clean"
+if [ -n "$(git status --porcelain)" ]; then
+    echo "!! Working tree is dirty — commit or stash before deploying:" >&2
+    git status --short >&2
+    exit 1
+fi
+
+echo "==> Running local checks (make check — same commands CI runs; see README.md #6)"
+make check
 
 echo "==> Syncing code to $HOST:$REMOTE_APP_DIR (secrets and data are never touched — they live outside this path)"
 rsync -az --delete \
@@ -60,3 +67,5 @@ else
     ssh "$HOST" "journalctl -u catch.service -n 40 --no-pager" >&2
     exit 1
 fi
+
+echo "==> Build deployed: $(ssh "$HOST" "curl -fsS http://127.0.0.1:8000/version.json" 2>/dev/null || echo 'version.json not served (static dir missing?)')"

@@ -17,7 +17,10 @@ export default defineConfig({
   fullyParallel: true,
   reporter: "list",
   webServer: {
-    command: "npm run dev -- --port 5190 --strictPort",
+    // CI runs against the real production build (`vite preview`, no dev-server transform/HMR
+    // overhead and no live source dependency) — the same artifact `check:bundle-size` just
+    // measured and that deploy.sh ships; a local run keeps the dev server for fast iteration.
+    command: process.env.CI ? "npm run preview:test" : "npm run dev -- --port 5190 --strictPort",
     port: 5190,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
@@ -29,10 +32,22 @@ export default defineConfig({
     {
       name: "mobile-gestures",
       use: { ...devices["iPhone 13"], browserName: "chromium" },
+      testIgnore: /mouse\.spec\.ts/,
     },
     {
       name: "mobile-webkit",
       use: { ...devices["iPhone 13"] },
+      testIgnore: /mouse\.spec\.ts/,
+    },
+    // The task's "mouse ... profile" — plain desktop Chromium, no touch emulation, so mouse
+    // wheel/drag/click paths (DESIGN.md's ctrl/cmd+wheel zoom, drag-to-pan) run through
+    // `useChartInteraction.ts`'s pointer-event handlers the way a laptop user actually would.
+    // Scoped to mouse.spec.ts only — the other spec files assume CDP touch dispatch/a
+    // 390px iPhone viewport, neither of which this project has.
+    {
+      name: "desktop-mouse",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /mouse\.spec\.ts/,
     },
   ],
 });

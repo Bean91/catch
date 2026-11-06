@@ -167,8 +167,8 @@ def test_run_matching_resolves_a_blank_migrated_canonical(session):
 
 
 def test_run_matching_is_idempotent_over_repeated_backfill_runs(session):
-    a = _add(session, source="concept2", external_id="i1", type="rower", start=T0, duration=1800.0)
-    b = _add(session, source="garmin", external_id="i2", type="indoor_rowing", start=T0 + timedelta(seconds=10), duration=1800.0)
+    _add(session, source="concept2", external_id="i1", type="rower", start=T0, duration=1800.0)
+    _add(session, source="garmin", external_id="i2", type="indoor_rowing", start=T0 + timedelta(seconds=10), duration=1800.0)
 
     first = run_matching(session)
     assert first["auto_merged"] == 1

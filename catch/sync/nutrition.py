@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import date as date_, datetime, timedelta, timezone
-from typing import Optional
 
 from sqlmodel import Session, select
 

@@ -71,7 +71,7 @@ def test_nutrition_targets_fat_is_kcal_remainder():
     result = nutrition_targets(weight_kg=70.0, kcal_target=2800, tier="rest", settings=SETTINGS)
     protein_g = 1.6 * 70  # 112
     carb_g = 3.0 * 70  # 210
-    fat_kcal = 2800 - protein_g * 4 - carb_g * 4  # 2800 - 448 - 840 = 1512
+    2800 - protein_g * 4 - carb_g * 4  # 2800 - 448 - 840 = 1512
     assert result["fat_g"] == pytest.approx(1512 / 9)
 
 

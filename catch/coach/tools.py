@@ -9,7 +9,6 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
-from catch.analytics.predict import predict_2k as predict_2k_fn
 from catch.analytics.zones import training_zones
 from catch.api import routes_activities, routes_analytics, routes_body, routes_tests, routes_wellness
 from catch.core.models import Activity, DailyScore, Food

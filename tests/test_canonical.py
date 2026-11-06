@@ -6,7 +6,7 @@ import pytest
 
 from catch.core.models import Activity, CanonicalActivity, DailyWellness
 from catch.core.settings_store import get_settings, update_settings
-from catch.sync.canonical import _is_generic_garmin_title, auto_title, resolve_all_canonicals, resolve_canonical
+from catch.sync.canonical import _is_generic_garmin_title, auto_title, resolve_all_canonicals
 from catch.sync.matching import run_matching
 from catch.sync.samples import store_samples
 

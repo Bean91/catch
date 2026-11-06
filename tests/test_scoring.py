@@ -276,7 +276,6 @@ def test_heavy_squat_day_registers_meaningful_strain_at_zero_hr(session):
 
 
 def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
-    from catch.sync import gym
 
     heavy_day = START
     light_day = START + timedelta(days=1)

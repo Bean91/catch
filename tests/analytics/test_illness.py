@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from catch.analytics.illness import illness_score
 

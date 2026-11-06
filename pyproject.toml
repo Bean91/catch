@@ -23,7 +23,18 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.8"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately small: this codebase's comment style (CLAUDE.md's "why, not what") runs long
+# lines by design, and import-sorting churn isn't worth it for a single-contributor repo.
+# Pyflakes (F) plus a few high-signal pycodestyle checks (E7xx logic bugs), nothing stylistic.
+select = ["E7", "E9", "F"]
+ignore = ["E741"]
 
 [project.scripts]
 catch = "catch.cli:main"
