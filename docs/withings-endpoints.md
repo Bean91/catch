@@ -51,10 +51,18 @@ the callback handler, don't defer.
 ## Measures — `getmeas`
 
 ```
-POST https://wbsapi.withings.net/v2/measure
+POST https://wbsapi.withings.net/measure
 body: action=getmeas, meastypes=<comma list>, lastupdate=<unix> (incremental) or
       startdate/enddate (range), category=1 (real measures; 2=user objectives)
 ```
+
+**No `/v2/` in this path** — confirmed directly against Withings' own `openapi.yaml` spec
+(2026-11-05): the `getmeas` operation's path key is the literal
+`https://wbsapi.withings.net/measure`. Withings is inconsistent about `/v2/` per-action — it
+*is* used for `getactivity`, `getintradayactivity`, `getworkouts`, and `confirmuser`, just not
+`getmeas`. An earlier scrape of this doc had `/v2/measure` for `getmeas`, which was wrong and
+caused a live `status=503 Invalid Params` failure — check the path per-action against the spec
+rather than assuming all Withings endpoints share one version prefix.
 
 Response:
 ```json

@@ -18,7 +18,7 @@ from catch.sync.upsert import upsert_body_comp
 AUTHORIZE_URL = "https://account.withings.com/oauth2_user/authorize2"
 SIGNATURE_URL = "https://wbsapi.withings.net/v2/signature"
 OAUTH_URL = "https://wbsapi.withings.net/v2/oauth2"
-MEASURE_URL = "https://wbsapi.withings.net/v2/measure"
+MEASURE_URL = "https://wbsapi.withings.net/measure"
 SOURCE = "withings"
 
 # See docs/withings-endpoints.md: 1 and 6 and 88 are confirmed against Withings' own docs
@@ -30,6 +30,16 @@ MEASTYPES = ",".join(str(k) for k in MEASTYPE_MAP)
 
 class WithingsError(RuntimeError):
     pass
+
+
+def _check_status(data: dict, action: str) -> None:
+    status = data.get("status")
+    if status != 0:
+        # Withings' error responses carry the real reason in a top-level "error" field
+        # (e.g. {"status": 503, "error": "Invalid Params"}) that status alone doesn't explain.
+        detail = data.get("error")
+        suffix = f" ({detail})" if detail else ""
+        raise WithingsError(f"Withings {action} failed: status={status}{suffix}")
 
 
 def _sign(*parts: str) -> str:
@@ -58,8 +68,7 @@ def _get_nonce() -> str:
     )
     resp.raise_for_status()
     data = resp.json()
-    if data.get("status") != 0:
-        raise WithingsError(f"Withings getnonce failed: status={data.get('status')}")
+    _check_status(data, "getnonce")
     return data["body"]["nonce"]
 
 
@@ -82,8 +91,7 @@ def _request_token(session: Session, *, grant_type: str, code: str | None = None
     resp = httpx.post(OAUTH_URL, data=params, timeout=30.0)
     resp.raise_for_status()
     data = resp.json()
-    if data.get("status") != 0:
-        raise WithingsError(f"Withings requesttoken failed: status={data.get('status')}")
+    _check_status(data, "requesttoken")
     body = data["body"]
 
     row = session.get(OAuthToken, SOURCE)
@@ -126,8 +134,7 @@ def _fetch_measure_pages(access_token: str, **extra_params: str) -> Iterator[dic
         )
         resp.raise_for_status()
         data = resp.json()
-        if data.get("status") != 0:
-            raise WithingsError(f"Withings getmeas failed: status={data.get('status')}")
+        _check_status(data, "getmeas")
         body = data.get("body", {})
         for grp in body.get("measuregrps", []):
             yield grp
