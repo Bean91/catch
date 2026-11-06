@@ -74,6 +74,30 @@ def run_sync(source: str, days: int = 3) -> dict:
         lock.release()
 
 
+_NOTIFICATION_CHECKS = (
+    "check_morning_brief",
+    "check_illness",
+    "check_garmin_key_expiring",
+    "check_sync_stale",
+    "check_test_reminder",
+)
+
+
+def check_notifications() -> None:
+    """Session 16 (see PLAN.md Part A): runs all five push triggers every tick. Each one
+    wrapped individually — same "one source's failure doesn't take down the others" shape as
+    `run_sync` — since nothing about e.g. a bad test-reminder query should ever block the
+    morning brief in the same tick."""
+    from catch.notify import triggers
+
+    with get_session() as session:
+        for name in _NOTIFICATION_CHECKS:
+            try:
+                getattr(triggers, name)(session)
+            except Exception:
+                logger.exception("notification check failed: %s", name)
+
+
 def start_scheduler() -> BackgroundScheduler:
     global _scheduler
     if _scheduler is not None:
@@ -87,6 +111,15 @@ def start_scheduler() -> BackgroundScheduler:
             id=f"sync-{source}",
             replace_existing=True,
         )
+    # Every 10 minutes — frequent enough that the morning brief's 120-minute grace window
+    # (catch/notify/triggers.py) always gets several chances, cheap enough (a handful of small
+    # queries against a single-user DB) to not matter on a Pi 3.
+    scheduler.add_job(
+        check_notifications,
+        trigger=IntervalTrigger(minutes=10, jitter=30),
+        id="notifications",
+        replace_existing=True,
+    )
     scheduler.start()
     _scheduler = scheduler
     return scheduler
