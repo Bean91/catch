@@ -132,3 +132,13 @@ export function GymIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function TestsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="13" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 9v4l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 3h4M12 3v2.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}

@@ -131,6 +131,174 @@ export interface Today {
   /** Session 13: calm, non-judgemental under-fuelling note (never a streak/warning) — same
    * shape as nutrition.week_summary's `under_fuelling`, over the trailing 7 days. */
   under_fuelling: UnderFuelling;
+  /** Session 15 Part A: today's check-in (completed or not) + the niggle flag — riding on
+   * GET /api/today rather than a separate call, so this and the coach/MCP side always agree. */
+  checkin: TodayCheckin;
+  /** Session 15 Part B: null only when no daily_scores row exists at all for today (e.g. a
+   * fresh instance that's never synced) — otherwise always present, usually `level: "none"`. */
+  illness: IllnessState | null;
+}
+
+// --- Session 15 Part A: morning check-in ------------------------------------------------
+
+export interface CheckIn {
+  date: string;
+  soreness: number | null; // 1-5, 1 = none/fine
+  stress: number | null; // 1-5, 1 = low
+  mood: number | null; // 1-5, 1 = low
+  sleep_quality: number | null; // 1-5, 1 = poor
+  niggle_area: string | null;
+  niggle_severity: number | null; // 1-3
+  note: string | null;
+}
+
+export interface TodayCheckinStatus {
+  date: string;
+  completed: boolean;
+  checkin: CheckIn | null;
+}
+
+export interface TodayCheckin {
+  completed: boolean;
+  today: CheckIn | null;
+  niggle_area: string | null;
+  niggle_severity: number | null;
+  niggle_streak_days: number;
+  niggle_flag: boolean;
+}
+
+// --- Session 15 Part B: illness early warning -------------------------------------------
+
+export type IllnessLevel = "none" | "watch" | "likely";
+export type IllnessSignalName = "resting_hr" | "hrv" | "respiration" | "checkin";
+
+export interface IllnessSignal {
+  z: number | null;
+  baseline: number | null;
+  deviated: boolean;
+}
+
+export interface IllnessState {
+  level: IllnessLevel;
+  deviated_count: number;
+  signals: Record<IllnessSignalName, IllnessSignal>;
+  explanation: string;
+}
+
+export type DismissReason = "alcohol" | "travel" | "late_night" | "vaccine" | "other";
+
+export interface IllnessAck {
+  date: string;
+  first_flagged_at: string | null;
+  dismissed: boolean;
+  dismiss_reason: DismissReason | null;
+  backtest_mark: "correct" | "incorrect" | null;
+}
+
+export interface IllnessBacktestEntry {
+  date: string;
+  level: IllnessLevel;
+  deviated_count: number;
+  explanation: string;
+  dismissed: boolean;
+  dismiss_reason: DismissReason | null;
+  backtest_mark: "correct" | "incorrect" | null;
+}
+
+export interface IllnessBacktestResponse {
+  flagged: IllnessBacktestEntry[];
+  marked_count: number;
+  precision: number | null;
+}
+
+// --- Session 15 Part C: erg test center --------------------------------------------------
+
+export type ErgTestType = "500m" | "1000m" | "2000m" | "5000m" | "6000m" | "30min_r20" | "60min" | "custom";
+export const ERG_TEST_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"];
+export type PacingStyle = "even" | "fast_start_settle" | "negative_split";
+
+export interface ErgTestSummary {
+  canonical_id: number;
+  activity_id: number;
+  test_type: ErgTestType | null;
+  title: string | null;
+  date: string | null;
+  distance_m: number | null;
+  duration_s: number | null;
+  avg_power: number | null;
+  avg_stroke_rate: number | null;
+  avg_hr: number | null;
+}
+
+export interface ErgTestCandidate {
+  canonical_id: number;
+  activity_id: number;
+  suggested_test_type: ErgTestType;
+  title: string | null;
+  date: string | null;
+  distance_m: number | null;
+  duration_s: number | null;
+  avg_stroke_rate: number | null;
+}
+
+export interface PacingPlanSplit {
+  split_index: number;
+  distance_m: number;
+  target_split_s: number;
+  target_cum_s: number;
+}
+
+export interface PacingPlan {
+  style: PacingStyle;
+  distance_m: number;
+  goal_time_s: number;
+  rate_hint: number | null;
+  splits: PacingPlanSplit[];
+  explanation: string;
+  test_type?: ErgTestType;
+}
+
+export interface ActualSplit {
+  split_index: number;
+  distance_m: number;
+  actual_split_s: number | null;
+  actual_cum_s: number | null;
+}
+
+export interface PacingVsPlanRow {
+  split_index: number;
+  actual_s: number;
+  target_s: number;
+  delta_s: number;
+}
+
+export interface PacingAnalysis {
+  splits: ActualSplit[];
+  even_split_s: number | null;
+  segments: { start: number | null; middle_1000: number | null; sprint: number | null };
+  deviation_from_even_pct: number | null;
+  worst_split_vs_even: { split_index: number; seconds_lost_vs_even: number } | null;
+  vs_plan: PacingVsPlanRow[] | null;
+}
+
+export interface ErgTestDetail {
+  activity: WorkoutDetail;
+  test_type: ErgTestType | null;
+  plan: PacingPlan | null;
+  pacing_analysis: PacingAnalysis | null;
+  compare_to_earlier: ErgTestSummary | null;
+  w_per_kg: number | null;
+}
+
+export interface ProjectionResult {
+  value: number | null;
+  range: [number, number] | null;
+  slope_s_per_day?: number;
+  n_points?: number;
+  explanation: string;
+  inputs: { date: string; value: number }[];
+  target_date: string;
+  target_event: NextARace | null;
 }
 
 export interface SyncSourceStatus {
@@ -193,9 +361,11 @@ export interface ActivityOverrides {
   rpe?: number;
   exclude_from_totals?: boolean;
   tags?: string[];
+  /** Session 15 Part C — set alongside tags: ["test"] via the same PATCH, see erg_test.ts. */
+  test_type?: ErgTestType;
 }
 
-export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"] as const;
+export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type"] as const;
 export type EditableActivityField = (typeof EDITABLE_ACTIVITY_FIELDS)[number];
 
 export interface WorkoutListItem {
@@ -220,6 +390,7 @@ export interface WorkoutListItem {
   rpe: number | null;
   exclude_from_totals: boolean;
   tags: string[];
+  test_type: ErgTestType | null;
   overrides: ActivityOverrides;
   sources: ActivitySourceSummary[];
   editable_fields: EditableActivityField[];
@@ -392,7 +563,12 @@ export type TrendMetric =
   | "load_acr"
   | "weight"
   | "w_per_kg"
-  | "predicted_2k";
+  | "predicted_2k"
+  // Session 15 Part A.3.
+  | "checkin_soreness"
+  | "checkin_stress"
+  | "checkin_mood"
+  | "checkin_sleep_quality";
 
 export interface TrendPoint {
   date: string;

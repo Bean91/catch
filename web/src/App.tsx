@@ -14,6 +14,8 @@ const WorkoutDetailPage = lazy(() => import("./pages/WorkoutDetail").then((m) =>
 const DuplicatesPage = lazy(() => import("./pages/Duplicates").then((m) => ({ default: m.DuplicatesPage })));
 const GymPage = lazy(() => import("./pages/Gym").then((m) => ({ default: m.GymPage })));
 const MuscleReadinessPage = lazy(() => import("./pages/MuscleReadiness").then((m) => ({ default: m.MuscleReadinessPage })));
+const TestCenterPage = lazy(() => import("./pages/TestCenter").then((m) => ({ default: m.TestCenterPage })));
+const TestDetailPage = lazy(() => import("./pages/TestDetail").then((m) => ({ default: m.TestDetailPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
@@ -51,6 +53,8 @@ export function App() {
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
           <Route path="/gym" element={<GymPage />} />
           <Route path="/gym/readiness" element={<MuscleReadinessPage />} />
+          <Route path="/tests" element={<TestCenterPage />} />
+          <Route path="/tests/:id" element={<TestDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/body" element={<BodyPage />} />
           <Route path="/nutrition" element={<NutritionPage />} />

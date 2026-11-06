@@ -172,6 +172,47 @@ so there's no ambiguity about where a given AU value is shown. A numeric list un
 carries the same information in text, since the map's colour-only signal would otherwise be
 the sole source for anyone who can't distinguish the opacity ramp.
 
+## Morning check-in, illness card, erg test center (session 15)
+
+**Dialogs that can reach the bottom nav need `z-30`, explicitly.** Every prior `Dialog.Content`
+was centered (`top-1/2`) and never got near the viewport's bottom 52px, so the existing
+nutrition dialogs' `z-30` on `Dialog.Overlay`/`Dialog.Content` (above `BottomNav`'s `z-20`)
+never actually got exercised at that edge. `CheckinSheet` is a bottom sheet on mobile
+(`inset-x-0 bottom-0`) specifically to put Save/Skip within easy thumb reach — without an
+explicit `z-30` those buttons rendered *underneath* `BottomNav` (two `position: fixed`
+siblings, one with an explicit z-index beats one without, regardless of DOM order — Radix's
+portal placement at the end of `<body>` doesn't help once a sibling has set its own z-index).
+Caught by screenshotting the sheet scrolled to its bottom, not by any functional test (Radix's
+focus trap and click handling worked fine either way — this was purely a paint-order bug).
+Carried over to `PacingPlanDialog` too, even though it's centered, since nothing stops a future
+edit from growing it toward the same edge.
+
+**Trends' metric picker stays a fixed height — new metrics go behind "More metrics," not
+inline.** The four check-in sliders (soreness/stress/mood/sleep quality) were first added as
+four more always-visible buttons in the existing picker row. At 390px that extra ~52px of
+wrapped button height pushed the chart far enough down that its own vertical midpoint fell
+inside the zone `BottomNav` already overlaps — not just a cosmetic shift, a real regression in
+`web/tests/touch/charts.spec.ts`'s drag/pinch/press-hold tests (passing on main, failing with
+the four inline buttons added). Fixed by collapsing the check-in metrics behind a "More
+metrics" toggle, default-collapsed unless a deep link already points at one of them, so the
+picker's default height — and the chart's position under it — never changes. The lesson
+generalizes: any future metric/filter/tab addition to a row sitting directly above a
+390px-viewport chart should be checked against `test:touch`, not just a static screenshot,
+since a few pixels of picker height is exactly the kind of change a screenshot alone reads as
+fine right up until it tips the chart's tap/drag point under the fixed nav.
+
+**Erg test center has no bottom-nav slot.** The nav was already documented as tight at 8 items
+(see the gym-logger note below); Tests is reached from the desktop `Sidebar` and a link in the
+`Workouts` page header on mobile, the same pattern `Duplicates` and muscle-readiness already
+use for a screen that doesn't need its own permanent nav real estate.
+
+**The pacing chart is a small static bar chart, not an `ErgChart` extension.** `ErgChart`'s
+pan/zoom/domain-state machinery (`useChartInteraction`, windowed re-fetching) exists for
+long, dense per-stroke recordings; a test's pacing view is at most ~12 bars (a 6000m piece),
+nothing to zoom into. `SplitBarChart` is deliberately dependency-free — no `Domain` state, no
+`useChartInteraction` — and the full interactive stroke/HR chart for the same activity stays
+one tap away via a "Full workout detail" link rather than being duplicated on the test page.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

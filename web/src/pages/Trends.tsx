@@ -25,6 +25,21 @@ const METRICS: { value: TrendMetric; label: string; format: (v: number) => strin
   { value: "predicted_2k", label: "Predicted 2k", format: (v) => formatTimeTenths(v) },
 ];
 
+// Session 15 Part A.3 — check-in sliders as their own trend lines, kept out of the always-
+// visible METRICS row above: appending 4 more buttons there pushed the chart far enough down
+// at 390px that its own midpoint fell under the fixed BottomNav, breaking real touch-gesture
+// behavior there (caught by web/tests/touch/charts.spec.ts, not just a screenshot nit — see
+// PLAN.md's session 15 bug log). Collapsed behind "More metrics" instead, so the default
+// picker height — and the chart's position under it — never changes.
+const CHECKIN_METRICS: { value: TrendMetric; label: string; format: (v: number) => string }[] = [
+  { value: "checkin_soreness", label: "Soreness", format: (v) => `${v.toFixed(0)}/5` },
+  { value: "checkin_stress", label: "Stress", format: (v) => `${v.toFixed(0)}/5` },
+  { value: "checkin_mood", label: "Mood", format: (v) => `${v.toFixed(0)}/5` },
+  { value: "checkin_sleep_quality", label: "Sleep quality", format: (v) => `${v.toFixed(0)}/5` },
+];
+const ALL_METRICS = [...METRICS, ...CHECKIN_METRICS];
+const CHECKIN_METRIC_VALUES = new Set(CHECKIN_METRICS.map((m) => m.value));
+
 const DAY_MS = 86_400_000;
 
 function quantizePoints(plotWidthPx: number): number {
@@ -48,7 +63,7 @@ export function TrendsPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const metric = (params.get("metric") as TrendMetric | null) ?? "recovery";
-  const activeMetric = METRICS.find((m) => m.value === metric) ?? METRICS[0];
+  const activeMetric = ALL_METRICS.find((m) => m.value === metric) ?? ALL_METRICS[0];
   const now = useMemo(() => new Date(), []);
 
   // The metric's own full history, fetched once (cheap and cached server-side by metric) to
@@ -273,24 +288,45 @@ function Skeleton() {
 // (the task's own 390px screenshots also showed the un-wrapped range row overflowing, fixed
 // here by the same `flex-wrap` the metric row already had).
 const MetricPicker = memo(function MetricPicker({ metric, onSelect }: { metric: TrendMetric; onSelect: (value: TrendMetric) => void }) {
+  // Starts expanded if a deep link already points at a check-in metric, so that tab reads
+  // as selected without an extra click.
+  const [showCheckin, setShowCheckin] = useState(() => CHECKIN_METRIC_VALUES.has(metric));
+
+  const renderButton = (m: (typeof METRICS)[number]) => (
+    <button
+      key={m.value}
+      type="button"
+      role="tab"
+      aria-selected={metric === m.value}
+      onClick={() => onSelect(m.value)}
+      className={`min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors ${
+        metric === m.value
+          ? "border-accent bg-accent text-accent-contrast"
+          : "border-border bg-surface text-text-secondary hover:border-accent/40"
+      }`}
+    >
+      {m.label}
+    </button>
+  );
+
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Metric">
-      {METRICS.map((m) => (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Metric">
+        {METRICS.map(renderButton)}
         <button
-          key={m.value}
           type="button"
-          role="tab"
-          aria-selected={metric === m.value}
-          onClick={() => onSelect(m.value)}
-          className={`min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors ${
-            metric === m.value
-              ? "border-accent bg-accent text-accent-contrast"
-              : "border-border bg-surface text-text-secondary hover:border-accent/40"
-          }`}
+          onClick={() => setShowCheckin((v) => !v)}
+          aria-expanded={showCheckin}
+          className="min-h-11 rounded-full border border-border bg-surface px-3.5 text-sm font-medium text-text-tertiary transition-colors hover:border-accent/40"
         >
-          {m.label}
+          {showCheckin ? "Fewer metrics" : "More metrics"}
         </button>
-      ))}
+      </div>
+      {showCheckin && (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Check-in metric">
+          {CHECKIN_METRICS.map(renderButton)}
+        </div>
+      )}
     </div>
   );
 });

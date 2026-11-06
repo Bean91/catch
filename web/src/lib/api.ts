@@ -16,6 +16,7 @@ import {
   deleteMockMemory,
   deleteMockSavedMeal,
   deleteMockToken,
+  dismissMockIllness,
   listMockFoodLogs,
   logMockSavedMeal,
   mockActivitySamples,
@@ -32,14 +33,17 @@ import {
   mockExercises,
   mockFoodSearch,
   mockGyms,
+  mockIllnessBacktest,
   mockLastSetsForExercise,
   mockMemory,
   mockMuscleReadiness,
   mockMyFoods,
   mockNote,
   mockNutritionTargets,
+  mockPacingPlan,
   mockPbs,
   mockPhotoEstimate,
+  mockProjection,
   mockRepeatLastWorkout,
   mockSavedMeals,
   mockScenarioFromQuery,
@@ -48,18 +52,24 @@ import {
   mockStations,
   mockSyncStatus,
   mockTemplates,
+  mockTestCandidates,
   mockTestConnection,
+  mockTestDetail,
+  mockTests,
   mockToday,
+  mockTodayCheckin,
   mockTokens,
   mockVolume,
   mockWeekSummary,
   mockWorkoutDetail,
   mockWorkoutsPage,
+  markMockIllnessBacktest,
   mergeMockActivities,
   markMockNotDuplicate,
   patchMockActivity,
   postMockManualWeight,
   revertMockActivityField,
+  saveMockCheckin,
   saveMockCoachSettings,
   saveMockMeal,
   saveMockNote,
@@ -84,6 +94,7 @@ import type {
   ActivitySamplesResponse,
   BarcodeLookupResult,
   BodyCompReading,
+  CheckIn,
   CoachConversation,
   CoachConversationDetail,
   CoachEvent,
@@ -91,13 +102,19 @@ import type {
   CoachSettings,
   DaySummary,
   DeviceToken,
+  DismissReason,
   DuplicatePair,
   ErgStrokesResponse,
+  ErgTestCandidate,
+  ErgTestDetail,
+  ErgTestSummary,
+  ErgTestType,
   Exercise,
   Food,
   FoodLogRow,
   GymRow,
   GymStation,
+  IllnessBacktestResponse,
   Meal,
   MemoryEvent,
   MemoryFact,
@@ -108,9 +125,12 @@ import type {
   Note,
   NutritionTargetSettings,
   NutritionTargetsResponse,
+  PacingPlan,
+  PacingStyle,
   PersonalBests,
   PhotoEstimateItem,
   PhotoEstimateResult,
+  ProjectionResult,
   RepeatWorkoutPlanItem,
   SavedMealItem,
   SavedMealRow,
@@ -122,6 +142,7 @@ import type {
   SyncResult,
   SyncSourceStatus,
   Today,
+  TodayCheckinStatus,
   TrendMetric,
   VolumeWeek,
   WeekSummary,
@@ -358,6 +379,95 @@ export async function postManualWeight(date: string, weightKg: number): Promise<
 export async function fetchPbs(): Promise<PersonalBests> {
   if (isMock) return delay(mockPbs());
   return request<PersonalBests>("/api/pbs");
+}
+
+// --- Morning check-in (session 15 Part A) -----------------------------------
+
+export async function fetchTodayCheckin(): Promise<TodayCheckinStatus> {
+  if (isMock) return delay(mockTodayCheckin());
+  return request<TodayCheckinStatus>("/api/checkins/today");
+}
+
+export async function postCheckin(body: Partial<Omit<CheckIn, "date">> & { date?: string }): Promise<CheckIn> {
+  if (isMock) return delay(saveMockCheckin(body), 200);
+  return request<CheckIn>("/api/checkins", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// --- Illness early warning (session 15 Part B) -------------------------------
+
+export async function dismissIllness(day: string, reason: DismissReason): Promise<void> {
+  if (isMock) return delay(dismissMockIllness(day, reason), 200);
+  await request(`/api/illness/${day}/dismiss`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function markIllnessBacktest(day: string, correct: boolean): Promise<void> {
+  if (isMock) return delay(markMockIllnessBacktest(day, correct), 200);
+  await request(`/api/illness/${day}/mark`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correct }),
+  });
+}
+
+export async function fetchIllnessBacktest(): Promise<IllnessBacktestResponse> {
+  if (isMock) return delay(mockIllnessBacktest());
+  return request<IllnessBacktestResponse>("/api/illness/backtest");
+}
+
+// --- Erg test center (session 15 Part C) -------------------------------------
+
+export async function fetchTestCandidates(): Promise<ErgTestCandidate[]> {
+  if (isMock) return delay(mockTestCandidates());
+  const { candidates } = await request<{ candidates: ErgTestCandidate[] }>("/api/tests/candidates");
+  return candidates;
+}
+
+export async function fetchTests(type?: ErgTestType): Promise<ErgTestSummary[]> {
+  if (isMock) return delay(mockTests(type));
+  const search = new URLSearchParams();
+  if (type) search.set("type", type);
+  const { tests } = await request<{ tests: ErgTestSummary[] }>(`/api/tests?${search.toString()}`);
+  return tests;
+}
+
+export async function fetchTestDetail(id: number): Promise<ErgTestDetail> {
+  if (isMock) return delay(mockTestDetail(id));
+  return request<ErgTestDetail>(`/api/tests/${id}`);
+}
+
+// Confirming a candidate is just the existing activity-edit PATCH with tags + test_type —
+// no separate endpoint, same free-form overrides_json every other edit already uses.
+export async function confirmTest(canonicalId: number, testType: ErgTestType, existingTags: string[] = []): Promise<WorkoutDetail> {
+  const tags = existingTags.includes("test") ? existingTags : [...existingTags, "test"];
+  return patchActivity(canonicalId, { tags, test_type: testType });
+}
+
+export async function makePacingPlan(body: {
+  test_type: ErgTestType;
+  goal_time_s: number;
+  style: PacingStyle;
+  distance_m?: number;
+  save_to_next_event?: boolean;
+}): Promise<{ plan: PacingPlan; saved_to_event: { id: number; name: string; date: string } | null }> {
+  if (isMock) return delay(mockPacingPlan(body), 300);
+  return request("/api/tests/pacing-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchProjection(type: ErgTestType): Promise<ProjectionResult> {
+  if (isMock) return delay(mockProjection(type));
+  return request<ProjectionResult>(`/api/tests/projection?type=${encodeURIComponent(type)}`);
 }
 
 // --- Settings --------------------------------------------------------------

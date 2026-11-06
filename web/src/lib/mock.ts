@@ -4,6 +4,7 @@ import type {
   ActivitySourceSummary,
   BarcodeLookupResult,
   BodyCompReading,
+  CheckIn,
   CoachConversation,
   CoachConversationDetail,
   CoachEvent,
@@ -12,11 +13,19 @@ import type {
   CoachSettings,
   DaySummary,
   DeviceToken,
+  DismissReason,
   DuplicatePair,
   ErgStrokesResponse,
   ErgTechnique,
+  ErgTestCandidate,
+  ErgTestDetail,
+  ErgTestSummary,
+  ErgTestType,
   Food,
   FoodLogRow,
+  IllnessAck,
+  IllnessBacktestResponse,
+  IllnessState,
   IntervalSummary,
   Meal,
   MemoryEvent,
@@ -27,8 +36,11 @@ import type {
   Note,
   NutritionTargetSettings,
   NutritionTargetsResponse,
+  PacingPlan,
+  PacingStyle,
   PersonalBests,
   PhotoEstimateResult,
+  ProjectionResult,
   SavedMealItem,
   SavedMealRow,
   Settings,
@@ -38,6 +50,8 @@ import type {
   Stroke,
   SyncSourceStatus,
   Today,
+  TodayCheckin,
+  TodayCheckinStatus,
   TrendMetric,
   TrendPoint,
   UnderFuelling,
@@ -60,14 +74,18 @@ import type {
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
 
-export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading" | "offline";
+// "illness_watch"/"illness_likely" (session 15 Part B): not in the task's own fixture list,
+// added so the illness card's two non-"none" states have somewhere to screenshot/test from
+// without overloading "calibrating"/"empty" (which are about recovery data, not illness).
+export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading" | "offline" | "illness_watch" | "illness_likely";
 
 export function mockScenarioFromQuery(): MockScenario | null {
   const params = new URLSearchParams(window.location.search);
   if (!params.has("mock")) return null;
   const value = params.get("mock");
   if (value === "" || value === "1" || value === "true") return "full";
-  if (value === "calibrating" || value === "empty" || value === "error" || value === "loading" || value === "offline") return value;
+  const known: MockScenario[] = ["calibrating", "empty", "error", "loading", "offline", "illness_watch", "illness_likely"];
+  if ((known as string[]).includes(value ?? "")) return value as MockScenario;
   return "full";
 }
 
@@ -81,6 +99,15 @@ function sparkline(values: (number | null)[], startDate: string): SparklinePoint
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
+
+function emptyIllnessSignals(): IllnessState["signals"] {
+  return {
+    resting_hr: { z: 0.1, baseline: 48.8, deviated: false },
+    hrv: { z: 0.2, baseline: 4.1, deviated: false },
+    respiration: { z: -0.3, baseline: 14.0, deviated: false },
+    checkin: { z: null, baseline: null, deviated: false },
+  };
+}
 
 const FULL: Today = {
   date: TODAY,
@@ -171,6 +198,11 @@ const FULL: Today = {
   recommendation: "Recovery is green — you're clear for a harder session if it's on the plan.",
   next_a_race: { name: "Head of the Charles", date: shiftDate(TODAY, 9), days_to_go: 9, taper: true },
   under_fuelling: { flag: false, logged_days: 6, explanation: "Intake has kept pace with expenditure over the last logged days." },
+  // checkin is computed per-call below (mockToday) so postCheckin's mock write is visible on
+  // the next fetchToday, same as the real backend; this static value is only EMPTY/
+  // CALIBRATING's fallback.
+  checkin: { completed: true, today: null, niggle_area: null, niggle_severity: null, niggle_streak_days: 0, niggle_flag: false },
+  illness: { level: "none", deviated_count: 0, signals: emptyIllnessSignals(), explanation: "No signal deviated beyond its own baseline tonight." },
 };
 
 const CALIBRATING: Today = {
@@ -189,6 +221,17 @@ const CALIBRATING: Today = {
     baseline_band: null,
   },
   recommendation: "Still calibrating your recovery baseline (need 7+ nights of HRV) — no number yet.",
+  // A niggle example lives here (rather than its own scenario) — demonstrates the flag
+  // without needing a dedicated mock=niggle query param.
+  checkin: {
+    completed: true,
+    today: { date: TODAY, soreness: 3, stress: 2, mood: 3, sleep_quality: 3, niggle_area: "left knee", niggle_severity: 2, note: null },
+    niggle_area: "left knee",
+    niggle_severity: 2,
+    niggle_streak_days: 4,
+    niggle_flag: true,
+  },
+  illness: { level: "none", deviated_count: 0, signals: emptyIllnessSignals(), explanation: "No signal deviated beyond its own baseline tonight." },
 };
 
 const EMPTY: Today = {
@@ -208,6 +251,8 @@ const EMPTY: Today = {
   recommendation: "Not enough data yet to make a recommendation — keep syncing.",
   next_a_race: null,
   under_fuelling: { flag: false, logged_days: 0, explanation: "Not enough logged days yet to assess fuelling." },
+  checkin: { completed: false, today: null, niggle_area: null, niggle_severity: null, niggle_streak_days: 0, niggle_flag: false },
+  illness: null, // no daily_scores row at all yet on a brand-new instance.
 };
 
 function shiftDate(iso: string, days: number): string {
@@ -222,13 +267,48 @@ const SYNC_STATUS: SyncSourceStatus[] = [
   { source: "concept2", last_success_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(), last_error: null },
 ];
 
+const WATCH_ILLNESS: IllnessState = {
+  level: "watch",
+  deviated_count: 2,
+  signals: {
+    resting_hr: { z: 1.8, baseline: 48.8, deviated: true },
+    hrv: { z: -1.7, baseline: 4.1, deviated: true },
+    respiration: { z: 0.4, baseline: 14.0, deviated: false },
+    checkin: { z: null, baseline: null, deviated: false },
+  },
+  explanation: "Your body is showing signs of strain or illness — 2 signal(s) deviated beyond baseline tonight (resting_hr, hrv).",
+};
+
+const LIKELY_ILLNESS: IllnessState = {
+  level: "likely",
+  deviated_count: 3,
+  signals: {
+    resting_hr: { z: 2.4, baseline: 48.8, deviated: true },
+    hrv: { z: -2.1, baseline: 4.1, deviated: true },
+    respiration: { z: 2.0, baseline: 14.0, deviated: true },
+    checkin: { z: null, baseline: null, deviated: false },
+  },
+  explanation:
+    "Your body is showing signs of strain or illness — 3 signal(s) deviated beyond baseline for 2+ nights running (resting_hr, hrv, respiration).",
+};
+
 export function mockToday(scenario: MockScenario): Today {
   if (scenario === "calibrating") return CALIBRATING;
   if (scenario === "empty") return EMPTY;
   // Real device data, just hours old — the offline banner should show real data age here,
   // not the data itself looking any different from "full".
   if (scenario === "offline") return { ...FULL, generated_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString() };
-  return FULL;
+  const checkin = mockTodayCheckinBlock();
+  if (scenario === "illness_watch") return { ...FULL, checkin, illness: WATCH_ILLNESS, recommendation: FULL.recommendation };
+  if (scenario === "illness_likely") {
+    return {
+      ...FULL,
+      checkin,
+      illness: LIKELY_ILLNESS,
+      recommendation: "Your body is showing signs of strain or illness — keep today easy. No tests, no TR/AN work; an easy UT2 session at most, or a full rest day.",
+    };
+  }
+  return { ...FULL, checkin };
 }
 
 export function mockSyncStatus(): SyncSourceStatus[] {
@@ -331,9 +411,10 @@ function mockWorkout(i: number): WorkoutListItem {
     rpe: null,
     exclude_from_totals: false,
     tags: [],
+    test_type: null,
     overrides: {},
     sources: [sourceRow],
-    editable_fields: ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"],
+    editable_fields: ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type"],
     edits_push_back_to_source: false,
     strain: i < 2 ? null : { canonical_id: canonicalId, title, value: strainValue, band: strainValue < 10 ? "light" : strainValue < 14 ? "moderate" : "high" },
   };
@@ -410,6 +491,7 @@ export function patchMockActivity(id: number, patch: ActivityOverrides): Workout
   if (patch.rpe !== undefined) workout.rpe = patch.rpe;
   if (patch.exclude_from_totals !== undefined) workout.exclude_from_totals = patch.exclude_from_totals;
   if (patch.tags !== undefined) workout.tags = patch.tags;
+  if (patch.test_type !== undefined) workout.test_type = patch.test_type;
   return mockWorkoutDetail(id);
 }
 
@@ -617,6 +699,172 @@ export function mockErgStrokes(
   };
 }
 
+// --- Erg test center (session 15 Part C) ------------------------------------
+//
+// Two already-confirmed "2000m" tests (so there's a "compare to earlier" pair out of the
+// box) plus one untagged erg piece left as a candidate. Distance/duration are overridden to
+// a real ~2000m shape here — the generic mockWorkout() generator gives index 1/6 whatever
+// distance its own i%4 formula lands on (6000m for these two), which would otherwise show a
+// "2000m" test with a 6000m pacing chart, a real data-consistency bug a screenshot caught
+// (a workout only ever gets tagged as a given test type because it actually was one).
+MOCK_WORKOUTS[1].tags = ["test"];
+MOCK_WORKOUTS[1].test_type = "2000m";
+MOCK_WORKOUTS[1].distance = 2000;
+MOCK_WORKOUTS[1].duration = 400;
+MOCK_WORKOUTS[6].tags = ["test"];
+MOCK_WORKOUTS[6].test_type = "2000m";
+MOCK_WORKOUTS[6].distance = 2000;
+MOCK_WORKOUTS[6].duration = 418;
+const CANDIDATE_CANONICAL_ID = MOCK_WORKOUTS[2].id;
+
+function workoutToTestSummary(w: WorkoutListItem): ErgTestSummary {
+  return {
+    canonical_id: w.id,
+    activity_id: w.sources[0]?.activity_id ?? w.id,
+    test_type: (w.test_type as ErgTestType) ?? null,
+    title: w.title,
+    date: w.start ? w.start.slice(0, 10) : null,
+    distance_m: w.distance,
+    duration_s: w.duration,
+    avg_power: w.avg_power,
+    avg_stroke_rate: w.avg_cadence,
+    avg_hr: w.avg_hr,
+  };
+}
+
+export function mockTestCandidates(): ErgTestCandidate[] {
+  const w = MOCK_WORKOUTS.find((x) => x.id === CANDIDATE_CANONICAL_ID);
+  if (!w || (w.tags ?? []).includes("test")) return [];
+  return [
+    {
+      canonical_id: w.id,
+      activity_id: w.sources[0]?.activity_id ?? w.id,
+      suggested_test_type: "5000m",
+      title: w.title,
+      date: w.start ? w.start.slice(0, 10) : null,
+      distance_m: w.distance,
+      duration_s: w.duration,
+      avg_stroke_rate: w.avg_cadence,
+    },
+  ];
+}
+
+export function mockTests(type?: ErgTestType): ErgTestSummary[] {
+  return MOCK_WORKOUTS.filter((w) => (w.tags ?? []).includes("test") && (!type || w.test_type === type))
+    .map(workoutToTestSummary)
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+function mockEvenSplits(distanceM: number, totalS: number, n: number): { split_index: number; distance_m: number; actual_split_s: number; actual_cum_s: number }[] {
+  const shape = [1.02, 0.99, 1.01, 0.96, 0.98, 1.0, 0.99, 0.97].slice(0, n);
+  const scale = totalS / shape.reduce((a, b) => a + b, 0);
+  let cum = 0;
+  return shape.map((m, i) => {
+    const split = m * scale;
+    cum += split;
+    return { split_index: i + 1, distance_m: Math.min((i + 1) * 500, distanceM), actual_split_s: split, actual_cum_s: cum };
+  });
+}
+
+export function mockTestDetail(id: number): ErgTestDetail {
+  const w = MOCK_WORKOUTS.find((x) => x.id === id) ?? MOCK_WORKOUTS[1];
+  const distanceM = w.distance ?? 2000;
+  const n = Math.max(1, Math.round(distanceM / 500));
+  const splits = mockEvenSplits(distanceM, w.duration ?? 400, n);
+  const evenSplit = splits.reduce((a, s) => a + s.actual_split_s, 0) / splits.length;
+  const worst = splits.reduce((a, s) => (s.actual_split_s > a.actual_split_s ? s : a));
+
+  const hasPlan = id === MOCK_WORKOUTS[1].id;
+  const plan: PacingPlan | null = hasPlan
+    ? {
+        style: "even",
+        distance_m: distanceM,
+        goal_time_s: w.duration ?? 400,
+        rate_hint: null,
+        splits: splits.map((s) => ({ split_index: s.split_index, distance_m: s.distance_m, target_split_s: evenSplit, target_cum_s: evenSplit * s.split_index })),
+        explanation: `${n} x 500m targets for an even pacing shape, scaled to total exactly ${(w.duration ?? 400).toFixed(1)}s.`,
+        test_type: "2000m",
+      }
+    : null;
+
+  const earlier = id === MOCK_WORKOUTS[1].id ? workoutToTestSummary(MOCK_WORKOUTS[6]) : null;
+
+  return {
+    activity: mockWorkoutDetail(id),
+    test_type: (w.test_type as ErgTestType) ?? null,
+    plan,
+    pacing_analysis: {
+      splits,
+      even_split_s: evenSplit,
+      segments: { start: splits[0]?.actual_split_s ?? null, middle_1000: splits.length > 2 ? splits[1].actual_split_s : null, sprint: splits[splits.length - 1]?.actual_split_s ?? null },
+      deviation_from_even_pct: 4.2,
+      worst_split_vs_even: { split_index: worst.split_index, seconds_lost_vs_even: worst.actual_split_s - evenSplit },
+      vs_plan: plan ? splits.map((s, i) => ({ split_index: s.split_index, actual_s: s.actual_split_s, target_s: plan.splits[i].target_split_s, delta_s: s.actual_split_s - plan.splits[i].target_split_s })) : null,
+    },
+    compare_to_earlier: earlier,
+    w_per_kg: w.avg_power ? w.avg_power / 79 : null,
+  };
+}
+
+export function mockPacingPlan(body: { test_type: ErgTestType; goal_time_s: number; style: PacingStyle; distance_m?: number; save_to_next_event?: boolean }): {
+  plan: PacingPlan;
+  saved_to_event: { id: number; name: string; date: string } | null;
+} {
+  const standardDistances: Record<string, number> = { "500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000 };
+  const distanceM = standardDistances[body.test_type] ?? body.distance_m ?? 2000;
+  const n = Math.max(1, Math.round(distanceM / 500));
+  const base = body.goal_time_s / n;
+  const shapeFor = (style: PacingStyle): number[] => {
+    if (style === "even") return Array(n).fill(1.0);
+    if (style === "fast_start_settle") {
+      const head = Math.max(1, Math.round(n * 0.25));
+      const tail = Math.max(1, Math.round(n * 0.25));
+      return [...Array(head).fill(0.985), ...Array(Math.max(0, n - head - tail)).fill(1.0), ...Array(tail).fill(1.015)];
+    }
+    const firstHalf = Math.ceil(n / 2);
+    return [...Array(firstHalf).fill(1.01), ...Array(n - firstHalf).fill(0.99)];
+  };
+  const shape = shapeFor(body.style);
+  const raw = shape.map((m) => base * m);
+  const scale = body.goal_time_s / raw.reduce((a, b) => a + b, 0);
+  let cum = 0;
+  const splits = raw.map((r, i) => {
+    const targetSplitS = r * scale;
+    cum += targetSplitS;
+    return { split_index: i + 1, distance_m: Math.min((i + 1) * 500, distanceM), target_split_s: targetSplitS, target_cum_s: cum };
+  });
+  const plan: PacingPlan = {
+    style: body.style,
+    distance_m: distanceM,
+    goal_time_s: body.goal_time_s,
+    rate_hint: null,
+    splits,
+    explanation: `${n} x 500m targets for a ${body.style.replace(/_/g, " ")} pacing shape, scaled to total exactly ${body.goal_time_s.toFixed(1)}s.`,
+    test_type: body.test_type,
+  };
+  const savedToEvent = body.save_to_next_event && FULL.next_a_race ? { id: 1, name: FULL.next_a_race.name, date: FULL.next_a_race.date } : null;
+  return { plan, saved_to_event: savedToEvent };
+}
+
+export function mockProjection(_type: ErgTestType): ProjectionResult {
+  const target = FULL.next_a_race;
+  const inputs = [
+    { date: shiftDate(TODAY, -60), value: 415.0 },
+    { date: shiftDate(TODAY, -30), value: 408.0 },
+    { date: shiftDate(TODAY, -5), value: 400.0 },
+  ];
+  return {
+    value: 393.0,
+    range: [387.0, 399.0],
+    slope_s_per_day: -0.37,
+    n_points: inputs.length,
+    explanation: `Linear trend over ${inputs.length} tests of this type, projected to ${target?.date ?? shiftDate(TODAY, 90)}; band is ±1 residual SD (6.0s) around the trend line, not a statement about how confident the slope itself is.`,
+    inputs,
+    target_date: target?.date ?? shiftDate(TODAY, 90),
+    target_event: target,
+  };
+}
+
 // --- Notes ---------------------------------------------------------------
 
 const MOCK_NOTES = new Map<string, Note>();
@@ -629,6 +877,98 @@ export function saveMockNote(date: string, text: string, rpe: number | null): No
   const note: Note = { id: 1, date, text, rpe, created_at: new Date().toISOString() };
   MOCK_NOTES.set(date, note);
   return note;
+}
+
+// --- Check-in (session 15 Part A) -----------------------------------------
+
+const MOCK_CHECKINS = new Map<string, CheckIn>();
+MOCK_CHECKINS.set(TODAY, { date: TODAY, soreness: 2, stress: 2, mood: 4, sleep_quality: 4, niggle_area: null, niggle_severity: null, note: null });
+
+export function mockTodayCheckin(): TodayCheckinStatus {
+  // "empty" must agree with EMPTY's own `checkin.completed: false` (real GET /api/today and
+  // GET /api/checkins/today always read the same DB row, so these two mock entry points
+  // must never disagree either) — caught by screenshotting the auto-open sheet, which never
+  // opened under ?mock=empty before this, since this function ignored scenario entirely.
+  if (mockScenarioFromQuery() === "empty") return { date: TODAY, completed: false, checkin: null };
+  const checkin = MOCK_CHECKINS.get(TODAY) ?? null;
+  return { date: TODAY, completed: checkin !== null, checkin };
+}
+
+export function saveMockCheckin(body: Partial<Omit<CheckIn, "date">> & { date?: string }): CheckIn {
+  const day = body.date ?? TODAY;
+  const existing = MOCK_CHECKINS.get(day);
+  const checkin: CheckIn = {
+    date: day,
+    soreness: body.soreness ?? existing?.soreness ?? null,
+    stress: body.stress ?? existing?.stress ?? null,
+    mood: body.mood ?? existing?.mood ?? null,
+    sleep_quality: body.sleep_quality ?? existing?.sleep_quality ?? null,
+    niggle_area: body.niggle_area ?? existing?.niggle_area ?? null,
+    niggle_severity: body.niggle_severity ?? existing?.niggle_severity ?? null,
+    note: body.note ?? existing?.note ?? null,
+  };
+  MOCK_CHECKINS.set(day, checkin);
+  return checkin;
+}
+
+function mockTodayCheckinBlock(): TodayCheckin {
+  const checkin = MOCK_CHECKINS.get(TODAY) ?? null;
+  return {
+    completed: checkin !== null,
+    today: checkin,
+    niggle_area: checkin?.niggle_area ?? null,
+    niggle_severity: checkin?.niggle_severity ?? null,
+    niggle_streak_days: checkin?.niggle_area ? 1 : 0,
+    niggle_flag: false,
+  };
+}
+
+// --- Illness early warning (session 15 Part B) -----------------------------
+
+const MOCK_ILLNESS_ACKS = new Map<string, IllnessAck>();
+
+export function dismissMockIllness(day: string, reason: DismissReason): void {
+  const existing = MOCK_ILLNESS_ACKS.get(day);
+  MOCK_ILLNESS_ACKS.set(day, {
+    date: day,
+    first_flagged_at: existing?.first_flagged_at ?? new Date().toISOString(),
+    dismissed: true,
+    dismiss_reason: reason,
+    backtest_mark: existing?.backtest_mark ?? null,
+  });
+}
+
+export function markMockIllnessBacktest(day: string, correct: boolean): void {
+  const existing = MOCK_ILLNESS_ACKS.get(day);
+  MOCK_ILLNESS_ACKS.set(day, {
+    date: day,
+    first_flagged_at: existing?.first_flagged_at ?? new Date().toISOString(),
+    dismissed: existing?.dismissed ?? false,
+    dismiss_reason: existing?.dismiss_reason ?? null,
+    backtest_mark: correct ? "correct" : "incorrect",
+  });
+}
+
+export function mockIllnessBacktest(): IllnessBacktestResponse {
+  const seeded: { date: string; level: "watch" | "likely"; explanation: string }[] = [
+    { date: shiftDate(TODAY, -12), level: "likely", explanation: WATCH_ILLNESS.explanation },
+    { date: shiftDate(TODAY, -40), level: "watch", explanation: "Your body is showing signs of strain or illness — 1 signal(s) deviated beyond baseline tonight (resting_hr)." },
+  ];
+  const flagged = seeded.map((s) => {
+    const ack = MOCK_ILLNESS_ACKS.get(s.date);
+    return {
+      date: s.date,
+      level: s.level,
+      deviated_count: s.level === "likely" ? 3 : 1,
+      explanation: s.explanation,
+      dismissed: ack?.dismissed ?? false,
+      dismiss_reason: ack?.dismiss_reason ?? null,
+      backtest_mark: ack?.backtest_mark ?? null,
+    };
+  });
+  const marked = flagged.filter((f) => f.backtest_mark !== null);
+  const correct = marked.filter((f) => f.backtest_mark === "correct");
+  return { flagged, marked_count: marked.length, precision: marked.length ? correct.length / marked.length : null };
 }
 
 // --- Trends / Body -------------------------------------------------------
@@ -658,6 +998,18 @@ function metricValueAt(metric: TrendMetric, i: number): number | null {
       return 2.6 + Math.sin(i / 11) * 0.15 + (i / 1000) * 0.08;
     case "predicted_2k":
       return 400 - i * 0.02 + Math.sin(i / 17) * 3;
+    // Session 15 Part A.3 — only real since the day the check-in feature shipped (the task's
+    // own recorded account has no history before that), not the full multi-year synthetic
+    // range every other metric gets: a trend line that goes back further than the feature
+    // itself existed would be a fabricated history, not a realistic demo.
+    case "checkin_soreness":
+      return i > 21 ? null : 3 + Math.sin(i / 3);
+    case "checkin_stress":
+      return i > 21 ? null : 3 - Math.sin(i / 4);
+    case "checkin_mood":
+      return i > 21 ? null : 3.5 + Math.sin(i / 5) * 1.2;
+    case "checkin_sleep_quality":
+      return i > 21 ? null : 3.5 + Math.sin(i / 6);
     default:
       return null;
   }

@@ -10,6 +10,7 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { MoonIcon, SunIcon } from "../components/shell/icons";
 import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 import { NutritionTargetsCard } from "../components/nutrition/NutritionTargetsCard";
+import { IllnessBacktestCard } from "../components/settings/IllnessBacktestCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2"] as const;
@@ -347,6 +348,8 @@ export function SettingsPage() {
       </Card>
 
       <NutritionTargetsCard />
+
+      <IllnessBacktestCard />
 
       <CoachSettingsCard />
 

@@ -148,7 +148,17 @@ web/
                 timestamp rather than accumulated setInterval ticks since a backgrounded PWA
                 suspends JS timers, Web Audio beep since iOS Safari has no navigator.vibrate;
                 PlateCalculatorDialog; MuscleBodyMap — a schematic (not anatomical) front/
-                back SVG, see DESIGN.md's "Muscle readiness body map" note; SyncStatusBadge)
+                back SVG, see DESIGN.md's "Muscle readiness body map" note; SyncStatusBadge);
+                session 15: CheckinSheet (a bottom-sheet-on-mobile/centered-on-desktop Radix
+                Dialog, 4 sliders + niggle area/severity + note; prefilled from GET /api/
+                checkins/today so reopening it later the same day edits, never blanks; see
+                DESIGN.md's "Dialogs that reach the bottom nav need z-30" note), IllnessCard
+                (the fixed-wording explanation + signals list + a dismiss-with-reason row,
+                shown only when illness.level !== "none"); settings/IllnessBacktestCard (the
+                flagged-nights list + correct/wrong marks + precision, task Part B.4); tests/
+                (PacingPlanDialog — goal-time/style/test-type form, saves to the next event by
+                default; SplitBarChart — a small static actual-vs-target-per-500m bar chart,
+                deliberately not built on ErgChart's pan/zoom machinery, see DESIGN.md)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -184,7 +194,12 @@ web/
                 visibilitychange to the flush, each a real trigger on its own: the
                 online-status hook's 15s-interval probe can go a whole short reconnect
                 window without ever toggling, so the plain `online` event is load-bearing,
-                not just belt-and-suspenders, confirmed by web/tests/gym-offline/)
+                not just belt-and-suspenders, confirmed by web/tests/gym-offline/); session
+                15: api.ts/mock.ts gained check-in/illness/erg-test-center functions
+                (confirmTest reuses patchActivity, no new endpoint); types.ts gained
+                CheckIn/TodayCheckin/IllnessState/ErgTestDetail/PacingPlan/ProjectionResult
+                etc., plus `test_type` on ActivityOverrides/WorkoutListItem (a confirmed test
+                is just a tagged CanonicalActivity — see catch/sync/erg_test.py)
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
@@ -197,7 +212,15 @@ web/
                 hub + active-workout logging in one page — resumes today's IndexedDB session
                 on mount, offline-first; reads the exercise library/gyms/templates/repeat-
                 last-workout over the network as usual, mock-gated like every other page),
-                MuscleReadiness (session 14: the 72h front/back body map + list) (React.lazy,
+                MuscleReadiness (session 14: the 72h front/back body map + list); session 15:
+                TestCenter (`/tests` — candidates to confirm, PbTable reused as-is for PBs per
+                type, confirmed-tests list with a type filter, the projection line, "Build
+                pacing plan" entry point; no bottom-nav slot — reached via the Sidebar on
+                desktop and a Workouts-header link on mobile, same pattern Duplicates/
+                MuscleReadiness already use), TestDetail (`/tests/:id` — pacing chart +
+                segment/even-split/worst-split numbers, compare-to-earlier, w/kg; links out to
+                the real workout-detail page for the full ErgChart/HrChart pan-zoom
+                experience rather than duplicating it) (React.lazy,
                 one chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT

@@ -1,12 +1,16 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, SettingsIcon, SunIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
   { to: "/gym", label: "Gym", Icon: GymIcon },
+  // Session 15 Part C — the bottom nav is already tight at 8 items (DESIGN.md), so the Test
+  // Center's only nav entry point is here on desktop, plus a link from the Workouts page
+  // header on mobile (same pattern Duplicates/Muscle-readiness already use).
+  { to: "/tests", label: "Tests", Icon: TestsIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
   { to: "/body", label: "Body", Icon: BodyIcon },
   { to: "/nutrition", label: "Nutrition", Icon: NutritionIcon },
