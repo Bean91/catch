@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+# Superseded runs on the same branch cancel automatically — a push while a prior run is
+# still going (or stuck, e.g. a slow/hung Playwright-browser download) no longer piles up
+# redundant or stale in-progress runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # Everything here runs against fixtures/mocks only — no secrets are configured on this
 # workflow, and none are needed (CLAUDE.md: "no live network calls in the suite"). The Python
 # suite's live-call guard (tests/conftest.py) would turn any accidental real call into a hard
