@@ -88,6 +88,10 @@ import {
   updateMockFoodLog,
   updateMockGoal,
   upsertMockStation,
+  mockSubscribePush,
+  mockUnsubscribePush,
+  mockPushSubscriptions,
+  mockStatus,
 } from "./mock";
 import type {
   ActivityOverrides,
@@ -149,6 +153,8 @@ import type {
   WorkoutCategory,
   WorkoutDetail,
   WorkoutsPage,
+  PushSubscriptionRow,
+  AppStatus,
 } from "./types";
 
 export const MOCK_SCENARIO = mockScenarioFromQuery();
@@ -976,4 +982,56 @@ export async function fetchLastSetsForExercise(exerciseId: number): Promise<Stre
 export async function fetchMuscleReadiness(): Promise<MuscleReadiness> {
   if (isMock) return delay(mockMuscleReadiness());
   return request<MuscleReadiness>("/api/gym/muscle-readiness");
+}
+
+// --- Session 16 (see PLAN.md Part A) — push notifications ---
+
+export async function fetchVapidPublicKey(): Promise<string> {
+  if (isMock) return delay("mock-vapid-public-key");
+  const { public_key } = await request<{ public_key: string }>("/api/push/vapid-public-key");
+  return public_key;
+}
+
+export async function subscribePush(sub: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  label?: string;
+  user_agent?: string;
+}): Promise<PushSubscriptionRow> {
+  if (isMock) return delay(mockSubscribePush(sub), 200);
+  return request<PushSubscriptionRow>("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub),
+  });
+}
+
+export async function unsubscribePush(endpoint: string): Promise<void> {
+  if (isMock) return delay(mockUnsubscribePush(endpoint), 150);
+  await request<{ deleted: true }>("/api/push/subscribe", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+export async function fetchPushSubscriptions(): Promise<PushSubscriptionRow[]> {
+  if (isMock) return delay(mockPushSubscriptions());
+  return request<PushSubscriptionRow[]>("/api/push/subscriptions");
+}
+
+export async function sendTestPush(subscriptionId: number): Promise<void> {
+  if (isMock) return delay(undefined, 400);
+  await request<{ sent: true }>("/api/push/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription_id: subscriptionId }),
+  });
+}
+
+// --- Session 16 (see PLAN.md Part B) — monitoring ---
+
+export async function fetchStatus(): Promise<AppStatus> {
+  if (isMock) return delay(mockStatus());
+  return request<AppStatus>("/api/status");
 }

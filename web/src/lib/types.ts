@@ -687,6 +687,66 @@ export interface Settings {
   // --- Session 13 (see PLAN.md Part A) ---
   daily_activity_strain_cap: number;
   daily_activity_strain_weight: number;
+  // --- Session 16 (see PLAN.md Part A) — push notification prefs ---
+  notifications: {
+    quiet_hours_start: string;
+    quiet_hours_end: string;
+    types: {
+      morning_brief: boolean;
+      illness: boolean;
+      garmin_key_expiring: boolean;
+      sync_broken: boolean;
+      test_reminder: boolean;
+    };
+  };
+}
+
+// --- Session 16 (see PLAN.md Part A/B) ---
+
+export interface PushSubscriptionRow {
+  id: number;
+  endpoint: string;
+  label: string | null;
+  created_at: string;
+  last_seen_at: string;
+}
+
+export interface NotificationLogRow {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  deep_link: string | null;
+  sent_at: string;
+  device_count: number;
+}
+
+export interface SourceStatus {
+  source: string;
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  token_expires_at: string | null;
+}
+
+export interface BackupStatus {
+  last_backup_at: string | null;
+  backup_size_bytes: number | null;
+  integrity_ok: boolean | null;
+  remote_copied_at: string | null;
+  remote_ok: boolean | null;
+}
+
+export interface AppStatus {
+  sources: SourceStatus[];
+  garmin_key_expires_on: string | null;
+  backup: BackupStatus | null;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+  db_size_bytes: number;
+  uptime_seconds: number;
+  build: { build: string; commit: string } | null;
 }
 
 // --- Coach (session 5) -------------------------------------------------------

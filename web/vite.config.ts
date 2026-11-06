@@ -77,6 +77,40 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Session 16 (see PLAN.md Part A): a push event carries no guarantee the page is open, or
+// even that the device is unlocked — showNotification must run inside waitUntil every time,
+// unconditionally, or iOS treats a push that produced no visible notification as a signal to
+// revoke the subscription after a few repeats.
+self.addEventListener('push', (event) => {
+  let data = { title: 'Catch', body: '', url: '/' };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {
+    // A push with no body, or a non-JSON body — the generic fallback above is still shown
+    // rather than silently dropping the notification.
+  }
+  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, data: { url: data.url }, icon: '/icons/icon-192.png' }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.startsWith(self.location.origin)) {
+          // postMessage rather than client.navigate(): iOS standalone-mode WebKit has real
+          // gaps in WindowClient.navigate() support, but every open client already runs
+          // this app's own router, which can navigate itself reliably.
+          client.postMessage({ type: 'catch:navigate', url: targetUrl });
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;

@@ -194,7 +194,7 @@ def check_garmin_key_expiring(session: Session) -> None:
         type_="garmin_key_expiring",
         title="Garmin key expiring",
         body=f"Your Garmin personal API key expires in {days_left} day{'s' if days_left != 1 else ''} ({expires_on}).",
-        deep_link="/settings",
+        deep_link="/settings/status",
     )
 
 
@@ -215,7 +215,7 @@ def alert_sync_broken(session: Session, source: str, reason: str) -> bool:
         type_="sync_broken",
         title=f"{source} sync is broken",
         body=reason,
-        deep_link="/settings",
+        deep_link="/settings/status",
     )
     if sent:
         ntfy.send(f"Catch: {source} sync is broken — {reason}")

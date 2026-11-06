@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { fetchSettings, fetchSyncStatus, saveSettings, triggerSync } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { daysUntilGarminKeyExpires, GARMIN_KEY_PAGE_URL } from "../lib/garminKey";
@@ -11,6 +12,7 @@ import { MoonIcon, SunIcon } from "../components/shell/icons";
 import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 import { NutritionTargetsCard } from "../components/nutrition/NutritionTargetsCard";
 import { IllnessBacktestCard } from "../components/settings/IllnessBacktestCard";
+import { NotificationsCard } from "../components/settings/NotificationsCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2"] as const;
@@ -61,7 +63,14 @@ export function SettingsPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
 
-      <Card title="Connected sources">
+      <Card
+        title="Connected sources"
+        action={
+          <Link to="/settings/status" className="text-sm font-medium text-accent hover:underline">
+            Status
+          </Link>
+        }
+      >
         <div className="flex flex-col gap-3">
           {SOURCES.map((source) => {
             const status = statusQuery.data?.find((s) => s.source === source);
@@ -346,6 +355,8 @@ export function SettingsPage() {
           Switch to {theme === "dark" ? "light" : "dark"} theme
         </button>
       </Card>
+
+      <NotificationsCard />
 
       <NutritionTargetsCard />
 

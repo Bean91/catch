@@ -41,6 +41,8 @@ import type {
   PersonalBests,
   PhotoEstimateResult,
   ProjectionResult,
+  PushSubscriptionRow,
+  AppStatus,
   SavedMealItem,
   SavedMealRow,
   Settings,
@@ -1191,6 +1193,11 @@ let MOCK_SETTINGS: Settings = {
   auto_trim_min_idle_s: 120,
   daily_activity_strain_cap: 1.5,
   daily_activity_strain_weight: 1.0,
+  notifications: {
+    quiet_hours_start: "22:00",
+    quiet_hours_end: "06:00",
+    types: { morning_brief: true, illness: true, garmin_key_expiring: true, sync_broken: true, test_reminder: true },
+  },
 };
 
 export function mockSettings(): Settings {
@@ -2003,5 +2010,60 @@ export function mockMuscleReadiness(): MuscleReadiness {
       abductors: 0,
       neck: 0,
     },
+  };
+}
+
+// --- Session 16 (see PLAN.md Part A/B) ---
+
+let nextMockPushId = 1;
+let MOCK_PUSH_SUBSCRIPTIONS: PushSubscriptionRow[] = [];
+
+export function mockPushSubscriptions(): PushSubscriptionRow[] {
+  return MOCK_PUSH_SUBSCRIPTIONS;
+}
+
+export function mockSubscribePush(sub: { endpoint: string; label?: string }): PushSubscriptionRow {
+  const now = new Date().toISOString();
+  const existing = MOCK_PUSH_SUBSCRIPTIONS.find((s) => s.endpoint === sub.endpoint);
+  if (existing) {
+    const updated = { ...existing, label: sub.label ?? existing.label, last_seen_at: now };
+    MOCK_PUSH_SUBSCRIPTIONS = MOCK_PUSH_SUBSCRIPTIONS.map((s) => (s.endpoint === sub.endpoint ? updated : s));
+    return updated;
+  }
+  const row: PushSubscriptionRow = {
+    id: nextMockPushId++,
+    endpoint: sub.endpoint,
+    label: sub.label ?? null,
+    created_at: now,
+    last_seen_at: now,
+  };
+  MOCK_PUSH_SUBSCRIPTIONS = [...MOCK_PUSH_SUBSCRIPTIONS, row];
+  return row;
+}
+
+export function mockUnsubscribePush(endpoint: string): void {
+  MOCK_PUSH_SUBSCRIPTIONS = MOCK_PUSH_SUBSCRIPTIONS.filter((s) => s.endpoint !== endpoint);
+}
+
+export function mockStatus(): AppStatus {
+  return {
+    sources: [
+      { source: "garmin", last_success_at: new Date().toISOString(), last_attempt_at: new Date().toISOString(), last_error: null, consecutive_failures: 0, token_expires_at: new Date(Date.now() + 23 * 3600_000).toISOString() },
+      { source: "withings", last_success_at: new Date(Date.now() - 3600_000).toISOString(), last_attempt_at: new Date(Date.now() - 3600_000).toISOString(), last_error: null, consecutive_failures: 0, token_expires_at: null },
+      { source: "concept2", last_success_at: new Date(Date.now() - 7200_000).toISOString(), last_attempt_at: new Date(Date.now() - 7200_000).toISOString(), last_error: null, consecutive_failures: 0, token_expires_at: null },
+    ],
+    garmin_key_expires_on: "2027-10-31",
+    backup: {
+      last_backup_at: new Date(Date.now() - 20 * 3600_000).toISOString(),
+      backup_size_bytes: 4_200_000,
+      integrity_ok: true,
+      remote_copied_at: new Date(Date.now() - 19 * 3600_000).toISOString(),
+      remote_ok: true,
+    },
+    disk_free_bytes: 12_000_000_000,
+    disk_total_bytes: 30_000_000_000,
+    db_size_bytes: 8_500_000,
+    uptime_seconds: 86_400 * 3,
+    build: { build: "mock-build", commit: "abc1234" },
   };
 }

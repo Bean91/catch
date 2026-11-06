@@ -1,5 +1,5 @@
-import { lazy, Suspense } from "react";
-import { Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/shell/AppShell";
 import { CardSkeleton } from "./components/ui/Skeleton";
 import { useAuth } from "./lib/auth";
@@ -22,6 +22,7 @@ const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.C
 const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
+const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
   return (
@@ -32,8 +33,26 @@ function RouteFallback() {
   );
 }
 
+// A notification tap's deep link (sw.js's notificationclick handler) arrives as a
+// postMessage, not a URL change — client.navigate() has real gaps on iOS standalone WebKit,
+// but every open client already runs this router, which can navigate itself reliably.
+function useServiceWorkerNavigate() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "catch:navigate" && typeof event.data.url === "string") {
+        navigate(event.data.url);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [navigate]);
+}
+
 export function App() {
   const { status } = useAuth();
+  useServiceWorkerNavigate();
 
   if (status === "checking") {
     return <div className="min-h-screen bg-bg" />;
@@ -61,6 +80,7 @@ export function App() {
           <Route path="/coach" element={<CoachPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
+          <Route path="/settings/status" element={<StatusPage />} />
         </Routes>
       </Suspense>
     </AppShell>
