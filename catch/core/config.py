@@ -8,6 +8,14 @@ _ENV_LINE = __import__("re").compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(
 
 
 def load_dotenv(path: Path) -> None:
+    # No inline (end-of-line) "# comment" support — a trailing `KEY=value   # note` keeps the
+    # comment as part of `value`. Found live (session 16): NTFY_TOPIC/VAPID_SUBJECT written
+    # that way in .env picked up the comment text itself as their value — for a quoted value
+    # it's silently swallowed by base64's lenient decoder if the value happens to be a Fernet
+    # key (lucky, not something to rely on elsewhere), but for anything regex-validated
+    # (py_vapid's `sub` claim) or used verbatim in a URL path (ntfy's topic) it's a live bug.
+    # Put a key's comment on the line above instead, or on a bare `KEY=` line with nothing
+    # after the `=`, matching the rest of .env.example.
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -44,6 +52,12 @@ class Settings:
     backfill_days: int
     mcp_http_enabled: bool
     usda_fdc_api_key: str
+    vapid_public_key: str
+    vapid_private_key: str
+    vapid_subject: str
+    healthchecks_sync_url: str
+    healthchecks_backup_url: str
+    ntfy_topic: str
 
     @property
     def db_file(self) -> Path:
@@ -74,6 +88,12 @@ def load_settings() -> Settings:
         # deployment that never uses Claude Desktop over Tailscale doesn't pay for it.
         mcp_http_enabled=_get("CATCH_MCP_HTTP_ENABLED", "0") == "1",
         usda_fdc_api_key=_get("USDA_FDC_API_KEY"),
+        vapid_public_key=_get("VAPID_PUBLIC_KEY"),
+        vapid_private_key=_get("VAPID_PRIVATE_KEY"),
+        vapid_subject=_get("VAPID_SUBJECT"),
+        healthchecks_sync_url=_get("HEALTHCHECKS_SYNC_URL"),
+        healthchecks_backup_url=_get("HEALTHCHECKS_BACKUP_URL"),
+        ntfy_topic=_get("NTFY_TOPIC"),
     )
 
 

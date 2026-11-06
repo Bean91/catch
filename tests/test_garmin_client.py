@@ -124,6 +124,9 @@ def test_sync_health_merges_fields_from_multiple_endpoints(session):
     # `respiration` above — confirmed against tests/fixtures/garmin/sleep_range.json's real
     # recorded `averageRespirationValue`.
     assert row.sleep_respiration_avg == 18.0
+    # Session 16 (see PLAN.md Part A) — sleepEndTimestampLocal=1792221860000ms parses to
+    # 2026-10-17 07:24 wall-clock (confirmed by hand against the fixture's raw value).
+    assert row.wake_time_minutes == 7 * 60 + 24
     # Session 13 (see PLAN.md Part A): daily steps/calories/intensity minutes/floors from the
     # same usersummary fixture, confirmed against its real recorded values.
     assert row.steps == 15548

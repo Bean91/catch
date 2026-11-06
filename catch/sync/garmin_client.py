@@ -263,6 +263,7 @@ class GarminClient:
                 # endpoint, see _sync_usersummary) — the illness early-warning signal wants
                 # the overnight value specifically.
                 sleep_respiration_avg=item.get("averageRespirationValue"),
+                wake_time_minutes=_local_minutes_of_day(item.get("sleepEndTimestampLocal")),
             )
             n += 1
         return n
@@ -431,6 +432,15 @@ def _parse_epoch_ms(value: Any) -> datetime | None:
         return datetime.fromtimestamp(int(value) / 1000.0, tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         return None
+
+
+def _local_minutes_of_day(value: Any) -> int | None:
+    """Garmin's `*TimestampLocal` fields (unlike `*TimestampGMT`) are epoch-ms that encode
+    local wall-clock time *as if* it were UTC — there's no real UTC instant in them, so
+    `_parse_epoch_ms` happens to do exactly the right parse here (attaching a bogus UTC
+    tzinfo is harmless since only `.hour`/`.minute` are read back out)."""
+    dt = _parse_epoch_ms(value)
+    return dt.hour * 60 + dt.minute if dt else None
 
 
 def _parse_datetime(value: Any) -> datetime | None:

@@ -74,10 +74,21 @@ _NEW_COLUMNS = {
         "floors_descended": "INTEGER",
         # Session 15 (see PLAN.md Part B).
         "sleep_respiration_avg": "REAL",
+        # Session 16 (see PLAN.md Part A) — see DailyWellness.wake_time_minutes's docstring.
+        "wake_time_minutes": "INTEGER",
     },
     "events": {
         # Session 15 (see PLAN.md Part C.3).
         "plan_json": "TEXT",
+    },
+    "sync_state": {
+        # Session 16 (see PLAN.md Part A/B) — see SyncState's docstring in models.py.
+        "consecutive_failures": "INTEGER NOT NULL DEFAULT 0",
+        "alert_sent_at": "TEXT",
+    },
+    "illness_acks": {
+        # Session 16 (see PLAN.md Part A) — see IllnessAck's docstring in models.py.
+        "notified_at": "TEXT",
     },
 }
 

@@ -20,6 +20,17 @@ dependencies = [
     # Session 8/12 (see PLAN.md): per-sample FIT parsing for real time-in-zone/strain.
     # py3-none-any wheel on PyPI (checked before adding) — pure Python, no ARM concerns.
     "fitdecode>=0.11",
+    # Session 16 (see PLAN.md Part A): Web Push — `py-vapid` (VAPID JWT signing) and
+    # `http-ece` (the RFC 8188 aes128gcm payload encryption Web Push requires) directly,
+    # rather than the full `pywebpush` package, which transitively pulls in `requests` *and*
+    # `aiohttp` (and aiohttp's own compiled deps: multidict/yarl/frozenlist) for a `.send()`
+    # method this app never calls — the actual POST to the push service goes through httpx
+    # directly (catch/notify/push.py), so the existing live-call guard (tests/conftest.py,
+    # httpx-only) covers it for free. Both are pure-Python py3-none-any wheels on PyPI
+    # (checked before adding) — no ARM concern. Lazy-imported (catch/notify/push.py) so a Pi
+    # that never enables push pays nothing.
+    "py-vapid>=1.9",
+    "http-ece>=1.2",
 ]
 
 [dependency-groups]

@@ -27,6 +27,14 @@ class DailyWellness(SQLModel, table=True):
     body_battery: Optional[int] = None
     spo2: Optional[float] = None
     respiration: Optional[float] = None
+    # Session 16 (see PLAN.md Part A) — minutes since local midnight the athlete woke up
+    # (`sleepEndTimestampLocal`, confirmed in docs/garmin-openapi.json/garmin-endpoints.md).
+    # Garmin's "Local" timestamps are epoch-ms that read back as the correct wall-clock time
+    # only when parsed *as if* UTC (there's no real UTC instant in them) — see
+    # garmin_client.py's `_local_minutes_of_day`. An int-minutes-of-day rather than a real
+    # datetime column specifically to sidestep that non-standard convention ever leaking into
+    # a column every other datetime in this schema treats as genuinely UTC-aware.
+    wake_time_minutes: Optional[int] = None
     # Session 15 (see PLAN.md Part B): sleep-period respiration (`DailySleepDTO.
     # averageRespirationValue`), distinct from `respiration` above, which is the whole-day
     # `v2/dailysummaries` figure already in use elsewhere — the illness early-warning signal
@@ -303,6 +311,16 @@ class SyncState(SQLModel, table=True):
     last_attempt_at: Optional[datetime] = None
     last_success_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    # Session 16 (see PLAN.md Part A/B): reset to 0 on every success, incremented on every
+    # error — catch/sync/state.py reads this *before* incrementing to detect the exact moment
+    # it crosses the "3 in a row" alert threshold (edge-triggered, not level-triggered), so a
+    # source stuck broken for days still only fires the push once per broken episode rather
+    # than once per sync attempt.
+    consecutive_failures: int = 0
+    # Set the moment an alert is actually sent for the *current* broken episode (whichever of
+    # the two conditions tripped first) and cleared back to None on the next success — lets
+    # `record_success` tell a genuinely-new episode apart from the same one continuing.
+    alert_sent_at: Optional[datetime] = None
 
 
 class OAuthToken(SQLModel, table=True):
@@ -727,3 +745,50 @@ class IllnessAck(SQLModel, table=True):
     backtest_mark: Optional[str] = None  # "correct" | "incorrect" — task Part B.4
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+    # Session 16 (see PLAN.md Part A): that "future notifier" has arrived. Set the first time
+    # the illness push actually goes out for this date, so a later recompute (which never
+    # touches an existing row — see the docstring above) can't cause a second send, and a
+    # dismissal before the push fires suppresses it (catch/notify/triggers.py checks
+    # `dismissed` first).
+    notified_at: Optional[datetime] = None
+
+
+class PushSubscription(SQLModel, table=True):
+    """One row per browser/device that's called `PushManager.subscribe()` (task Part A.1/A.2
+    — "Subscriptions per device"). `endpoint` is the natural external id (a device re-
+    subscribing, e.g. after clearing site data, always gets a new one from the browser) —
+    unique rather than a dedup key on device, since there's no stable device identifier a
+    PWA can read. Pruned on a 404/410 response from the push service (an expired/revoked
+    subscription), never on any other error (a transient 5xx isn't the device's fault)."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    endpoint: str = Field(unique=True, index=True)
+    p256dh: str
+    auth: str
+    # User-entered at "Enable notifications" time (Settings), e.g. "iPhone" — the endpoint URL
+    # alone (push.apple.com/..., fcm.googleapis.com/...) isn't something a person can tell
+    # their own devices apart by, and the per-device test-send button (task Part A.2) needs a
+    # label to show per row.
+    label: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class NotificationLog(SQLModel, table=True):
+    """Task Part A.4: "Store a notification log." Also what the once-per-type-per-day dedup
+    (non-alert types) and the alert episode/quiet-hours bookkeeping read back — see
+    catch/notify/triggers.py. `type` is one of the five task-defined notification types plus
+    "test" (the per-device Settings test-send button)."""
+
+    __tablename__ = "notification_log"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    type: str
+    title: str
+    body: str
+    deep_link: Optional[str] = None
+    sent_at: datetime = Field(default_factory=_utcnow)
+    device_count: int = 0

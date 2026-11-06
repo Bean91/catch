@@ -129,4 +129,21 @@ DEFAULT_SETTINGS: dict = {
     # respiration or check-in) also deviating. A dedicated setting, not silently borrowed from
     # `acr_bands`, so tuning one doesn't quietly retune the other.
     "illness_acr_high_threshold": 1.3,
+    # Session 16 (see PLAN.md Part A) — push notification preferences. Quiet hours suppress
+    # every type uniformly, alerts included — a suppressed send is simply dropped, not
+    # queued for later (task gives no "deliver once quiet hours end" requirement, and queuing
+    # would need its own staleness handling — e.g. a morning-brief recovery number computed
+    # hours ago). Times are "HH:MM" local (the Pi's own system timezone, same assumption
+    # catch/sync/scoring.py already makes for "today").
+    "notifications": {
+        "quiet_hours_start": "22:00",
+        "quiet_hours_end": "06:00",
+        "types": {
+            "morning_brief": True,
+            "illness": True,
+            "garmin_key_expiring": True,
+            "sync_broken": True,
+            "test_reminder": True,
+        },
+    },
 }
