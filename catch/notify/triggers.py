@@ -90,6 +90,15 @@ def check_morning_brief(session: Session) -> None:
     if not (target <= now_m < target + _MORNING_BRIEF_GRACE_MINUTES):
         return
 
+    # Without this, the brief would almost always describe yesterday — `run_sync` (and the
+    # `recompute_scores` it triggers) is what actually fills in *today's* DailyWellness/
+    # DailyScore rows, and the regular 2h-interval sync job may not have run yet this soon
+    # after waking. Non-blocking (skips instantly if the regular job is already mid-run — see
+    # scheduler.py's per-source lock) and cheap (days=1).
+    from catch.sync.scheduler import run_sync
+
+    run_sync("garmin", days=1)
+
     from catch.api.routes_analytics import today as get_today
 
     payload = get_today(db=session)
@@ -109,6 +118,13 @@ def check_morning_brief(session: Session) -> None:
 
 
 def check_illness(session: Session) -> None:
+    """Only ever notifies about *today's* or *yesterday's* flag — on first deploy (or after
+    any illness-threshold tuning that re-flags an old date), `recompute_scores` can leave
+    `first_flagged_at` set with `notified_at` still NULL on any number of historical
+    `IllnessAck` rows (it only ever inserts, never overwrites — see the model's docstring).
+    Without this date guard, the very first tick after deploy would fire one push per
+    historical flag. An old, out-of-window row is marked `notified_at` without ever sending,
+    so it stops being reconsidered every tick forever."""
     settings = get_settings(session)
     acks = session.exec(
         select(IllnessAck).where(
@@ -117,17 +133,36 @@ def check_illness(session: Session) -> None:
             IllnessAck.dismissed == False,  # noqa: E712 - SQLAlchemy needs `== False`, not `is False`
         )
     ).all()
+    cutoff = date.today() - timedelta(days=1)
     for ack in acks:
+        if ack.date < cutoff:
+            ack.notified_at = datetime.now(timezone.utc)
+            session.add(ack)
+            session.commit()
+            continue
+
         # The flag's own explanation string lives in daily_scores.illness_json, not on the
-        # ack row itself (see IllnessAck's docstring) — read it back rather than recomputing.
+        # ack row itself (see IllnessAck's docstring) — read it back rather than recomputing,
+        # and re-check the *current* level: a later recompute (new history, a tuned
+        # threshold) may have since downgraded this date away from "likely" without ever
+        # touching this insert-only ack row.
         from catch.core.models import DailyScore
 
         score_row = session.get(DailyScore, ack.date)
+        level = None
         explanation = "An early-warning signal flagged this morning's numbers."
         if score_row and score_row.illness_json:
             import json as _json
 
-            explanation = _json.loads(score_row.illness_json).get("explanation", explanation)
+            illness = _json.loads(score_row.illness_json)
+            level = illness.get("level")
+            explanation = illness.get("explanation", explanation)
+        if level != "likely":
+            ack.notified_at = datetime.now(timezone.utc)
+            session.add(ack)
+            session.commit()
+            continue
+
         sent = _gated_notify(
             session,
             settings,
