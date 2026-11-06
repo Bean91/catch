@@ -8,4 +8,9 @@ User=catch
 Group=catch
 Nice=15
 IOSchedulingClass=idle
+# The "-" prefix makes this optional — a fresh pi-bootstrap.sh run creates an empty
+# catch.env (see that script), so this must never fail to start just because none of
+# HEALTHCHECKS_BACKUP_URL/NTFY_TOPIC/BACKUP_SCP_TARGET (session 16 — see PLAN.md Part B.4)
+# have been filled in yet.
+EnvironmentFile=-/var/lib/catch/catch.env
 ExecStart=/usr/local/bin/catch-backup.sh

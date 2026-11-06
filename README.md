@@ -114,8 +114,13 @@ Builds the frontend, rsyncs `catch/`, `pyproject.toml`, and `uv.lock` to the Pi 
 
 ### Backups
 
-A systemd timer runs `sqlite3 .backup` nightly (03:30, randomized ±20min), keeping the 14 most
-recent snapshots in `/var/lib/catch/backups/`. Pull them to your laptop with:
+A systemd timer runs `sqlite3 .backup` nightly (03:30, randomized ±20min), integrity-checks
+the copy (`PRAGMA integrity_check`), keeps the 14 most recent snapshots in
+`/var/lib/catch/backups/`, and (if `BACKUP_SCP_TARGET` is set — see `.env.example`) scp's the
+newest one to a laptop over Tailscale, keeping 30 there. A dead-man's-switch ping
+(`HEALTHCHECKS_BACKUP_URL`) and an ntfy alert on a real failure are both optional — see
+`.env.example`. Current status (last backup time/size, integrity, off-Pi copy) is on the
+Status page (Settings → Status). Pull backups to your laptop manually any time with:
 
 ```bash
 ./deploy/pull-backups.sh [destination-dir]

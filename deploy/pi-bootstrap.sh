@@ -84,6 +84,17 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
     NEEDRESTART_MODE=l apt-get install -y --no-install-recommends sqlite3
 fi
 
+echo "==> catch user's own SSH key (session 16 — see PLAN.md Part B.4: the off-Pi backup
+copy's scp transport, never shared with opensky's own key)"
+mkdir -p /var/lib/catch/.ssh
+if [ ! -f /var/lib/catch/.ssh/id_ed25519 ]; then
+    sudo -u catch ssh-keygen -t ed25519 -N "" -C "catch@$(hostname)-backup" -f /var/lib/catch/.ssh/id_ed25519
+fi
+chown -R catch:catch /var/lib/catch/.ssh
+chmod 700 /var/lib/catch/.ssh
+chmod 600 /var/lib/catch/.ssh/id_ed25519
+chmod 644 /var/lib/catch/.ssh/id_ed25519.pub
+
 echo "==> systemd units"
 install -m 644 "$SRC_DIR/catch.service" /etc/systemd/system/catch.service
 install -m 644 "$SRC_DIR/catch-backup.service" /etc/systemd/system/catch-backup.service
@@ -127,6 +138,17 @@ systemctl is-active piaware fr24feed tar1090
 echo ""
 echo "Next: put real secrets in /var/lib/catch/catch.env (mode 600, owned by catch), then"
 echo "run ./deploy.sh from your laptop."
+echo ""
+echo "==> For off-Pi backups (optional, see .env.example's BACKUP_SCP_TARGET):"
+echo "    1. On your laptop (macOS): System Settings > General > Sharing > Remote Login (on)."
+echo "    2. Append this to your laptop's ~/.ssh/authorized_keys:"
+echo ""
+cat /var/lib/catch/.ssh/id_ed25519.pub
+echo ""
+echo "    3. As the catch user, confirm it connects and accept the host key once:"
+echo "       sudo -u catch ssh -i /var/lib/catch/.ssh/id_ed25519 <you>@<your-laptop>.<tailnet>.ts.net true"
+echo "    4. Set BACKUP_SCP_TARGET=<you>@<your-laptop>.<tailnet>.ts.net:/path/to/backups/ in"
+echo "       /var/lib/catch/catch.env (that destination directory must already exist)."
 
 if [ -n "$REBOOT_NEEDED" ]; then
     echo ""
