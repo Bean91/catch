@@ -2635,3 +2635,139 @@ inline references use "session 8/12"-style dual numbering for exactly this reaso
 - **No `GymStation`/`Gym` management page** — see the checklist's "not attempted" note. A
   station already in the DB (seeded by hand or via the coach/API) works fully in the logger;
   creating a new one from the app itself needs direct API calls for now.
+
+## Session 15 checklist
+
+The task called itself "session 11" and referenced a future "session 12" — this file's own
+numbering already used both (session 11: on-chart zoom buttons removed; session 12: the
+task that opened *that* session also mis-numbered itself "session 8," and that session's own
+note already established the precedent of continuing this file's numbering regardless of what
+the task text calls itself). Continuing that precedent, this is session 15.
+
+The task: a morning check-in (Part A), an illness early-warning signal (Part B), and an erg
+test center (Part C).
+
+- [x] **Part A, morning check-in**: `checkins` table (date-keyed, one row/day, editable later
+      the same day via upsert), 4 sliders (soreness/stress/mood/sleep quality) + an optional
+      niggle (body area + 1-3 severity) + a free-text note. `catch/analytics/checkin.py`'s
+      `checkin_recovery_score` feeds a 5th, **additive** recovery-weight component (default
+      0.15) — additive, not a slice taken from the other four, specifically so a day with no
+      check-in scores *identically* to before this feature existed (locked in by a direct
+      test asserting the two calls return the same value). A niggle never touches the number
+      at all (`checkin_recovery_score` only reads the 4 sliders); it's purely a flag —
+      `GET /api/today`'s `checkin.niggle_flag` after `niggle_flag_min_days` (default 3)
+      consecutive days, surfaced unprompted in the coach's per-turn memory block. Trends
+      gained the 4 sliders as metrics (`checkin_soreness`/`stress`/`mood`/`sleep_quality`).
+- [x] **Part B, illness early warning**: checked Garmin's real OpenAPI spec directly before
+      building anything — **no skin-temperature field exists anywhere in the Personal API**
+      (the only "skin"/"temp" hit is an unrelated menstrual-cycle-tracking boolean), so that
+      planned signal was dropped and documented as a genuine absence, not an unconfirmed
+      field (`docs/garmin-endpoints.md`). Nightly respiration *does* exist
+      (`DailySleepDTO.averageRespirationValue`, sleep-service) but wasn't wired into the sync
+      before this session — now mapped to a new `sleep_respiration_avg` column, distinct from
+      the pre-existing whole-day `respiration` column. `catch/analytics/illness.py` scores
+      resting HR/HRV/nightly respiration/check-in-mood-and-soreness, each against its own
+      30-night baseline (SD floors per signal so an integer-reported metric's small real
+      wobble can't read as a multi-SD deviation; a minimum baseline-night count per signal).
+      Levels none/watch/likely: "likely" needs 2-night persistence as a hard requirement (not
+      just a boost), and is capped back to "watch" when a high acute:chronic ratio alone
+      explains resting HR/HRV with no respiration/check-in corroboration — the discriminator
+      that keeps a hard training block from ever reading as "likely" while a real 2-night
+      illness pattern still does. Wording is fixed and non-diagnostic ("your body is showing
+      signs of strain or illness," signals listed) — covered by a test asserting "sick"/
+      "diagnos" never appear. Computed output (`daily_scores.illness_json`) is rewritten on
+      every recompute like every other score column; user-owned state (dismissed/reason, a
+      backtest mark, `first_flagged_at`) lives in a separate `illness_acks` table that
+      recompute only ever inserts into, never overwrites. A dismissed-with-reason or
+      already-"likely" day is excluded from every later day's baseline. `GET /api/today`'s
+      recommendation caps outright at "likely" (no tests, no TR/AN) regardless of what the
+      recovery band itself says. `GET /api/illness/backtest` lists every historically flagged
+      night with precision over whatever the athlete has actually marked.
+- [x] **Part C, erg test center**: no new table for "a test" — it's a `CanonicalActivity`
+      whose existing free-form `overrides_json` carries `{"tags": ["test"], "test_type":
+      "2000m"}`, confirmed through the existing `PATCH /api/activities/{id}`.
+      `GET /api/tests/candidates` auto-detects untagged Concept2 pieces against the 8 standard
+      types (distance within 2%, duration within 25s, `30min_r20` additionally gated on
+      average stroke rate ≤ ~20.5) — a suggestion to confirm, never auto-applied. Pacing-plan
+      generator (`make_pacing_plan`/`POST /api/tests/pacing-plan`): per-500m targets scaled to
+      sum exactly to the goal time, 3 illustrative shapes (even/fast-start-settle/negative-
+      split); saves to the athlete's next upcoming event of *any* type by default when called
+      as a coach tool (deliberately broader than `next_a_race`'s A-race-only filter — a plan
+      is just as often for an upcoming test as a race). Pacing analysis: start/middle-1000/
+      sprint, deviation from even split, the single worst split, a split-by-split comparison
+      against a saved plan (best-effort distance match, documented as a simplification).
+      Projection: an OLS trend through this test type's PB history to the next A race's date,
+      ±1-residual-SD band, refuses outright below 3 points rather than fitting noise, inputs
+      always listed. 3 new coach/MCP tools (`get_tests`/`get_test`/`make_pacing_plan` — 27
+      tools total now).
+- [x] **Frontend**: a bottom-sheet check-in dialog (auto-opens once/day, date-keyed, editable
+      later; gated behind an explicit `?checkin=1` in mock mode so it never blocks the
+      existing `test:touch` suite, which runs under plain `?mock=1`), an illness card with
+      the fixed wording + dismiss-with-reason, an "Illness detector backtest" card on
+      Settings, and the erg test center (`TestCenter`/`TestDetail` pages) reached via the
+      Sidebar and a Workouts-header link — **no new bottom-nav slot**, per DESIGN.md's
+      existing note that 8 items is already tight. Screenshotted at 390px/1280px in both
+      themes; found and fixed two real bugs this way (see Findings below). `npx tsc -b`,
+      `npm run build`, `npm run test` (36/36), `npm run test:touch` (17/7-skipped), and
+      `npm run test:update` (4/4) all pass.
+- [x] Tests: 94 new backend tests (563 total, all passing) — `checkin.py`/`illness.py`/
+      `erg_test.py`'s pure math (including the three illness fixtures the task named
+      explicitly: a real illness pattern reaching "likely" only on night 2, a single bad
+      night after a late party capped at "watch," a hard training block never reaching
+      "likely" even with persistence), the full check-in/illness/erg-test API surface, the
+      recompute-insert-only-never-overwrites guarantee, baseline exclusion, the coach memory
+      block, and the 3 new coach tools. Frontend: 36 Vitest + the existing Playwright suites
+      unaffected.
+- [x] Deployed to the Pi (`./deploy.sh`) — healthy (`{"ok":true}`), `version.json` confirms
+      `"commit":"20513ae"` (this session's frontend commit). PLAN.md + commit.
+
+## Findings from screenshot/test verification (frontend, 2026-11-05)
+
+- **A dialog-vs-bottom-nav z-index gap only a bottom-sheet dialog could expose.** Every
+  existing `Dialog.Content` in this app was centered (`top-1/2`) and never reached the
+  viewport's bottom ~52px; the new check-in sheet is a bottom sheet on mobile specifically
+  for thumb reach, and without an explicit `z-30` its Save/Skip buttons painted *underneath*
+  `BottomNav`'s `z-20` — two `position: fixed` siblings, one with an explicit z-index beats
+  one without regardless of DOM/portal order. Fixed with `z-30`, matching the nutrition
+  dialogs' existing (until now, never actually exercised at that edge) convention.
+- **Trends' metric picker growing 4 buttons taller at 390px pushed the chart's tap point
+  under the bottom nav** — a real regression in `test:touch`'s drag/pinch/press-hold tests
+  (confirmed against `main` via `git stash`), not just a cosmetic shift. Fixed by collapsing
+  the new check-in metrics behind a "More metrics" toggle rather than adding them inline,
+  keeping the picker's default height — and the chart's position — unchanged.
+- Two mock-data bugs caught by screenshot review: `fetchTodayCheckin()`'s mock ignored the
+  scenario param, and a workout mock-tagged "2000m" actually carried a random 6000m distance
+  from the generic fixture generator.
+
+## Gotchas / deviations from the literal task spec
+
+- **Session numbering** — see the checklist's own note above; this is session 15, continuing
+  the file's own sequence.
+- **No skin-temperature signal** — a hard absence in Garmin's Personal API, not an
+  unconfirmed field with a column waiting. See Part B above and `docs/garmin-endpoints.md`.
+- **The illness backtest's real precision over this account's actual history was not
+  reported here** — reporting a number requires logging in as the athlete to mark nights
+  right/wrong (`POST /api/illness/{date}/mark`), which this session correctly declined to do
+  on the athlete's behalf (no access to the real password, and marking backtest ground truth
+  is a judgment call only the athlete can make). The illness detector *is* live on the
+  deployed Pi and will score the real history on the next sync (automatic within the
+  scheduler's 2h interval, or immediately via "Sync now" on Today) — open Settings'
+  "Illness detector backtest" card afterward to review and mark it.
+- **A pre-existing, unrelated, uncommitted fix to `catch/sync/withings_client.py`/
+  `docs/withings-endpoints.md`** (the `getmeas` endpoint's URL path — no `/v2/` prefix,
+  confirmed against Withings' own spec, dated today) was sitting in the working tree at the
+  start of this session, left over from unfinished prior work. It was never touched, staged,
+  or committed as part of this session's own commits — `git stash`ed only for the duration of
+  `./deploy.sh` (which rsyncs the whole local `catch/` tree, uncommitted changes included) so
+  it wouldn't ship silently alongside session-15 code, then restored immediately after. It's
+  still sitting uncommitted in the working tree, exactly as found, for whoever picks it up.
+- **The erg test center's pacing chart is a small static bar chart (`SplitBarChart`), not an
+  `ErgChart` extension** — `ErgChart`'s pan/zoom/domain-state machinery exists for long, dense
+  per-stroke recordings; a test's pacing view is at most ~12 bars. The full interactive
+  stroke/HR chart for the same activity stays one tap away via a link to workout detail
+  rather than being duplicated on the test page.
+- **No dedicated "confirm a candidate as a different type than suggested" or
+  "mark as not a test" UI** — `TestCenter` confirms a candidate as its suggested type; a
+  misclassified candidate can still be tagged correctly via the existing generic workout-edit
+  tag UI, just not from the test-candidates list itself. Flagged honestly rather than
+  silently narrowed in scope.
