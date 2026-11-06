@@ -7,14 +7,17 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from catch.analytics.checkin import checkin_badness, checkin_recovery_score
+from catch.analytics.illness import illness_score
 from catch.analytics.load import training_load
 from catch.analytics.recovery import recovery_score
 from catch.analytics.strain import daily_activity_strain, muscular_strain_component, session_strain, strain_band
 from catch.analytics.strength import normalize_muscle_au
-from catch.core.models import Activity, CanonicalActivity, DailyScore, DailyWellness
+from catch.core.models import Activity, CanonicalActivity, CheckIn, DailyScore, DailyWellness, IllnessAck
 from catch.core.settings_store import get_settings
 
 _lock = threading.Lock()
+_CONFOUND_REASONS = {"alcohol", "travel", "late_night", "vaccine"}
 
 
 def _ln_hrv(row: DailyWellness) -> float | None:
@@ -251,6 +254,8 @@ def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict
     rhr_history = [r.resting_hr for r in rows if r.resting_hr is not None]
 
     prior_day_strain = strain_cache.get(day - timedelta(days=1))
+    checkin = session.get(CheckIn, day)
+    today_checkin_score = checkin_recovery_score(checkin.soreness, checkin.stress, checkin.mood, checkin.sleep_quality) if checkin else None
 
     return recovery_score(
         today_ln_hrv=today_ln_hrv,
@@ -259,6 +264,55 @@ def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict
         rhr_history=rhr_history,
         today_sleep_seconds=today_sleep,
         prior_day_strain=prior_day_strain,
+        today_checkin_score=today_checkin_score,
+        settings=settings,
+    )
+
+
+def day_illness(
+    session: Session,
+    day: date,
+    settings: dict,
+    prev_deviated_count: int,
+    acr_yesterday: float | None,
+    exclude_dates: set[date],
+) -> dict:
+    """Session 15 Part B. `exclude_dates` (days already flagged "likely", or dismissed with a
+    confounding reason) are dropped from every baseline window so a run of illness — or a
+    known alcohol/travel/vaccine night — never teaches the baseline that those values are
+    normal (see PLAN.md's advisor note on this). `acr_yesterday` must be the *prior* day's
+    training-load figure, not today's, so a workout that syncs in later today can't
+    retroactively change this morning's flag."""
+    window_start = day - timedelta(days=settings["illness_baseline_window_days"])
+    rows = session.exec(
+        select(DailyWellness).where(DailyWellness.date >= window_start, DailyWellness.date < day).order_by(DailyWellness.date)
+    ).all()
+    history_rows = [r for r in rows if r.date not in exclude_dates]
+    rhr_history = [r.resting_hr for r in history_rows if r.resting_hr is not None]
+    hrv_history = [v for v in (_ln_hrv(r) for r in history_rows) if v is not None]
+    resp_history = [r.sleep_respiration_avg for r in history_rows if r.sleep_respiration_avg is not None]
+
+    checkin_rows = session.exec(
+        select(CheckIn).where(CheckIn.date >= window_start, CheckIn.date < day).order_by(CheckIn.date)
+    ).all()
+    checkin_history = [
+        v for v in (checkin_badness(r.soreness, r.mood) for r in checkin_rows if r.date not in exclude_dates) if v is not None
+    ]
+
+    wellness = session.get(DailyWellness, day)
+    checkin_today = session.get(CheckIn, day)
+
+    return illness_score(
+        today_resting_hr=wellness.resting_hr if wellness else None,
+        resting_hr_history=rhr_history,
+        today_ln_hrv=_ln_hrv(wellness) if wellness else None,
+        hrv_history_ln=hrv_history,
+        today_resp=wellness.sleep_respiration_avg if wellness else None,
+        resp_history=resp_history,
+        today_checkin_badness=checkin_badness(checkin_today.soreness, checkin_today.mood) if checkin_today else None,
+        checkin_badness_history=checkin_history,
+        prev_deviated_count=prev_deviated_count,
+        acr=acr_yesterday,
         settings=settings,
     )
 
@@ -307,6 +361,16 @@ def recompute_scores(session: Session) -> int:
         count = 0
         day = earliest
         today = date.today()
+        # Session 15 Part B: carried across iterations rather than re-querying DailyScore —
+        # the loop is already chronological, so "yesterday's" state is just last iteration's
+        # locals. illness_exclude_dates grows as we go so a later day's baseline never
+        # includes an earlier day this same recompute already flagged "likely".
+        confound_dates = {
+            r for r in session.exec(select(IllnessAck.date).where(IllnessAck.dismiss_reason.in_(_CONFOUND_REASONS))).all()
+        }
+        illness_exclude_dates: set[date] = set(confound_dates)
+        prev_acr: float | None = None
+        prev_illness_count = 0
         while day <= today:
             strain = day_strain(session, day, settings)
             trimp_series.append(strain.get("trimp_like") or 0.0)
@@ -319,6 +383,11 @@ def recompute_scores(session: Session) -> int:
             # trains rowing against.
             rowing_load = training_load(rowing_trimp_series[-lookback_days:], settings)
             recovery = day_recovery(session, day, settings, strain_cache)
+            illness = day_illness(session, day, settings, prev_illness_count, prev_acr, illness_exclude_dates)
+            if illness["level"] == "likely":
+                illness_exclude_dates.add(day)
+            prev_illness_count = illness["deviated_count"]
+            prev_acr = load.get("value")
 
             row = session.get(DailyScore, day)
             if row is None:
@@ -328,8 +397,16 @@ def recompute_scores(session: Session) -> int:
             row.strain_json = json.dumps(strain)
             row.load_json = json.dumps(load)
             row.rowing_load_json = json.dumps(rowing_load)
+            row.illness_json = json.dumps(illness)
             row.updated_at = datetime.now(timezone.utc)
             count += 1
+
+            if illness["level"] == "likely" and day not in confound_dates and session.get(IllnessAck, day) is None:
+                # Insert-only (task Part B.3/B.4): a dismissal, its reason, or a backtest
+                # mark must never be overwritten by a later recompute — see IllnessAck's
+                # docstring in catch/core/models.py.
+                session.add(IllnessAck(date=day, first_flagged_at=datetime.now(timezone.utc)))
+
             day += timedelta(days=1)
 
         session.commit()

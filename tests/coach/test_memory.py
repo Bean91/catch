@@ -85,3 +85,47 @@ def test_memory_block_lists_events_goals_facts(session):
     assert "Qualify for selection camp" in block
     assert "tight hamstring" in block
     assert "days to go" in block
+
+
+# --- Session 15 Parts A/B: check-in and illness in the uncached memory block ------------
+
+
+def test_memory_block_says_not_logged_with_no_checkin(session):
+    block = memory.memory_block(session)
+    assert "check-in: not logged yet" in block
+
+
+def test_memory_block_reports_todays_checkin(session):
+    from catch.core.models import CheckIn
+
+    session.add(CheckIn(date=date.today(), soreness=2, mood=4))
+    session.commit()
+
+    block = memory.memory_block(session)
+    assert "soreness 2/5" in block
+    assert "mood 4/5" in block
+
+
+def test_memory_block_flags_a_niggle_past_the_min_days(session):
+    from catch.core.models import CheckIn
+
+    today = date.today()
+    for i in range(3):
+        session.add(CheckIn(date=today - timedelta(days=i), niggle_area="left knee", niggle_severity=1))
+    session.commit()
+
+    block = memory.memory_block(session)
+    assert "Niggle flag" in block
+    assert "left knee" in block
+
+
+def test_memory_block_includes_illness_level_when_flagged(session):
+    import json
+
+    from catch.core.models import DailyScore
+
+    session.add(DailyScore(date=date.today(), illness_json=json.dumps({"level": "watch", "explanation": "signs of strain"})))
+    session.commit()
+
+    block = memory.memory_block(session)
+    assert "Illness early-warning: watch" in block

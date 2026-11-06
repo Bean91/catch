@@ -16,8 +16,9 @@ from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
+from catch.api.routes_checkins import niggle_streak_days
 from catch.coach.memory import next_a_race as _next_a_race
-from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, DailyWellness, Stroke
+from catch.core.models import Activity, ActivitySamples, CanonicalActivity, CheckIn, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync import body_comp, nutrition, rowing_predict
 from catch.analytics.samples_codec import unpack_series
@@ -41,13 +42,30 @@ _WELLNESS_METRICS = {
     "respiration",
 }
 _SCORE_METRICS = {"recovery": "recovery_json", "strain": "strain_json", "load_acr": "load_json"}
+# Session 15 Part A.3 — check-in sliders as their own trend metrics, parallel to
+# _WELLNESS_METRICS but backed by CheckIn rather than DailyWellness.
+_CHECKIN_METRICS = {"checkin_soreness", "checkin_stress", "checkin_mood", "checkin_sleep_quality"}
+_CHECKIN_FIELD = {
+    "checkin_soreness": "soreness",
+    "checkin_stress": "stress",
+    "checkin_mood": "mood",
+    "checkin_sleep_quality": "sleep_quality",
+}
 
 
 def _score_dict(raw: str | None) -> dict | None:
     return json.loads(raw) if raw else None
 
 
-def _recommendation(recovery: dict | None, load: dict | None) -> str:
+def _recommendation(recovery: dict | None, load: dict | None, illness_level: str | None = None) -> str:
+    # Session 15 Part B.3: "likely" overrides the usual recovery-band advice outright — caps
+    # intensity regardless of band, since a green-looking recovery number the morning
+    # illness signals deviated doesn't mean it's safe to test or go anaerobic.
+    if illness_level == "likely":
+        return (
+            "Your body is showing signs of strain or illness — keep today easy. No tests, "
+            "no TR/AN work; an easy UT2 session at most, or a full rest day."
+        )
     if not recovery or recovery.get("band") is None:
         return "Not enough data yet to make a recommendation — keep syncing."
     band = recovery["band"]
@@ -120,7 +138,10 @@ def today(db: Session = Depends(get_db)):
     strain = _score_dict(score_row.strain_json) if score_row else None
     load = _score_dict(score_row.load_json) if score_row else None
     rowing_load = _score_dict(score_row.rowing_load_json) if score_row else None
+    illness = _score_dict(score_row.illness_json) if score_row else None
     settings = get_settings(db)
+    checkin_today = db.get(CheckIn, today_date)
+    niggle_days = niggle_streak_days(db, today_date)
 
     components = recovery.get("components") if recovery else None
     band_for_targets = (recovery or {}).get("band") or "calibrating"
@@ -173,15 +194,28 @@ def today(db: Session = Depends(get_db)):
         },
         "latest_erg": _latest_erg(db),
         "predicted_2k": _predict_2k(db, settings),
-        "recommendation": _recommendation(recovery, load),
+        "recommendation": _recommendation(recovery, load, (illness or {}).get("level")),
         "next_a_race": _next_a_race(db, today_date),
+        # Session 15 Part A/B: today's check-in (completed or not), a niggle flag (never
+        # silently folded into recovery — see checkin.py), and the illness early-warning
+        # level. Riding on GET /api/today, not a new coach tool, means the in-app coach, the
+        # MCP server, and the Today screen all see the same thing from one call.
+        "checkin": {
+            "completed": checkin_today is not None,
+            "today": checkin_today,
+            "niggle_area": checkin_today.niggle_area if checkin_today else None,
+            "niggle_severity": checkin_today.niggle_severity if checkin_today else None,
+            "niggle_streak_days": niggle_days,
+            "niggle_flag": niggle_days >= settings["niggle_flag_min_days"],
+        },
+        "illness": illness,
         # Session 13: so the coach sees a calm under-fuelling note via get_today without
         # having to separately call get_nutrition — and so Today can surface it too.
         "under_fuelling": nutrition.week_summary(db, today_date - timedelta(days=6), today_date)["under_fuelling"],
     }
 
 
-_ALL_SERIES_METRICS = _WELLNESS_METRICS | set(_SCORE_METRICS) | {"weight", "w_per_kg", "predicted_2k"}
+_ALL_SERIES_METRICS = _WELLNESS_METRICS | set(_SCORE_METRICS) | _CHECKIN_METRICS | {"weight", "w_per_kg", "predicted_2k"}
 
 
 def _metric_series(db: Session, metric: str, from_: date | None, to: date | None) -> list[dict]:
@@ -197,6 +231,16 @@ def _metric_series(db: Session, metric: str, from_: date | None, to: date | None
             stmt = stmt.where(DailyWellness.date <= to)
         rows = db.exec(stmt.order_by(DailyWellness.date)).all()
         return [{"date": r.date, "value": getattr(r, metric)} for r in rows]
+
+    if metric in _CHECKIN_METRICS:
+        stmt = select(CheckIn)
+        if from_:
+            stmt = stmt.where(CheckIn.date >= from_)
+        if to:
+            stmt = stmt.where(CheckIn.date <= to)
+        rows = db.exec(stmt.order_by(CheckIn.date)).all()
+        field = _CHECKIN_FIELD[metric]
+        return [{"date": r.date, "value": getattr(r, field)} for r in rows]
 
     if metric in _SCORE_METRICS:
         field = _SCORE_METRICS[metric]

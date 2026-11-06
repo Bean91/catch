@@ -17,6 +17,7 @@ def recovery_score(
     rhr_history: list[float] | None = None,
     today_sleep_seconds: float | None = None,
     prior_day_strain: float | None = None,
+    today_checkin_score: float | None = None,
     settings: dict | None = None,
 ) -> dict:
     """hrv_history_ln / rhr_history: prior nights only, oldest -> newest, up to 60 entries,
@@ -69,11 +70,24 @@ def recovery_score(
         strain_component = _clip(100 - prior_day_strain * (100 / 21), 0, 100)
         components.append({"metric": "prior_strain", "value": strain_component})
 
+    # Session 15 (see PLAN.md Part A.2): the subjective check-in. A plain additive weight
+    # (not a renormalization of the other four) deliberately — on a day with no check-in,
+    # this component is simply absent from `available` below, so the blend over the
+    # remaining four is mathematically identical to before this feature existed (same
+    # sum(w*v)/sum(w) ratio, since every other weight is untouched). When present, its
+    # *effective* share of the blend is weight/(1+weight) of the total, not the raw weight
+    # itself — ~13% at the 0.15 default, not exactly 15% (docs/analytics.md §6.1).
+    checkin_component = None
+    if today_checkin_score is not None:
+        checkin_component = _clip(today_checkin_score, 0, 100)
+        components.append({"metric": "checkin", "value": checkin_component})
+
     weighted = [
         (weights["hrv"], hrv_component),
         (weights["resting_hr"], rhr_component),
         (weights["sleep"], sleep_component),
         (weights["prior_strain"], strain_component),
+        (weights.get("checkin", 0.0), checkin_component),
     ]
     available = [(w, v) for w, v in weighted if v is not None]
     if not available:
@@ -99,7 +113,8 @@ def recovery_score(
         "components": components,
         "explanation": (
             "Weighted blend of HRV-vs-7d-baseline (normalised by 60d spread), resting HR "
-            f"deviation, sleep-vs-need, and prior-day strain; weights {weights}. A missing "
-            "component is dropped and the rest are renormalised."
+            "deviation, sleep-vs-need, prior-day strain, and (when logged) today's subjective "
+            f"check-in; weights {weights}. A missing component is dropped and the rest are "
+            "renormalised."
         ),
     }

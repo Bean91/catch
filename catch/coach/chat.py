@@ -93,6 +93,9 @@ def _tool_label(name: str, args: dict) -> str:
         "log_strength": "Log a set" if args.get("confirm") else "Preview a logged set",
         "get_strength": f"Read strength history{_range_phrase(args)}",
         "get_muscle_readiness": "Read muscle readiness",
+        "get_tests": "Read erg tests",
+        "get_test": f"Read test #{args.get('id')}",
+        "make_pacing_plan": f"Build a {args.get('test_type', '')} pacing plan".strip(),
     }
     return labels.get(name, name)
 

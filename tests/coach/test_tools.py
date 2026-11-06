@@ -428,3 +428,49 @@ def test_get_muscle_readiness_reflects_a_logged_session(session):
 
     out = tools.call_tool(session, "get_muscle_readiness", {})
     assert out["by_muscle"]["quadriceps"] > 0
+
+
+# --- Session 15 Part C: erg test center tools -------------------------------------------
+
+
+def _seed_confirmed_2000m_test(session, external_id: str = "c1") -> int:
+    activity = Activity(
+        source="concept2", external_id=external_id, type="rower",
+        start=datetime(2026, 2, 1, 9, 0, tzinfo=timezone.utc), duration=400.0, distance=2000.0,
+    )
+    session.add(activity)
+    session.commit()
+    run_matching(session)
+    session.refresh(activity)
+    for i in range(1, 5):
+        session.add(Stroke(activity_id=activity.id, seq=i, interval_index=0, t=100.0 * i, distance=500.0 * i))
+    session.commit()
+    from catch.api import routes_activities
+
+    routes_activities.patch_activity(
+        activity.canonical_id, body=routes_activities.ActivityEditRequest(tags=["test"], test_type="2000m"), db=session
+    )
+    return activity.canonical_id
+
+
+def test_get_tests_and_get_test_round_trip(session):
+    canonical_id = _seed_confirmed_2000m_test(session)
+    listed = tools.call_tool(session, "get_tests", {"type": "2000m"})
+    assert listed["tests"][0]["canonical_id"] == canonical_id
+
+    detail = tools.call_tool(session, "get_test", {"id": canonical_id})
+    assert detail["test_type"] == "2000m"
+    assert detail["pacing_analysis"]["even_split_s"] == 100.0
+
+
+def test_make_pacing_plan_saves_to_next_event_by_default(session):
+    from catch.core.models import Event
+
+    event = Event(name="Trial", date=date.today() + timedelta(days=10), type="2k_test")
+    session.add(event)
+    session.commit()
+
+    out = tools.call_tool(session, "make_pacing_plan", {"test_type": "2000m", "goal_time_s": 400.0, "style": "even"})
+    assert out["saved_to_event"]["id"] == event.id
+    session.refresh(event)
+    assert event.plan_json is not None

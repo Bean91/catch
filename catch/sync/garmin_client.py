@@ -258,6 +258,11 @@ class GarminClient:
                 rem_sleep_seconds=item.get("remSleepSeconds"),
                 awake_sleep_seconds=item.get("awakeSleepSeconds"),
                 sleep_score=sleep_score,
+                # Session 15 (see PLAN.md Part B): sleep-period respiration, distinct from
+                # the whole-day `respiration` column (already filled from a different
+                # endpoint, see _sync_usersummary) — the illness early-warning signal wants
+                # the overnight value specifically.
+                sleep_respiration_avg=item.get("averageRespirationValue"),
             )
             n += 1
         return n

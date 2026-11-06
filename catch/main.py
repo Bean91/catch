@@ -12,11 +12,14 @@ from catch.api import (
     routes_analytics,
     routes_auth,
     routes_body,
+    routes_checkins,
     routes_coach,
     routes_gym,
+    routes_illness,
     routes_notes,
     routes_nutrition,
     routes_sync,
+    routes_tests,
     routes_wellness,
 )
 from catch.core.config import settings
@@ -77,6 +80,9 @@ app.include_router(routes_coach.tool_router)
 app.include_router(routes_coach.coach_router)
 app.include_router(routes_nutrition.router)
 app.include_router(routes_gym.router)
+app.include_router(routes_checkins.router)
+app.include_router(routes_illness.router)
+app.include_router(routes_tests.router)
 
 
 @app.get("/api/health")

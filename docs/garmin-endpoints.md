@@ -53,7 +53,7 @@ non-ambulatory activity like indoor cycling — confirmed against the real recor
 | Method | Path | Maps to |
 |---|---|---|
 | GET | `/sleep-service/sleep/dailySleep?date=` | One day. `sleepTimeSeconds`, `deepSleepSeconds`, `lightSleepSeconds`, `remSleepSeconds`, `awakeSleepSeconds`, `averageSpO2Value`, `averageRespirationValue`, `avgSleepStress`, `avgHeartRate`, `sleepScores` (typed only as a bare `object` in the spec; confirmed against a live response to have a nested `overall.value` — e.g. `{"overall": {"value": 92, "qualifierKey": "EXCELLENT"}, ...}`). |
-| GET | `/sleep-service/sleep/dailySleepSummariesByDate?startDate=&endDate=` | Range version of the above — use this for backfill, not the single-day one, to cut request count. |
+| GET | `/sleep-service/sleep/dailySleepSummariesByDate?startDate=&endDate=` | Range version of the above — use this for backfill, not the single-day one, to cut request count. Session 15 (see PLAN.md Part B): also maps `averageRespirationValue` → `daily_wellness.sleep_respiration_avg`, the sleep-period respiration the illness early-warning signal wants — distinct from `v2/dailysummaries.respiration.avgValue` below, which is the whole-day figure already mapped to `respiration` and left alone. Present in the recorded fixture (`tests/fixtures/garmin/sleep_range.json`) since it was first captured; simply unused until now. |
 | GET | `/hrv-service/hrv/{calendarDate}` | One day: `hrvSummary.lastNightAvg`, `hrvSummary.weeklyAvg`, `hrvSummary.status`, plus raw `hrvReadings`. Garmin does not label this "rMSSD" explicitly in the spec; `lastNightAvg` is what we map to `hrv_rmssd`, carried over as-is (likely already an rMSSD-derived ms value per Garmin's own HRV status feature, but the spec gives no formula). |
 | GET | `/hrv-service/hrv/daily/{fromDate}/{toDate}` | Range version → `{ "hrvSummaries": [...], "userProfilePk": ... }`. Use for backfill. |
 | GET | `/usersummary-service/usersummary/daily?calendarDate=` | Single-day version of the aggregate below. We use the range version exclusively. |
@@ -79,6 +79,15 @@ non-ambulatory activity like indoor cycling — confirmed against the real recor
   a missing field anymore.
 - HRV is not explicitly labeled rMSSD by the API; we store whatever `lastNightAvg` is and
   flag the assumption in code comments at the point of use, not duplicated in prose.
+- **Session 15 (see PLAN.md Part B) — no skin-temperature field exists anywhere in this
+  spec**, under any name (`skinTemp`, `wristTemp`, `bodyTemp` all absent). The one adjacent
+  hit, `MenstrualCycleSummaryDTO.isSkinTempMct`, is a boolean ("did skin temp influence this
+  cycle-tracking calculation"), not a temperature reading — there's no numeric value to read
+  even indirectly. The illness early-warning task asked for skin temperature "where it
+  exists on newer watches"; per this account's captured spec (pulled 2026-10-31, re-checked
+  2026-11-05) it doesn't exist at all via the Personal API, so the signal was built from
+  resting HR, HRV, and nightly respiration only — not a stand-in, a genuine absence. Revisit
+  only if Garmin ever adds the field and the spec is re-pulled.
 
 ## Backfill strategy
 

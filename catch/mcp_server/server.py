@@ -17,9 +17,11 @@ def build_server(backend: ToolBackend) -> MCPServer:
         instructions=(
             "Tools for Catch, a personal rowing training app: read-only access to recovery/"
             "strain/sleep/HRV, workouts, trends, body composition, training load, 2k "
-            "prediction, zones, and nutrition (intake vs. expenditure, under-fuelling), plus "
-            "food logging and a small shared memory of events/goals/athlete facts that the "
-            "in-app coach also reads and writes."
+            "prediction, zones, nutrition (intake vs. expenditure, under-fuelling), and erg "
+            "tests (pacing analysis, pacing-plan generation), plus food/strength logging and "
+            "a small shared memory of events/goals/athlete facts that the in-app coach also "
+            "reads and writes. get_today also carries today's morning check-in and the "
+            "illness early-warning level."
         ),
     )
 
@@ -30,7 +32,8 @@ def build_server(backend: ToolBackend) -> MCPServer:
     @mcp.tool()
     async def get_today() -> dict:
         """Today's recovery, strain, sleep, HRV/resting-HR trend, latest erg piece, predicted
-        2k, and the next A-priority race with days-to-go and a taper flag."""
+        2k, the next A-priority race with days-to-go and a taper flag, today's subjective
+        check-in and niggle flag, and the illness early-warning level (none/watch/likely)."""
         return await _call("get_today")
 
     @mcp.tool()
@@ -57,6 +60,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
         metric: Literal[
             "recovery", "hrv_rmssd", "resting_hr", "sleep_score", "stress", "body_battery",
             "spo2", "respiration", "strain", "load_acr", "weight", "w_per_kg", "predicted_2k",
+            "checkin_soreness", "checkin_stress", "checkin_mood", "checkin_sleep_quality",
         ],
         from_: Optional[str] = None,
         to: Optional[str] = None,
@@ -162,6 +166,34 @@ def build_server(backend: ToolBackend) -> MCPServer:
         """Raw muscular load (AU) per muscle group over the trailing 72 hours — which muscle
         groups are still loaded from recent lifting."""
         return await _call("get_muscle_readiness")
+
+    @mcp.tool()
+    async def get_tests(
+        type: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"]] = None,
+    ) -> dict:
+        """List confirmed erg tests, newest first, optionally filtered to one type."""
+        return await _call("get_tests", type=type)
+
+    @mcp.tool()
+    async def get_test(id: int) -> dict:
+        """One erg test's full detail: pacing analysis vs. any saved plan, comparison to the
+        athlete's earlier test of the same type, and W/kg."""
+        return await _call("get_test", id=id)
+
+    @mcp.tool()
+    async def make_pacing_plan(
+        test_type: Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+        goal_time_s: float,
+        style: Literal["even", "fast_start_settle", "negative_split"],
+        distance_m: Optional[float] = None,
+        save_to_next_event: Optional[bool] = None,
+    ) -> dict:
+        """Generate a pacing plan for a test type/goal time/style. Saves it to the athlete's
+        next upcoming event by default."""
+        return await _call(
+            "make_pacing_plan", test_type=test_type, goal_time_s=goal_time_s, style=style,
+            distance_m=distance_m, save_to_next_event=save_to_next_event,
+        )
 
     @mcp.tool()
     async def remember(

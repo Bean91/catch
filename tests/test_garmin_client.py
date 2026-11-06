@@ -120,6 +120,10 @@ def test_sync_health_merges_fields_from_multiple_endpoints(session):
     assert row.spo2 is not None
     assert row.respiration is not None
     assert row.sleep_score == 92
+    # Session 15 (see PLAN.md Part B): sleep-period respiration, distinct from the whole-day
+    # `respiration` above — confirmed against tests/fixtures/garmin/sleep_range.json's real
+    # recorded `averageRespirationValue`.
+    assert row.sleep_respiration_avg == 18.0
     # Session 13 (see PLAN.md Part A): daily steps/calories/intensity minutes/floors from the
     # same usersummary fixture, confirmed against its real recorded values.
     assert row.steps == 15548

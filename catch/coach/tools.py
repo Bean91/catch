@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from catch.analytics.predict import predict_2k as predict_2k_fn
 from catch.analytics.zones import training_zones
-from catch.api import routes_activities, routes_analytics, routes_body, routes_wellness
+from catch.api import routes_activities, routes_analytics, routes_body, routes_tests, routes_wellness
 from catch.core.models import Activity, DailyScore, Food
 from catch.core.settings_store import get_settings
 from catch.coach import memory
@@ -437,6 +437,32 @@ def _add_note(session: Session, args: dict, ctx: dict) -> dict:
     return note.model_dump()
 
 
+# --- Erg test center tools (session 15 — see PLAN.md Part C) --------------------------------
+
+
+def _get_tests(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_tests.get_tests(test_type=args.get("type"), db=session)
+
+
+def _get_test(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_tests.get_test_detail(int(args["id"]), db=session)
+
+
+def _make_pacing_plan(session: Session, args: dict, ctx: dict) -> dict:
+    body = routes_tests.PacingPlanRequest(
+        test_type=args["test_type"],
+        goal_time_s=float(args["goal_time_s"]),
+        style=args["style"],
+        distance_m=args.get("distance_m"),
+        # The task's own framing ("save it to the next event in coach memory") makes saving
+        # the default for this tool specifically — unlike the equivalent API call
+        # (POST /api/tests/pacing-plan), which defaults to off for an explicit opt-in Save
+        # button in the UI.
+        save_to_next_event=bool(args.get("save_to_next_event", True)),
+    )
+    return routes_tests.make_pacing_plan(body=body, db=session)
+
+
 # --- Memory tools ---------------------------------------------------------------
 
 
@@ -553,6 +579,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                     "enum": [
                         "recovery", "hrv_rmssd", "resting_hr", "sleep_score", "stress", "body_battery",
                         "spo2", "respiration", "strain", "load_acr", "weight", "w_per_kg", "predicted_2k",
+                        "checkin_soreness", "checkin_stress", "checkin_mood", "checkin_sleep_quality",
                     ],
                 },
                 **_DATE_RANGE_PROPS,
@@ -735,6 +762,55 @@ TOOLS: dict[str, dict[str, Any]] = {
         "write": False,
         "description": "Raw muscular load (AU) per muscle group over the trailing 72 hours — which muscle groups are still loaded from recent lifting, for planning what to train next or whether to go heavy again.",
         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    "get_tests": {
+        "fn": _get_tests,
+        "write": False,
+        "description": "List confirmed erg tests (500m/1000m/2000m/5000m/6000m/30min_r20/60min/custom), newest first, optionally filtered to one type.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "get_test": {
+        "fn": _get_test,
+        "write": False,
+        "description": "One erg test's full detail: pacing analysis (start/middle-1000/sprint, deviation from even split, where time was lost) vs. any saved plan, comparison to the athlete's earlier test of the same type, and W/kg.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer", "description": "Canonical workout id, from get_tests or list_workouts."}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    "make_pacing_plan": {
+        "fn": _make_pacing_plan,
+        "write": True,
+        "description": "Generate a pacing plan (per-500m targets, scaled to the goal time) for a given test type and style. Saves it to the athlete's next upcoming event by default, so it shows on that test's detail page afterward.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "test_type": {
+                    "type": "string",
+                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                },
+                "goal_time_s": {"type": "number", "description": "Goal time in seconds."},
+                "style": {"type": "string", "enum": ["even", "fast_start_settle", "negative_split"]},
+                "distance_m": {
+                    "type": "number",
+                    "description": "Required for 'custom'. For 30min_r20/60min, the target distance to cover in that fixed duration.",
+                },
+                "save_to_next_event": {"type": "boolean", "description": "Defaults to true."},
+            },
+            "required": ["test_type", "goal_time_s", "style"],
+            "additionalProperties": False,
+        },
     },
     "remember": {
         "fn": _remember,

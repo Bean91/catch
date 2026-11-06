@@ -27,6 +27,14 @@ class DailyWellness(SQLModel, table=True):
     body_battery: Optional[int] = None
     spo2: Optional[float] = None
     respiration: Optional[float] = None
+    # Session 15 (see PLAN.md Part B): sleep-period respiration (`DailySleepDTO.
+    # averageRespirationValue`), distinct from `respiration` above, which is the whole-day
+    # `v2/dailysummaries` figure already in use elsewhere — the illness early-warning signal
+    # specifically wants the overnight value. No skin-temperature field exists anywhere in
+    # Garmin's Personal API (checked docs/garmin-openapi.json — the only "skin"/"temp" hit is
+    # an unrelated menstrual-cycle-tracking boolean), so that planned signal was dropped
+    # rather than given a column with nothing to fill it.
+    sleep_respiration_avg: Optional[float] = None
     # Session 13 (see PLAN.md Part A): `v2/dailysummaries`' `movement`/`calories`/
     # `intensityMinutes` nested objects — already present in the recorded fixture
     # (`tests/fixtures/garmin/usersummary_range.json`) but unused until now. `active_kcal`
@@ -265,6 +273,9 @@ class DailyScore(SQLModel, table=True):
     # Rowing-only training load (task Part B.3), parallel to load_json's all-sport number —
     # see catch/sync/scoring.py's recompute_scores.
     rowing_load_json: Optional[str] = None
+    # Session 15 (see PLAN.md Part B) — illness early-warning output, rewritten on every
+    # recompute like every *_json column here (user-owned state lives in illness_acks).
+    illness_json: Optional[str] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -400,6 +411,11 @@ class Event(SQLModel, table=True):
     priority: Optional[str] = None  # A | B | C
     goal_time: Optional[str] = None
     result: Optional[str] = None
+    # Session 15 (see PLAN.md Part C.3): a generated pacing plan (per-500m targets + rate
+    # plan), saved here by make_pacing_plan so the test-detail screen can show "plan vs.
+    # actual" once this event's test happens. Not exposed as an update_event tool param —
+    # only make_pacing_plan writes it, to keep that tool's surface a plain time/style request.
+    plan_json: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -663,5 +679,51 @@ class StrengthTemplate(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     items_json: str = "[]"
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# --- Session 15 (see PLAN.md): morning check-in, illness early warning, erg test center ----
+
+
+class CheckIn(SQLModel, table=True):
+    """One per day (date is the primary key — editable later the same day, per the task's
+    "editable later that day", by just POSTing again). Sliders are 1-5; 1 = none/low/poor for
+    soreness/stress/sleep_quality, 1 = low for mood — see catch/analytics/checkin.py for the
+    exact scoring direction of each. A niggle is purely informational (task Part A.2: "never
+    changes the number silently") — it's stored here so Today/the coach can see it, but never
+    read by checkin_recovery_score."""
+
+    __tablename__ = "checkins"
+
+    date: date_ = Field(primary_key=True)
+    soreness: Optional[int] = None
+    stress: Optional[int] = None
+    mood: Optional[int] = None
+    sleep_quality: Optional[int] = None
+    niggle_area: Optional[str] = None
+    niggle_severity: Optional[int] = None  # 1-3
+    note: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class IllnessAck(SQLModel, table=True):
+    """User-owned state for a flagged day, kept out of `daily_scores.illness_json` on purpose
+    — that column is fully rewritten by every `recompute_scores` run (see catch/sync/
+    scoring.py's docstring), so anything that must survive a recompute (a dismissal, its
+    reason, a backtest right/wrong mark) needs its own table that recompute only ever inserts
+    into, never overwrites (task Part B.3/B.4). `first_flagged_at` is set once, the first time
+    a date reaches "likely", for a future notifier (task's own "Session 12" — this repo's
+    numbering continues past the already-used session 11/12, so whichever session adds
+    notifications) to know what it hasn't already surfaced."""
+
+    __tablename__ = "illness_acks"
+
+    date: date_ = Field(primary_key=True)
+    first_flagged_at: Optional[datetime] = None
+    dismissed: bool = False
+    dismiss_reason: Optional[str] = None  # alcohol | travel | late_night | vaccine | other
+    backtest_mark: Optional[str] = None  # "correct" | "incorrect" — task Part B.4
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

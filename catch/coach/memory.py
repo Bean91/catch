@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import json
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlmodel import Session, select
 
-from catch.core.models import AthleteFact, Event, Goal
+from catch.core.models import AthleteFact, CheckIn, DailyScore, Event, Goal
+from catch.core.settings_store import get_settings
 
 _KINDS = {"fact": AthleteFact, "event": Event, "goal": Goal}
 
@@ -252,5 +254,37 @@ def memory_block(session: Session) -> str:
             lines.append(f"- [{f.category}] {f.text}")
     else:
         lines.append("Current facts: none recorded.")
+
+    # Session 15 (see PLAN.md Parts A/B): put directly in the uncached block, not behind a
+    # tool call, so the coach always has today's check-in/illness state without having to
+    # think to call get_today first — the system prompt still tells it to call get_today for
+    # the numbers behind recovery/strain, this is just the always-visible headline.
+    settings = get_settings(session)
+    today_checkin = session.get(CheckIn, today)
+    if today_checkin is not None:
+        bits = [f"soreness {today_checkin.soreness}/5" if today_checkin.soreness else None]
+        bits += [f"stress {today_checkin.stress}/5" if today_checkin.stress else None]
+        bits += [f"mood {today_checkin.mood}/5" if today_checkin.mood else None]
+        bits += [f"sleep quality {today_checkin.sleep_quality}/5" if today_checkin.sleep_quality else None]
+        lines.append(f"Today's check-in: {', '.join(b for b in bits if b) or 'logged, no sliders set'}.")
+    else:
+        lines.append("Today's check-in: not logged yet.")
+
+    niggle_streak = 0
+    day = today
+    while True:
+        row = session.get(CheckIn, day)
+        if row is None or not row.niggle_area:
+            break
+        niggle_streak += 1
+        day -= timedelta(days=1)
+    if niggle_streak >= settings["niggle_flag_min_days"]:
+        area = today_checkin.niggle_area if today_checkin else None
+        lines.append(f"Niggle flag: {area or 'a niggle'} has been logged for {niggle_streak} days running — ask about it.")
+
+    score_row = session.get(DailyScore, today)
+    illness = json.loads(score_row.illness_json) if score_row and score_row.illness_json else None
+    if illness and illness["level"] != "none":
+        lines.append(f"Illness early-warning: {illness['level']} — {illness['explanation']}")
 
     return "\n".join(lines)

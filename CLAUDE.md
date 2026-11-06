@@ -29,7 +29,14 @@ catch/
                 routes_nutrition.py — foods/barcode/logs/my-foods/saved-meals/targets/
                 photo-estimate; session 14: routes_gym.py — exercise library/gyms/stations,
                 the idempotent sets-sync endpoint the offline queue flushes to, templates,
-                repeat-last-workout, muscle readiness, Garmin-draft confirm)
+                repeat-last-workout, muscle readiness, Garmin-draft confirm; session 15:
+                routes_checkins.py — today/upsert/list for the morning check-in, plus
+                niggle_streak_days() shared with GET /api/today and the coach's memory
+                block; routes_illness.py — dismiss/backtest-mark/backtest-list for the
+                illness early-warning flag; routes_tests.py — candidates/list/detail/
+                pacing-plan/projection for the erg test center, `{canonical_id}` registered
+                *last* in the file — same `/api/activities/duplicates`-style route-order
+                pitfall as routes_activities.py, caught by a test here too)
   core/         SQLModel models, config, db, security
   sync/         garmin_client, withings_client, concept2_client, scheduler, upsert helpers;
                 session 8/12 (cross-source matching + Peloton + body comp + per-sample
@@ -56,7 +63,11 @@ catch/
                 gym.py (the DB-facing gym-logger layer — exercise library, gyms/stations,
                 idempotent set upsert keyed on client-generated UUIDs, e1RM/PR detection,
                 muscular-load caching onto CanonicalActivity, Garmin-draft set import/
-                confirm; catch/analytics/equipment.py and strength.py hold the pure math)
+                confirm; catch/analytics/equipment.py and strength.py hold the pure math);
+                session 15: erg_test.py (the DB-facing half of the erg test center —
+                list/candidate-detection/next-upcoming-event lookup/pacing-plan save; a
+                "test" is just a CanonicalActivity with `{"tags": [..., "test"],
+                "test_type": "2000m"}` in its existing overrides_json, no new table)
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
@@ -69,7 +80,11 @@ catch/
                 calculator, catch/seed/exercises.json's vocabulary — see docs/analytics.md
                 §22), strength.py (Epley e1RM/PR detection, per-set muscular-load AU and its
                 28-day-baseline normalization, a cardio session's small above-threshold-power
-                muscular share)
+                muscular share); session 15: checkin.py (the subjective check-in's 0-100
+                recovery sub-score + the separate "badness" figure the illness signal uses —
+                §6.1), illness.py (the illness early-warning scoring rule — §23), erg_test.py
+                (test-type auto-detect, pacing-plan generation, pacing analysis, trend
+                projection — §24)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -84,8 +99,13 @@ catch/
                 vision call for an itemised meal-photo macro estimate; lazy-imported, hidden
                 when no Anthropic key is configured, photos never stored after the estimate);
                 session 14: tools.py gained log_strength (free-text or structured, always
-                previews before a confirm=true save)/get_strength/get_muscle_readiness
-  mcp_server/   server.py (MCPServer + all 24 tools + 2 prompts, built once, shared by both
+                previews before a confirm=true save)/get_strength/get_muscle_readiness;
+                session 15: tools.py gained get_tests/get_test/make_pacing_plan (the last
+                saves to the athlete's next upcoming event by default); get_today's existing
+                payload (not a new tool) now also carries today's check-in/niggle flag and
+                the illness early-warning level, and the per-turn memory block
+                (memory.py::memory_block) surfaces both unprompted
+  mcp_server/   server.py (MCPServer + all 27 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py

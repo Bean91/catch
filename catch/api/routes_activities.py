@@ -18,7 +18,12 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 _PAGE_SIZE_DEFAULT = 30
 _PAGE_SIZE_MAX = 100
-_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags"}
+_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type"}
+# Session 15 (see PLAN.md Part C): the standard test types auto-detection/confirmation and
+# the pacing-plan generator both key on — "test" in `tags` plus one of these in `test_type`
+# (an override field, same free-form overrides_json dict every other edit already uses — no
+# new table needed to mark a workout as a confirmed test).
+TEST_TYPES = ("500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom")
 
 
 def _overrides(canonical: CanonicalActivity) -> dict:
@@ -97,6 +102,7 @@ def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[
     data["rpe"] = overrides.get("rpe")
     data["exclude_from_totals"] = bool(overrides.get("exclude_from_totals"))
     data["tags"] = overrides.get("tags") or []
+    data["test_type"] = overrides.get("test_type")
     data["overrides"] = overrides
     data["sources"] = [_source_summary(m) for m in members]
     data["editable_fields"] = sorted(_OVERRIDE_FIELDS)
@@ -208,6 +214,7 @@ class ActivityEditRequest(BaseModel):
     rpe: int | None = None
     exclude_from_totals: bool | None = None
     tags: list[str] | None = None
+    test_type: str | None = None
 
 
 @router.patch("/api/activities/{canonical_id}")
@@ -217,6 +224,8 @@ def patch_activity(canonical_id: int, body: ActivityEditRequest = Body(...), db:
         raise HTTPException(status_code=404, detail="Activity not found")
     if body.rpe is not None and not (0 <= body.rpe <= 10):
         raise HTTPException(status_code=422, detail="rpe must be between 0 and 10")
+    if body.test_type is not None and body.test_type not in TEST_TYPES:
+        raise HTTPException(status_code=422, detail=f"test_type must be one of {TEST_TYPES}")
 
     overrides = _overrides(canonical)
     patch = body.model_dump(exclude_unset=True)

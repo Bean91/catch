@@ -176,6 +176,27 @@ be judged partly against itself), and a spread of zero (or fewer than 2 history 
 that component instead of dividing by zero. Bands: green ≥67, yellow 34-66, red <34 (task
 spec's own numbers, kept as the defaults).
 
+### 6.1 Subjective check-in (`checkin.py`, `GET`/`POST /api/checkins`), session 15
+
+A fifth, optional component — the morning check-in's four 1-5 sliders (soreness, stress,
+mood, sleep quality), averaged into one 0-100 score by `checkin_recovery_score` (soreness
+and stress are inverted — a higher value on those two sliders means *worse*, not better —
+mood and sleep quality are direct). Default weight `0.15`, but **additive**, not a slice
+taken out of the other four's weights: on a day with no check-in logged, this component is
+simply absent from `recovery_score`'s `available` list, so the blend over HRV/RHR/sleep/
+prior-strain is mathematically identical to before this feature existed (same
+`sum(w*v)/sum(w)` ratio — the other four weights are untouched). When a check-in *is*
+logged, its real effective share of the blend is `weight / (1 + weight)` ≈ 13% at the
+default, not literally 15% — the "~15%" in the task is a target, not an exact guarantee,
+and this doc says so rather than silently rounding.
+
+**A niggle (body area + 1-3 severity) never feeds this score at all** — `checkin_badness`/
+`checkin_recovery_score` both only look at the four sliders. It's purely a flag: `GET /api/
+today`'s `checkin.niggle_flag` turns true once the same `niggle_area` has been logged for
+`niggle_flag_min_days` (default 3) consecutive days, and the same streak is surfaced
+unprompted in the coach's per-turn memory block (`catch/coach/memory.py::memory_block`) so
+it can ask about it without a tool call.
+
 ## 7. Erg technique per piece (`technique.py`)
 
 Each takes one piece's (or one interval's) stroke list — `catch/api/routes_analytics.py`
@@ -581,3 +602,105 @@ attached to. The match rule itself (`catch/analytics/matching.py`'s `_match_stre
 simple time-overlap, not the generic 3-minute-start/duration-ratio rule — a Catch session's
 window is deliberately padded (first set −10min, last set +5min), which the generic rule's
 duration-ratio check would often reject.
+
+## 23. Illness early warning (`catch/analytics/illness.py`, `catch/sync/scoring.py`'s
+`day_illness`), session 15
+
+Each night, four signals are checked against their own trailing baseline (default 30-night
+window, excluding today, requiring at least `illness_min_baseline_nights` prior nights or
+the signal counts as unavailable rather than silently zero):
+
+- **Resting HR** — `z = (today - mean) / max(pstdev, illness_sd_floor_rhr)`; deviates when
+  `z >= illness_sd_threshold` (higher is worse).
+- **HRV (ln rMSSD)** — same shape, inverted (lower is worse): deviates when `z <=
+  -threshold`.
+- **Nightly respiration** (`DailyWellness.sleep_respiration_avg` — the sleep-period figure,
+  not the whole-day one already used elsewhere) — deviates when `z >= threshold`.
+- **Check-in mood/soreness** (`checkin_badness`, §6.1) — deviates when `z >= threshold`,
+  gated behind its own, smaller minimum history (`illness_min_checkin_baseline`) since this
+  signal is newer than the Garmin ones.
+
+**No skin-temperature signal exists** — checked `docs/garmin-openapi.json` directly; there is
+no field for it anywhere in Garmin's Personal API (see `docs/garmin-endpoints.md`'s note).
+The task's "newer watches" phrasing was conditional on the field actually existing, which it
+doesn't for this account's API surface.
+
+A per-signal **SD floor** (1.5 bpm for RHR, 0.5 breaths/min for respiration, 0.05 in
+log-space for HRV) stops a real but tiny day-to-day wobble in an integer-reported metric
+(Garmin reports RHR and respiration as whole numbers) from reading as a multi-SD deviation
+just because the true variance happens to be small.
+
+**Levels**: `none` (0 deviated signals), `watch` (1+), `likely` (2+ *and* deviated on the
+immediately preceding night too — 2-night persistence is a hard requirement for `likely`,
+not just a "boost," so a single rough night — alcohol, a late flight, anything — can never
+alone read as more than `watch`). A further discount: if the athlete's acute:chronic ratio
+(`illness_acr_high_threshold`, default 1.3) is already elevated and neither respiration nor
+the check-in also deviated, `likely` is capped back down to `watch` — resting HR/HRV alone
+during a hard training block is an expected training response, not an illness signal, and
+training load is exactly the kind of thing that can otherwise look identical to the real
+two-night pattern.
+
+**Wording is fixed and non-diagnostic** — the only phrase ever used is "your body is showing
+signs of strain or illness," followed by which signals deviated. Never "sick," never a named
+condition. Covered by a test that asserts the string never appears.
+
+**Storage**: the computed result is `daily_scores.illness_json`, rewritten on every
+`recompute_scores` run like every other `*_json` column there. User-owned state —
+dismissed/reason, a backtest right/wrong mark, `first_flagged_at` (for a future notifier) —
+lives in a separate `illness_acks` table that `recompute_scores` only ever *inserts* into
+(the first time a date reaches `likely`), never overwrites; `POST /api/illness/{date}/
+dismiss`/`mark` are the only things allowed to change an existing row. A dismissed-with-reason
+day (alcohol/travel/late_night/vaccine) is excluded from every later day's baseline window,
+same as a day already flagged `likely` — otherwise either would teach the baseline that an
+abnormal night was normal.
+
+`GET /api/today`'s recommendation overrides its usual recovery-band text outright at
+`likely` ("no tests, no TR/AN work"), regardless of what the recovery number itself says —
+a green-looking recovery score the morning these signals deviated doesn't mean it's safe to
+go hard.
+
+`GET /api/illness/backtest` lists every historically flagged night with whatever the athlete
+has marked right/wrong so far, and reports precision over *marked* nights only (never
+assumed over unmarked ones).
+
+## 24. Erg test center (`catch/analytics/erg_test.py`, `catch/sync/erg_test.py`), session 15
+
+A "test" is not a new table — it's a `CanonicalActivity` whose overrides carry `{"tags":
+[..., "test"], "test_type": "2000m"}` (the same free-form `overrides_json` dict every other
+edit already uses, via the existing `PATCH /api/activities/{id}`). `GET /api/tests/
+candidates` surfaces untagged Concept2 erg sessions that look like one of the eight types
+(500m/1000m/2000m/5000m/6000m/30min_r20/60min/custom) — a suggestion to confirm, never
+auto-applied. Distance-based types match within 2% of the standard distance; duration-based
+ones within 25s of the standard duration, and `30min_r20` additionally needs an average
+stroke rate at or below ~20.5 so an all-out 30-minute piece at a much higher rate doesn't
+also match. "High effort" (the task's own phrase) is approximated by *matching a standard
+distance/duration at all* — Concept2 has no RPE field to check directly, and not every
+session has per-sample data to derive one from.
+
+**Pacing plan** (`pacing_plan`): per-500m targets scaled to sum to exactly the goal time,
+using one of three illustrative shapes (±1-1.5% off even split) — `even`, `fast_start_settle`
+(faster first quarter, slower last quarter), `negative_split` (slower first half, faster
+second). Not a validated prescription, same honesty as every other illustrative default in
+this app. For `30min_r20`/`60min` (duration-based types with no fixed distance ahead of
+time), the "goal" is framed as a target *distance to cover* in that fixed duration — the
+natural way those two tests are actually planned, and it needs no special-casing in the math.
+`make_pacing_plan` saves the plan onto the athlete's **next upcoming event of any type**
+(`catch/sync/erg_test.py::next_relevant_event` — deliberately broader than `next_a_race`,
+which hard-filters to an A-priority race only; a pacing plan is just as often for an
+upcoming `2k_test` as a race) by default when called as a coach tool, off by default over
+the plain API (an explicit save action in the UI).
+
+**Pacing analysis** (`pacing_analysis`): actual per-500m splits (linearly interpolated from
+the stroke stream's cumulative distance/time — strokes rarely land exactly on a 500m mark),
+start/middle-1000m/sprint segment averages, the single worst split vs. the piece's own even
+split, and a split-by-split comparison against a saved plan if one matches (best-effort: the
+most recently generated plan whose target distance is within 1% of this test's own — a
+documented simplification, since nothing ties a specific plan to a specific future test
+beyond "the next event").
+
+**Projection** (`project_time`): an ordinary least-squares line through this test type's PB
+history, projected to the athlete's next A race (or 90 days out if none is set), banded at
+±1 residual SD around the trend line — a prediction interval around *this* line, not a
+statement about how confident the slope itself is. Refuses outright (returns `value: None`
+with an explanation) below 3 points rather than fitting a line through noise; the raw inputs
+are always listed alongside the number so it's checkable, not just trusted.

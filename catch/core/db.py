@@ -49,6 +49,10 @@ _NEW_COLUMNS = {
     },
     "daily_scores": {
         "rowing_load_json": "TEXT",
+        # Session 15 (see PLAN.md Part B) — illness early-warning output, rewritten on every
+        # recompute like every other *_json column here (user-owned state lives in the
+        # separate illness_acks table instead, which recompute never overwrites).
+        "illness_json": "TEXT",
     },
     "canonical_activities": {
         # Session 12 (see PLAN.md): erg/on_water split, persisted so GET /api/activities'
@@ -68,6 +72,12 @@ _NEW_COLUMNS = {
         "vigorous_intensity_minutes": "INTEGER",
         "floors_climbed": "INTEGER",
         "floors_descended": "INTEGER",
+        # Session 15 (see PLAN.md Part B).
+        "sleep_respiration_avg": "REAL",
+    },
+    "events": {
+        # Session 15 (see PLAN.md Part C.3).
+        "plan_json": "TEXT",
     },
 }
 

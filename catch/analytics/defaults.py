@@ -31,7 +31,14 @@ DEFAULT_SETTINGS: dict = {
     # Seeded from the Concept2 profile's `max_heart_rate` on first Concept2 sync if unset;
     # PUT /api/settings can always override it.
     "max_hr": None,
-    "recovery_weights": {"hrv": 0.4, "resting_hr": 0.25, "sleep": 0.2, "prior_strain": 0.15},
+    # Session 15 (see PLAN.md Part A.2) — "checkin" is additive, not a slice of 1.0 taken
+    # from the other four (see catch/analytics/recovery.py's comment): on a day with no
+    # check-in the other four behave exactly as before this key existed. ~0.15 target share
+    # per the task; its real effective share once added is weight/(1+weight) ≈ 13%.
+    "recovery_weights": {"hrv": 0.4, "resting_hr": 0.25, "sleep": 0.2, "prior_strain": 0.15, "checkin": 0.15},
+    # Task Part A.3: a niggle lasting this many consecutive days (or more) is flagged to the
+    # coach as worth asking about.
+    "niggle_flag_min_days": 3,
     "recovery_green": 67,
     "recovery_yellow": 34,
     "sleep_need_seconds": 8 * 3600,
@@ -100,4 +107,26 @@ DEFAULT_SETTINGS: dict = {
     # task Part C.2's "a heavy lifting day with low HR must still register meaningful strain."
     "muscular_strain_log_a": 1.1,
     "muscular_strain_weight": 1.0,
+    # Session 15 (see PLAN.md Part B) — illness early-warning. Each signal is a z-score vs.
+    # its own trailing 30-night baseline (excluding today, excluding nights already flagged
+    # "likely", and excluding nights dismissed with a confounding reason — see
+    # catch/sync/scoring.py's illness loop), gated behind a minimum number of baseline
+    # nights so a brand-new signal (check-in mood/soreness, or early in this app's life)
+    # never contributes before it has enough history to mean anything.
+    "illness_sd_threshold": 1.5,
+    "illness_baseline_window_days": 30,
+    "illness_min_baseline_nights": 14,
+    "illness_min_checkin_baseline": 5,
+    # A noise floor per signal's standard deviation — resting HR and whole-day respiration
+    # are reported as integers (e.g. 47-51 bpm), so a real 1-2 unit day-to-day wobble could
+    # otherwise look like >1.5 SD on its own. ln(HRV)'s floor is in log-space.
+    "illness_sd_floor_rhr": 1.5,
+    "illness_sd_floor_resp": 0.5,
+    "illness_sd_floor_hrv_ln": 0.05,
+    # "likely" requires 2-night persistence (see catch/analytics/illness.py) *and* is capped
+    # back to "watch" when that persistence is itself explained by training load rather than
+    # illness — i.e. ACR already above this threshold with no non-training signal (nightly
+    # respiration or check-in) also deviating. A dedicated setting, not silently borrowed from
+    # `acr_bands`, so tuning one doesn't quietly retune the other.
+    "illness_acr_high_threshold": 1.3,
 }
