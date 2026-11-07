@@ -68,6 +68,12 @@ def test_in_quiet_hours_wraps_past_midnight():
 
 def test_garmin_key_expiring_fires_only_on_the_three_warn_days(session, monkeypatch):
     _no_vapid(monkeypatch)
+    # A fixed daytime timestamp for the quiet-hours gate in _gated_notify — without this,
+    # this test is flaky by wall-clock time of day (fails for real between 22:00-06:00
+    # local, the default quiet hours), exactly like the morning_brief tests above already
+    # guard against. Only the hour:minute matters here; check_garmin_key_expiring's own
+    # day-math below uses the real date.today().
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     from catch.core.settings_store import update_settings
 
     for days_out, should_fire in [(14, True), (13, False), (3, True), (1, True), (0, False), (5, False)]:
@@ -84,6 +90,7 @@ def test_garmin_key_expiring_fires_only_on_the_three_warn_days(session, monkeypa
 
 def test_garmin_key_expiring_does_not_double_fire_same_day(session, monkeypatch):
     _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     from catch.core.settings_store import update_settings
 
     update_settings(session, {"garmin_key_expires_on": (date.today() + timedelta(days=14)).isoformat()})
@@ -97,6 +104,7 @@ def test_garmin_key_expiring_does_not_double_fire_same_day(session, monkeypatch)
 
 def test_illness_notifies_once_and_sets_notified_at(session, monkeypatch):
     _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     today = date.today()
     session.add(DailyScore(date=today, illness_json=json.dumps({"level": "likely", "explanation": "HRV and RHR both deviated."})))
     session.add(IllnessAck(date=today, first_flagged_at=datetime.now(timezone.utc)))
@@ -166,6 +174,7 @@ def test_illness_skips_a_dismissed_flag(session, monkeypatch):
 
 def test_test_reminder_fires_for_tomorrows_2k_test_with_a_pacing_plan(session, monkeypatch):
     _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     tomorrow = date.today() + timedelta(days=1)
     session.add(
         Event(
@@ -187,6 +196,7 @@ def test_test_reminder_fires_for_tomorrows_2k_test_with_a_pacing_plan(session, m
 
 def test_check_sync_stale_alerts_once_when_no_success_in_36h(session, monkeypatch):
     _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     from catch.core.models import SyncState
 
     stale_at = datetime.now(timezone.utc) - timedelta(hours=40)

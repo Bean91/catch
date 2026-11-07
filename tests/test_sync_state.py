@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlmodel import select
 
 from catch.core.models import NotificationLog, SyncState
+from catch.notify import triggers
 from catch.sync import state
 
 
@@ -15,7 +18,11 @@ def test_record_error_increments_consecutive_failures(session):
     assert row.last_error == "boom again"
 
 
-def test_crossing_the_threshold_sends_exactly_one_alert(session):
+def test_crossing_the_threshold_sends_exactly_one_alert(session, monkeypatch):
+    # record_error's alert goes through triggers._gated_notify's quiet-hours check — without
+    # freezing this, the test is flaky by wall-clock time of day (fails for real between
+    # 22:00-06:00 local, the default quiet hours). Same fix as tests/notify/test_triggers.py.
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     state.record_error(session, "garmin", "e1")
     state.record_error(session, "garmin", "e2")
 
@@ -37,7 +44,8 @@ def test_crossing_the_threshold_sends_exactly_one_alert(session):
     assert len(logs) == 1
 
 
-def test_a_success_clears_the_failure_count_and_alert_episode(session):
+def test_a_success_clears_the_failure_count_and_alert_episode(session, monkeypatch):
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     state.record_error(session, "garmin", "e1")
     state.record_error(session, "garmin", "e2")
     state.record_error(session, "garmin", "e3")

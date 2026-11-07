@@ -3003,11 +3003,16 @@ editable review table that never silently "corrects" a bad reading.
       Workout detail and the test center (the latter gaining an activity-picker first step
       `AddPieceDialog` doesn't need when it already knows which workout), and `PbTable`
       navigating to the right detail route per entry.
-- [x] Tests: 62 new backend tests (597 → 659 total; 7 pre-existing failures in
-      `tests/notify/test_triggers.py`/`tests/test_sync_state.py` predate this session, carried
-      over unchanged from session 16 — confirmed via a disposable worktree on `1a60d8c`) —
-      split/total
-      validation and the task's own exact worked example as a fixture
+- [x] Tests: 62 new backend tests (597 → 666 total, `uv run pytest` all green). Along the way,
+      fixed 7 pre-existing failures in `tests/notify/test_triggers.py`/`tests/test_sync_state.py`
+      that predate this session (confirmed via a disposable worktree on `1a60d8c`, unrelated to
+      pieces): `_gated_notify`'s quiet-hours check uses the real wall clock
+      (`triggers._now_local()`), so any test exercising a notification send was flaky by time of
+      day — silently swallowed by the default 22:00–06:00 quiet-hours window on a run that
+      happened to land inside it (this session's deploy did, at 22:29). Fixed by freezing
+      `_now_local` to a fixed daytime timestamp in each affected test, the same pattern the
+      morning_brief tests already used — a test-only fix, no production behavior changed.
+      Split/total
       (`tests/analytics/test_piece.py`), the warm-up/piece/cool-down alignment fixture (mirrors
       session 12's own fixture shape), the strain-unchanged-with-and-without-the-piece
       guarantee checked directly (not just "a number exists"), the Part D.4 absorb with real
