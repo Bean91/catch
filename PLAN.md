@@ -3141,3 +3141,107 @@ any of this shipped:
 - **Live-verify the Part D.4 Concept2-absorb against a real PM5 result**, once one exists —
   this account has had zero real Concept2 results across every session since session 2, so
   the absorb path (both shapes) is covered only by fixtures with synthetic `Stroke` rows.
+
+## Session 18 checklist
+
+The task's own prompt called itself "session 14" — sessions 14-17 (gym logger through pieces)
+already occupy that slot in this file, so this continues the sequence instead, the same
+resolution sessions 8/12 and 17 used for an identical collision.
+
+Training intelligence: a per-athlete training profile, equivalent-piece performance trends,
+training distribution/consistency, a fixed set of correlational insights, and a four-type
+recommendation engine (training/recovery/data-quality/overload) that's dismissible, saveable,
+rateable, and never claims more certainty than the data supports.
+
+- [x] **Part A — training intelligence service**: `catch/analytics/training_intelligence.py`
+      (pure) — equivalence-bucket comparison (`compare_equivalent_pieces`) over rows already
+      grouped by a *confirmed* `test_type`/`piece_type` (from `catch/sync/erg_test.py::
+      list_tests`, which already unifies confirmed tests and confirmed pieces — see the
+      deviation note below), calling `erg_test.py`'s `project_time`/`TEST_SPECS` directly
+      rather than re-deriving a trend fitter or a tolerance-based bucketer; the confidence
+      ladder (`confidence_level`, capped by the *weaker* of history-days and bucket-points);
+      `training_profile` (phase/trajectory/strengths/weaknesses/conflicting-signal synthesis,
+      pure, over pre-gathered dicts); `training_insights` (five fixed, gated, correlationally-
+      worded pattern checks). `catch/sync/training_intelligence.py` (DB-facing) — the five
+      `gather_*` functions, calling `routes_analytics.trends_volume` directly for zone
+      buckets rather than refactoring that live endpoint (lower-risk reuse, per an advisor
+      review).
+- [x] **Part B — recommendation engine**: new `Recommendation` table (`catch/core/models.py`,
+      plain autoincrement PK — unlike `IllnessAck`'s date-PK insert-only shape, since the same
+      `rule_key` legitimately recurs over time); `DEFAULT_SETTINGS["training_intelligence"]`
+      (every threshold this session needs, one flat level deep, documented inline); four pure
+      evaluators (`evaluate_training_suggestion`/`evaluate_recovery_suggestion`/
+      `evaluate_data_quality_warning`/`evaluate_overload_warning`) — `training_suggestion` is
+      the only one suppressed by illness/recovery/niggle/load/upcoming-event state,
+      `overload_warning` is deliberately independent of all of that; one new call in
+      `catch/sync/scoring.py::recompute_scores`, scoped to *today* only (never inside the
+      per-historical-day loop), wrapped in its own try/except + rollback; dedup/cooldown +
+      "active" staleness (`last_confirmed_on >= today - 1`) fixing a real risk an advisor
+      review caught (see below); `catch/api/routes_training_intelligence.py` — the
+      read/dismiss/save/rate routes.
+- [x] **Part C — UI**: `/trends/intelligence` (`TrainingIntelligence.tsx`), reached via a
+      `<Link>` on Trends' own header — no new Sidebar/BottomNav slot, matching the Tests/
+      MuscleReadiness/Duplicates/Status no-nav-slot precedent (both nav lists are already
+      documented as tight). Seven new `components/intelligence/` components + `charts/
+      PieceTrendMiniChart.tsx` (a `SplitBarChart`-style static best/typical/recent chart, not
+      `useChartInteraction`); confidence rendered as plain text, never a colored `BandBadge`
+      (DESIGN.md's "Training intelligence" note); every section follows `TestCenter.tsx`'s
+      loading/error/empty triad plus the existing `band`+`explanation` idiom for calibrating/
+      insufficient-data states — no new empty-state component.
+- [x] **Part D — coach + MCP**: 7 tools in `catch/coach/tools.py`'s `TOOLS` (the 6 reads
+      delegate to `routes_training_intelligence`'s handlers, `rate_recommendation` is the only
+      write tool, a direct mutation with no preview step); 7 hand-written `@mcp.tool()`
+      wrappers + a `training_review` prompt in `catch/mcp_server/server.py` (MCP tool count
+      28 → 35, prompts 2 → 3) — a parity test asserts `set(TOOLS)` equals the names
+      `build_server()` registers, not just a count; `memory.py::memory_block` gained a line
+      surfacing the single most severe *active* recommendation, same unprompted shape as the
+      illness-level line.
+- [x] Tests: 51 new backend tests (666 → 717 total — `uv run pytest` all green): 36 pure-logic
+      tests (`tests/analytics/test_training_intelligence.py` — equivalence bucketing, the
+      rate-vs-pace/drag-factor notes, the full suppression matrix for `training_suggestion`,
+      overload's sustained-not-single-day gate, the structural certainty guarantees —
+      confidence capped by the weakest input, `insufficient_data` only ever from a data-
+      quality warning, low/medium wording always hedged — plus a narrow banned-phrase
+      backstop) and 15 sync/route/MCP tests (`tests/test_api_training_intelligence.py` —
+      same-day idempotency, dismissal-doesn't-reopen-cooldown, next-day staleness, failure
+      isolation around the `recompute_scores` hook, no-recursion, the four CRUD routes, and
+      MCP/coach-tool-registry parity). No new Vitest tests — unlike `equipment.ts`/
+      `pieceSplits.ts`, none of this feature's math needs an offline-capable client-side port,
+      so there's nothing to duplicate into TS this time. `npx tsc --noEmit`, `npm run build`,
+      `npm run test` all clean.
+- [x] Verified live against a real dev server + Playwright MCP (`?mock=1`/`?mock=empty`, 390px
+      and 1280px, both themes): the full page renders correctly end to end, including the
+      expandable performance-trend mini-chart, the expandable insight evidence panels, and a
+      real dismiss mutation removing a recommendation from the active list. The empty-state
+      pass showed "Not yet known"/"insufficient data" everywhere rather than any false-
+      confident claim.
+- [x] `CLAUDE.md` (layout: new files, MCP tool/prompt counts), `DESIGN.md` ("Training
+      intelligence" note — confidence as plain text, the two static-chart reuses, no new nav
+      slot), `docs/analytics.md` §26, `docs/mcp.md` updated. PLAN.md + commit.
+
+### A deviation from the advisor-reviewed design, found during implementation
+
+The original plan (after an advisor pass) called for extracting a `_qualifying_rows` helper
+out of `rowing_predict.py` and adding a sibling `all_rower_pieces_by_bucket` for performance
+trends, grouping by a new tolerance-based `bucket_key`. Reading `catch/sync/erg_test.py`
+directly during implementation turned up a cleaner reuse: `list_tests` already returns every
+confirmed test and confirmed piece tagged with its own `test_type`/`piece_type` — grouping by
+that field *is* the equivalence bucket, with no fuzzy reclassification needed at all (that
+ambiguity only exists for *un*confirmed candidates, which `detect_test_type` already handles
+and this feature never touches). `rowing_predict.py` was left completely unmodified — lower
+risk than the originally-planned refactor, and more consistent with this session's own
+governing rule ("reuse the existing engines, never re-derive them") than the plan it replaced.
+
+### Decisions recorded (not hidden gaps)
+
+- **No training-plan/calendar subsystem.** "Sessions completed vs. planned" compares against
+  one configurable weekly target (`target_sessions_per_week`/`target_minutes_per_week`) — a
+  deliberate stand-in, documented in `docs/analytics.md` §26.
+- **Single-user.** "Each athlete" means the one user this install serves; no `user_id` column
+  anywhere in this schema, so nothing here carries multi-user migration risk.
+- **The central risk an advisor review caught**: without a staleness check, a resolved
+  overload warning would read as "active" for its full `recommendation_valid_days` window even
+  after acute:chronic dropped the next day, and the coach would keep asserting something the
+  data no longer supported. Fixed by `last_confirmed_on` (bumped on every re-fire, even during
+  cooldown) — "active" is `not dismissed and last_confirmed_on >= today - 1`, not a fixed
+  expiry from `created_at`.

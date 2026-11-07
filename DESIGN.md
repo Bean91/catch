@@ -243,6 +243,33 @@ rather than a workout's own page, the dialog gains one extra first step — an a
 — since the test center doesn't already have one workout in scope; workout detail already
 knows which activity, so it skips straight to choosing a method.
 
+## Training intelligence (session 18)
+
+**Confidence is rendered as plain text, never a colored badge.** Every other `band` string in
+this app (`recovery`, `strain`, `load`, illness `level`) is a real status judgment — green
+means things are fine, red means they're not — and `BandBadge` exists to make that judgment
+glanceable. A training-intelligence `confidence` value (`insufficient_data`/`low`/`medium`/
+`high`) is a different kind of thing: how much data backs a claim, not whether the claim is
+good or bad news. Giving it a traffic-light color would misread "low confidence" as a warning
+the way a red recovery band legitimately is, so it's always a plain `text-tertiary` line
+("Confidence: medium") instead — the one place in this feature that deliberately *doesn't*
+reuse `BandBadge`, even though almost everything else here does (recommendation type,
+consistency band).
+
+**`PieceTrendMiniChart` is a `SplitBarChart`-style static chart, not a new interactive one.**
+Three bars (best/typical/recent) per equivalence bucket is nothing to pan or zoom into — same
+reasoning `SplitBarChart.tsx`'s own docstring already gives for staying dependency-free rather
+than building on `useChartInteraction`/`Domain`. The training-distribution summary on the same
+page follows the same rule for the same reason: a small, static zone-percentage bar, not
+`WeeklyVolumeBars.tsx`'s full controlled pan-zoom domain (that component's own interface is
+built for Trends' primary interactive chart, and plumbing its domain state into a secondary
+summary card would be a lot of machinery for no real benefit here).
+
+**No new top-level Sidebar/BottomNav slot.** Both nav lists are already documented above as
+tight; the training-intelligence page lives at `/trends/intelligence`, reached by a `<Link>`
+on Trends' own header, matching the Tests/MuscleReadiness/Duplicates/Status precedent of a
+standalone route with no nav slot of its own.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

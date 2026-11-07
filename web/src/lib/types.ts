@@ -1219,3 +1219,100 @@ export interface MuscleReadiness {
   window_hours: number;
   by_muscle: Record<string, number>;
 }
+
+// --- Session 18: training intelligence & recommendations ---------------------------------
+
+export type RecommendationType = "training_suggestion" | "recovery_suggestion" | "data_quality_warning" | "overload_warning";
+export type ConfidenceLevel = "insufficient_data" | "low" | "medium" | "high";
+export type RecommendationRating = "useful" | "not_useful";
+export type RecommendationStatus = "active" | "dismissed" | "all";
+
+export interface EvidenceItem {
+  label: string;
+  value: unknown;
+  source: string;
+}
+
+export interface Recommendation {
+  id: number;
+  date: string;
+  type: RecommendationType;
+  confidence: ConfidenceLevel;
+  title: string;
+  body: string;
+  evidence: EvidenceItem[];
+  last_confirmed_on: string;
+  dismissed: boolean;
+  saved: boolean;
+  rating: RecommendationRating | null;
+  active: boolean;
+}
+
+export interface TrainingPhase {
+  value: "base" | "build" | "taper" | null;
+  inferred: boolean;
+  explanation: string;
+}
+
+export interface TrainingProfile {
+  phase: TrainingPhase;
+  performance_trajectory: ProjectionResult;
+  consistency_summary: { band: string; explanation: string } | null;
+  strengths: { text: string; evidence: EvidenceItem[] }[];
+  weaknesses: { text: string; evidence: EvidenceItem[] }[];
+  recovery_context: { recovery: Recovery; load: Load; illness: IllnessState };
+  confidence: ConfidenceLevel;
+  explanation: string;
+}
+
+export interface PerformanceTrendPoint {
+  date: string;
+  value: number;
+  avg_stroke_rate: number | null;
+}
+
+export interface PerformanceTrendBucket {
+  bucket_label: ErgTestType;
+  kind: "distance" | "duration";
+  best: PerformanceTrendPoint | null;
+  typical: { value: number } | null;
+  recent: PerformanceTrendPoint | null;
+  trend: ProjectionResult;
+  rate_note: string | null;
+  drag_note: string | null;
+  n_points: number;
+}
+
+export interface PerformanceTrends {
+  buckets: PerformanceTrendBucket[];
+}
+
+export interface TrainingDistributionWeek extends VolumeWeek {
+  strength_minutes: number;
+}
+
+export interface TrainingDistribution {
+  weeks: TrainingDistributionWeek[];
+}
+
+export interface TrainingConsistency {
+  sessions_completed: number;
+  sessions_target: number;
+  pct_of_target: number | null;
+  rest_days: number;
+  concentrated_block: boolean;
+  distribution_pct: Record<ZoneName, number>;
+  strength_sessions: number;
+  band: string;
+  explanation: string;
+  confidence: ConfidenceLevel;
+}
+
+export interface TrainingInsight {
+  id: string;
+  title: string;
+  body: string;
+  confidence: ConfidenceLevel;
+  evidence: EvidenceItem[];
+  category: string;
+}

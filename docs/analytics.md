@@ -812,3 +812,120 @@ test's canonical is — so `kind`/`piece_id` disambiguate which detail route a r
 resolves through). `GET /api/pieces/{id}/test-detail` is a separate route from `GET /api/
 tests/{canonical_id}` for exactly that reason. `GET /api/pbs` draws PB candidates from both
 real Concept2 `Activity` rows and confirmed pieces (again excluding an absorbed piece).
+
+## 26. Training intelligence & recommendations (`catch/analytics/training_intelligence.py`, `catch/sync/training_intelligence.py`), session 18
+
+The task's own prompt called itself "session 14" — PLAN.md's sessions 14-17 (gym logger
+through pieces) already occupy that slot, so this is recorded as the next free one, same
+renumbering precedent sessions 8/12 and 17 used for an identical collision. The governing
+design rule throughout: reuse the existing engines rather than re-derive them. Nothing here
+invents a new trend-fitting or zone-bucketing algorithm — it orchestrates `erg_test.py`'s
+`project_time`, `erg_test.py::list_tests`' already-unified confirmed-test/piece rows, and
+`routes_analytics.trends_volume`'s weekly zone buckets.
+
+**Scope limit, stated explicitly rather than left as a silent gap**: no training-plan/
+calendar subsystem exists in this app (`Event` is a race/test, not a weekly plan), and this
+session doesn't build one. "Sessions completed vs. planned" compares the athlete's actual
+session count against one configurable weekly target
+(`settings.training_intelligence.target_sessions_per_week`/`target_minutes_per_week`) — a
+deliberate stand-in, not a hidden limitation. "Each athlete" means the single user this
+install serves; there's no `user_id` column anywhere in this schema, so nothing here carries
+any multi-user migration risk.
+
+**Performance trends — equivalence bucketing reuses confirmed classifications, never
+reinvents them.** `catch/sync/erg_test.py::list_tests` already returns every confirmed test
+and confirmed piece tagged with its own `test_type`/`piece_type` — grouping those rows by
+that field *is* the equivalence bucket; nothing here re-derives a tolerance-based
+classification the way `detect_test_type` does for *un*confirmed candidates. Within a bucket,
+distance-based types (500m-6000m) compare pace in s/500m (lower is better — different exact
+distances within the same standard type's ±2% tolerance are already folded onto one scale by
+the pace conversion); duration-based types (`30min_r20`, `60min`) compare distance covered in
+that fixed duration (higher is better), since the duration itself can't vary. The trend line
+itself is `erg_test.py::project_time`, called directly — same ±1-residual-SD band, same
+refusal below `data_quality_min_pieces_for_trend` (default 3, matching `project_time`'s own
+hard-coded minimum) points, same "inputs always listed" honesty.
+
+**Distinguishing real improvement from a pacing/rate change** (the task's own requirement):
+rather than attempting to model stroke rate out of the pace number — a level of precision
+this app doesn't actually have the data to support — a materially higher average stroke rate
+(> `rate_delta_material_pct`, default 5%) alongside an apparent improvement is surfaced as a
+plain-English caveat ("possible pacing/rate change") rather than silently normalized away or
+ignored. A drag-factor spread across a bucket's pieces (≥3 points) gets the same treatment: an
+annotation, never a reason to split the bucket into a second, less-comparable one.
+
+**Training profile**: a pure synthesis (`training_profile`) over pre-gathered dicts — today's
+cached `recovery`/`load`/`illness` (the exact `daily_scores` JSON shapes `recompute_scores`
+already caches, read as-is rather than recomputed), the next event, the performance-trend
+buckets above, and a consistency summary. Phase (`base`/`build`/`taper`) is explicitly
+labelled `"inferred"` in its own output — a load-trend/days-to-next-A-event heuristic, never
+stated as a fact the app actually knows. When two signals disagree (e.g. load says
+undertraining while illness says "likely"), both are named in the explanation text rather
+than collapsed into one invented verdict — the task's own "avoid pretending correlation
+proves causation" extends to "avoid pretending two disagreeing signals have one answer."
+
+**Confidence ladder** (`confidence_level`): `insufficient_data` / `low` / `medium` / `high`,
+driven by the *weaker* of "how many days of wellness history exist" and "how many equivalent
+data points support this specific claim" — plenty of wellness history with only one or two
+pieces of a given test type still caps that type's own trend confidence at `low`. Every
+recommendation's wording is selected by this same tier (`_apply_hedge`): `insufficient_data`/
+`low`/`medium` confidence always gets a "based on the data so far, not certain" prefix;
+`high` doesn't. A narrow banned-phrase backstop (`"push through"`, `"definitely"`,
+`"guaranteed"`, `"will improve"`) is checked by a test as a floor, not the actual honesty
+mechanism — the structural guarantee is the confidence-tier wording and the suppression rules
+below, verified directly by `tests/analytics/test_training_intelligence.py`.
+
+**Training insights**: a fixed, enumerated set of five pattern checks (`training_insights`),
+never an open-ended correlation search — weekday concentration, recovery the day after a
+high-strain day (strain ≥14, `strain.py`'s own "high" band boundary) vs. the athlete's own
+baseline, a recurring fast-start pacing pattern (from `pacing_analysis`, bounded to the 10
+most recent pieces with inline `splits_json` — deliberately *not* re-fetching real Concept2
+stroke data for confirmed tests, to keep this cheap enough to run from the recommendation
+hook below), zone polarization (AT/TR/AN share drifting ≥30% from the athlete's own recent
+baseline), and consistency gaps (≥10 days with no qualifying session). Each has its own
+minimum-sample gate and is worded correlationally ("tends to", "has been"), never causally.
+
+**Recommendation engine — four types, one evaluator each, a fixed firing order.**
+`evaluate_data_quality_warning` / `evaluate_overload_warning` / `evaluate_recovery_suggestion`
+/ `evaluate_training_suggestion`, each pure (`context`, `settings`) -> `dict | None`.
+`evaluate_training_suggestion` is the only one suppressed by anything else going on — it
+returns `None` whenever illness is `watch`/`likely`, recovery band is `red`, the niggle streak
+is at or above `niggle_flag_min_days`, acute:chronic load band is `caution`/`high_risk`, or an
+A/B event is within `overload_suppress_near_event_days` (default 5) — it may never suggest
+adding load under any of those conditions. `evaluate_overload_warning` is deliberately
+*independent* of all of that (it needs to fire exactly when load is already too high, not be
+silenced by the same signals that would silence a load-increasing suggestion), and requires
+`overload_min_consecutive_days` (default 3) of acute:chronic ≥ `overload_acr_threshold`
+(default 1.5, independently tunable from `acr_bands.caution_high`'s own UI-coloring threshold)
+— one noisy day never fires it.
+
+**Dedup/cooldown and staleness** (`catch/core/models.py::Recommendation`, a plain
+autoincrement-PK table — unlike `IllnessAck`'s date-PK insert-only shape, the same `rule_key`
+legitimately recurs over time, so dismiss/save/rate are ordinary mutations on one specific
+row). Before inserting, `_upsert_recommendation` checks for an existing row with the same
+`rule_key` created within its cooldown window (`recovery_suggestion_cooldown_days`, default 3,
+for that type since recovery state changes daily; `recommendation_cooldown_days`, default 7,
+for the other three) — if found, it bumps that row's `last_confirmed_on` to today rather than
+inserting a duplicate; dismissal does **not** reset the cooldown, so a dismissed row within
+the window still blocks a new one. "Active" (what `GET /api/training-intelligence/
+recommendations?status=active` and `memory_block` both read) is `not dismissed and
+last_confirmed_on >= today - 1` — the fix for a real risk an advisor review caught: without
+this staleness check, a resolved overload warning would read as "still active" for its whole
+`recommendation_valid_days` window even after acute:chronic dropped the very next day, and the
+coach would keep asserting something the data no longer supported.
+
+**The `recompute_scores` hook stays cheap on purpose.** `generate_recommendations` is called
+once per `recompute_scores` run — scoped to *today* only, never inside that function's own
+`while day <= today` loop (which legitimately recomputes every historical day on every call;
+re-evaluating "should we recommend X" for years of history on every sync/settings-PUT/note-
+POST would not be legitimate the same way). It assembles only today's cached `DailyScore`,
+today's check-in, a bounded recent-activity count for the missing-HR check, and the next
+event — never the 365-day equivalent-piece scan `gather_performance_trends` does, which stays
+in that separate, only-called-when-the-tool/route-is-hit path. Wrapped in its own try/except
+with a rollback, so a bug in this newer, more heuristic subsystem can never undo the core
+`DailyScore` rows the same `recompute_scores` call already committed above it.
+
+**Surfacing**: `memory_block` appends at most the single most severe *active* (per the
+definition above) recommendation as one line + its body — the same unprompted-surfacing shape
+the illness-level line already uses, and for the same reason: the coach should see it without
+having to think to call a tool first, but it must never be a stale claim once a later
+recompute has stopped confirming it.

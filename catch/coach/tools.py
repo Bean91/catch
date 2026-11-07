@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
 from catch.analytics.zones import training_zones
-from catch.api import routes_activities, routes_analytics, routes_body, routes_tests, routes_wellness
+from catch.api import routes_activities, routes_analytics, routes_body, routes_tests, routes_training_intelligence, routes_wellness
 from catch.core.models import Activity, DailyScore, Food
 from catch.core.settings_store import get_settings
 from catch.coach import memory
@@ -454,6 +454,46 @@ def _get_test(session: Session, args: dict, ctx: dict) -> dict:
     raise ValueError("Provide either `id` (a confirmed test) or `piece_id` (a piece row from get_tests).")
 
 
+# --- Session 18 (see PLAN.md): training intelligence & recommendations ---------------------
+# The 6 read tools delegate straight to routes_training_intelligence's handler functions,
+# same precedent as _get_tests -> routes_tests.get_tests above; rate_recommendation is the
+# only write tool here (a direct mutation on an existing row, no preview step — same
+# precedent as routes_illness.py's mark_backtest, which this in effect generalizes).
+
+
+def _get_training_profile(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_training_intelligence.get_training_profile(db=session)
+
+
+def _get_performance_trends(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_training_intelligence.get_performance_trends(piece_type=args.get("piece_type"), db=session)
+
+
+def _get_training_distribution(session: Session, args: dict, ctx: dict) -> dict:
+    weeks = int(args["weeks"]) if args.get("weeks") is not None else 12
+    return routes_training_intelligence.get_training_distribution(weeks=weeks, db=session)
+
+
+def _get_training_consistency(session: Session, args: dict, ctx: dict) -> dict:
+    weeks = int(args["weeks"]) if args.get("weeks") is not None else None
+    return routes_training_intelligence.get_training_consistency(weeks=weeks, db=session)
+
+
+def _get_training_insights(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_training_intelligence.get_training_insights(db=session)
+
+
+def _get_recommendations(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_training_intelligence.get_recommendations(
+        status=args.get("status", "active"), rec_type=args.get("type"), db=session
+    )
+
+
+def _rate_recommendation(session: Session, args: dict, ctx: dict) -> dict:
+    body = routes_training_intelligence.RateRequest(rating=args["rating"])
+    return routes_training_intelligence.rate_recommendation(int(args["id"]), body=body, db=session)
+
+
 _PIECE_TIME_RE = re.compile(r"\d+:\d+(?:\.\d+)?")
 
 
@@ -882,6 +922,80 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "id": {"type": "integer", "description": "Canonical workout id, for a get_tests row with kind=='test'."},
                 "piece_id": {"type": "integer", "description": "For a get_tests row with kind=='piece'."},
             },
+            "additionalProperties": False,
+        },
+    },
+    "get_training_profile": {
+        "fn": _get_training_profile,
+        "write": False,
+        "description": "The athlete's current training profile: inferred phase, recent performance trajectory, a consistency summary, data-supported strengths and areas to investigate, today's recovery/load/illness context, and a confidence level based on how much data backs it.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    "get_performance_trends": {
+        "fn": _get_performance_trends,
+        "write": False,
+        "description": "Equivalent-piece performance trends per standard test/piece type: best, typical, and recent results, a trend projection, and a note on whether an apparent improvement might just be a pacing/rate change rather than real improvement.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "piece_type": {
+                    "type": "string",
+                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "get_training_distribution": {
+        "fn": _get_training_distribution,
+        "write": False,
+        "description": "Weekly training volume by HR zone (UT2/UT1/AT/TR/AN) plus strength-session minutes, over a trailing window.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"weeks": {"type": "integer", "description": "1-52, default 12."}},
+            "additionalProperties": False,
+        },
+    },
+    "get_training_consistency": {
+        "fn": _get_training_consistency,
+        "write": False,
+        "description": "Sessions completed vs. the athlete's own configured weekly target, rest days, whether training has been unusually concentrated on a couple of days, and the zone-distribution split, over a trailing window.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"weeks": {"type": "integer", "description": "1-52, default settings.training_intelligence.consistency_lookback_weeks."}},
+            "additionalProperties": False,
+        },
+    },
+    "get_training_insights": {
+        "fn": _get_training_insights,
+        "write": False,
+        "description": "A short list of recurring patterns the data supports (weekday concentration, recovery after high-strain days, a recurring fast-start pacing pattern, zone polarization, consistency gaps), each with its own confidence and supporting evidence. Worded correlationally, never as proof of cause.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    "get_recommendations": {
+        "fn": _get_recommendations,
+        "write": False,
+        "description": "Training/recovery/data-quality/overload recommendations the app has generated, with the reasoning and evidence behind each. Never prescribes aggressive training or tells the athlete to ignore symptoms.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["active", "dismissed", "all"], "description": "Default 'active'."},
+                "type": {"type": "string", "enum": ["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning"]},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "rate_recommendation": {
+        "fn": _rate_recommendation,
+        "write": True,
+        "description": "Mark a recommendation (by its id from get_recommendations) useful or not useful, so future recommendations and the coach's own explanations can account for what's actually landed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "rating": {"type": "string", "enum": ["useful", "not_useful"]},
+            },
+            "required": ["id", "rating"],
             "additionalProperties": False,
         },
     },

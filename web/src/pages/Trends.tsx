@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { WeeklyVolumeBars } from "../components/charts/WeeklyVolumeBars";
@@ -216,7 +216,12 @@ export function TrendsPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Trends</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-text-primary">Trends</h1>
+        <Link to="/trends/intelligence" className="text-sm font-medium text-accent">
+          Training intelligence
+        </Link>
+      </div>
 
       <MetricPicker metric={metric} onSelect={setMetric} />
       <RangePicker activePreset={urlState.preset} onSelect={selectPreset} />

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as date_, datetime, timezone
 from typing import Optional
 
-from sqlmodel import Field, SQLModel, UniqueConstraint
+from sqlmodel import Field, Index, SQLModel, UniqueConstraint
 
 
 def _utcnow() -> datetime:
@@ -876,3 +876,43 @@ class PiecePhoto(SQLModel, table=True):
     content_type: str
     image: bytes
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# --- Session 18 (see PLAN.md): training intelligence & recommendations --------------------
+
+
+class Recommendation(SQLModel, table=True):
+    """A generated training/recovery/data-quality/overload recommendation. Unlike
+    `IllnessAck`'s date-PK insert-only shape, this is a plain autoincrement-PK table: the same
+    `rule_key` legitimately recurs over time (an overload warning today isn't "the same row"
+    as one a month ago), and dismiss/save/rate are ordinary in-place mutations on one specific
+    row, not a computed-vs-user-owned split — there's no separate "always-recomputed JSON
+    column" elsewhere to split the explanation text off of, the way illness's explanation
+    lives in `daily_scores.illness_json` instead of on `IllnessAck`.
+
+    `last_confirmed_on` is what keeps an old, no-longer-true recommendation from reading as
+    still "active" for its whole `recommendation_valid_days` window — catch/sync/
+    training_intelligence.py's `generate_recommendations` re-fires the same `rule_key` and
+    bumps this date every day the rule still holds (never inserting a duplicate while within
+    the cooldown), so "active" is simply `not dismissed and last_confirmed_on >= today - 1`
+    rather than a fixed expiry from `created_at`."""
+
+    __tablename__ = "recommendations"
+    __table_args__ = (Index("ix_reco_rule_created", "rule_key", "created_at"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+    date: date_ = Field(index=True)  # local date first generated
+    type: str  # training_suggestion | recovery_suggestion | data_quality_warning | overload_warning
+    rule_key: str = Field(index=True)  # stable id, e.g. "overload:acr_sustained"
+    confidence: str  # insufficient_data | low | medium | high
+    title: str
+    body: str
+    evidence_json: str = "[]"  # [{"label", "value", "source"}, ...] — the expandable "why" panel's raw data
+    last_confirmed_on: date_
+    dismissed: bool = False
+    dismissed_at: Optional[datetime] = None
+    saved: bool = False
+    rating: Optional[str] = None  # "useful" | "not_useful"
+    rated_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=_utcnow)

@@ -47,7 +47,10 @@ catch/
                 from the HR graph), and POST /api/pieces/parse-paste; routes_tests.py gained
                 GET /api/pieces/{piece_id}/test-detail, a separate route from GET /api/tests/
                 {canonical_id} since a piece's own canonical_id is the *containing* activity,
-                not unique to the piece)
+                not unique to the piece; session 18: routes_training_intelligence.py —
+                profile/trends/distribution/consistency/insights reads plus dismiss/save/rate
+                on a Recommendation row, all thin wrappers around catch/sync/
+                training_intelligence.py's gather_*/list_recommendations, no logic of its own)
   core/         SQLModel models, config, db, security; session 16: healthchecks.py (the
                 sync dead-man's-switch ping), uptime.py (process-start timestamp, its own
                 module so routes_status.py can import it without a main.py cycle)
@@ -97,7 +100,14 @@ catch/
                 matching.py gained that absorb call; canonical.py gained the rowing
                 power-zone-label branch the power overlay exposed was missing;
                 rowing_predict.py's recent_rower_pieces now also draws from confirmed pieces,
-                not just real Concept2 results
+                not just real Concept2 results; session 18: training_intelligence.py (the
+                DB-facing half of training intelligence — gather_training_profile/
+                gather_performance_trends/gather_training_distribution/
+                gather_training_consistency/gather_training_insights, and
+                generate_recommendations, called once per recompute_scores run and scoped to
+                today only — see docs/analytics.md §26); scoring.py's recompute_scores gained
+                that one call, wrapped in its own try/except so a bug in this newer subsystem
+                can't undo the DailyScore rows already committed above it
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
@@ -121,7 +131,13 @@ catch/
                 aggregate_from_splits, the watts<->split formula, paste parsing, and
                 find_best_window — the O(n) highest-average-HR window scan for auto-align —
                 §25); zones_samples.py gained hr_recovery_drop, shared with the per-lap HR
-                recovery routes_analytics.py already had
+                recovery routes_analytics.py already had; session 18:
+                training_intelligence.py (pure — equivalence-bucket comparison over
+                already-confirmed test_type/piece_type rows, reusing erg_test.py's
+                project_time/TEST_SPECS directly rather than re-deriving a trend fitter or a
+                tolerance-based bucketer; the confidence ladder; the four recommendation-type
+                evaluators + their wording-by-confidence-tier hedging; the five fixed
+                training_insights checks — §26)
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -149,7 +165,14 @@ catch/
                 gained add_piece (free text or structured splits, preview-then-confirm like
                 merge_activities/log_strength); get_test's `id` param is now optional
                 alongside a new `piece_id` param, since get_tests' rows carry a "kind" of
-                "test" or "piece"
+                "test" or "piece"; session 18: tools.py gained get_training_profile/
+                get_performance_trends/get_training_distribution/get_training_consistency/
+                get_training_insights/get_recommendations/rate_recommendation (the six reads
+                delegate to routes_training_intelligence's handlers, same precedent as
+                get_tests -> routes_tests.get_tests; rate_recommendation is the only write
+                tool here, a direct mutation with no preview step); memory_block gained a
+                line surfacing the single most severe *active* (not dismissed, confirmed as
+                recently as yesterday) recommendation, same shape as the illness-level line
   notify/       session 16 (see PLAN.md Part A/B): push.py (Web Push from scratch —
                 py-vapid + http-ece + httpx directly, not the full pywebpush package, which
                 transitively pulls in requests+aiohttp for a .send() this app never calls;
@@ -157,8 +180,11 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 28 tools + 2 prompts, built once, shared by both
-                transports), backend.py (RestBackend for stdio -> HTTP with a device
+  mcp_server/   server.py (MCPServer + all 35 tools + 3 prompts, built once, shared by both
+                transports — session 18 added the 7 training-intelligence tools, hand-written
+                @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
+                training_review prompt; a parity test asserts the two sets match), backend.py
+                (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py
                 (catch-mcp stdio entry point), http_app.py (the /mcp/ mount + its bearer
@@ -189,7 +215,10 @@ web/
                 window as a shaded accent-hue band, plus a drag handle (a sibling absolutely-
                 positioned div, not inside the chart's own SVG, so it never fights
                 useChartInteraction's own pointer claim on the surface) at its start edge —
-                see DESIGN.md's "Adding a piece" note), shell/ (AppShell,
+                see DESIGN.md's "Adding a piece" note; session 18: PieceTrendMiniChart — a
+                static best/typical/recent bar chart per equivalence bucket, SplitBarChart's
+                dependency-free pattern rather than useChartInteraction, see DESIGN.md's
+                "Training intelligence" note), shell/ (AppShell,
                 Sidebar, BottomNav, UpdateToast — the "New version — tap to reload" banner),
                 coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard),
                 nutrition/ (session 13: AddFoodDialog — search/My-Foods/saved-meals quick
@@ -226,7 +255,12 @@ web/
                 m:ss.t digit-entry field, since iOS's numeric keyboard has no colon, see
                 DESIGN.md; SplitsReviewTable — shared by AddPieceDialog and PieceCard's own
                 edit mode, highlights exactly the rows validate_splits flagged; PieceCard —
-                a piece's summary on workout detail: splits, edit, delete, view/delete photo)
+                a piece's summary on workout detail: splits, edit, delete, view/delete photo);
+                intelligence/ (session 18: TrainingProfileCard, PerformanceTrendsCard,
+                TrainingDistributionCard, ConsistencyCard, StrengthsWeaknessesCard,
+                InsightCard, RecommendationCard — each a plain Card + useQuery section on
+                TrainingIntelligence.tsx, confidence rendered as plain text rather than a
+                colored badge, see DESIGN.md's "Training intelligence" note)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -284,7 +318,12 @@ web/
                 estimate/align functions and Piece/PieceSplitRow/PieceTestDetail/
                 PiecePhotoEstimate types; ErgTestSummary and PbEntry both gained a
                 `kind`/`piece_id` (PbEntry: just `piece_id`) so a row can resolve to either a
-                confirmed test's or a piece's own detail route
+                confirmed test's or a piece's own detail route; session 18: api.ts/mock.ts/
+                types.ts gained fetchTrainingProfile/fetchPerformanceTrends/
+                fetchTrainingDistribution/fetchTrainingConsistency/fetchTrainingInsights/
+                fetchRecommendations/dismissRecommendation/saveRecommendation/
+                rateRecommendation and TrainingProfile/PerformanceTrends/
+                TrainingDistribution/TrainingConsistency/TrainingInsight/Recommendation types
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
@@ -318,7 +357,11 @@ web/
                 confirmed-tests list; PieceTestDetail (`/tests/piece/:id` — the piece
                 equivalent of TestDetail, a separate route since a piece's own canonical_id
                 is the *containing* activity; pacing chart + the embedded PieceCard for
-                edit/delete/photo) (React.lazy,
+                edit/delete/photo); session 18: TrainingIntelligence (`/trends/intelligence`
+                — profile, performance trajectory, distribution, consistency, strengths/areas
+                to investigate, insights, recommendations, each its own Card + useQuery; no
+                bottom-nav/Sidebar slot — reached via a link on Trends' own header, same
+                no-slot pattern as Tests/MuscleReadiness/Duplicates/Status) (React.lazy,
                 one chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
@@ -338,7 +381,12 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 (session 17) cover the alignment fixture, the Part D.3 strain-unchanged
                 guarantee, and the Part D.4 absorb (a fixture with real Stroke rows,
                 asserting the parent canonical's duration/strain survive untouched — the
-                exact bug a second advisor review caught). `web/` has its own test trees:
+                exact bug a second advisor review caught); test_api_training_intelligence.py/
+                tests/analytics/test_training_intelligence.py (session 18) cover the
+                recommendation dedup/cooldown/staleness semantics, the four evaluators'
+                suppression rules, the structural "confidence never exceeds the weakest
+                input, insufficient_data only ever comes from a data-quality warning"
+                guarantees, and an MCP/coach-tool-registry parity check. `web/` has its own test trees:
                 `web/src/**/*.test.ts` (Vitest, pure-function unit tests, e.g. chartRange.ts,
                 and session 17's pieceSplits.test.ts, which also runs the shared
                 tests/fixtures/pieces/paste_vectors.json vectors) and

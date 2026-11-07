@@ -17,6 +17,7 @@ import {
   deleteMockSavedMeal,
   deleteMockToken,
   dismissMockIllness,
+  dismissMockRecommendation,
   listMockFoodLogs,
   logMockSavedMeal,
   mockActivitySamples,
@@ -42,6 +43,7 @@ import {
   mockNutritionTargets,
   mockPacingPlan,
   mockPbs,
+  mockPerformanceTrends,
   mockPhotoEstimate,
   mockPieces,
   mockPieceTemplate,
@@ -54,6 +56,7 @@ import {
   uploadMockPiecePhoto,
   deleteMockPiecePhoto,
   mockProjection,
+  mockRecommendations,
   mockRepeatLastWorkout,
   mockSavedMeals,
   mockScenarioFromQuery,
@@ -62,6 +65,10 @@ import {
   mockStations,
   mockSyncStatus,
   mockTemplates,
+  mockTrainingConsistency,
+  mockTrainingDistribution,
+  mockTrainingInsights,
+  mockTrainingProfile,
   mockTestCandidates,
   mockTestConnection,
   mockTestDetail,
@@ -78,8 +85,10 @@ import {
   markMockNotDuplicate,
   patchMockActivity,
   postMockManualWeight,
+  rateMockRecommendation,
   revertMockActivityField,
   saveMockCheckin,
+  saveMockRecommendation,
   saveMockCoachSettings,
   saveMockMeal,
   saveMockNote,
@@ -150,6 +159,9 @@ import type {
   PieceSplitRow,
   PieceTestDetail,
   ProjectionResult,
+  Recommendation,
+  RecommendationRating,
+  RecommendationStatus,
   RepeatWorkoutPlanItem,
   SavedMealItem,
   SavedMealRow,
@@ -162,6 +174,11 @@ import type {
   SyncSourceStatus,
   Today,
   TodayCheckinStatus,
+  TrainingConsistency,
+  TrainingDistribution,
+  TrainingInsight,
+  TrainingProfile,
+  PerformanceTrends,
   TrendMetric,
   VolumeWeek,
   WeekSummary,
@@ -1164,4 +1181,67 @@ export async function sendTestPush(subscriptionId: number): Promise<void> {
 export async function fetchStatus(): Promise<AppStatus> {
   if (isMock) return delay(mockStatus());
   return request<AppStatus>("/api/status");
+}
+
+// --- Training intelligence (session 18) ---------------------------------------------------
+
+export async function fetchTrainingProfile(): Promise<TrainingProfile> {
+  if (isMock) return delay(mockTrainingProfile(MOCK_SCENARIO!));
+  return request<TrainingProfile>("/api/training-intelligence/profile");
+}
+
+export async function fetchPerformanceTrends(pieceType?: ErgTestType): Promise<PerformanceTrends> {
+  if (isMock) return delay(mockPerformanceTrends(MOCK_SCENARIO!));
+  const search = new URLSearchParams();
+  if (pieceType) search.set("piece_type", pieceType);
+  return request<PerformanceTrends>(`/api/training-intelligence/trends?${search.toString()}`);
+}
+
+export async function fetchTrainingDistribution(weeks = 12): Promise<TrainingDistribution> {
+  if (isMock) return delay(mockTrainingDistribution(MOCK_SCENARIO!, weeks));
+  return request<TrainingDistribution>(`/api/training-intelligence/distribution?weeks=${weeks}`);
+}
+
+export async function fetchTrainingConsistency(weeks?: number): Promise<TrainingConsistency> {
+  if (isMock) return delay(mockTrainingConsistency(MOCK_SCENARIO!, weeks ?? 8));
+  const search = new URLSearchParams();
+  if (weeks) search.set("weeks", String(weeks));
+  return request<TrainingConsistency>(`/api/training-intelligence/consistency?${search.toString()}`);
+}
+
+export async function fetchTrainingInsights(): Promise<TrainingInsight[]> {
+  if (isMock) return delay(mockTrainingInsights(MOCK_SCENARIO!));
+  const { insights } = await request<{ insights: TrainingInsight[] }>("/api/training-intelligence/insights");
+  return insights;
+}
+
+export async function fetchRecommendations(status: RecommendationStatus = "active", type?: string): Promise<Recommendation[]> {
+  if (isMock) return delay(mockRecommendations(MOCK_SCENARIO!, status, type));
+  const search = new URLSearchParams({ status });
+  if (type) search.set("type", type);
+  const { recommendations } = await request<{ recommendations: Recommendation[] }>(`/api/training-intelligence/recommendations?${search.toString()}`);
+  return recommendations;
+}
+
+export async function dismissRecommendation(id: number): Promise<Recommendation> {
+  if (isMock) return delay(dismissMockRecommendation(id), 150);
+  return request<Recommendation>(`/api/training-intelligence/recommendations/${id}/dismiss`, { method: "POST" });
+}
+
+export async function saveRecommendation(id: number, saved: boolean): Promise<Recommendation> {
+  if (isMock) return delay(saveMockRecommendation(id, saved), 150);
+  return request<Recommendation>(`/api/training-intelligence/recommendations/${id}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ saved }),
+  });
+}
+
+export async function rateRecommendation(id: number, rating: RecommendationRating): Promise<Recommendation> {
+  if (isMock) return delay(rateMockRecommendation(id, rating), 150);
+  return request<Recommendation>(`/api/training-intelligence/recommendations/${id}/rate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating }),
+  });
 }

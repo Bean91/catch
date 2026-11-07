@@ -18,6 +18,7 @@ const TestCenterPage = lazy(() => import("./pages/TestCenter").then((m) => ({ de
 const TestDetailPage = lazy(() => import("./pages/TestDetail").then((m) => ({ default: m.TestDetailPage })));
 const PieceTestDetailPage = lazy(() => import("./pages/PieceTestDetail").then((m) => ({ default: m.PieceTestDetailPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
+const TrainingIntelligencePage = lazy(() => import("./pages/TrainingIntelligence").then((m) => ({ default: m.TrainingIntelligencePage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
 const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
@@ -81,6 +82,7 @@ export function App() {
           <Route path="/tests/piece/:id" element={<PieceTestDetailPage />} />
           <Route path="/tests/:id" element={<TestDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
+          <Route path="/trends/intelligence" element={<TrainingIntelligencePage />} />
           <Route path="/body" element={<BodyPage />} />
           <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/coach" element={<CoachPage />} />

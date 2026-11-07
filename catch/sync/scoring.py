@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import threading
 from datetime import date, datetime, timedelta, timezone
@@ -414,6 +415,22 @@ def recompute_scores(session: Session) -> int:
         from catch.api.routes_analytics import invalidate_series_cache
 
         invalidate_series_cache()
+
+        # Session 18 (see PLAN.md) — scoped to `today` only, deliberately outside the
+        # while-loop above: that loop recomputes every historical day on every call (cheap,
+        # see this function's own docstring), but re-evaluating "should we recommend X" for
+        # years of history on every settings-PUT/note-POST/sync would not be. Never calls
+        # back into recompute_scores (no recursion into this function's own re-entrant lock);
+        # isolated in its own try/except since a bug in this newer, more heuristic subsystem
+        # must never break core score recomputation, which has already committed above.
+        try:
+            from catch.sync.training_intelligence import generate_recommendations
+
+            generate_recommendations(session, settings, today)
+        except Exception:
+            session.rollback()
+            logging.getLogger("catch.scoring").exception("recommendation generation failed")
+
         return count
     finally:
         _lock.release()

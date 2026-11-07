@@ -287,4 +287,16 @@ def memory_block(session: Session) -> str:
     if illness and illness["level"] != "none":
         lines.append(f"Illness early-warning: {illness['level']} — {illness['explanation']}")
 
+    # Session 18 (see PLAN.md) — same unprompted-surfacing shape as the illness block above:
+    # at most the single most severe *active* (not dismissed, confirmed as recently as
+    # yesterday — see catch.sync.training_intelligence.is_active) recommendation, never a
+    # stale one a later recompute has already stopped confirming.
+    from catch.sync.training_intelligence import list_recommendations
+
+    active = list_recommendations(session, status="active")
+    if active:
+        _SEVERITY = {"overload_warning": 0, "recovery_suggestion": 1, "data_quality_warning": 2, "training_suggestion": 3}
+        top = min(active, key=lambda r: _SEVERITY.get(r["type"], 99))
+        lines.append(f"Active recommendation ({top['type']}, {top['confidence']} confidence): {top['body']}")
+
     return "\n".join(lines)

@@ -24,6 +24,7 @@ from catch.api import (
     routes_status,
     routes_sync,
     routes_tests,
+    routes_training_intelligence,
     routes_wellness,
 )
 from catch.core.config import settings
@@ -99,6 +100,7 @@ app.include_router(routes_tests.router)
 app.include_router(routes_pieces.router)
 app.include_router(routes_push.router)
 app.include_router(routes_status.router)
+app.include_router(routes_training_intelligence.router)
 
 
 @app.get("/api/health")

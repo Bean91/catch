@@ -69,6 +69,7 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
                 "avg_power": p.avg_watts,
                 "avg_stroke_rate": p.avg_rate,
                 "avg_hr": (sum(hrs) / len(hrs)) if hrs else None,
+                "drag_factor": p.drag_factor,
             }
         )
     return out
@@ -98,6 +99,11 @@ def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
                 "avg_power": member.avg_power,
                 "avg_stroke_rate": member.stroke_rate,
                 "avg_hr": member.avg_hr,
+                # Session 18 (see PLAN.md) — additive field: the performance-trends
+                # equivalence comparison annotates drag-factor spread across a bucket rather
+                # than re-bucketing on it. Purely additive; no existing reader of this dict
+                # breaks by gaining a key it doesn't look at.
+                "drag_factor": member.drag_factor,
             }
         )
     out += _piece_rows(session, test_type)

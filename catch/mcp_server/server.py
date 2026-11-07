@@ -18,10 +18,12 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "Tools for Catch, a personal rowing training app: read-only access to recovery/"
             "strain/sleep/HRV, workouts, trends, body composition, training load, 2k "
             "prediction, zones, nutrition (intake vs. expenditure, under-fuelling), and erg "
-            "tests (pacing analysis, pacing-plan generation), plus food/strength logging and "
-            "a small shared memory of events/goals/athlete facts that the in-app coach also "
-            "reads and writes. get_today also carries today's morning check-in and the "
-            "illness early-warning level."
+            "tests (pacing analysis, pacing-plan generation), training intelligence "
+            "(a training profile, equivalent-piece performance trends, training "
+            "distribution/consistency, insights, and recommendations), plus food/strength "
+            "logging and a small shared memory of events/goals/athlete facts that the "
+            "in-app coach also reads and writes. get_today also carries today's morning "
+            "check-in and the illness early-warning level."
         ),
     )
 
@@ -283,6 +285,55 @@ def build_server(backend: ToolBackend) -> MCPServer:
         """Search stored events, goals, and facts. Omit query to list everything current."""
         return await _call("recall", query=query)
 
+    @mcp.tool()
+    async def get_training_profile() -> dict:
+        """The athlete's current training profile: inferred phase, performance trajectory,
+        consistency summary, data-supported strengths/areas to investigate, today's recovery/
+        load/illness context, and a confidence level based on data completeness."""
+        return await _call("get_training_profile")
+
+    @mcp.tool()
+    async def get_performance_trends(
+        piece_type: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"]] = None,
+    ) -> dict:
+        """Equivalent-piece performance trends per test/piece type: best/typical/recent, a
+        trend projection, and whether an apparent improvement might just be a pacing/rate
+        change."""
+        return await _call("get_performance_trends", piece_type=piece_type)
+
+    @mcp.tool()
+    async def get_training_distribution(weeks: Optional[int] = None) -> dict:
+        """Weekly training volume by HR zone (UT2/UT1/AT/TR/AN) plus strength-session
+        minutes, over a trailing window (default 12 weeks)."""
+        return await _call("get_training_distribution", weeks=weeks)
+
+    @mcp.tool()
+    async def get_training_consistency(weeks: Optional[int] = None) -> dict:
+        """Sessions completed vs. the athlete's own weekly target, rest days, whether
+        training has been unusually concentrated, and the zone-distribution split."""
+        return await _call("get_training_consistency", weeks=weeks)
+
+    @mcp.tool()
+    async def get_training_insights() -> dict:
+        """A short list of recurring patterns the data supports, each with its own
+        confidence and evidence. Worded correlationally, never as proof of cause."""
+        return await _call("get_training_insights")
+
+    @mcp.tool()
+    async def get_recommendations(
+        status: Optional[Literal["active", "dismissed", "all"]] = None,
+        type: Optional[Literal["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning"]] = None,
+    ) -> dict:
+        """Training/recovery/data-quality/overload recommendations, with reasoning and
+        evidence. Never prescribes aggressive training or tells the athlete to ignore
+        symptoms."""
+        return await _call("get_recommendations", status=status, type=type)
+
+    @mcp.tool()
+    async def rate_recommendation(id: int, rating: Literal["useful", "not_useful"]) -> dict:
+        """Mark a recommendation (by its id from get_recommendations) useful or not useful."""
+        return await _call("rate_recommendation", id=id, rating=rating)
+
     @mcp.prompt()
     def daily_check_in() -> str:
         """A short daily check-in with the coach."""
@@ -301,6 +352,18 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "the last 7-14 days, and list_workouts for the same window. Summarize the volume "
             "and intensity pattern, call out whether load is trending toward undertraining, "
             "optimal, caution, or high-risk, and suggest one concrete adjustment for next week."
+        )
+
+    @mcp.prompt()
+    def training_review() -> str:
+        """A training-intelligence review with the coach."""
+        return (
+            "Give me a training review: call get_training_profile, then "
+            "get_performance_trends, get_training_distribution, get_training_consistency, "
+            "get_training_insights, and get_recommendations in that order. Summarize current "
+            "phase, trajectory, consistency, one strength and one area to investigate, and "
+            "any active recommendation — naming the confidence level and what data it rests "
+            "on, never stating more certainty than the data supports."
         )
 
     return mcp

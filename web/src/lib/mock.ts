@@ -48,6 +48,14 @@ import type {
   ProjectionResult,
   PushSubscriptionRow,
   AppStatus,
+  PerformanceTrends,
+  Recommendation,
+  RecommendationRating,
+  RecommendationStatus,
+  TrainingConsistency,
+  TrainingDistribution,
+  TrainingInsight,
+  TrainingProfile,
   SavedMealItem,
   SavedMealRow,
   Settings,
@@ -2277,4 +2285,241 @@ export function mockStatus(): AppStatus {
     uptime_seconds: 86_400 * 3,
     build: { build: "mock-build", commit: "abc1234" },
   };
+}
+
+// --- Session 18: training intelligence & recommendations ---------------------------------
+
+const NONE_ILLNESS_FOR_TI: IllnessState = {
+  level: "none",
+  deviated_count: 0,
+  signals: {
+    resting_hr: { z: null, baseline: null, deviated: false },
+    hrv: { z: null, baseline: null, deviated: false },
+    respiration: { z: null, baseline: null, deviated: false },
+    checkin: { z: null, baseline: null, deviated: false },
+  },
+  explanation: "No signal deviated beyond its own baseline tonight.",
+};
+
+export function mockTrainingProfile(scenario: MockScenario): TrainingProfile {
+  if (scenario === "empty" || scenario === "calibrating") {
+    return {
+      phase: { value: null, inferred: true, explanation: "Not enough training-load history to infer a phase." },
+      performance_trajectory: { value: null, range: null, explanation: "No equivalent-piece trend data available yet.", inputs: [], target_date: TODAY, target_event: null },
+      consistency_summary: { band: "insufficient_data", explanation: "No sessions logged in this window yet." },
+      strengths: [],
+      weaknesses: [],
+      recovery_context: {
+        recovery: { value: null, band: "calibrating", components: [], explanation: "Need 7 nights of HRV history before a baseline exists; have 0." },
+        load: { value: null, band: "insufficient_data", components: [], explanation: "No training-load history yet." },
+        illness: NONE_ILLNESS_FOR_TI,
+      },
+      confidence: "insufficient_data",
+      explanation: "Confidence: insufficient_data. Not enough history yet to identify strengths or areas to investigate.",
+    };
+  }
+  return {
+    phase: { value: "build", inferred: true, explanation: "Acute:chronic load is in the optimal band, read as a build phase (no other data distinguishes build from maintenance)." },
+    performance_trajectory: {
+      value: 101.0,
+      range: [99.8, 102.2],
+      slope_s_per_day: -0.08,
+      n_points: 5,
+      explanation: `Linear trend over 5 tests of this type, projected to ${TODAY}; band is ±1 residual SD (1.2s) around the trend line, not a statement about how confident the slope itself is.`,
+      inputs: [80, 60, 40, 20, 0].map((daysAgo, i) => ({ date: shiftDate(TODAY, -daysAgo), value: 106 - i * 1.3 })),
+      target_date: TODAY,
+      target_event: null,
+    },
+    consistency_summary: { band: "on_target", explanation: "18 sessions over 8 week(s), at or above the weekly target." },
+    strengths: [
+      { text: "2000m is trending faster over time.", evidence: [{ label: "trend", value: "faster over time", source: "2000m" }] },
+    ],
+    weaknesses: [
+      { text: "5000m is trending slower over time.", evidence: [{ label: "trend", value: "slower over time", source: "5000m" }] },
+    ],
+    recovery_context: {
+      recovery: { value: 72, band: "green", components: [], explanation: "Weighted blend of HRV-vs-7d-baseline (normalised by 60d spread), resting HR deviation, sleep-vs-need, prior-day strain, and today's check-in." },
+      load: { value: 1.1, band: "optimal", components: [{ acute_7d: 42, chronic_42d: 38, form: -4 }], explanation: "Acute (7d EWMA)=42.0, chronic (42d EWMA)=38.0, form=chronic-acute=-4.0, acute:chronic=1.10." },
+      illness: NONE_ILLNESS_FOR_TI,
+    },
+    confidence: "medium",
+    explanation: "Confidence: medium.",
+  };
+}
+
+export function mockPerformanceTrends(scenario: MockScenario): PerformanceTrends {
+  if (scenario === "empty" || scenario === "calibrating") return { buckets: [] };
+  return {
+    buckets: [
+      {
+        bucket_label: "2000m",
+        kind: "distance",
+        best: { date: shiftDate(TODAY, -20), value: 99.8, avg_stroke_rate: 31 },
+        typical: { value: 102.4 },
+        recent: { date: TODAY, value: 101.0, avg_stroke_rate: 30 },
+        trend: {
+          value: 101.0,
+          range: [99.8, 102.2],
+          slope_s_per_day: -0.08,
+          n_points: 5,
+          explanation: `Linear trend over 5 tests of this type, projected to ${TODAY}; band is ±1 residual SD (1.2s) around the trend line.`,
+          inputs: [80, 60, 40, 20, 0].map((daysAgo, i) => ({ date: shiftDate(TODAY, -daysAgo), value: 106 - i * 1.3 })),
+          target_date: TODAY,
+          target_event: null,
+        },
+        rate_note: "likely real improvement — the recent result is faster/further at an equal-or-lower stroke rate than typical for this type.",
+        drag_note: null,
+        n_points: 5,
+      },
+      {
+        bucket_label: "5000m",
+        kind: "distance",
+        best: { date: shiftDate(TODAY, -100), value: 108.1, avg_stroke_rate: 28 },
+        typical: { value: 110.0 },
+        recent: { date: shiftDate(TODAY, -3), value: 111.2, avg_stroke_rate: 27 },
+        trend: {
+          value: 110.9,
+          range: [109.2, 112.6],
+          slope_s_per_day: 0.05,
+          n_points: 3,
+          explanation: `Linear trend over 3 tests of this type, projected to ${TODAY}; band is ±1 residual SD (1.7s) around the trend line.`,
+          inputs: [100, 50, 3].map((daysAgo, i) => ({ date: shiftDate(TODAY, -daysAgo), value: 108 + i * 1.5 })),
+          target_date: TODAY,
+          target_event: null,
+        },
+        rate_note: null,
+        drag_note: null,
+        n_points: 3,
+      },
+    ],
+  };
+}
+
+export function mockTrainingDistribution(scenario: MockScenario, weeks: number): TrainingDistribution {
+  if (scenario === "empty") {
+    return { weeks: mockVolume(weeks).map((w) => ({ ...w, zones: { UT2: 0, UT1: 0, AT: 0, TR: 0, AN: 0 }, strength_minutes: 0 })) };
+  }
+  return { weeks: mockVolume(weeks).map((w, i) => ({ ...w, strength_minutes: i % 2 === 0 ? 45 : 0 })) };
+}
+
+export function mockTrainingConsistency(scenario: MockScenario, weeks: number): TrainingConsistency {
+  if (scenario === "empty" || scenario === "calibrating") {
+    return {
+      sessions_completed: 0,
+      sessions_target: weeks * 5,
+      pct_of_target: 0,
+      rest_days: weeks * 7,
+      concentrated_block: false,
+      distribution_pct: { UT2: 0, UT1: 0, AT: 0, TR: 0, AN: 0 },
+      strength_sessions: 0,
+      band: "insufficient_data",
+      explanation: "No sessions logged in this window yet.",
+      confidence: "insufficient_data",
+    };
+  }
+  return {
+    sessions_completed: weeks * 4,
+    sessions_target: weeks * 5,
+    pct_of_target: 0.8,
+    rest_days: weeks * 3,
+    concentrated_block: false,
+    distribution_pct: { UT2: 0.45, UT1: 0.25, AT: 0.15, TR: 0.1, AN: 0.05 },
+    strength_sessions: weeks * 2,
+    band: "below_target",
+    explanation: `${weeks * 4} sessions over ${weeks} week(s), below the weekly target.`,
+    confidence: "medium",
+  };
+}
+
+export function mockTrainingInsights(scenario: MockScenario): TrainingInsight[] {
+  if (scenario === "empty" || scenario === "calibrating") return [];
+  return [
+    {
+      id: "weekday_concentration",
+      title: "Training is concentrated on a couple of weekdays",
+      body: "9 of the last 14 sessions fall on Tue and Thu.",
+      confidence: "medium",
+      evidence: [{ label: "weekday_counts", value: { 1: 5, 3: 4 }, source: "canonical_activities" }],
+      category: "consistency",
+    },
+    {
+      id: "consistency_gap",
+      title: "An unusually long gap in training",
+      body: "There was a 12-day stretch with no logged session in the lookback window.",
+      confidence: "high",
+      evidence: [{ label: "max_gap_days", value: 12, source: "canonical_activities" }],
+      category: "consistency",
+    },
+  ];
+}
+
+let nextMockRecommendationId = 1;
+let MOCK_RECOMMENDATIONS: Recommendation[] = [
+  {
+    id: nextMockRecommendationId++,
+    date: TODAY,
+    type: "training_suggestion",
+    confidence: "medium",
+    title: "Room for another session this week",
+    body: "Based on the data so far (not certain): you're at 2 of your 5-session weekly target, and today's recovery/load/illness signals don't show a reason to hold back — a reasonable day to add a session if you have the time.",
+    evidence: [
+      { label: "sessions_this_week", value: 2, source: "canonical_activities" },
+      { label: "target_sessions_per_week", value: 5, source: "settings" },
+    ],
+    last_confirmed_on: TODAY,
+    dismissed: false,
+    saved: false,
+    rating: null,
+    active: true,
+  },
+  {
+    id: nextMockRecommendationId++,
+    date: shiftDate(TODAY, -2),
+    type: "overload_warning",
+    confidence: "high",
+    title: "Sustained high training load",
+    body: "Acute:chronic load has been at or above 1.5 for the last 3 days (today 1.62) — in the higher-injury-risk range by the usual acute:chronic framing. Consider easing volume or intensity for a few days.",
+    evidence: [{ label: "acr_last_3_days", value: [1.55, 1.58, 1.62], source: "daily_scores" }],
+    last_confirmed_on: shiftDate(TODAY, -2),
+    dismissed: false,
+    saved: false,
+    rating: null,
+    active: false,
+  },
+];
+
+export function mockRecommendations(scenario: MockScenario, status: RecommendationStatus, type?: string | null): Recommendation[] {
+  if (scenario === "empty" || scenario === "calibrating") return [];
+  let rows = MOCK_RECOMMENDATIONS;
+  if (type) rows = rows.filter((r) => r.type === type);
+  if (status === "dismissed") rows = rows.filter((r) => r.dismissed);
+  else if (status === "active") rows = rows.filter((r) => r.active && !r.dismissed);
+  return rows;
+}
+
+function _findMockRecommendation(id: number): Recommendation {
+  const row = MOCK_RECOMMENDATIONS.find((r) => r.id === id);
+  if (!row) throw new Error(`No mock recommendation with id ${id}`);
+  return row;
+}
+
+export function dismissMockRecommendation(id: number): Recommendation {
+  const row = _findMockRecommendation(id);
+  const updated = { ...row, dismissed: true };
+  MOCK_RECOMMENDATIONS = MOCK_RECOMMENDATIONS.map((r) => (r.id === id ? updated : r));
+  return updated;
+}
+
+export function saveMockRecommendation(id: number, saved: boolean): Recommendation {
+  const row = _findMockRecommendation(id);
+  const updated = { ...row, saved };
+  MOCK_RECOMMENDATIONS = MOCK_RECOMMENDATIONS.map((r) => (r.id === id ? updated : r));
+  return updated;
+}
+
+export function rateMockRecommendation(id: number, rating: RecommendationRating): Recommendation {
+  const row = _findMockRecommendation(id);
+  const updated = { ...row, rating };
+  MOCK_RECOMMENDATIONS = MOCK_RECOMMENDATIONS.map((r) => (r.id === id ? updated : r));
+  return updated;
 }

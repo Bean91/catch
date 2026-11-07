@@ -146,4 +146,46 @@ DEFAULT_SETTINGS: dict = {
             "test_reminder": True,
         },
     },
+    # Session 18 (see PLAN.md) — training intelligence & recommendations. Flat, one level
+    # deep: catch.core.settings_store._validate_patch only checks one level of nesting (the
+    # top key, then — if its default is a dict — the immediate child keys), matching
+    # "notifications.types" above, so a second level of nesting here would silently bypass
+    # that validation rather than trigger it.
+    "training_intelligence": {
+        # Stand-in for "sessions completed vs. planned" — no training-plan/calendar
+        # subsystem exists in this app (an Event is a race/test, not a weekly plan). docs/
+        # analytics.md §26 documents this as a deliberate scope limit, not a hidden gap.
+        "target_sessions_per_week": 5,
+        "target_minutes_per_week": 300,
+        "consistency_lookback_weeks": 8,
+        # A week with >= this share of its volume on <=2 days is "unusually concentrated."
+        "concentrated_block_max_day_share": 0.6,
+        # Independently tunable from acr_bands.caution_high (which only drives the Trends
+        # badge color) — this is a distinct alert threshold for the overload *warning*.
+        "overload_acr_threshold": 1.5,
+        "overload_min_consecutive_days": 3,
+        # An A/B event within this many days suppresses any training suggestion that would
+        # add load — never recommend loading up right before a race/test.
+        "overload_suppress_near_event_days": 5,
+        # == recovery_yellow by default; a dedicated key so tuning one doesn't retune the other.
+        "recovery_suggestion_recovery_max": 34,
+        # Shorter than recommendation_cooldown_days — recovery state changes daily, so a
+        # recovery suggestion should be free to re-fire the next day.
+        "recovery_suggestion_cooldown_days": 3,
+        "data_quality_min_history_days": 14,
+        # Mirrors erg_test.py's project_time() own refusal threshold (<3 points), exposed as
+        # a knob here rather than duplicated as a new constant.
+        "data_quality_min_pieces_for_trend": 3,
+        "data_quality_missing_hr_pct_threshold": 0.5,
+        "data_quality_lookback_sessions": 10,
+        "recommendation_cooldown_days": 7,
+        "recommendation_valid_days": 10,
+        "confidence_days_medium": 28,
+        "confidence_days_high": 84,
+        "confidence_pieces_high": 6,
+        # A bucket's avg stroke rate up by more than this fraction between two compared
+        # pieces -> "possible pacing/rate change" rather than "likely real improvement."
+        "rate_delta_material_pct": 0.05,
+        "piece_trend_lookback_days": 365,
+    },
 }
