@@ -1263,6 +1263,11 @@ export interface TrainingProfile {
   recovery_context: { recovery: Recovery; load: Load; illness: IllnessState };
   confidence: ConfidenceLevel;
   explanation: string;
+  // "When available" context — present but honestly flagged `logged: false` when the
+  // athlete hasn't logged anything, never silently treated as zero.
+  nutrition: { logged: false } | { logged: true; logged_days: number; under_fuelling: boolean };
+  daily_activity: { logged: false } | { logged: true; steps: number; active_kcal: number | null };
+  recent_note: string | null;
 }
 
 export interface PerformanceTrendPoint {
@@ -1298,6 +1303,8 @@ export interface TrainingDistribution {
 export interface TrainingConsistency {
   sessions_completed: number;
   sessions_target: number;
+  minutes_completed: number;
+  minutes_target: number;
   pct_of_target: number | null;
   rest_days: number;
   concentrated_block: boolean;

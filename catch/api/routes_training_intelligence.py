@@ -79,7 +79,11 @@ def dismiss_recommendation(id: int, db: Session = Depends(get_db)):
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return db.get(Recommendation, id)
+    # recommendation_dict (not the bare ORM row) — every other endpoint here returns the same
+    # parsed-evidence/`active`-flag shape (routes_tests.py-style consistency: a mutation
+    # response should match its sibling GET's row shape, not a different one the caller then
+    # has to reconcile).
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id))
 
 
 @router.post("/api/training-intelligence/recommendations/{id}/save")
@@ -89,7 +93,7 @@ def save_recommendation(id: int, body: SaveRequest = Body(...), db: Session = De
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return db.get(Recommendation, id)
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id))
 
 
 @router.post("/api/training-intelligence/recommendations/{id}/rate")
@@ -102,4 +106,4 @@ def rate_recommendation(id: int, body: RateRequest = Body(...), db: Session = De
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return db.get(Recommendation, id)
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id))

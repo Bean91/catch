@@ -988,7 +988,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "rate_recommendation": {
         "fn": _rate_recommendation,
         "write": True,
-        "description": "Mark a recommendation (by its id from get_recommendations) useful or not useful, so future recommendations and the coach's own explanations can account for what's actually landed.",
+        "description": "Mark a recommendation (by its id from get_recommendations) useful or not useful, for the athlete's own record. Call this only when the athlete explicitly says whether a specific recommendation helped — it doesn't change which recommendations get generated.",
         "input_schema": {
             "type": "object",
             "properties": {

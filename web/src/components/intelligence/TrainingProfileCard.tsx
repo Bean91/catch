@@ -18,6 +18,22 @@ export function TrainingProfileCard({ profile }: { profile: TrainingProfile }) {
       <p className="mt-1 text-sm text-text-secondary">{profile.phase.explanation}</p>
       <p className="mt-3 text-xs text-text-tertiary">Confidence: {profile.confidence.replace("_", " ")}</p>
       {profile.consistency_summary && <p className="mt-1 text-xs text-text-tertiary">{profile.consistency_summary.explanation}</p>}
+      {(profile.nutrition.logged || profile.daily_activity.logged || profile.recent_note) && (
+        <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3 text-xs text-text-tertiary">
+          {profile.nutrition.logged && (
+            <p>
+              Nutrition: {profile.nutrition.logged_days} day(s) logged this week{profile.nutrition.under_fuelling ? ", under-fuelling flagged" : ""}.
+            </p>
+          )}
+          {profile.daily_activity.logged && (
+            <p>
+              Today's activity: {profile.daily_activity.steps.toLocaleString()} steps
+              {profile.daily_activity.active_kcal != null && `, ${profile.daily_activity.active_kcal} active kcal`}.
+            </p>
+          )}
+          {profile.recent_note && <p>Recent note: "{profile.recent_note}"</p>}
+        </div>
+      )}
     </Card>
   );
 }

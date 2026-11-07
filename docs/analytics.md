@@ -828,9 +828,18 @@ calendar subsystem exists in this app (`Event` is a race/test, not a weekly plan
 session doesn't build one. "Sessions completed vs. planned" compares the athlete's actual
 session count against one configurable weekly target
 (`settings.training_intelligence.target_sessions_per_week`/`target_minutes_per_week`) — a
-deliberate stand-in, not a hidden limitation. "Each athlete" means the single user this
-install serves; there's no `user_id` column anywhere in this schema, so nothing here carries
-any multi-user migration risk.
+deliberate stand-in, not a hidden limitation. `gather_training_consistency`'s overall
+`pct_of_target`/band take the *more conservative* of the session-count and minutes
+percentages, so hitting one target with unusually short (or unusually few, unusually long)
+sessions doesn't read as full consistency on its own. "Each athlete" means the single user
+this install serves; there's no `user_id` column anywhere in this schema, so nothing here
+carries any multi-user migration risk.
+
+**Nutrition/daily-activity context and coach notes ("when available," the task's own phrase)**
+are present on `training_profile`'s output (`nutrition`, `daily_activity`, `recent_note`) —
+`{"logged": false}` rather than silently treated as zero when nothing's logged, matching the
+confidence/data-honesty idiom everywhere else in this module. Context only, not yet factored
+into phase/strengths/confidence — see PLAN.md's session 18 "Not yet done" note.
 
 **Performance trends — equivalence bucketing reuses confirmed classifications, never
 reinvents them.** `catch/sync/erg_test.py::list_tests` already returns every confirmed test
@@ -887,16 +896,36 @@ minimum-sample gate and is worded correlationally ("tends to", "has been"), neve
 **Recommendation engine — four types, one evaluator each, a fixed firing order.**
 `evaluate_data_quality_warning` / `evaluate_overload_warning` / `evaluate_recovery_suggestion`
 / `evaluate_training_suggestion`, each pure (`context`, `settings`) -> `dict | None`.
-`evaluate_training_suggestion` is the only one suppressed by anything else going on — it
-returns `None` whenever illness is `watch`/`likely`, recovery band is `red`, the niggle streak
-is at or above `niggle_flag_min_days`, acute:chronic load band is `caution`/`high_risk`, or an
-A/B event is within `overload_suppress_near_event_days` (default 5) — it may never suggest
-adding load under any of those conditions. `evaluate_overload_warning` is deliberately
-*independent* of all of that (it needs to fire exactly when load is already too high, not be
-silenced by the same signals that would silence a load-increasing suggestion), and requires
-`overload_min_consecutive_days` (default 3) of acute:chronic ≥ `overload_acr_threshold`
-(default 1.5, independently tunable from `acr_bands.caution_high`'s own UI-coloring threshold)
-— one noisy day never fires it.
+`evaluate_training_suggestion` is the only one that requires *positive* evidence, not merely
+the absence of a red flag (a real bug a post-implementation advisor review caught live: a
+"green" recovery reading backed only by `prior_strain`, with no HRV/resting-HR/sleep component
+that day, used to be enough to fire a load-increasing suggestion) — it fires only when
+`recovery.band == "green"` *and* at least one physiological component (`hrv`/`resting_hr`/
+`sleep`) is present, `load.band` is `optimal`/`undertraining`, `history_days` clears
+`data_quality_min_history_days`, illness is `none`, the niggle streak is below
+`niggle_flag_min_days`, and no A/B event is within `overload_suppress_near_event_days` (default
+5). It's also never evaluated in the same `generate_recommendations` run as a fired
+`recovery_suggestion`/`overload_warning` — at `recovery.value == recovery_suggestion_
+recovery_max` (band `"yellow"`), the two used to be able to fire at once, a direct
+contradiction the band-level requirement above now also structurally prevents on its own.
+`evaluate_overload_warning` is deliberately *independent* of all of that (it needs to fire
+exactly when load is already too high, not be silenced by the same signals that would silence
+a load-increasing suggestion), and requires `overload_min_consecutive_days` (default 3) of
+acute:chronic ≥ `overload_acr_threshold` (default 1.5, independently tunable from
+`acr_bands.caution_high`'s own UI-coloring threshold) — one noisy day never fires it.
+`evaluate_recovery_suggestion`/`evaluate_overload_warning` are caution-direction
+recommendations, so neither is suppressed by thin evidence the way `training_suggestion` is —
+understating a plausible concern is the actual risk there — they just fire at reduced
+confidence (`"low"`/`"medium"`) instead of being hedged into silence.
+
+**Consistency/insights never count the future or the account's own pre-history.** A shared
+`_clamped_window` helper bounds every lookback window to `[max(nominal_start,
+earliest_real_data_date), min(nominal_end, today + 1)]` — before this fix, the not-yet-elapsed
+remainder of the current week counted as rest days (and charged a full week's session target
+on a Monday), and a fresh account's pre-history read as a training gap instead of the simple
+absence of the app itself. `concentrated_block` additionally requires ≥3 sessions in a week
+before checking its top-2-days-share threshold — with 1 or 2 sessions, the top two days trivially
+*are* the whole week.
 
 **Dedup/cooldown and staleness** (`catch/core/models.py::Recommendation`, a plain
 autoincrement-PK table — unlike `IllnessAck`'s date-PK insert-only shape, the same `rule_key`
@@ -909,9 +938,10 @@ inserting a duplicate; dismissal does **not** reset the cooldown, so a dismissed
 the window still blocks a new one. "Active" (what `GET /api/training-intelligence/
 recommendations?status=active` and `memory_block` both read) is `not dismissed and
 last_confirmed_on >= today - 1` — the fix for a real risk an advisor review caught: without
-this staleness check, a resolved overload warning would read as "still active" for its whole
-`recommendation_valid_days` window even after acute:chronic dropped the very next day, and the
-coach would keep asserting something the data no longer supported.
+this staleness check (a flat days-since-creation validity window was the first design tried
+and rejected), a resolved overload warning would read as "still active" indefinitely, well
+after acute:chronic dropped the very next day, and the coach would keep asserting something
+the data no longer supported.
 
 **The `recompute_scores` hook stays cheap on purpose.** `generate_recommendations` is called
 once per `recompute_scores` run — scoped to *today* only, never inside that function's own

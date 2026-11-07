@@ -65,6 +65,21 @@ def confidence_level(n_history_days: int, n_points: int, settings: dict) -> str:
     return days_level if order[days_level] <= order[points_level] else points_level
 
 
+def _history_confidence(n_history_days: int, settings: dict) -> str:
+    """The days-only half of `confidence_level`'s ladder, for a claim (e.g. a training
+    suggestion) whose evidence is "how much wellness/load history backs today's reading," not
+    a count of independent pieces/sessions — using `confidence_level`'s two-factor minimum
+    here would conflate two unrelated kinds of evidence."""
+    ti = settings["training_intelligence"]
+    if n_history_days < ti["data_quality_min_history_days"]:
+        return "insufficient_data"
+    if n_history_days >= ti["confidence_days_high"]:
+        return "high"
+    if n_history_days >= ti["confidence_days_medium"]:
+        return "medium"
+    return "low"
+
+
 # --- Performance trends: equivalent-piece comparison ----------------------------------------
 
 
@@ -187,7 +202,16 @@ def compare_equivalent_pieces(test_type: str, rows: list[dict], settings: dict) 
 
 
 def _infer_phase(load: dict, next_event: dict | None) -> dict:
-    if next_event and next_event.get("days_to_go") is not None and 0 <= next_event["days_to_go"] <= 14:
+    # Taper only means something ahead of a genuinely important event — a training camp (no
+    # priority set) or a C-priority race 10 days out isn't a reason to call this a taper
+    # phase, matching catch/coach/memory.py's own next_a_race precedent of hard-filtering to
+    # A-priority (loosened to A/B here, since a B race still reasonably earns a taper label).
+    if (
+        next_event
+        and next_event.get("priority") in ("A", "B")
+        and next_event.get("days_to_go") is not None
+        and 0 <= next_event["days_to_go"] <= 14
+    ):
         return {"value": "taper", "inferred": True, "explanation": f"{next_event['name']} is {next_event['days_to_go']} days away."}
     if load.get("value") is None:
         return {"value": None, "inferred": True, "explanation": "Not enough training-load history to infer a phase."}
@@ -265,6 +289,12 @@ def training_profile(components: dict, settings: dict) -> dict:
         "recovery_context": {"recovery": recovery, "load": load, "illness": illness},
         "confidence": confidence,
         "explanation": " ".join(explanation_bits),
+        # "When available" (task's own phrase) — present as context, never factored into
+        # phase/strengths/confidence above; {"logged": False} rather than silently absent
+        # when the athlete hasn't logged anything, per the task's own data-honesty bar.
+        "nutrition": components.get("nutrition", {"logged": False}),
+        "daily_activity": components.get("daily_activity", {"logged": False}),
+        "recent_note": components.get("recent_note"),
     }
 
 
@@ -310,20 +340,34 @@ def evaluate_data_quality_warning(context: dict, settings: dict) -> dict | None:
     return None
 
 
+_PHYSIOLOGICAL_RECOVERY_METRICS = {"hrv", "resting_hr", "sleep"}
+
+
 def _training_suggestion_suppressed(context: dict, settings: dict) -> str | None:
     ti = settings["training_intelligence"]
     illness_level = (context.get("illness") or {}).get("level", "none")
     if illness_level in ("watch", "likely"):
         return f"illness early-warning is '{illness_level}'"
-    recovery_band = (context.get("recovery") or {}).get("band")
-    if recovery_band == "red":
-        return "recovery band is red"
+    recovery = context.get("recovery") or {}
+    # Requires an actual "green" reading, not merely "not red" — a yellow-band day (e.g. at
+    # exactly recovery_suggestion_recovery_max) must never fire this alongside
+    # evaluate_recovery_suggestion, which is itself suppressed below if it already fired this
+    # run. See the suppression-matrix tests and the "insufficient confidence" test for why
+    # "not red" alone let a real contradiction through.
+    if recovery.get("band") != "green" or recovery.get("value") is None:
+        return "recovery isn't a confirmed green reading"
+    recovery_metrics = {c.get("metric") for c in recovery.get("components", [])}
+    if not recovery_metrics & _PHYSIOLOGICAL_RECOVERY_METRICS:
+        return "recovery's green reading has no physiological component (hrv/resting_hr/sleep) behind it"
     niggle_days = context.get("niggle_streak_days", 0)
     if niggle_days >= settings.get("niggle_flag_min_days", 3):
         return f"a niggle has been logged for {niggle_days} days running"
-    load_band = (context.get("load") or {}).get("band")
-    if load_band in ("caution", "high_risk"):
-        return f"acute:chronic load band is '{load_band}'"
+    load = context.get("load") or {}
+    if load.get("band") not in ("optimal", "undertraining"):
+        return f"acute:chronic load band is '{load.get('band')}'"
+    history_days = context.get("history_days", 0)
+    if history_days < ti["data_quality_min_history_days"]:
+        return f"only {history_days} day(s) of history — not enough to say load/recovery are genuinely fine"
     next_event = context.get("next_event")
     if next_event and next_event.get("days_to_go") is not None and 0 <= next_event["days_to_go"] <= ti["overload_suppress_near_event_days"]:
         return f"{next_event['name']} is only {next_event['days_to_go']} day(s) away"
@@ -332,9 +376,12 @@ def _training_suggestion_suppressed(context: dict, settings: dict) -> str | None
 
 def evaluate_training_suggestion(context: dict, settings: dict) -> dict | None:
     """Fires only the one safe, data-grounded case this session implements: this week's
-    session count is below the athlete's own configured weekly target, and nothing in
-    `_training_suggestion_suppressed` says otherwise. Never suggests adding load when
-    recovery/illness/niggle/ACR/an upcoming event says not to — see that helper."""
+    session count is below the athlete's own configured weekly target, AND there is positive
+    evidence (not merely the absence of a red flag) that today's recovery/load genuinely
+    support it — see `_training_suggestion_suppressed`. The caller (`generate_recommendations`)
+    additionally never calls this in the same run as a fired `recovery_suggestion` or
+    `overload_warning` — those two are the more specific, more urgent signals when they fire,
+    and a training suggestion alongside either would be a direct contradiction."""
     suppress_reason = _training_suggestion_suppressed(context, settings)
     if suppress_reason is not None:
         return None
@@ -342,12 +389,14 @@ def evaluate_training_suggestion(context: dict, settings: dict) -> dict | None:
     target = settings["training_intelligence"]["target_sessions_per_week"]
     if sessions_this_week is None or sessions_this_week >= target:
         return None
-    confidence = "medium"
+    confidence = _history_confidence(context.get("history_days", 0), settings)
+    if confidence == "insufficient_data":
+        return None
     body = _apply_hedge(
         confidence,
         f"You're at {sessions_this_week} of your {target}-session weekly target, and today's "
-        "recovery/load/illness signals don't show a reason to hold back — a reasonable day to "
-        "add a session if you have the time.",
+        "recovery (a confirmed green reading) and training load don't show a reason to hold "
+        "back — a reasonable day to add a session if you have the time.",
     )
     return {
         "rule_key": "training:add_session",
@@ -362,6 +411,12 @@ def evaluate_training_suggestion(context: dict, settings: dict) -> dict | None:
 
 
 def evaluate_recovery_suggestion(context: dict, settings: dict) -> dict | None:
+    """Unlike `evaluate_training_suggestion`, this still fires at low confidence when the
+    "green"/physiological-component bar isn't met — suggesting caution/rest is the safe
+    direction regardless of evidence quality (the task's own "never encourage ignoring
+    symptoms" cuts the other way: understating a plausible recovery concern is the risk here,
+    not overstating one), so confidence only affects the wording hedge, never whether this
+    fires at all."""
     recovery = context.get("recovery") or {}
     value = recovery.get("value")
     if value is None:
@@ -369,7 +424,8 @@ def evaluate_recovery_suggestion(context: dict, settings: dict) -> dict | None:
     ti = settings["training_intelligence"]
     if value > ti["recovery_suggestion_recovery_max"]:
         return None
-    confidence = "high"
+    recovery_metrics = {c.get("metric") for c in recovery.get("components", [])}
+    confidence = "high" if recovery_metrics & _PHYSIOLOGICAL_RECOVERY_METRICS else "low"
     body = _apply_hedge(
         confidence,
         f"Today's recovery score is {value:.0f} ({recovery.get('band')}) — a lighter session, "
@@ -390,7 +446,12 @@ def evaluate_overload_warning(context: dict, settings: dict) -> dict | None:
     """Independent of illness/recovery state — this is meant to fire exactly when load is
     already too high, not suppressed by the same conditions evaluate_training_suggestion
     checks. Requires sustained high ACR (overload_min_consecutive_days in a row), not one
-    noisy day."""
+    noisy day. Like evaluate_recovery_suggestion, this is a caution-direction recommendation
+    (easing off), so it still fires at reduced confidence on short history rather than being
+    suppressed outright — understating a real sustained-high-load reading would be the wrong
+    kind of mistake here. Confidence caps at "high" only once the account has at least
+    `load_chronic_days` of history, since the ACR figure itself (a 42-day EWMA by default)
+    hasn't really converged before that."""
     ti = settings["training_intelligence"]
     acr_recent = context.get("acr_recent") or []
     n = ti["overload_min_consecutive_days"]
@@ -399,7 +460,8 @@ def evaluate_overload_warning(context: dict, settings: dict) -> dict | None:
     window = acr_recent[-n:]
     if not all(v is not None and v >= ti["overload_acr_threshold"] for v in window):
         return None
-    confidence = "high"
+    history_days = context.get("history_days", 0)
+    confidence = "high" if history_days >= settings["load_chronic_days"] else "medium"
     body = _apply_hedge(
         confidence,
         f"Acute:chronic load has been at or above {ti['overload_acr_threshold']} for the last "

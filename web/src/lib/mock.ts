@@ -2316,6 +2316,9 @@ export function mockTrainingProfile(scenario: MockScenario): TrainingProfile {
       },
       confidence: "insufficient_data",
       explanation: "Confidence: insufficient_data. Not enough history yet to identify strengths or areas to investigate.",
+      nutrition: { logged: false },
+      daily_activity: { logged: false },
+      recent_note: null,
     };
   }
   return {
@@ -2344,6 +2347,9 @@ export function mockTrainingProfile(scenario: MockScenario): TrainingProfile {
     },
     confidence: "medium",
     explanation: "Confidence: medium.",
+    nutrition: { logged: true, logged_days: 5, under_fuelling: false },
+    daily_activity: { logged: true, steps: 7400, active_kcal: 410 },
+    recent_note: "Legs felt heavy on the warmup, eased off the back half.",
   };
 }
 
@@ -2407,6 +2413,8 @@ export function mockTrainingConsistency(scenario: MockScenario, weeks: number): 
     return {
       sessions_completed: 0,
       sessions_target: weeks * 5,
+      minutes_completed: 0,
+      minutes_target: weeks * 300,
       pct_of_target: 0,
       rest_days: weeks * 7,
       concentrated_block: false,
@@ -2420,13 +2428,15 @@ export function mockTrainingConsistency(scenario: MockScenario, weeks: number): 
   return {
     sessions_completed: weeks * 4,
     sessions_target: weeks * 5,
-    pct_of_target: 0.8,
+    minutes_completed: weeks * 230,
+    minutes_target: weeks * 300,
+    pct_of_target: 0.77,
     rest_days: weeks * 3,
     concentrated_block: false,
     distribution_pct: { UT2: 0.45, UT1: 0.25, AT: 0.15, TR: 0.1, AN: 0.05 },
     strength_sessions: weeks * 2,
     band: "below_target",
-    explanation: `${weeks * 4} sessions over ${weeks} week(s), below the weekly target.`,
+    explanation: `${weeks * 4} sessions (${weeks * 230} min) over the last ${weeks * 7} day(s), below the weekly target.`,
     confidence: "medium",
   };
 }

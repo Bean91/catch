@@ -3196,25 +3196,44 @@ rateable, and never claims more certainty than the data supports.
       `build_server()` registers, not just a count; `memory.py::memory_block` gained a line
       surfacing the single most severe *active* recommendation, same unprompted shape as the
       illness-level line.
-- [x] Tests: 51 new backend tests (666 → 717 total — `uv run pytest` all green): 36 pure-logic
+- [x] Tests: 61 new backend tests (666 → 727 total — `uv run pytest` all green): ~44 pure-logic
       tests (`tests/analytics/test_training_intelligence.py` — equivalence bucketing, the
-      rate-vs-pace/drag-factor notes, the full suppression matrix for `training_suggestion`,
-      overload's sustained-not-single-day gate, the structural certainty guarantees —
+      rate-vs-pace/drag-factor notes, the full suppression matrix for `training_suggestion`
+      (including the post-advisor-review positive-evidence requirements — a confirmed green
+      band, a real physiological component, enough history, the yellow-band-must-also-suppress
+      case), overload's sustained-not-single-day gate, the structural certainty guarantees —
       confidence capped by the weakest input, `insufficient_data` only ever from a data-
       quality warning, low/medium wording always hedged — plus a narrow banned-phrase
-      backstop) and 15 sync/route/MCP tests (`tests/test_api_training_intelligence.py` —
+      backstop) and ~17 sync/route/MCP tests (`tests/test_api_training_intelligence.py` —
       same-day idempotency, dismissal-doesn't-reopen-cooldown, next-day staleness, failure
-      isolation around the `recompute_scores` hook, no-recursion, the four CRUD routes, and
-      MCP/coach-tool-registry parity). No new Vitest tests — unlike `equipment.ts`/
-      `pieceSplits.ts`, none of this feature's math needs an offline-capable client-side port,
-      so there's nothing to duplicate into TS this time. `npx tsc --noEmit`, `npm run build`,
-      `npm run test` all clean.
+      isolation around the `recompute_scores` hook, no-recursion, the four CRUD routes
+      (asserting the `recommendation_dict` response shape), MCP/coach-tool-registry parity, a
+      fresh-install DB producing only `data_quality:*` rows, the consistency/insights date-
+      clamping fixes, and the nutrition/daily-activity/note context fields). No new Vitest
+      tests — unlike `equipment.ts`/`pieceSplits.ts`, none of this feature's math needs an
+      offline-capable client-side port, so there's nothing to duplicate into TS this time.
+      `npx tsc --noEmit`, `npm run build`, `npm run test`, `npm run test:touch` (20/7, unchanged
+      — the Trends.tsx header change didn't regress any gesture test) all clean.
 - [x] Verified live against a real dev server + Playwright MCP (`?mock=1`/`?mock=empty`, 390px
-      and 1280px, both themes): the full page renders correctly end to end, including the
-      expandable performance-trend mini-chart, the expandable insight evidence panels, and a
-      real dismiss mutation removing a recommendation from the active list. The empty-state
-      pass showed "Not yet known"/"insufficient data" everywhere rather than any false-
-      confident claim.
+      and 1280px, **both themes genuinely toggled and confirmed via `data-theme`/computed
+      background-color**, not assumed from ambient state — see the advisor-review note below
+      for why that distinction mattered): the full page renders correctly end to end, including
+      the expandable performance-trend mini-chart, the expandable insight evidence panels, a
+      real dismiss mutation removing a recommendation from the active list, and the new
+      nutrition/daily-activity/note context lines on the profile card. The empty-state pass
+      showed "Not yet known"/"insufficient data" everywhere rather than any false-confident
+      claim.
+- [x] Verified against a copy of the real local `data/catch.db` (never the live file —
+      `CATCH_DB_PATH` pointed at a scratch copy, `init_db()` run to pick up the new
+      `recommendations` table and catch up to the current schema from this file's older
+      snapshot). As expected: performance trends/strengths/weaknesses came back empty (this
+      account has zero confirmed Concept2 tests/pieces — the same known gap PLAN.md's sessions
+      12/15/17 already documented), consistency/distribution numbers were plausible (34
+      sessions, 2555 min over 38 days, mostly UT2/UT1), one real low-confidence insight fired
+      with genuine evidence (`recovery_after_high_strain`), and — critically — zero
+      recommendations fired, including no false `training:add_session`, because today's
+      "green" recovery reading had no physiological component behind it (only `prior_strain`)
+      — exactly the condition the advisor-review fix below targets.
 - [x] `CLAUDE.md` (layout: new files, MCP tool/prompt counts), `DESIGN.md` ("Training
       intelligence" note — confidence as plain text, the two static-chart reuses, no new nav
       slot), `docs/analytics.md` §26, `docs/mcp.md` updated. PLAN.md + commit.
@@ -3240,8 +3259,107 @@ governing rule ("reuse the existing engines, never re-derive them") than the pla
 - **Single-user.** "Each athlete" means the one user this install serves; no `user_id` column
   anywhere in this schema, so nothing here carries multi-user migration risk.
 - **The central risk an advisor review caught**: without a staleness check, a resolved
-  overload warning would read as "active" for its full `recommendation_valid_days` window even
-  after acute:chronic dropped the next day, and the coach would keep asserting something the
-  data no longer supported. Fixed by `last_confirmed_on` (bumped on every re-fire, even during
-  cooldown) — "active" is `not dismissed and last_confirmed_on >= today - 1`, not a fixed
+  overload warning would read as "active" indefinitely, even after acute:chronic dropped the
+  next day, and the coach would keep asserting something the data no longer supported. Fixed
+  by `last_confirmed_on` (bumped on every re-fire, even during cooldown) — "active" is
+  `not dismissed and last_confirmed_on >= today - 1`, not a fixed
   expiry from `created_at`.
+
+## Advisor review after the first implementation pass
+
+A review run against the live smoke-test output (not just the design) caught real correctness
+bugs the pure-logic test suite's synthetic contexts hadn't exercised — every fix below is
+verified against both new tests and a real copy of `data/catch.db`:
+
+- **`training_suggestion` fired on a "green" recovery reading backed by nothing physiological,
+  and contradicted `recovery_suggestion` at the yellow/red boundary.** The smoke run had
+  `load.band == "insufficient_data"` and `recovery.band == "green"` from `prior_strain` alone
+  (no HRV/resting-HR/sleep component that day) — `evaluate_training_suggestion` still fired a
+  "nothing to hold you back" claim. Separately, at `recovery.value ==
+  recovery_suggestion_recovery_max` (band `"yellow"`), only a `"red"` band suppressed the
+  training suggestion, so both recommendations could fire at once. Fixed:
+  `_training_suggestion_suppressed` now requires `recovery.band == "green"` *and* at least one
+  physiological component (`hrv`/`resting_hr`/`sleep`) present, `load.band` in
+  `{"optimal","undertraining"}`, and `history_days >= data_quality_min_history_days` — positive
+  evidence, not merely the absence of a red flag. `generate_recommendations` additionally never
+  evaluates `training_suggestion` in the same run as a fired `recovery_suggestion`/
+  `overload_warning`.
+- **Confidence was hardcoded on three of the four evaluators**, overclaiming certainty a fresh
+  account couldn't support. `evaluate_recovery_suggestion`/`evaluate_overload_warning` now
+  still fire at reduced confidence on thin evidence (these are caution-direction
+  recommendations — understating a real concern is the actual risk, so they're never
+  suppressed outright, only hedged harder); `evaluate_training_suggestion`'s confidence is
+  capped by history-days alone (`_history_confidence`, the days-only half of the two-factor
+  ladder — using the full `confidence_level` would have conflated "sessions this week," an
+  unrelated evidence count, with data completeness).
+- **Consistency/insights counted days that hadn't happened yet, and gaps that predated the
+  account's own history.** `range_end` wasn't clamped to `today + 1` (the not-yet-elapsed rest
+  of the current week counted as rest days and inflated the gap/charged a full week's target
+  on a Monday), and `range_start` wasn't clamped to the account's earliest real data (a
+  24-day-old account with an 8-week lookback reported a ~54-day gap, almost all of it before
+  any data existed). Fixed with one shared `_clamped_window` helper both
+  `gather_training_consistency` and `gather_training_insights` now call.
+- **`concentrated_block` could fire on an ordinary 1-2-session week** — the top-2-days-share
+  check is trivially 100% when there are only 1 or 2 sessions all week. Gated on `>= 3`
+  sessions in that week.
+- **`_missing_hr_pct` counted strength sessions**, which structurally don't carry the same
+  cardio HR signal — any athlete who lifts regularly would see a false "HR data is patchy"
+  warning. Excluded `sport_family == "strength"` from the lookback query.
+- **A UTC-vs-local date-boundary bug in the cooldown check** — `existing.created_at.date()`
+  compared a UTC date against a local-calendar `today`, the exact bug class
+  `catch/sync/scoring.py`'s own `_local_day_utc_range` docstring already warns about. Fixed to
+  `.astimezone().date()`.
+- **The dismiss/save/rate routes returned the bare ORM row**, not `recommendation_dict` — a
+  different shape than every GET on this feature returns (`evidence_json` instead of a parsed
+  `evidence` list, no `active` flag). Fixed so every mutation route returns the same shape its
+  sibling GET does.
+- **"Saved" had no visible effect** — a saved recommendation still disappeared from the UI the
+  moment it went stale (fell out of "active"), since the page only ever queried `status=
+  "active"`. Added a "Saved" section that queries `status="all"` and filters client-side.
+- **Phase `"taper"` could trigger on a training camp or a C-priority race** —
+  `next_relevant_event` is deliberately broad (any upcoming event, for the overload-suppression
+  check, where that's correct), but `_infer_phase` was reusing the same broad event
+  indiscriminately. Fixed to require `priority in ("A", "B")`, matching
+  `catch/coach/memory.py`'s own `next_a_race` precedent.
+- **`list_recommendations` loaded and filtered every row in Python on every chat turn** (via
+  `memory_block`) — fine today, unbounded as the table grows over months/years. Fixed to filter
+  `dismissed`/`last_confirmed_on` at the SQL level and cap at 50 rows
+  (`_MAX_RECOMMENDATIONS`), the same `_downsample`/`_MAX_ROWS`-style convention every other
+  range tool in this app already follows.
+- **`rate_recommendation`'s tool description overclaimed** that ratings shape future
+  recommendations — nothing reads `rating` for that purpose, so the coach would have repeated a
+  false claim to the athlete. Reworded to "for the athlete's own record."
+- **`recommendation_valid_days` was a documented, unused setting** — superseded by
+  `last_confirmed_on`-based staleness before it was ever wired up. Removed from
+  `DEFAULT_SETTINGS` and every doc reference rather than left as dead configuration.
+- **`target_minutes_per_week` was also unused.** Wired into `gather_training_consistency`:
+  `minutes_completed`/`minutes_target` are now real fields, and the overall `pct_of_target`/
+  band take the *more conservative* of the session-count and minutes percentages.
+- **Nutrition/daily-activity context and coach notes were in the approved plan but missing
+  from the first implementation pass.** Added `gather_training_profile`'s `nutrition`
+  (`nutrition.week_summary`, `{"logged": false}` rather than zero when nothing's logged),
+  `daily_activity` (today's `DailyWellness.steps`/`active_kcal`), and `recent_note` (the most
+  recent `Note` in the last 7 days) — present as context on the profile, not yet factored into
+  phase/strengths/confidence (see "Not yet done" below).
+
+## Not yet done — scope left honest rather than silently implied
+
+- **Recent performance isn't an input to the recommendation engine.** `generate_recommendations`
+  deliberately stays cheap (see its own docstring) — no equivalent-piece trend scan runs inside
+  the `recompute_scores` hook, so a recommendation can't currently say "your 2k is trending
+  down, consider backing off intensity." `training_profile` (the read-only profile tool/route)
+  does synthesize performance trajectory from `gather_performance_trends`; the recommendation
+  engine itself doesn't read it. Extending it would mean either accepting the cost inside the
+  hook or caching the trend-bucket summary from the last time the profile was read — neither
+  attempted here rather than built in a way that would blow the "cheap" budget this session's
+  own architecture note commits to.
+- **No dedicated monthly-volume view.** `get_training_distribution`/`gather_training_distribution`
+  take a `weeks` param (1-52) — a caller asking for `weeks=4` effectively gets a monthly view,
+  but there's no separate monthly aggregation endpoint or UI toggle. A reasonable reading of
+  "weekly and monthly training volume," not a missed requirement, but recorded here rather than
+  left to look like a dedicated monthly view exists.
+- **No real PM5-photo-adjacent verification was needed this session** (training intelligence
+  touches no new photo/vision path), but the account this was verified against
+  (`data/catch.db`, see above) still has zero confirmed Concept2 tests or pieces — the same gap
+  every session since 12 has noted — so `gather_performance_trends`/strengths/weaknesses have
+  never been exercised against a real non-empty bucket, only fixtures and mocks.

@@ -52,13 +52,18 @@ def _qualifying_activities(session: Session, start: date, end: date) -> list[Can
     return [a for a in rows if not _overrides(a).get("exclude_from_totals")]
 
 
-def _history_days(session: Session, today: date) -> int:
+def _earliest_data_date(session: Session) -> date | None:
     wellness_min = session.exec(select(DailyWellness.date).order_by(DailyWellness.date)).first()
     activity_min = session.exec(
         select(CanonicalActivity.start).where(CanonicalActivity.start.is_not(None)).order_by(CanonicalActivity.start)
     ).first()
     candidates = [d for d in (wellness_min, activity_min.astimezone().date() if activity_min else None) if d]
-    return (today - min(candidates)).days if candidates else 0
+    return min(candidates) if candidates else None
+
+
+def _history_days(session: Session, today: date) -> int:
+    earliest = _earliest_data_date(session)
+    return (today - earliest).days if earliest else 0
 
 
 # --- Performance trends ------------------------------------------------------------------------
@@ -106,14 +111,28 @@ def gather_training_distribution(session: Session, settings: dict, weeks: int = 
 # --- Training consistency ----------------------------------------------------------------------
 
 
+def _clamped_window(session: Session, today: date, weeks: int) -> tuple[date, date]:
+    """The nominal `weeks`-wide window, clamped on both ends to what could actually have
+    happened: never past today (counting not-yet-elapsed days of the current week as "rest
+    days"/part of a gap is simply wrong), and never before the account's own earliest data
+    (a fresh install's pre-history isn't a training gap, it's the absence of the app itself —
+    see the advisor-review note in PLAN.md's session 18 entry)."""
+    this_week_start = today - timedelta(days=today.weekday())
+    nominal_start = this_week_start - timedelta(weeks=weeks - 1)
+    earliest = _earliest_data_date(session)
+    range_start = max(nominal_start, earliest) if earliest else nominal_start
+    range_end = min(this_week_start + timedelta(days=7), today + timedelta(days=1))
+    return range_start, max(range_end, range_start)
+
+
 def gather_training_consistency(session: Session, settings: dict, weeks: int | None = None) -> dict:
     ti = settings["training_intelligence"]
     weeks = weeks or ti["consistency_lookback_weeks"]
     today = date.today()
-    this_week_start = today - timedelta(days=today.weekday())
-    range_start = this_week_start - timedelta(weeks=weeks - 1)
-    range_end = this_week_start + timedelta(days=7)
+    range_start, range_end = _clamped_window(session, today, weeks)
     activities = _qualifying_activities(session, range_start, range_end)
+    elapsed_days = max(0, (range_end - range_start).days)
+    elapsed_weeks = elapsed_days / 7.0
 
     by_week: dict[date, list[CanonicalActivity]] = defaultdict(list)
     for a in activities:
@@ -124,11 +143,15 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
     total_sessions = len(activities)
     strength_sessions = sum(1 for a in activities if a.sport_family == "strength")
     active_days = {a.start.astimezone().date() for a in activities}
-    total_days = (range_end - range_start).days
-    rest_days = total_days - len(active_days)
+    rest_days = elapsed_days - len(active_days)
 
     concentrated_block = False
     for acts in by_week.values():
+        # Fewer than 3 sessions in a week trivially passes a "top-2-days share" check (with 1
+        # or 2 sessions, the top two days ARE the whole week) — gated so this only flags a
+        # real concentration pattern, not an artifact of a light week.
+        if len(acts) < 3:
+            continue
         week_total = sum((a.duration or 0.0) for a in acts)
         if week_total <= 0:
             continue
@@ -140,17 +163,26 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
             concentrated_block = True
             break
 
-    target_sessions = ti["target_sessions_per_week"] * weeks
-    pct_of_target = (total_sessions / target_sessions) if target_sessions else None
+    target_sessions = round(ti["target_sessions_per_week"] * elapsed_weeks)
+    sessions_pct = (total_sessions / target_sessions) if target_sessions else None
 
-    if total_sessions == 0:
-        band, explanation = "insufficient_data", "No sessions logged in this window yet."
+    total_minutes = sum((a.duration or 0.0) for a in activities) / 60.0
+    minutes_target = round(ti["target_minutes_per_week"] * elapsed_weeks)
+    minutes_pct = (total_minutes / minutes_target) if minutes_target else None
+
+    # The more conservative of the two — hitting the session-count target with unusually
+    # short sessions (or vice versa) shouldn't read as full consistency on either axis alone.
+    candidates = [p for p in (sessions_pct, minutes_pct) if p is not None]
+    pct_of_target = min(candidates) if candidates else None
+
+    if total_sessions == 0 or elapsed_weeks < 1:
+        band, explanation = "insufficient_data", "Not enough elapsed history in this window yet."
     elif pct_of_target is not None and pct_of_target >= 0.9:
-        band, explanation = "on_target", f"{total_sessions} sessions over {weeks} week(s), at or above the weekly target."
+        band, explanation = "on_target", f"{total_sessions} sessions ({round(total_minutes)} min) over the last {elapsed_days} day(s), at or above the weekly target."
     elif pct_of_target is not None and pct_of_target >= 0.6:
-        band, explanation = "below_target", f"{total_sessions} sessions over {weeks} week(s), below the weekly target."
+        band, explanation = "below_target", f"{total_sessions} sessions ({round(total_minutes)} min) over the last {elapsed_days} day(s), below the weekly target."
     else:
-        band, explanation = "well_below_target", f"Only {total_sessions} sessions over {weeks} week(s), well below the weekly target."
+        band, explanation = "well_below_target", f"Only {total_sessions} sessions ({round(total_minutes)} min) over the last {elapsed_days} day(s), well below the weekly target."
 
     from catch.api.routes_analytics import trends_volume
 
@@ -165,8 +197,10 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
     return {
         "sessions_completed": total_sessions,
         "sessions_target": target_sessions,
+        "minutes_completed": round(total_minutes),
+        "minutes_target": minutes_target,
         "pct_of_target": pct_of_target,
-        "rest_days": rest_days,
+        "rest_days": max(0, rest_days),
         "concentrated_block": concentrated_block,
         "distribution_pct": distribution_pct,
         "strength_sessions": strength_sessions,
@@ -238,9 +272,7 @@ def gather_training_insights(session: Session, settings: dict) -> list[dict]:
     ti = settings["training_intelligence"]
     today = date.today()
     weeks = ti["consistency_lookback_weeks"]
-    this_week_start = today - timedelta(days=today.weekday())
-    range_start = this_week_start - timedelta(weeks=weeks - 1)
-    range_end = this_week_start + timedelta(days=7)
+    range_start, range_end = _clamped_window(session, today, weeks)
     activities = _qualifying_activities(session, range_start, range_end)
 
     from catch.api.routes_analytics import trends_volume
@@ -273,6 +305,34 @@ def gather_training_insights(session: Session, settings: dict) -> list[dict]:
 # --- Training profile ---------------------------------------------------------------------------
 
 
+def _nutrition_context(session: Session, today: date) -> dict:
+    """"When available" (task's own phrase) — never treated as zero when the athlete simply
+    hasn't logged anything, only reported as "not logged"."""
+    from catch.sync import nutrition
+
+    summary = nutrition.week_summary(session, today - timedelta(days=6), today)
+    logged_days = summary["under_fuelling"]["logged_days"]
+    if logged_days == 0:
+        return {"logged": False}
+    return {"logged": True, "logged_days": logged_days, "under_fuelling": summary["under_fuelling"]["flag"]}
+
+
+def _daily_activity_context(session: Session, today: date) -> dict:
+    wellness = session.get(DailyWellness, today)
+    if wellness is None or wellness.steps is None:
+        return {"logged": False}
+    return {"logged": True, "steps": wellness.steps, "active_kcal": wellness.active_kcal}
+
+
+def _recent_note(session: Session, today: date) -> str | None:
+    from catch.core.models import Note
+
+    rows = session.exec(
+        select(Note).where(Note.date >= today - timedelta(days=7)).order_by(Note.id.desc())
+    ).all()
+    return rows[0].text if rows else None
+
+
 def gather_training_profile(session: Session, settings: dict) -> dict:
     today = date.today()
     score_row = session.get(DailyScore, today)
@@ -298,6 +358,11 @@ def gather_training_profile(session: Session, settings: dict) -> dict:
         "history_days": _history_days(session, today),
         "trend_buckets": trends["buckets"],
         "consistency_summary": {"band": consistency["band"], "explanation": consistency["explanation"]},
+        # Context only, not yet factored into phase/strengths/confidence — see the "Not yet
+        # done" note in PLAN.md's session 18 entry.
+        "nutrition": _nutrition_context(session, today),
+        "daily_activity": _daily_activity_context(session, today),
+        "recent_note": _recent_note(session, today),
     }
     return training_profile(components, settings)
 
@@ -327,21 +392,37 @@ def recommendation_dict(row: Recommendation) -> dict:
     }
 
 
+_MAX_RECOMMENDATIONS = 50
+
+
 def list_recommendations(session: Session, status: str = "active", type_: str | None = None) -> list[dict]:
+    """`status == "active"` filters at the SQL level (dismissed=False and last_confirmed_on
+    within the 1-day grace window) rather than loading every row this table has ever held and
+    filtering in Python — this is read on every chat turn via memory_block, so an
+    ever-growing table must never make that read scale with the table's full history. Always
+    capped at `_MAX_RECOMMENDATIONS`, same `_downsample`/`_MAX_ROWS`-style row-cap convention
+    every other range tool in this app already follows (coach/tools.py)."""
     stmt = select(Recommendation)
     if type_:
         stmt = stmt.where(Recommendation.type == type_)
-    rows = session.exec(stmt.order_by(Recommendation.created_at.desc())).all()
     if status == "dismissed":
-        rows = [r for r in rows if r.dismissed]
+        stmt = stmt.where(Recommendation.dismissed.is_(True))
     elif status == "active":
-        rows = [r for r in rows if is_active(r)]
+        stmt = stmt.where(Recommendation.dismissed.is_(False), Recommendation.last_confirmed_on >= date.today() - timedelta(days=1))
+    rows = session.exec(stmt.order_by(Recommendation.created_at.desc()).limit(_MAX_RECOMMENDATIONS)).all()
     return [recommendation_dict(r) for r in rows]
 
 
 def _missing_hr_pct(session: Session, lookback_n: int) -> tuple[float | None, int]:
+    """Strength sessions are excluded — they structurally don't carry the same cardio HR
+    signal (a lifting session often has no meaningful avg_hr even when everything else about
+    the recording is fine), so counting them here would falsely inflate "missing HR" for any
+    athlete who lifts regularly."""
     rows = session.exec(
-        select(CanonicalActivity).where(CanonicalActivity.start.is_not(None)).order_by(CanonicalActivity.start.desc()).limit(lookback_n)
+        select(CanonicalActivity)
+        .where(CanonicalActivity.start.is_not(None), CanonicalActivity.sport_family != "strength")
+        .order_by(CanonicalActivity.start.desc())
+        .limit(lookback_n)
     ).all()
     rows = [a for a in rows if not _overrides(a).get("exclude_from_totals")]
     if not rows:
@@ -379,7 +460,10 @@ def _upsert_recommendation(session: Session, type_name: str, result: dict, today
     existing = session.exec(
         select(Recommendation).where(Recommendation.rule_key == result["rule_key"]).order_by(Recommendation.created_at.desc())
     ).first()
-    if existing is not None and existing.created_at.date() >= today - timedelta(days=cooldown_days):
+    # .astimezone() (not a bare .date()) — created_at is UTC-aware, today is a local-calendar
+    # date, and comparing a raw UTC date against it is the exact day-boundary bug class
+    # scoring.py's own _local_day_utc_range docstring already warns about.
+    if existing is not None and existing.created_at.astimezone().date() >= today - timedelta(days=cooldown_days):
         existing.last_confirmed_on = today
         existing.updated_at = datetime.now(timezone.utc)
         session.add(existing)
@@ -439,11 +523,19 @@ def generate_recommendations(session: Session, settings: dict, today: date) -> l
         ("recovery_suggestion", evaluate_recovery_suggestion),
         ("training_suggestion", evaluate_training_suggestion),
     )
+    # A training suggestion is never evaluated in the same run as a fired recovery/overload
+    # warning — both are more specific, more urgent signals, and a "room for another session"
+    # suggestion alongside either would be a direct contradiction (the exact bug an advisor
+    # review caught live: recovery at the yellow/red boundary could fire both at once).
+    fired_this_run: set[str] = set()
     created = []
     for type_name, fn in evaluators:
+        if type_name == "training_suggestion" and fired_this_run & {"recovery_suggestion", "overload_warning"}:
+            continue
         result = fn(context, settings)
         if result is None:
             continue
+        fired_this_run.add(type_name)
         row = _upsert_recommendation(session, type_name, result, today, settings)
         if row is not None:
             created.append(row)

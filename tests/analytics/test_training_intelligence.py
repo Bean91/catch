@@ -124,11 +124,15 @@ def test_data_quality_silent_when_history_and_hr_are_fine():
 def _base_training_context(**overrides) -> dict:
     base = {
         "illness": {"level": "none"},
-        "recovery": {"band": "green"},
+        # A real, physiologically-backed green reading — band alone ("not red") is no longer
+        # enough to fire a load-increasing suggestion; see evaluate_training_suggestion's own
+        # suppression matrix.
+        "recovery": {"value": 75, "band": "green", "components": [{"metric": "hrv"}, {"metric": "resting_hr"}]},
         "load": {"band": "optimal"},
         "niggle_streak_days": 0,
         "next_event": None,
         "sessions_this_week": 1,
+        "history_days": TI["confidence_days_medium"],
     }
     base.update(overrides)
     return base
@@ -205,6 +209,48 @@ def test_recovery_suggestion_silent_without_a_value():
     assert evaluate_recovery_suggestion({"recovery": {"value": None, "band": "calibrating"}}, SETTINGS) is None
 
 
+def test_recovery_suggestion_still_fires_but_at_low_confidence_without_a_physiological_component():
+    # Caution-direction recommendations fire regardless of evidence quality (understating a
+    # plausible recovery concern is the risk here) — only the confidence/wording hedge changes.
+    result = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red", "components": [{"metric": "prior_strain"}]}}, SETTINGS)
+    assert result is not None
+    assert result["confidence"] == "low"
+
+
+def test_training_suggestion_requires_a_green_band_not_merely_not_red():
+    # The exact contradiction an advisor review caught live: at recovery == recovery_suggestion_
+    # recovery_max, both recovery_suggestion and (pre-fix) training_suggestion could fire at
+    # once, since only a "red" band suppressed the latter. "yellow" must suppress it too.
+    yellow = {"value": TI["recovery_suggestion_recovery_max"], "band": "yellow", "components": [{"metric": "hrv"}]}
+    assert evaluate_training_suggestion(_base_training_context(recovery=yellow), SETTINGS) is None
+
+
+def test_training_suggestion_suppressed_without_a_physiological_recovery_component():
+    # A "green" band from prior_strain/checkin alone (no HRV/RHR/sleep reading that day) isn't
+    # real positive evidence that recovery is genuinely fine.
+    weak = {"value": 75, "band": "green", "components": [{"metric": "prior_strain"}, {"metric": "checkin"}]}
+    assert evaluate_training_suggestion(_base_training_context(recovery=weak), SETTINGS) is None
+
+
+def test_training_suggestion_suppressed_below_minimum_history():
+    assert evaluate_training_suggestion(_base_training_context(history_days=TI["data_quality_min_history_days"] - 1), SETTINGS) is None
+
+
+def test_training_suggestion_never_fires_on_a_fresh_install():
+    # No recovery/load data at all yet — the exact scenario a live smoke test caught firing a
+    # false "nothing to hold you back" claim before this fix.
+    fresh = {
+        "illness": {"level": "none"},
+        "recovery": {"value": None, "band": "calibrating", "components": []},
+        "load": {"value": None, "band": "insufficient_data"},
+        "niggle_streak_days": 0,
+        "next_event": None,
+        "sessions_this_week": 0,
+        "history_days": 2,
+    }
+    assert evaluate_training_suggestion(fresh, SETTINGS) is None
+
+
 # --- structural certainty guarantees -------------------------------------------------------------
 
 
@@ -215,7 +261,7 @@ def test_low_and_medium_confidence_bodies_are_hedged():
 
 
 def test_high_confidence_bodies_are_not_hedged():
-    result = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red"}}, SETTINGS)
+    result = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red", "components": [{"metric": "hrv"}]}}, SETTINGS)
     assert result["confidence"] == "high"
     assert not result["body"].startswith("Based on the data so far")
 

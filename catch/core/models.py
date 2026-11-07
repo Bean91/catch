@@ -891,10 +891,10 @@ class Recommendation(SQLModel, table=True):
     lives in `daily_scores.illness_json` instead of on `IllnessAck`.
 
     `last_confirmed_on` is what keeps an old, no-longer-true recommendation from reading as
-    still "active" for its whole `recommendation_valid_days` window — catch/sync/
-    training_intelligence.py's `generate_recommendations` re-fires the same `rule_key` and
-    bumps this date every day the rule still holds (never inserting a duplicate while within
-    the cooldown), so "active" is simply `not dismissed and last_confirmed_on >= today - 1`
+    still "active" indefinitely — catch/sync/training_intelligence.py's
+    `generate_recommendations` re-fires the same `rule_key` and bumps this date every day the
+    rule still holds (never inserting a duplicate while within the cooldown), so "active" is
+    simply `not dismissed and last_confirmed_on >= today - 1`
     rather than a fixed expiry from `created_at`."""
 
     __tablename__ = "recommendations"

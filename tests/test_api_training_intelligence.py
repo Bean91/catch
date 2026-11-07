@@ -13,8 +13,12 @@ def _login(client):
     client.post("/api/login", json={"password": TEST_PASSWORD})
 
 
-def _seed_wellness(session, today: date, n: int = 20):
-    for i in range(1, n + 1):
+def _seed_wellness(session, today: date, n: int = 95):
+    # Includes `today` itself with the same baseline values — evaluate_training_suggestion
+    # now requires a real physiologically-backed "green" recovery reading (not just "not
+    # red"), which needs today's own HRV/resting-HR, not only a trailing baseline. n=95
+    # defaults wide enough to cover _seed_steady_background_training's own 90-day window.
+    for i in range(0, n + 1):
         session.add(DailyWellness(date=today - timedelta(days=i), resting_hr=50.0, hrv_rmssd=55.0, sleep_seconds=8 * 3600))
     session.commit()
 
@@ -24,12 +28,27 @@ def _seed_activity(session, when: datetime, **kwargs):
     session.commit()
 
 
+def _seed_steady_background_training(session, today: date):
+    """~80 days of steady light training ending 8 days ago — `strain_trimp` is set directly
+    (bypassing the max_hr/RPE chain `session_strain` would otherwise need, neither of which
+    this test DB configures) so `training_load`'s acute/chronic EWMAs actually converge to a
+    real, non-"insufficient_data" band. Deliberately stops 8 days before today so the most
+    recent week is light — load reads "undertraining" (an allowed band) and this week's own
+    session count stays under the default weekly target, the realistic "should fire"
+    fixture for evaluate_training_suggestion's `training:add_session`."""
+    for i in range(8, 90):
+        when = datetime.now(timezone.utc) - timedelta(days=i)
+        session.add(CanonicalActivity(start=when, duration=1800.0, avg_hr=120.0, sport_family="rowing", category="erg", strain_trimp=40.0))
+    session.commit()
+
+
 # --- generate_recommendations: idempotency, staleness, dedup/cooldown --------------------------
 
 
 def test_same_day_recompute_is_idempotent(session):
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
     recompute_scores(session)
@@ -47,6 +66,7 @@ def test_same_day_recompute_is_idempotent(session):
 def test_dismissal_does_not_reopen_the_cooldown(session):
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
 
@@ -67,6 +87,7 @@ def test_dismissal_does_not_reopen_the_cooldown(session):
 def test_a_rule_that_stops_firing_is_no_longer_active_the_next_day(session):
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
 
@@ -118,12 +139,27 @@ def test_recompute_scores_runs_exactly_once(session, monkeypatch):
     assert len(calls) == 1
 
 
+def test_fresh_install_produces_only_data_quality_rows(session):
+    """No wellness, no activities at all — recompute_scores should never claim anything about
+    training/recovery/overload on a database with nothing in it; the only thing it's honest
+    to say is "not enough data." The live smoke-test scenario an advisor review caught
+    producing a false training:add_session claim."""
+    recompute_scores(session)
+
+    from sqlmodel import select
+
+    rows = session.exec(select(Recommendation)).all()
+    assert all(r.type == "data_quality_warning" for r in rows)
+    assert not any(r.rule_key == "training:add_session" for r in rows)
+
+
 # --- CRUD routes -----------------------------------------------------------------------------
 
 
 def _seed_one_recommendation(session) -> int:
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
     from sqlmodel import select
@@ -140,7 +176,10 @@ def test_dismiss_mutates_and_refetches(client, session):
     assert resp.status_code == 200
     body = resp.json()
     assert body["dismissed"] is True
-    assert body["dismissed_at"] is not None
+    # The response shape matches get_recommendations' own row shape (recommendation_dict),
+    # not the bare ORM row — same shape, every mutation route.
+    assert body["active"] is False
+    assert "evidence" in body and isinstance(body["evidence"], list)
 
 
 def test_save_toggle(client, session):
@@ -180,6 +219,68 @@ def test_get_recommendations_defaults_to_active_only(client, session):
     assert any(r["id"] == rec_id for r in all_rows)
 
 
+# --- consistency/insights date-clamping (never count the future, never count pre-history) -------
+
+
+def test_consistency_never_counts_future_days_of_the_current_week(session):
+    """Before clamping range_end to today+1, the not-yet-elapsed remainder of the current
+    week was counted as rest days and the full week's session target was charged on a
+    Monday — a live smoke test caught both."""
+    from catch.sync.training_intelligence import gather_training_consistency
+    from catch.core.settings_store import get_settings
+
+    today = date.today()
+    _seed_wellness(session, today, n=10)
+    _seed_activity(session, datetime.now(timezone.utc))
+    recompute_scores(session)
+
+    result = gather_training_consistency(session, get_settings(session), weeks=1)
+    # The window can never run past today — rest_days can't exceed the days that have
+    # actually elapsed so far.
+    days_elapsed_so_far = (today - (today - timedelta(days=today.weekday()))).days + 1
+    assert result["rest_days"] <= days_elapsed_so_far
+
+
+def test_consistency_never_counts_a_gap_before_the_accounts_own_history(session):
+    """A fresh account's pre-history isn't a training gap — it's the absence of the app
+    itself. Before clamping range_start to the earliest real data date, a 24-day-old account
+    with 8 weeks of configured lookback reported a ~54-day gap, most of it before any data
+    existed at all."""
+    from catch.sync.training_intelligence import gather_training_insights
+    from catch.core.settings_store import get_settings
+
+    today = date.today()
+    _seed_wellness(session, today, n=24)
+    _seed_activity(session, datetime.now(timezone.utc))
+    recompute_scores(session)
+
+    insights = gather_training_insights(session, get_settings(session))
+    gap_insight = next((i for i in insights if i["id"] == "consistency_gap"), None)
+    if gap_insight is not None:
+        assert gap_insight["evidence"][0]["value"] <= 24
+
+
+def test_concentrated_block_requires_at_least_three_sessions_in_the_week(session):
+    """A week with one or two sessions trivially passes a "top-2-days share" check (the top 2
+    days ARE the whole week) — flagging it as "unusually concentrated" would be a false
+    pattern on an ordinary light week, not a real one."""
+    from catch.sync.training_intelligence import gather_training_consistency
+    from catch.core.settings_store import get_settings
+
+    today = date.today()
+    this_week_start = today - timedelta(days=today.weekday())
+    _seed_wellness(session, today, n=10)
+    # Exactly 2 sessions this week, both on the same day — would trivially read as 100%
+    # concentrated on the old unguarded check.
+    when = datetime.combine(this_week_start, datetime.min.time(), tzinfo=timezone.utc)
+    _seed_activity(session, when, duration=1800.0)
+    _seed_activity(session, when + timedelta(hours=3), duration=1800.0)
+    recompute_scores(session)
+
+    result = gather_training_consistency(session, get_settings(session), weeks=1)
+    assert result["concentrated_block"] is False
+
+
 # --- read endpoints smoke-test (full gather pipeline through the real routes) -------------------
 
 
@@ -204,6 +305,32 @@ def test_read_endpoints_return_grounded_shapes(client, session):
 
     insights = client.get("/api/training-intelligence/insights").json()
     assert "insights" in insights
+
+    # Context fields present-but-honest, never silently treated as zero when nothing's logged.
+    assert profile["nutrition"] == {"logged": False}
+    assert profile["daily_activity"] == {"logged": False}
+    assert profile["recent_note"] is None
+
+
+def test_training_profile_surfaces_logged_nutrition_and_activity_context(client, session):
+    from catch.core.models import DailyWellness as _DailyWellness
+    from catch.core.models import Note
+
+    _login(client)
+    today = date.today()
+    _seed_wellness(session, today)
+    _seed_activity(session, datetime.now(timezone.utc))
+    wellness_today = session.get(_DailyWellness, today)
+    wellness_today.steps = 8000
+    wellness_today.active_kcal = 450
+    session.add(wellness_today)
+    session.add(Note(date=today, text="Legs felt heavy on the warmup."))
+    session.commit()
+    recompute_scores(session)
+
+    profile = client.get("/api/training-intelligence/profile").json()
+    assert profile["daily_activity"] == {"logged": True, "steps": 8000, "active_kcal": 450}
+    assert profile["recent_note"] == "Legs felt heavy on the warmup."
 
 
 # --- coach tool layer + MCP parity --------------------------------------------------------------
@@ -263,6 +390,7 @@ def test_memory_block_surfaces_an_active_recommendation(session):
 
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
 
@@ -277,6 +405,7 @@ def test_memory_block_omits_a_stale_recommendation(session):
 
     today = date.today()
     _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
     recompute_scores(session)
 

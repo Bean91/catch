@@ -32,6 +32,12 @@ export function TrainingIntelligencePage() {
   const consistencyQuery = useQuery({ queryKey: ["training-consistency"], queryFn: () => fetchTrainingConsistency() });
   const insightsQuery = useQuery({ queryKey: ["training-insights"], queryFn: fetchTrainingInsights });
   const recommendationsQuery = useQuery({ queryKey: ["recommendations"], queryFn: () => fetchRecommendations("active") });
+  // "Saved" rows fall out of the "active" list the moment they go stale (a resolved
+  // recommendation shouldn't keep reading as active — see is_active in catch/sync/
+  // training_intelligence.py), so Save needs its own always-visible section or the button
+  // would do nothing the athlete could ever see again.
+  const savedQuery = useQuery({ queryKey: ["recommendations", "saved"], queryFn: () => fetchRecommendations("all") });
+  const savedRecommendations = (savedQuery.data ?? []).filter((r) => r.saved);
 
   return (
     <div className="flex flex-col gap-4">
@@ -79,6 +85,12 @@ export function TrainingIntelligencePage() {
         {recommendationsQuery.isError && <ErrorState message="Couldn't load recommendations." onRetry={() => recommendationsQuery.refetch()} />}
         {recommendationsQuery.data && <RecommendationsCard recommendations={recommendationsQuery.data} />}
       </Card>
+
+      {savedRecommendations.length > 0 && (
+        <Card title="Saved">
+          <RecommendationsCard recommendations={savedRecommendations} />
+        </Card>
+      )}
     </div>
   );
 }

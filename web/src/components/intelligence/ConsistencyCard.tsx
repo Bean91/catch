@@ -22,7 +22,11 @@ export function ConsistencyCard({ consistency }: { consistency: TrainingConsiste
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm text-text-primary">
           {consistency.sessions_completed} of {consistency.sessions_target} sessions
-          {consistency.pct_of_target != null && <span className="text-text-tertiary"> ({formatPercent(consistency.pct_of_target * 100)})</span>}
+          <span className="text-text-tertiary">
+            {" "}
+            ({consistency.minutes_completed} of {consistency.minutes_target} min
+            {consistency.pct_of_target != null && `, ${formatPercent(consistency.pct_of_target * 100)}`})
+          </span>
         </p>
         <BandBadge band={consistency.band} label={BAND_LABELS[consistency.band] ?? consistency.band} />
       </div>

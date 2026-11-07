@@ -179,7 +179,6 @@ DEFAULT_SETTINGS: dict = {
         "data_quality_missing_hr_pct_threshold": 0.5,
         "data_quality_lookback_sessions": 10,
         "recommendation_cooldown_days": 7,
-        "recommendation_valid_days": 10,
         "confidence_days_medium": 28,
         "confidence_days_high": 84,
         "confidence_pieces_high": 6,
