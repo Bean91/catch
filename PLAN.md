@@ -3003,7 +3003,8 @@ editable review table that never silently "corrects" a bad reading.
       Workout detail and the test center (the latter gaining an activity-picker first step
       `AddPieceDialog` doesn't need when it already knows which workout), and `PbTable`
       navigating to the right detail route per entry.
-- [x] Tests: 62 new backend tests (597 → 666 total, `uv run pytest` all green). Along the way,
+- [x] Tests: 62 new backend tests (604 → 666 total — 604 is the real pre-session-17 baseline,
+      597 passing + 7 then-failing; see below — `uv run pytest` all green now). Along the way,
       fixed 7 pre-existing failures in `tests/notify/test_triggers.py`/`tests/test_sync_state.py`
       that predate this session (confirmed via a disposable worktree on `1a60d8c`, unrelated to
       pieces): `_gated_notify`'s quiet-hours check uses the real wall clock

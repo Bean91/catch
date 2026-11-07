@@ -205,25 +205,36 @@ def test_hr_source_round_trips_through_patch_and_align_only_refreshes_derived_ro
     so Pydantic silently dropped it from every create/update body — every row's HR got
     re-tagged "typed" from scratch on each save, permanently freezing it against a later
     re-align (task Part D.1's drag-to-adjust is supposed to refresh derived HR, but must
-    never clobber an HR the athlete actually typed in)."""
-    activity = _seed_activity(session)
+    never clobber an HR the athlete actually typed in). Deliberately starts every row with
+    hr_source=None (not "typed") so the bug's actual failure mode — a *derived* row silently
+    frozen as "typed" by a round trip that dropped the field — has something to catch. A
+    version of this test that starts every row already "typed" can't fail: with the bug, the
+    field is dropped and then _mark_typed_hr re-tags it "typed" anyway, same end state either
+    way."""
+    activity = _seed_activity(session)  # hr: 130 x1800, 175 x400 (the hard stretch), 130 x1400
     _login(client)
-    splits_with_hr = [dict(s, hr=170.0, hr_source="typed") for s in _SPLITS]
     created = client.post(
         f"/api/activities/{activity.canonical_id}/pieces",
-        json={"piece_type": "2000m", "splits": splits_with_hr, "distance_m": 2000.0, "duration_s": 392.4},
+        json={"piece_type": "2000m", "splits": _SPLITS, "distance_m": 2000.0, "duration_s": 392.4},
     ).json()["piece"]
-    assert all(s["hr_source"] == "typed" for s in created["splits"])
+    # Auto-aligned on create to the hard stretch (same window the other create/align test
+    # asserts) — every row gets a *derived* HR around 175, not a typed one.
+    assert 1700 <= created["window_start_s"] <= 1850
+    assert all(s["hr_source"] == "derived" for s in created["splits"])
+    assert all(170 <= s["hr"] <= 180 for s in created["splits"])
 
     patched = client.patch(f"/api/pieces/{created['id']}", json={"splits": created["splits"]})
     assert patched.status_code == 200
-    # The round-trip itself is the regression check: hr_source must survive a PATCH body at
-    # all (previously dropped at the API boundary, silently becoming None on every save).
-    assert all(s["hr_source"] == "typed" for s in patched.json()["piece"]["splits"])
+    # The regression check: hr_source must survive a PATCH body as "derived", not silently
+    # drop out and get re-tagged "typed" by _mark_typed_hr (which would then freeze it against
+    # the re-align below).
+    patched_splits = patched.json()["piece"]["splits"]
+    assert all(s["hr_source"] == "derived" for s in patched_splits)
 
-    moved = client.post(f"/api/pieces/{created['id']}/align", json={"activity_id": activity.id, "start_s": 1700})
+    moved = client.post(f"/api/pieces/{created['id']}/align", json={"activity_id": activity.id, "start_s": 100})
     assert moved.status_code == 200
-    # A typed HR must survive a re-align untouched — only a row whose HR was itself derived
-    # from the sample stream (never written here) is eligible to refresh.
-    assert all(s["hr"] == 170.0 and s["hr_source"] == "typed" for s in moved.json()["splits"])
-    assert client.get("/api/activities/999/pieces/template", params={"type": "2000m"}).status_code == 404
+    moved_splits = moved.json()["splits"]
+    # A derived row must refresh on re-align — if the PATCH above had silently turned it
+    # "typed", these would still read ~175 instead of the new window's ~130.
+    assert all(s["hr_source"] == "derived" for s in moved_splits)
+    assert all(125 <= s["hr"] <= 135 for s in moved_splits)

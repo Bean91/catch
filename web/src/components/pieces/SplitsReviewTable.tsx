@@ -1,3 +1,4 @@
+import { formatSplit } from "../../lib/format";
 import type { PieceSplitRow, PieceValidation } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
 
@@ -41,7 +42,10 @@ export function SplitsReviewTable({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-sm">
+        {/* The 480px floor exists for the edit inputs below — a read-only row of plain text
+         * cells (PieceCard's display mode) doesn't need it and forcing it anyway just
+         * scrolls the card sideways on a 390px phone for no reason. */}
+        <table className={readOnly ? "w-full text-sm" : "w-full min-w-[480px] text-sm"}>
           <thead>
             <tr className="text-left text-xs text-text-tertiary">
               <th className="py-1 font-normal">#</th>
@@ -75,7 +79,7 @@ export function SplitsReviewTable({
                   </td>
                   <td className="py-1">
                     {readOnly ? (
-                      <span className="font-mono-nums text-text-primary">{row.split_s != null ? row.split_s.toFixed(1) + "s" : "—"}</span>
+                      <span className="font-mono-nums text-text-primary">{formatSplit(row.split_s)}</span>
                     ) : (
                       <TimeInput valueS={row.split_s} onChange={(s) => update(i, { split_s: s })} ariaLabel={`Split ${row.split_index} time`} className="min-h-9 w-24 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary" />
                     )}
