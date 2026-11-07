@@ -126,12 +126,24 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
 
           {piece.hr_recovery_bpm != null && (
             <p className="mt-2 text-xs text-text-tertiary">
-              HR recovery after piece: <span className="font-mono-nums text-text-primary">−{Math.round(piece.hr_recovery_bpm)} bpm</span>
+              HR recovery after piece <span className="font-mono-nums text-text-primary">{Math.round(piece.hr_recovery_bpm)}</span> bpm
             </p>
           )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setEditing(true)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+            <button
+              type="button"
+              onClick={() => {
+                // Re-seed from the current piece every time edit mode opens — otherwise a
+                // discarded Cancel (or a re-align that refreshed derived HR since this
+                // component last mounted) left stale local state that a later Save would
+                // silently persist. The same bug AddPieceDialog's reopen effect already fixed.
+                setSplits(piece.splits);
+                setValidation(null);
+                setEditing(true);
+              }}
+              className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary"
+            >
               Edit splits
             </button>
             {piece.has_photo && (
