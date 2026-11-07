@@ -166,4 +166,64 @@ def test_parse_paste_endpoint_matches_the_tasks_example(client, session):
 def test_unknown_activity_404s(client, session):
     _login(client)
     assert client.get("/api/activities/999/pieces").status_code == 404
+
+
+def test_pasted_splits_without_distance_still_get_a_standard_distance_and_count_as_a_pb(client, session):
+    """Regression for a real bug: a pure paste (task Part C.1's "1:38.2 32 / ...") carries no
+    per-row distance at all, since the athlete only typed times/rates. Before the
+    standard_distance_m fallback existed, the piece saved with distance_m=None and silently
+    dropped out of piece_pb_candidates' `if not p.distance_m: continue` — invisible to
+    /api/pbs despite being a perfectly good 2k. piece_type alone must be enough to resolve a
+    real total distance."""
+    activity = _seed_activity(session)
+    _login(client)
+    pasted = client.post("/api/pieces/parse-paste", json={"text": "1:36.8 32 / 1:38.9 30 / 1:39.0 31 / 1:37.7 32"})
+    assert pasted.status_code == 200
+    rows = pasted.json()["splits"]
+    assert all(r["distance_m"] is None for r in rows)  # the paste itself never carries distance
+
+    created = client.post(
+        f"/api/activities/{activity.canonical_id}/pieces",
+        json={"piece_type": "2000m", "splits": rows},  # no distance_m/duration_s override
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["validation"]["ok"]
+    piece = body["piece"]
+    assert piece["distance_m"] == 2000.0  # the 2000m template's standard distance, not None
+
+    pbs = client.get("/api/pbs")
+    assert pbs.status_code == 200
+    pb_2000 = pbs.json()["2000m"]
+    assert pb_2000 is not None
+    assert pb_2000["piece_id"] == piece["id"]
+    assert pb_2000["distance_m"] == 2000.0
+
+
+def test_hr_source_round_trips_through_patch_and_align_only_refreshes_derived_rows(client, session):
+    """Regression for a real bug: PieceSplitRow (the request model) had no hr_source field,
+    so Pydantic silently dropped it from every create/update body — every row's HR got
+    re-tagged "typed" from scratch on each save, permanently freezing it against a later
+    re-align (task Part D.1's drag-to-adjust is supposed to refresh derived HR, but must
+    never clobber an HR the athlete actually typed in)."""
+    activity = _seed_activity(session)
+    _login(client)
+    splits_with_hr = [dict(s, hr=170.0, hr_source="typed") for s in _SPLITS]
+    created = client.post(
+        f"/api/activities/{activity.canonical_id}/pieces",
+        json={"piece_type": "2000m", "splits": splits_with_hr, "distance_m": 2000.0, "duration_s": 392.4},
+    ).json()["piece"]
+    assert all(s["hr_source"] == "typed" for s in created["splits"])
+
+    patched = client.patch(f"/api/pieces/{created['id']}", json={"splits": created["splits"]})
+    assert patched.status_code == 200
+    # The round-trip itself is the regression check: hr_source must survive a PATCH body at
+    # all (previously dropped at the API boundary, silently becoming None on every save).
+    assert all(s["hr_source"] == "typed" for s in patched.json()["piece"]["splits"])
+
+    moved = client.post(f"/api/pieces/{created['id']}/align", json={"activity_id": activity.id, "start_s": 1700})
+    assert moved.status_code == 200
+    # A typed HR must survive a re-align untouched — only a row whose HR was itself derived
+    # from the sample stream (never written here) is eligible to refresh.
+    assert all(s["hr"] == 170.0 and s["hr_source"] == "typed" for s in moved.json()["splits"])
     assert client.get("/api/activities/999/pieces/template", params={"type": "2000m"}).status_code == 404

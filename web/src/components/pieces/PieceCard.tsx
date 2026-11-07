@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { deletePiece, deletePiecePhoto, piecePhotoUrl, updatePiece } from "../../lib/api";
 import { formatDistance, formatDuration, formatSplit } from "../../lib/format";
-import type { Piece } from "../../lib/types";
+import type { Piece, ZoneName } from "../../lib/types";
+import { zoneColor, ZONE_NAMES } from "../../lib/zoneColors";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
@@ -89,6 +90,46 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
             </div>
           </div>
           {piece.source === "concept2" && <p className="mt-2 text-xs text-text-tertiary">Backed by real Concept2 stroke data.</p>}
+
+          {/* Task Part D.2: per-split HR, time in zone, and post-piece recovery — not just
+           * the three averages above. SplitsReviewTable's own readOnly mode already renders
+           * each row's HR column, so it's reused here rather than duplicated. */}
+          <div className="mt-3">
+            <SplitsReviewTable splits={piece.splits} validation={null} readOnly />
+          </div>
+
+          {piece.time_in_zone && Object.values(piece.time_in_zone).some((s) => s > 0) && (
+            <div className="mt-3">
+              <div className="text-xs text-text-tertiary">Time in zone</div>
+              <div className="mt-1 flex h-2 overflow-hidden rounded-full">
+                {ZONE_NAMES.map((zone) => {
+                  const seconds = piece.time_in_zone?.[zone] ?? 0;
+                  const total = Object.values(piece.time_in_zone ?? {}).reduce((a, b) => a + b, 0);
+                  if (!seconds || !total) return null;
+                  return <div key={zone} style={{ width: `${(seconds / total) * 100}%`, background: zoneColor(zone as ZoneName) }} title={`${zone}: ${formatDuration(seconds)}`} />;
+                })}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-tertiary">
+                {ZONE_NAMES.map((zone) => {
+                  const seconds = piece.time_in_zone?.[zone] ?? 0;
+                  if (!seconds) return null;
+                  return (
+                    <span key={zone} className="flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full" style={{ background: zoneColor(zone as ZoneName) }} aria-hidden />
+                      {zone} {formatDuration(seconds)}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {piece.hr_recovery_bpm != null && (
+            <p className="mt-2 text-xs text-text-tertiary">
+              HR recovery after piece: <span className="font-mono-nums text-text-primary">−{Math.round(piece.hr_recovery_bpm)} bpm</span>
+            </p>
+          )}
+
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => setEditing(true)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
               Edit splits

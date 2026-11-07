@@ -99,10 +99,12 @@ def test_piece_power_overlay_refines_zones_without_adding_strain(session):
     session.add(DailyWellness(date=T0.date(), resting_hr=55))
     session.commit()
 
-    # Baseline: strain from HR alone, before any piece exists.
+    # Baseline: strain from HR alone, before any piece exists. A flat 130bpm hour against
+    # resting 55/max 190 sits in UT2 throughout — no power data yet, so the label is HR-only.
     canonical_before = resolve_canonical(session, activity.canonical_id)
     trimp_before = canonical_before.strain_trimp
     assert trimp_before is not None
+    assert canonical_before.session_label == "UT2 (60 min)"
 
     splits = [dict(s) for s in _SPLITS]
     for s in splits:
@@ -116,6 +118,14 @@ def test_piece_power_overlay_refines_zones_without_adding_strain(session):
     zones = json.loads(canonical.zones_json)
     assert zones["power"] is not None
     assert any(v > 0 for v in zones["power"].values())
+    # The real assertion this test is for (task Part D.2's "gets labelled correctly"): the
+    # piece's own watts for its ~6.5min window are fast enough to land in AN, which outranks
+    # the HR label's UT2 — a 2k inside an otherwise-easy long row is no longer mislabelled.
+    # Checking only "power zones are non-empty" (an earlier version of this test) would pass
+    # even if the overlay fed the wrong window or the wrong zone entirely.
+    assert canonical.session_label == "AN (7 min)"
+    assert zones["power"]["AN"] > 0
+    assert zones["power"]["UT2"] == 0.0
 
     # The piece's watts refine the *power-zone label* (and feed the muscular-load split) but
     # never change strain_trimp itself — rowing strain stays HR-Banister-based regardless of

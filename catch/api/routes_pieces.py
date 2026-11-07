@@ -72,6 +72,12 @@ class PieceSplitRow(BaseModel):
     rate: float | None = None
     watts: float | None = None
     hr: float | None = None
+    # "typed" | "derived" | "concept2" | None — without this field, Pydantic silently drops
+    # it from every request body (extra keys are ignored by default), so a row's real
+    # provenance never reached _mark_typed_hr/_apply_alignment: every edit re-tagged every
+    # HR-bearing row "typed" from scratch, permanently freezing derived values against a
+    # later re-align. A real bug an advisor review caught.
+    hr_source: str | None = None
 
 
 class CreatePieceRequest(BaseModel):

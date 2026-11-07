@@ -1,12 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, createPiece, estimatePiecePhoto, fetchCoachSettings, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
 import { parseSplitsPaste, validateSplits } from "../../lib/pieceSplits";
 import { ERG_TEST_TYPES, type ErgTestType, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
 import { formatDuration, formatShortDate } from "../../lib/format";
 import { SplitsReviewTable } from "./SplitsReviewTable";
+import { TimeInput } from "./TimeInput";
 
 type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "saving" | "saved";
 
@@ -50,6 +51,17 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     setError(null);
   };
 
+  // Radix's Dialog.Content unmounts its own subtree when `open` goes false, but this
+  // component's own state doesn't — `AddPieceDialog` itself is never unmounted by its
+  // parent, so without this a second "Add piece" would reopen straight onto the previous
+  // open's "Piece saved" screen (the parent closes the dialog via the `open` prop, not via
+  // Radix's own onOpenChange, which is the only place `close()`/`reset()` otherwise run). A
+  // real bug an advisor review caught by adding a second piece in a row.
+  useEffect(() => {
+    if (open) reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const close = () => {
     onClose();
     reset();
@@ -71,8 +83,14 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
   const applyPaste = () => {
     try {
-      const rows = parseSplitsPaste(pasteText);
-      setSplits(rows);
+      const parsed = parseSplitsPaste(pasteText);
+      // Merge onto the existing template when the row count matches, so a standard piece
+      // type's distances (500/1000/1500/2000m) survive a paste instead of coming back null
+      // — a real bug an advisor review caught: a pasted 2k's distance_m ended up null,
+      // silently dropping it out of every distance-keyed reader (PBs, predict, Part D.4's
+      // absorb match). Mirrors catch/coach/tools.py's _parse_piece_free_text, which does the
+      // same template-merge for the coach's add_piece free-text path.
+      setSplits(parsed.length === splits.length ? splits.map((row, i) => ({ ...row, split_s: parsed[i].split_s, rate: parsed[i].rate ?? row.rate })) : parsed);
       setPasteError(null);
     } catch (e) {
       setPasteError(e instanceof Error ? e.message : "Couldn't parse that.");
@@ -220,7 +238,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
                   onChange={(e) => setPasteText(e.target.value)}
                   placeholder="1:36.8 32 / 1:38.9 30 / 1:39.0 31 / 1:37.7 32"
                   rows={2}
-                  className="rounded-md border border-border bg-bg p-2 text-sm text-text-primary"
+                  className="rounded-md border border-border bg-bg p-2 text-base text-text-primary"
                 />
                 {pasteError && <span className="text-xs text-band-red-text">{pasteError}</span>}
                 <button type="button" onClick={applyPaste} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary">
@@ -233,11 +251,11 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
               <div className="flex gap-3 text-sm">
                 <label className="flex flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total distance (m), if different</span>
-                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 rounded-md border border-border bg-bg px-2 font-mono-nums text-text-primary" />
+                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary" />
                 </label>
                 <label className="flex flex-1 flex-col gap-1">
-                  <span className="text-xs text-text-tertiary">Total time (s), if different</span>
-                  <input type="number" inputMode="decimal" value={durationS ?? ""} onChange={(e) => setDurationS(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 rounded-md border border-border bg-bg px-2 font-mono-nums text-text-primary" />
+                  <span className="text-xs text-text-tertiary">Total time, if different</span>
+                  <TimeInput valueS={durationS} onChange={setDurationS} ariaLabel="Total time, if different" />
                 </label>
               </div>
 

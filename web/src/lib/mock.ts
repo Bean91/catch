@@ -80,7 +80,7 @@ import type {
 } from "./types";
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
-import { aggregateFromSplits, defaultSplits, validateSplits } from "./pieceSplits";
+import { aggregateFromSplits, defaultSplits, validateSplits, wattsForSplit } from "./pieceSplits";
 
 // "illness_watch"/"illness_likely" (session 15 Part B): not in the task's own fixture list,
 // added so the illness card's two non-"none" states have somewhere to screenshot/test from
@@ -836,11 +836,13 @@ export function mockTestDetail(id: number): ErgTestDetail {
 
 // --- Session 17 (see PLAN.md — the task called itself "session 13"): pieces ---------------
 
+// watts computed from each row's own split_s via wattsForSplit() (watts = 2.80/(s/m)^3) so
+// this fixture can't silently drift into a split/watts mismatch the UI itself would flag.
 const TASK_2K_SPLITS: PieceSplitRow[] = [
-  { split_index: 1, distance_m: 500, split_s: 96.8, rate: 32, watts: 221, hr: 168, hr_source: "derived" },
-  { split_index: 2, distance_m: 1000, split_s: 98.9, rate: 30, watts: 209, hr: 174, hr_source: "derived" },
-  { split_index: 3, distance_m: 1500, split_s: 99.0, rate: 31, watts: 208, hr: 177, hr_source: "derived" },
-  { split_index: 4, distance_m: 2000, split_s: 97.7, rate: 32, watts: 213, hr: 180, hr_source: "derived" },
+  { split_index: 1, distance_m: 500, split_s: 96.8, rate: 32, watts: Math.round(wattsForSplit(96.8)), hr: 168, hr_source: "derived" },
+  { split_index: 2, distance_m: 1000, split_s: 98.9, rate: 30, watts: Math.round(wattsForSplit(98.9)), hr: 174, hr_source: "derived" },
+  { split_index: 3, distance_m: 1500, split_s: 99.0, rate: 31, watts: Math.round(wattsForSplit(99.0)), hr: 177, hr_source: "derived" },
+  { split_index: 4, distance_m: 2000, split_s: 97.7, rate: 32, watts: Math.round(wattsForSplit(97.7)), hr: 180, hr_source: "derived" },
 ];
 
 // Attached to a real on-water row (index 5: bucket 0, Garmin-sourced, ~30min, has HR
@@ -859,7 +861,7 @@ const MOCK_PIECES: Piece[] = [
     duration_s: 392.4,
     avg_split_s: 98.1,
     avg_rate: 31.25,
-    avg_watts: 212.75,
+    avg_watts: Math.round(TASK_2K_SPLITS.reduce((sum, s) => sum + (s.watts ?? 0), 0) / TASK_2K_SPLITS.length),
     drag_factor: 118,
     splits: TASK_2K_SPLITS,
     source: "manual",
@@ -981,7 +983,7 @@ export function mockPiecePhotoEstimate(): PiecePhotoEstimate {
     duration_s: 392.4,
     avg_split_s: 98.1,
     avg_rate: 31.25,
-    avg_watts: 212.75,
+    avg_watts: Math.round(TASK_2K_SPLITS.reduce((sum, s) => sum + (s.watts ?? 0), 0) / TASK_2K_SPLITS.length),
     drag_factor: 118,
     validation: { ok: true, issues: [] },
     notes: "Drag factor read off the screen; HR not shown on this display mode.",

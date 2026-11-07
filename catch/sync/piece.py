@@ -15,7 +15,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from catch.analytics.erg_test import actual_splits
-from catch.analytics.piece import aggregate_from_splits, find_best_window, validate_splits
+from catch.analytics.piece import aggregate_from_splits, find_best_window, standard_distance_m, validate_splits
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.technique import interval_summary
 from catch.analytics.zones_samples import drop_dropouts, hr_recovery_drop, smooth, time_in_zone_seconds
@@ -136,6 +136,13 @@ def create_piece(
     total_distance = distance_m if distance_m is not None else agg["distance_m"]
     total_duration = duration_s if duration_s is not None else agg["duration_s"]
     validation = validate_splits(splits, total_distance, total_duration)
+    # A standard-type piece whose splits carry no distance at all (e.g. a pure paste with no
+    # per-row distance) still has a real, known total distance — falling back to None here
+    # would silently drop the piece out of every distance-keyed reader (PBs, predict, the
+    # Part D.4 absorb match). Applied *after* validation, which already has nothing to check
+    # a missing distance against anyway.
+    if total_distance is None:
+        total_distance = standard_distance_m(piece_type)
     if not validation["ok"] and not force:
         return None, validation
 

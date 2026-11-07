@@ -34,6 +34,17 @@ _DEFAULT_SPLIT_DISTANCE_M = 500.0
 _DEFAULT_TIME_SPLIT_S = 300.0  # 5-minute default rows for a duration-only piece with no fixed splits
 
 
+def standard_distance_m(piece_type: str) -> Optional[float]:
+    """The fixed distance a standard piece type implies (2000m is always 2000m), or None for
+    a duration-based type ("30min_r20"/"60min") or "custom". Used as a last-resort fallback
+    when a caller's splits carry no distance at all (e.g. a pure paste-only entry whose rows
+    were never merged against a distance template) — without this, a real 2k piece could be
+    saved with `distance_m=None` and silently fall out of every distance-keyed reader
+    (piece_pb_candidates, confirmed_piece_pace_candidates, the Part D.4 absorb match), found
+    by an advisor review of the frontend's paste flow."""
+    return _DISTANCE_BY_TYPE.get(piece_type)
+
+
 def default_splits(piece_type: str, distance_m: Optional[float] = None, duration_s: Optional[float] = None) -> list[dict]:
     """Template rows to seed the typed-entry form (task Part C.1 — "piece type sets
     defaults, e.g. 2k = 4 x 500m rows"). Every value is None (nothing timed yet); the caller

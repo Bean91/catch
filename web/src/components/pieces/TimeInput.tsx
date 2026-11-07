@@ -43,12 +43,20 @@ export function TimeInput({
 }) {
   const [digits, setDigits] = useState(() => (valueS != null ? secondsToDigits(valueS) : ""));
 
-  // Re-sync from an external reset/overwrite (e.g. a paste or "use template") — but not on
-  // every keystroke, which already updates `digits` locally first.
+  // Re-sync from an external reset/overwrite (a paste, a different row's value after a
+  // delete, a realign) — but only when `valueS` actually differs numerically from what's
+  // currently displayed, so this never fights the user's own in-progress typing (each
+  // keystroke already updates `digits` locally, which also changes what this comparison
+  // reads). Comparing only `valueS == null` (an earlier version) missed every case where
+  // `valueS` changed to a different *non-null* number — a pasted-over row, or a row shifted
+  // up after an earlier row's deletion, kept showing a stale value. A real bug an advisor
+  // review caught.
   useEffect(() => {
-    setDigits(valueS != null ? secondsToDigits(valueS) : "");
+    const current = digitsToSeconds(digits);
+    const inSync = valueS == null ? current == null : current != null && Math.abs(current - valueS) < 0.05;
+    if (!inSync) setDigits(valueS != null ? secondsToDigits(valueS) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valueS == null]);
+  }, [valueS]);
 
   return (
     <input

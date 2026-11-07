@@ -69,7 +69,7 @@ export function SplitsReviewTable({
                         inputMode="decimal"
                         value={row.distance_m ?? ""}
                         onChange={(e) => update(i, { distance_m: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-20 rounded-md border border-border bg-bg px-1.5 font-mono-nums text-text-primary"
+                        className="min-h-9 w-20 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary"
                       />
                     )}
                   </td>
@@ -77,7 +77,7 @@ export function SplitsReviewTable({
                     {readOnly ? (
                       <span className="font-mono-nums text-text-primary">{row.split_s != null ? row.split_s.toFixed(1) + "s" : "—"}</span>
                     ) : (
-                      <TimeInput valueS={row.split_s} onChange={(s) => update(i, { split_s: s })} ariaLabel={`Split ${row.split_index} time`} className="min-h-9 w-24 rounded-md border border-border bg-bg px-1.5 font-mono-nums text-text-primary" />
+                      <TimeInput valueS={row.split_s} onChange={(s) => update(i, { split_s: s })} ariaLabel={`Split ${row.split_index} time`} className="min-h-9 w-24 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary" />
                     )}
                   </td>
                   <td className="py-1">
@@ -89,7 +89,7 @@ export function SplitsReviewTable({
                         inputMode="numeric"
                         value={row.rate ?? ""}
                         onChange={(e) => update(i, { rate: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 font-mono-nums text-text-primary"
+                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary"
                       />
                     )}
                   </td>
@@ -102,7 +102,7 @@ export function SplitsReviewTable({
                         inputMode="numeric"
                         value={row.watts ?? ""}
                         onChange={(e) => update(i, { watts: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 font-mono-nums text-text-primary"
+                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary"
                       />
                     )}
                   </td>
@@ -115,7 +115,7 @@ export function SplitsReviewTable({
                         inputMode="numeric"
                         value={row.hr ?? ""}
                         onChange={(e) => update(i, { hr: e.target.value === "" ? null : Number(e.target.value), hr_source: "typed" })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 font-mono-nums text-text-primary"
+                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary"
                       />
                     )}
                   </td>

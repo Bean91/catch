@@ -3003,7 +3003,10 @@ editable review table that never silently "corrects" a bad reading.
       Workout detail and the test center (the latter gaining an activity-picker first step
       `AddPieceDialog` doesn't need when it already knows which workout), and `PbTable`
       navigating to the right detail route per entry.
-- [x] Tests: 42 new backend tests (664 total, `uv run pytest` all green) — split/total
+- [x] Tests: 62 new backend tests (597 → 659 total; 7 pre-existing failures in
+      `tests/notify/test_triggers.py`/`tests/test_sync_state.py` predate this session, carried
+      over unchanged from session 16 — confirmed via a disposable worktree on `1a60d8c`) —
+      split/total
       validation and the task's own exact worked example as a fixture
       (`tests/analytics/test_piece.py`), the warm-up/piece/cool-down alignment fixture (mirrors
       session 12's own fixture shape), the strain-unchanged-with-and-without-the-piece
@@ -3088,6 +3091,16 @@ any of this shipped:
   the cycling branch does. Moot before this session (no rowing session in this real account
   ever had per-sample power — zero Concept2 results), surfaced the moment a piece supplied the
   first real power data a rowing session here can have. Fixed alongside this feature.
+- **A new piece's power data shifts the global `rowing_watts_2k` threshold**
+  (`rowing_predict.py`'s predicted-2k, now fed by pieces too — see below), but only the
+  canonical a piece was just added to or aligned on gets re-`resolve_canonical`'d. Every
+  *other* rowing canonical's own `power_zones`/`session_label` keeps whatever threshold was
+  current the last time *it* was resolved, so two rowing sessions synced on either side of
+  adding a piece can end up labelled against two different thresholds until each is next
+  touched (an edit, a re-sync, a re-merge). Not fixed this session — a full re-resolve of every
+  rowing canonical on every piece save would be the correct fix but is real Pi-3 work to pay on
+  every save for a threshold that moves rarely; flagging it rather than taking the compute hit
+  unasked.
 - **A confirmed piece now feeds `rowing_predict.py`'s "recent best pieces" pool**, the same
   one `GET /api/predict/2k` and the Today screen's headline predicted-2k number already draw
   from — a deliberate choice (flagged by the first advisor review, not a scope-creep
