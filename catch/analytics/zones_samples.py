@@ -165,6 +165,22 @@ def _label_one(zone_seconds: dict[str, float], moving_time_s: float, min_minutes
     return f"{primary} ({primary_minutes} min) + {secondary}"
 
 
+def hr_recovery_drop(hr_full: list[Optional[float]], from_offset: int, window_s: int = 60) -> Optional[float]:
+    """Drop in HR over `window_s` seconds starting at `from_offset` — shared by
+    catch/api/routes_analytics.py's per-lap recovery (Part E.8) and catch/sync/piece.py's
+    post-piece recovery (session 17 Part D.2). None if the recording doesn't extend far
+    enough past `from_offset` to measure it, or either endpoint is a dropout."""
+    if from_offset < 0 or from_offset >= len(hr_full):
+        return None
+    end = from_offset + window_s
+    if end >= len(hr_full):
+        return None
+    start_hr, end_hr = hr_full[from_offset], hr_full[end]
+    if start_hr is None or end_hr is None:
+        return None
+    return start_hr - end_hr
+
+
 def detect_trailing_idle(movement_samples: list[Optional[float]], min_idle_s: int = DEFAULT_AUTO_TRIM_MIN_IDLE_S) -> float:
     """`movement_samples` is cadence/stroke-rate (or power), raw (not smoothed — trimming is
     about real stillness, not sensor noise). Returns the trailing run length in seconds of

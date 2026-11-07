@@ -218,8 +218,13 @@ export const ERG_TEST_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m",
 export type PacingStyle = "even" | "fast_start_settle" | "negative_split";
 
 export interface ErgTestSummary {
+  // Session 17 (see PLAN.md — the task called itself "session 13") — "kind" distinguishes a
+  // confirmed-test row (id in canonical_id) from a piece row (id in piece_id), since a
+  // piece's canonical_id is the *containing* activity, not unique to the piece.
+  kind: "test" | "piece";
+  piece_id: number | null;
   canonical_id: number;
-  activity_id: number;
+  activity_id: number | null;
   test_type: ErgTestType | null;
   title: string | null;
   date: string | null;
@@ -228,6 +233,80 @@ export interface ErgTestSummary {
   avg_power: number | null;
   avg_stroke_rate: number | null;
   avg_hr: number | null;
+}
+
+// --- Session 17: pieces (a segment of a canonical activity) -----------------------------
+
+export interface Piece {
+  id: number;
+  canonical_id: number;
+  piece_type: ErgTestType;
+  distance_m: number | null;
+  duration_s: number | null;
+  avg_split_s: number | null;
+  avg_rate: number | null;
+  avg_watts: number | null;
+  drag_factor: number | null;
+  splits: PieceSplitRow[];
+  source: "manual" | "photo" | "concept2";
+  window_activity_id: number | null;
+  window_start_s: number | null;
+  window_end_s: number | null;
+  concept2_activity_id: number | null;
+  time_in_zone: Record<ZoneName, number> | null;
+  hr_recovery_bpm: number | null;
+  notes: string | null;
+  has_photo: boolean;
+  created_at: string;
+}
+
+export interface PieceSplitRow {
+  split_index: number;
+  distance_m: number | null;
+  split_s: number | null;
+  rate: number | null;
+  watts: number | null;
+  hr: number | null;
+  hr_source?: "typed" | "derived" | "concept2" | null;
+}
+
+export interface PieceValidationIssue {
+  split_index: number | null;
+  field: string;
+  message: string;
+}
+
+export interface PieceValidation {
+  ok: boolean;
+  issues: PieceValidationIssue[];
+}
+
+export interface CreatePieceResult {
+  piece: Piece | null;
+  validation: PieceValidation;
+}
+
+export interface PiecePhotoEstimate {
+  splits: PieceSplitRow[];
+  distance_m: number | null;
+  duration_s: number | null;
+  avg_split_s: number | null;
+  avg_rate: number | null;
+  avg_watts: number | null;
+  drag_factor: number | null;
+  validation: PieceValidation;
+  notes: string;
+  cost_usd: number;
+}
+
+export interface PieceTestDetail {
+  activity: WorkoutDetail;
+  piece: Piece;
+  test_type: ErgTestType;
+  plan: PacingPlan | null;
+  pacing_analysis: PacingAnalysis | null;
+  compare_to_earlier: ErgTestSummary | null;
+  w_per_kg: number | null;
 }
 
 export interface ErgTestCandidate {
@@ -638,6 +717,9 @@ export interface BodyCompReading {
 export interface PbEntry {
   /** A canonical id — navigate to /workouts/{activity_id}. */
   activity_id: number;
+  /** Session 17 — set when this PB came from a piece rather than a standalone Concept2
+   * result; navigate to /tests/piece/{piece_id} instead of /workouts/{activity_id}. */
+  piece_id: number | null;
   date: string | null;
   distance_m: number | null;
   duration_s: number | null;

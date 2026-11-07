@@ -268,6 +268,16 @@ def _resolve_zones(
     has_hr = bool(hr_samples) and any(v is not None for v in hr_samples["hr"])
 
     power_samples = _activity_samples(session, power_member.id) if power_member and power_member.id else None
+
+    # Session 17 (see PLAN.md Part D.3): any piece aligned to a window on one of this
+    # canonical's members overlays its own per-split watts into that window, refining the
+    # intensity data this resolve pass computes zones/strain from — never adding to it (the
+    # piece's own time is already inside one of these members' recordings). Done here, before
+    # has_power is computed, so a rowing session with no device-recorded power at all but a
+    # typed/photo 2k piece still gets a real power-zone label below.
+    from catch.sync.piece import power_member_and_samples
+
+    power_member, power_samples = power_member_and_samples(session, canonical.id, members, power_member, power_samples)
     has_power = bool(power_samples) and any(v is not None for v in power_samples["power"])
 
     # Reset once up front (session 15) rather than only inside each branch below that might
@@ -349,7 +359,18 @@ def _resolve_zones(
             power_tss = cycling_tss(power_moving_s, avg_power, ftp)
             canonical.strain_method = "cycling_tss_estimated_ftp" if ftp_is_estimated else "cycling_tss"
     elif canonical.sport_family == "rowing" and has_power:
+        # Session 17 (see PLAN.md Part D.2) — a real pre-existing gap this feature exposed
+        # rather than introduced: session 12 computed `threshold_watts` here for the
+        # muscular-AU split below, but never actually built `power_zones` the way the cycling
+        # branch above does, so a rowing session's power-vs-HR zone label never had anything
+        # to read. Moot before this session (zero Concept2 results in this real account means
+        # no rowing session ever had per-sample power); a piece's typed/photo watts is the
+        # first real power data a rowing session here can have, which is exactly what exposed
+        # it. Same shape as the cycling branch, just without an FTP-estimation fallback —
+        # rowing_watts_2k already handles "not enough history yet" by returning None.
         threshold_watts = rowing_watts_2k(session, settings)
+        if threshold_watts:
+            power_zones = power_time_in_zone_seconds(smooth(power_for_ui), threshold_watts, settings)
 
     # Session 14 (see PLAN.md Part C.1.2): a small muscular-load share from erg/bike time
     # spent above ~110% of threshold power (sprints, starts) — "default low" per the task, so

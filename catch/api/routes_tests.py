@@ -9,11 +9,12 @@ from sqlmodel import Session, select
 
 from catch.analytics.erg_math import w_per_kg
 from catch.analytics.erg_test import TEST_SPECS, pacing_analysis, pacing_plan as _pacing_plan, project_time
+from catch.analytics.piece import points_from_splits
 from catch.api import routes_activities, routes_analytics
 from catch.api.deps import get_db, require_auth
 from catch.coach.memory import next_a_race
 from catch.core.models import CanonicalActivity, Event
-from catch.sync import body_comp, erg_test
+from catch.sync import body_comp, erg_test, piece as piece_sync
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -28,19 +29,21 @@ def get_tests(test_type: str | None = Query(None, alias="type"), db: Session = D
     return {"tests": erg_test.list_tests(db, test_type)}
 
 
-def _find_plan_for(db: Session, canonical: CanonicalActivity, test_type: str | None) -> dict | None:
+def _find_plan_for(db: Session, distance_m: float | None, test_type: str | None) -> dict | None:
     """Best-effort match: the most recently generated plan whose target distance is within
     1% of this test's own distance — standard test distances are fixed numbers (2000m is
     always 2000m), so this is exact for every standard type and simply finds nothing for a
     custom one with no matching saved plan (task Part C.3's "show it on the test detail
     afterwards" doesn't specify how a plan is matched back to the test that fulfilled it, so
-    this is a documented simplification, not a literal spec requirement)."""
-    if canonical.distance is None:
+    this is a documented simplification, not a literal spec requirement). Takes a plain
+    distance (not a canonical) so a piece — whose own distance differs from its containing
+    canonical's whole-session distance — matches against its own, not the session's."""
+    if distance_m is None:
         return None
     events = db.exec(select(Event).where(Event.plan_json.is_not(None)).order_by(Event.created_at.desc())).all()
     for e in events:
         plan = json.loads(e.plan_json)
-        if plan.get("distance_m") and abs(plan["distance_m"] - canonical.distance) <= max(10.0, canonical.distance * 0.01):
+        if plan.get("distance_m") and abs(plan["distance_m"] - distance_m) <= max(10.0, distance_m * 0.01):
             return plan
     return None
 
@@ -115,11 +118,15 @@ def get_test_detail(canonical_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No Concept2 stroke data for this test")
     strokes_payload = routes_analytics.erg_strokes(member["activity_id"], db=db)
 
-    plan = _find_plan_for(db, canonical, test_type)
+    plan = _find_plan_for(db, canonical.distance, test_type)
     analysis = pacing_analysis(strokes_payload["strokes"], canonical.distance or 0.0, plan) if canonical.distance else None
 
     this_date = detail["local_date"].isoformat() if detail.get("local_date") else None
-    same_type = [t for t in erg_test.list_tests(db, test_type) if t["canonical_id"] != canonical_id] if test_type else []
+    same_type = (
+        [t for t in erg_test.list_tests(db, test_type) if t["kind"] != "test" or t["canonical_id"] != canonical_id]
+        if test_type
+        else []
+    )
     earlier = max(
         (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None
     )
@@ -132,4 +139,44 @@ def get_test_detail(canonical_id: int, db: Session = Depends(get_db)):
         "pacing_analysis": analysis,
         "compare_to_earlier": earlier,
         "w_per_kg": w_per_kg(canonical.avg_power, weight_kg),
+    }
+
+
+# Session 17 (see PLAN.md — the task called itself "session 13"): a piece's own test-detail
+# equivalent. A *separate* route from GET /api/tests/{canonical_id} above, deliberately — a
+# piece's canonical id is the id of the *containing* activity (often a much longer session),
+# never unique to the piece the way a confirmed test's canonical is, so it can't share that
+# route's `{canonical_id}` path param without colliding with a real confirmed test on the
+# same canonical or with another piece in the same session.
+@router.get("/api/pieces/{piece_id}/test-detail")
+def get_piece_test_detail(piece_id: int, db: Session = Depends(get_db)):
+    piece = piece_sync.get_piece(db, piece_id)
+    if piece is None:
+        raise HTTPException(status_code=404, detail="Piece not found")
+    canonical = db.get(CanonicalActivity, piece.canonical_id)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Containing activity not found")
+
+    detail = routes_activities.get_activity(piece.canonical_id, db=db)
+    splits = json.loads(piece.splits_json) if piece.splits_json else []
+    points = points_from_splits(splits)
+
+    plan = _find_plan_for(db, piece.distance_m, piece.piece_type)
+    analysis = pacing_analysis(points, piece.distance_m, plan) if piece.distance_m else None
+
+    this_date = canonical.start.date().isoformat() if canonical.start else None
+    same_type = [t for t in erg_test.list_tests(db, piece.piece_type) if not (t["kind"] == "piece" and t["piece_id"] == piece_id)]
+    earlier = max(
+        (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None
+    )
+
+    weight_kg = body_comp.nearest_resolved_weight_kg(db, canonical.start)
+    return {
+        "activity": detail,
+        "piece": piece_sync.piece_dict(piece, has_photo=piece_sync.get_photo(db, piece_id) is not None),
+        "test_type": piece.piece_type,
+        "plan": plan,
+        "pacing_analysis": analysis,
+        "compare_to_earlier": earlier,
+        "w_per_kg": w_per_kg(piece.avg_watts, weight_kg),
     }

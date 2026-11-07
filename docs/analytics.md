@@ -704,3 +704,111 @@ history, projected to the athlete's next A race (or 90 days out if none is set),
 statement about how confident the slope itself is. Refuses outright (returns `value: None`
 with an explanation) below 3 points rather than fitting a line through noise; the raw inputs
 are always listed alongside the number so it's checkable, not just trusted.
+
+## 25. Pieces (`catch/analytics/piece.py`, `catch/sync/piece.py`, `catch/coach/piece_vision.py`), session 17
+
+The task that opened this session called it "session 13" — continuing the repo's own
+numbering, same resolution sessions 8/12 used for an identical collision. A piece is a
+segment of a canonical activity (a 2k inside a longer steady-state row, a 30r20, etc) — a
+real `Piece` table, not another `overrides_json` tag like a confirmed test, because a piece
+has a real splits table, a window into the activity's own sample stream, and a possible later
+link to real Concept2 stroke data: more structure than a free-form dict should carry.
+
+**Two input methods, one review table.** Typed/pasted splits (`parse_splits_paste`, `m:ss[.t]
+[rate]` tokens separated by `/` or a newline) and a PM5 photo (`piece_vision.py`, mirroring
+`nutrition_vision.py`'s strict-tool-use vision call) both land on the same `splits` list and
+the same `validate_splits`/`aggregate_from_splits` functions. The photo path asks the model
+to transcribe the screen's own display *strings* (`"1:36.8"`), never to do time arithmetic
+itself — a model mis-adding m:ss.t values would otherwise silently corrupt a number this app
+then validates as if it were exact. `_normalize_splits` additionally handles two other real
+PM5 display shapes a screen can show instead of cumulative-distance/per-split-time: a
+per-split distance column (500, 500, 500, 500, repeated — cumulated), and a cumulative
+elapsed-time column (1:36.8, 3:15.7, …, recognized as strictly increasing with its last value
+close to the piece's own total — differenced into per-split durations).
+
+**Validation never silently corrects** (task's own words) — `validate_splits` checks the
+splits sum against the total time (±0.5s/row), the cumulative distance against the total
+(±max(1m×n, 0.5%)), each row's rate against a 14-50spm plausible range, and each row's watts
+against what its own split/distance implies via `erg_math.watts_from_pace` (tolerance
+max(2W, 1%) — PM5 watts are integers and splits are tenths, so a little rounding disagreement
+is expected, not a real mismatch). `create_piece`/`update_piece` return `(None, validation)`
+when a check fails and the caller didn't pass `force=true` — nothing is saved until the
+athlete has seen exactly which row disagreed and either fixes it or explicitly saves anyway.
+`update_piece`'s `distance_m`/`duration_s` are the *independent* total the athlete entered or
+the screen showed; omitting them keeps validating against the piece's existing total rather
+than re-deriving one from the very splits being edited, which would make the check pass
+trivially on every edit after the first (a real bug an advisor review caught).
+
+**Alignment** (`find_best_window`, Part D.1): auto-suggests the window (of the piece's own
+total time) whose average HR is highest in the containing activity's own sample stream — an
+O(n) prefix-sum scan, tie-broken toward more defined samples so a window that's mostly
+dropout overlapping a few real high readings never beats one backed by a full window of real
+data. A manual drag (the HR chart's own band + start handle, `HrChart.tsx`'s `pieceBands`/
+`onPieceDragEnd` props) re-runs the same window-application logic with an explicit start.
+Per-split HR is derived from the window on every align — but never overwrites a typed/photo
+HR (`hr_source: "typed"`) or one a Concept2 sync later supplied (`"concept2"`); only a row
+with no athlete-supplied reading gets a `"derived"` one, refreshed on every re-align rather
+than surviving stale from a previous window (another real bug an advisor review caught).
+
+**Refining, never adding, strain** (Part D.3): `power_member_and_samples`
+(`catch/sync/piece.py`, called from `canonical.py`'s `_resolve_zones` before `has_power` is
+computed) overlays each aligned piece's own per-split watts onto its window in the
+*zones/strain computation*, only where the real recording has no power there already — never
+a flat average over the whole window, and never outside the piece's own window. This exposed
+a real pre-existing gap: session 12's rowing branch computed `threshold_watts` (for the
+muscular-AU split) but never actually built `power_zones` the way the cycling branch does, so
+a rowing session's power-vs-HR zone label never had anything to read — moot before this
+session (zero Concept2 results in this real account means no rowing session ever had
+per-sample power), exposed the moment a piece supplies the first real power data a rowing
+session here can have. Fixed alongside this feature, same shape as the cycling branch.
+`strain_trimp` itself stays HR-Banister-based regardless of a piece's existence for rowing
+(no `cycling_tss`-equivalent branch here), so the exact same strain number before and after a
+piece is added is the whole no-double-counting guarantee, checked directly in
+`tests/test_piece_sync.py` rather than merely asserting "a number exists."
+
+**A confirmed piece feeds the rowing watts-2k threshold and predicted-2k ensemble**
+(`rowing_predict.py::recent_rower_pieces`, via `confirmed_piece_pace_candidates`) exactly like
+a real Concept2 result — this account's real history has zero Concept2 results (session 12's
+finding, still true), so without this the erg power-zone threshold above has nothing to draw
+from at all. Filtered by the *containing activity's* own date, not `Piece.created_at` (a
+piece typed in well after the fact, reviewing an old photo, is judged by when the effort
+happened). Excludes any piece Part D.4 already absorbed into a real Concept2 result, which is
+already counted via the normal Concept2 path.
+
+**Part D.4 — a later Concept2 sync wins, without corrupting the containing session.**
+`absorb_concept2_piece_results` (called from `catch/sync/matching.py::run_matching`, after
+the ordinary merge pass) covers two real shapes:
+
+1. *The PM5 result is the piece itself*, synced as its own small canonical — its duration
+   ratio against the much-longer parent fails `run_matching`'s `[0.8, 1.25]` candidate gate
+   on its own, so it never merges there. **Its `canonical_id` is never reassigned onto the
+   parent** — an earlier version of this absorb did that, and a second advisor review caught
+   that it silently corrupts the parent: `resolve_canonical`'s field priority puts Concept2
+   first for start/duration/distance and prefers it for HR too, so a 90-minute session's own
+   resolved fields would get overwritten by the absorbed 6-minute piece's. Instead, the short
+   result's own (otherwise-orphan) canonical gets `absorbed_into_piece_id` set and
+   `exclude_from_totals: true` in its overrides, and is left exactly where it is — filtered
+   out of `GET /api/activities` and the test-center's own-candidate detection by that
+   persisted column (never deleted, since it may carry user overrides — the
+   `_choose_surviving` precedent).
+2. *The PM5 ran the whole session* and the piece is one of its own interval splits — the
+   whole Concept2 result merged normally (same canonical as the piece already); this finds
+   which `Stroke.interval_index` group matches the piece's own distance/duration signature.
+
+Either way, `_splits_from_concept2` recomputes real per-split rate/watts/hr averages (not
+just real split times) by bucketing each stroke by its own cumulative time against the split
+boundaries `actual_splits` already computed — without this, an absorbed piece's splits kept
+real times but lost rate/watts/hr entirely, silently dropping the Part D.3 power-zone
+refinement the moment a piece got absorbed (the second advisor review's other finding). The
+typed/photo original is kept in `splits_json_fallback`. `piece_pb_candidates` and
+`confirmed_piece_pace_candidates` both exclude an absorbed piece (`concept2_activity_id` set)
+— the real Concept2 `Activity` row is already counted via the normal path once absorbed, so
+including the piece too would count the same effort twice.
+
+**Test center integration**: `erg_test.py::list_tests` now returns pieces as first-class rows
+alongside confirmed tests, each carrying `"kind": "piece"` and a `piece_id` (a piece's own
+`canonical_id` is the *containing* activity, not unique to the piece the way a confirmed
+test's canonical is — so `kind`/`piece_id` disambiguate which detail route a row's id
+resolves through). `GET /api/pieces/{id}/test-detail` is a separate route from `GET /api/
+tests/{canonical_id}` for exactly that reason. `GET /api/pbs` draws PB candidates from both
+real Concept2 `Activity` rows and confirmed pieces (again excluding an absorbed piece).

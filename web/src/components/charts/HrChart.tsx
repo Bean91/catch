@@ -29,6 +29,12 @@ function nearestPoint(points: SamplePoint[], targetS: number): SamplePoint | nul
   return best;
 }
 
+export interface PieceBand {
+  id: number;
+  startS: number;
+  endS: number;
+}
+
 export function HrChart({
   points,
   allPoints,
@@ -43,6 +49,9 @@ export function HrChart({
   onDomainChange,
   onDomainSettled,
   onResetDomain,
+  pieceBands,
+  selectedPieceId,
+  onPieceDragEnd,
 }: {
   points: SamplePoint[];
   /** Full-recording points (any resolution) used only to pick stable axis bounds, so the
@@ -59,6 +68,13 @@ export function HrChart({
   onDomainChange: (domain: Domain) => void;
   onDomainSettled?: (domain: Domain) => void;
   onResetDomain: () => void;
+  /** Session 17 (see PLAN.md Part D.1) — pieces aligned to this chart's own sample stream,
+   * shown as a shaded band. Only `selectedPieceId`'s band gets a drag handle at its start
+   * edge; the rest are shown read-only so a crowded session doesn't offer several
+   * simultaneous drag targets at once. */
+  pieceBands?: PieceBand[];
+  selectedPieceId?: number | null;
+  onPieceDragEnd?: (pieceId: number, startS: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidthPx, setContainerWidthPx] = useState(600 + PAD_X * 2);
@@ -90,6 +106,35 @@ export function HrChart({
 
   const width = plotWidthPx + PAD_X + padRight;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+
+  // Session 17 (see PLAN.md Part D.1) — dragging a piece's start handle. Live local state
+  // while the pointer moves, same live/settled split every other chart gesture here uses
+  // (DESIGN.md); onPieceDragEnd (a PATCH) only fires once, on release.
+  const dragRef = useRef<{ pieceId: number; pointerId: number; startClientX: number; originalStartS: number; durationS: number } | null>(null);
+  const [dragLiveStartS, setDragLiveStartS] = useState<number | null>(null);
+
+  const onHandlePointerDown = (band: PieceBand) => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    dragRef.current = { pieceId: band.id, pointerId: e.pointerId, startClientX: e.clientX, originalStartS: band.startS, durationS: band.endS - band.startS };
+    setDragLiveStartS(band.startS);
+  };
+  const onHandlePointerMove = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    e.stopPropagation();
+    const deltaS = ((e.clientX - drag.startClientX) / plotWidthPx) * (domain.max - domain.min);
+    setDragLiveStartS(Math.max(fullDomain.min, Math.min(fullDomain.max - drag.durationS, drag.originalStartS + deltaS)));
+  };
+  const onHandlePointerUp = (e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    e.stopPropagation();
+    const finalStart = dragLiveStartS ?? drag.originalStartS;
+    dragRef.current = null;
+    setDragLiveStartS(null);
+    onPieceDragEnd?.(drag.pieceId, Math.round(finalStart));
+  };
 
   const axisPoints = allPoints ?? points;
   const hrValues = axisPoints.map((p) => p.hr).filter((v): v is number => v != null);
@@ -179,6 +224,16 @@ export function HrChart({
             <line key={i} x1={x(lap.offset_s)} x2={x(lap.offset_s)} y1={PAD_TOP} y2={PAD_TOP + plotHeight} stroke="var(--text-secondary)" strokeWidth={1} strokeDasharray="2 2" opacity={0.6} />
           ))}
 
+          {(pieceBands ?? []).map((band) => {
+            const isDraggingThis = dragRef.current?.pieceId === band.id && dragLiveStartS != null;
+            const startS = isDraggingThis ? dragLiveStartS! : band.startS;
+            const endS = startS + (band.endS - band.startS);
+            const lo = Math.max(startS, domain.min);
+            const hi = Math.min(endS, domain.max);
+            if (hi <= lo) return null;
+            return <rect key={band.id} x={x(lo)} width={Math.max(x(hi) - x(lo), 0)} y={PAD_TOP} height={plotHeight} fill="var(--accent)" opacity={band.id === selectedPieceId ? 0.22 : 0.1} />;
+          })}
+
           {maxHrSetting != null && (
             <line x1={PAD_X} x2={PAD_X + plotWidthPx} y1={yHr(maxHrSetting)} y2={yHr(maxHrSetting)} stroke="var(--text-primary)" strokeWidth={1} strokeDasharray="4 3" opacity={0.6} />
           )}
@@ -234,6 +289,32 @@ export function HrChart({
           ))}
         </svg>
       </div>
+
+      {selectedPieceId != null &&
+        onPieceDragEnd &&
+        (() => {
+          const band = pieceBands?.find((b) => b.id === selectedPieceId);
+          if (!band) return null;
+          const isDraggingThis = dragRef.current?.pieceId === band.id && dragLiveStartS != null;
+          const startS = isDraggingThis ? dragLiveStartS! : band.startS;
+          const leftPx = x(startS);
+          return (
+            <div
+              role="slider"
+              aria-label="Drag to realign this piece's start"
+              aria-valuenow={Math.round(startS)}
+              tabIndex={0}
+              onPointerDown={onHandlePointerDown(band)}
+              onPointerMove={onHandlePointerMove}
+              onPointerUp={onHandlePointerUp}
+              onPointerCancel={onHandlePointerUp}
+              className="absolute flex w-11 -translate-x-1/2 touch-none cursor-ew-resize items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              style={{ left: leftPx, top: PAD_TOP, height: plotHeight }}
+            >
+              <div className="h-full w-0.5 rounded bg-accent" />
+            </div>
+          );
+        })()}
 
       {hoverPoint && (
         <div

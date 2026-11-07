@@ -19,6 +19,7 @@ from catch.api import (
     routes_illness,
     routes_notes,
     routes_nutrition,
+    routes_pieces,
     routes_push,
     routes_status,
     routes_sync,
@@ -95,6 +96,7 @@ app.include_router(routes_gym.router)
 app.include_router(routes_checkins.router)
 app.include_router(routes_illness.router)
 app.include_router(routes_tests.router)
+app.include_router(routes_pieces.router)
 app.include_router(routes_push.router)
 app.include_router(routes_status.router)
 

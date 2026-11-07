@@ -61,6 +61,8 @@ _NEW_COLUMNS = {
         # Session 14 (see PLAN.md Part C).
         "muscular_load_au": "REAL",
         "muscular_by_muscle_json": "TEXT",
+        # Session 17 (see PLAN.md Part D.4) — see the field's docstring in models.py.
+        "absorbed_into_piece_id": "INTEGER",
     },
     "daily_wellness": {
         # Session 13 (see PLAN.md Part A).

@@ -43,6 +43,20 @@ def recent_rower_pieces(session: Session, settings: dict) -> list[dict]:
                 "pace_s_per_500": pace,
                 "label": a.start.date().isoformat() if a.start else None,
             }
+
+    # Session 17 (see PLAN.md Part D.2): a typed/photo piece's distance/duration feeds the
+    # same bucket comparison — this real account has zero Concept2 results (session 12's
+    # finding, still true), so without this the erg power-zone threshold (and this very
+    # ensemble) never has anything to draw from at all. Excludes any piece Part D.4 already
+    # absorbed into a real Concept2 result, which is already counted via the branch above.
+    from catch.sync.piece import confirmed_piece_pace_candidates
+
+    for p in confirmed_piece_pace_candidates(session, cutoff):
+        bucket = round(p["distance_m"] / 250) * 250
+        pace = (p["duration_s"] / p["distance_m"]) * 500.0
+        existing = best_by_bucket.get(bucket)
+        if existing is None or pace < existing["pace_s_per_500"]:
+            best_by_bucket[bucket] = {"distance_m": p["distance_m"], "pace_s_per_500": pace, "label": p["label"]}
     return sorted(best_by_bucket.values(), key=lambda p: p["distance_m"])[-6:]
 
 

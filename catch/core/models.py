@@ -184,6 +184,20 @@ class CanonicalActivity(SQLModel, table=True):
     # catch/sync/scoring.py. Cached here at resolve time, same pattern as strain_trimp.
     muscular_load_au: Optional[float] = None
     muscular_by_muscle_json: Optional[str] = None
+    # Session 17 (see PLAN.md Part D.4) — set when a PM5-only Concept2 result (its own,
+    # otherwise-orphan canonical) gets absorbed into a piece on a *different* canonical,
+    # rather than merged into it. Merging would let this short recording's own
+    # duration/distance/HR win the containing session's resolved fields via the ordinary
+    # field-priority rule (catch/sync/canonical.py's _DEFAULT_PRIORITY puts Concept2 first),
+    # corrupting a 90-minute session down to a 6-minute one — a real bug an advisor review
+    # caught before this shipped. Left in place (never deleted — it may carry user overrides,
+    # same precedent as `_choose_surviving`) with `exclude_from_totals: true` in its own
+    # overrides so it drops out of totals/strain, and filtered out of `GET /api/activities`
+    # and the test-center's own-candidate detection by this column directly (a persisted
+    # column, not a Python-side overrides_json check, so GET /api/activities' pagination
+    # can't silently return a short page — see this column's sibling `category`'s docstring
+    # for the exact class of bug a Python-side post-filter risks).
+    absorbed_into_piece_id: Optional[int] = Field(default=None, foreign_key="pieces.id")
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
@@ -792,3 +806,73 @@ class NotificationLog(SQLModel, table=True):
     deep_link: Optional[str] = None
     sent_at: datetime = Field(default_factory=_utcnow)
     device_count: int = 0
+
+
+# --- Session 17 (see PLAN.md): pieces — a segment of a canonical activity, from a PM5 photo
+# or typed splits (the task that opened this session called it "session 13"; same renumbering
+# precedent as sessions 8/12) --------------------------------------------------------------
+
+
+class Piece(SQLModel, table=True):
+    """A segment of a `CanonicalActivity` — a 2k inside a longer steady-state row, a 30r20,
+    etc (task Part A.1). Deliberately its own table rather than another `overrides_json` tag
+    (erg_test.py's "test" pattern): a piece has a real splits table, a window into the
+    activity's own sample stream, and (session 17 Part D.4) a possible later link to real
+    Concept2 stroke data — far more structure than a free-form override dict should carry.
+
+    The photo itself lives in `PiecePhoto`, not here (see that table's docstring) — every
+    `select(Piece)` in this app (test-center listings, `resolve_all_canonicals`, coach/MCP
+    tool reads) must stay cheap, matching the Pi's 1GB-memory rule.
+    """
+
+    __tablename__ = "pieces"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    canonical_id: int = Field(foreign_key="canonical_activities.id", index=True)
+    piece_type: str  # one of catch/analytics/piece.py's PIECE_TYPES
+    distance_m: Optional[float] = None
+    duration_s: Optional[float] = None
+    avg_split_s: Optional[float] = None
+    avg_rate: Optional[float] = None
+    avg_watts: Optional[float] = None
+    drag_factor: Optional[int] = None
+    # [{"split_index", "distance_m" (cumulative, or None), "split_s", "rate", "watts", "hr"}, ...]
+    # — see catch/analytics/piece.py's module docstring for the exact row shape.
+    splits_json: str = "[]"
+    # "manual" (typed) | "photo" (PM5 photo, confirmed) | "concept2" (Part D.4 — a real
+    # Concept2 result later synced and was linked; splits_json was recomputed from its real
+    # stroke data, and the typed/photo original is kept in splits_json_fallback).
+    source: str = "manual"
+    # The window this piece occupies within one *member* Activity's own 1Hz sample stream
+    # (Part D) — None until aligned (task's auto-suggest, or a manual drag on the HR graph),
+    # or if that member has no samples to align against at all.
+    window_activity_id: Optional[int] = Field(default=None, foreign_key="activities.id")
+    window_start_s: Optional[int] = None
+    window_end_s: Optional[int] = None
+    # Part D.4 — set once a later Concept2 sync links real stroke data to this piece.
+    concept2_activity_id: Optional[int] = Field(default=None, foreign_key="activities.id")
+    concept2_interval_index: Optional[int] = None
+    splits_json_fallback: Optional[str] = None
+    # Part D.2 — derived once the piece is aligned to a sample window: {"UT2": seconds, ...}
+    # and the HR drop in the 60s after the piece ends. Not recomputed on every read (same
+    # cache-after-write precedent as CanonicalActivity.zones_json) — only on align/re-align.
+    time_in_zone_json: Optional[str] = None
+    hr_recovery_bpm: Optional[float] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class PiecePhoto(SQLModel, table=True):
+    """The PM5 photo a piece was read from (task Part B.4 — "keep the photo attached ... so I
+    can check it later; delete option"), kept in its own table (1:1 on `piece_id`) so every
+    ordinary `Piece` read never has to pull image bytes along with it — see `Piece`'s own
+    docstring. Served only by an authenticated GET; never sent to anything but the Anthropic
+    vision call that produced the parse."""
+
+    __tablename__ = "piece_photos"
+
+    piece_id: int = Field(foreign_key="pieces.id", primary_key=True)
+    content_type: str
+    image: bytes
+    created_at: datetime = Field(default_factory=_utcnow)

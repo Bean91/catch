@@ -8,12 +8,14 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { EmptyState, ErrorState } from "../components/ui/EmptyState";
 import { PacingPlanDialog } from "../components/tests/PacingPlanDialog";
+import { AddPieceDialog } from "../components/pieces/AddPieceDialog";
 import { PbTable } from "../components/workouts/PbTable";
 
 export function TestCenterPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<ErgTestType | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
+  const [addPieceOpen, setAddPieceOpen] = useState(false);
 
   const candidatesQuery = useQuery({ queryKey: ["test-candidates"], queryFn: fetchTestCandidates });
   const testsQuery = useQuery({ queryKey: ["tests", filter], queryFn: () => fetchTests(filter ?? undefined) });
@@ -39,13 +41,22 @@ export function TestCenterPage() {
           <h1 className="text-lg font-semibold text-text-primary">Test center</h1>
           <p className="text-sm text-text-tertiary">500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setPlanOpen(true)}
-          className="min-h-11 shrink-0 rounded-full border border-accent bg-accent px-4 text-sm font-medium text-accent-contrast"
-        >
-          Build pacing plan
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => setAddPieceOpen(true)}
+            className="min-h-11 rounded-full border border-border px-4 text-sm font-medium text-text-primary"
+          >
+            Add piece
+          </button>
+          <button
+            type="button"
+            onClick={() => setPlanOpen(true)}
+            className="min-h-11 rounded-full border border-accent bg-accent px-4 text-sm font-medium text-accent-contrast"
+          >
+            Build pacing plan
+          </button>
+        </div>
       </div>
 
       {candidatesQuery.data != null && candidatesQuery.data.length > 0 && (
@@ -125,12 +136,13 @@ export function TestCenterPage() {
           <div className="flex flex-col gap-2">
             {testsQuery.data.map((t) => (
               <Link
-                key={t.canonical_id}
-                to={`/tests/${t.canonical_id}`}
+                key={`${t.kind}-${t.piece_id ?? t.canonical_id}`}
+                to={t.kind === "piece" ? `/tests/piece/${t.piece_id}` : `/tests/${t.canonical_id}`}
                 className="flex items-center justify-between gap-2 rounded-md border border-border p-3 transition-colors hover:border-accent/40"
               >
                 <div className="text-sm text-text-primary">
                   {t.test_type} — {t.date ? formatShortDate(t.date) : "—"}
+                  {t.kind === "piece" && <span className="ml-2 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-text-tertiary">piece</span>}
                 </div>
                 <div className="font-mono-nums text-sm text-text-secondary">{formatDuration(t.duration_s)}</div>
               </Link>
@@ -140,6 +152,15 @@ export function TestCenterPage() {
       </Card>
 
       <PacingPlanDialog open={planOpen} onOpenChange={setPlanOpen} />
+      <AddPieceDialog
+        open={addPieceOpen}
+        onClose={() => setAddPieceOpen(false)}
+        onSaved={() => {
+          setAddPieceOpen(false);
+          queryClient.invalidateQueries({ queryKey: ["tests"] });
+          queryClient.invalidateQueries({ queryKey: ["pbs"] });
+        }}
+      />
     </div>
   );
 }

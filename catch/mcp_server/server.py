@@ -175,10 +175,31 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("get_tests", type=type)
 
     @mcp.tool()
-    async def get_test(id: int) -> dict:
+    async def get_test(id: Optional[int] = None, piece_id: Optional[int] = None) -> dict:
         """One erg test's full detail: pacing analysis vs. any saved plan, comparison to the
-        athlete's earlier test of the same type, and W/kg."""
-        return await _call("get_test", id=id)
+        athlete's earlier test of the same type, and W/kg. get_tests' rows carry a "kind" of
+        "test" or "piece" — pass that row's id for a test, or piece_id for a piece."""
+        return await _call("get_test", id=id, piece_id=piece_id)
+
+    @mcp.tool()
+    async def add_piece(
+        piece_type: Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+        canonical_id: Optional[int] = None,
+        text: Optional[str] = None,
+        splits: Optional[list[dict]] = None,
+        distance_m: Optional[float] = None,
+        duration_s: Optional[float] = None,
+        confirm: Optional[bool] = None,
+    ) -> dict:
+        """Add a piece (a segment of a workout, e.g. a 2k inside a longer row) from free text
+        like 'my 2k was 6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7' or a structured splits
+        list. Call once without confirm to preview the parsed table for the athlete to check,
+        then call again with the same data and confirm=true once they agree. canonical_id
+        defaults to the most recent workout."""
+        return await _call(
+            "add_piece", piece_type=piece_type, canonical_id=canonical_id, text=text, splits=splits,
+            distance_m=distance_m, duration_s=duration_s, confirm=confirm,
+        )
 
     @mcp.tool()
     async def make_pacing_plan(

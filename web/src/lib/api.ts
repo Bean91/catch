@@ -43,6 +43,16 @@ import {
   mockPacingPlan,
   mockPbs,
   mockPhotoEstimate,
+  mockPieces,
+  mockPieceTemplate,
+  mockPiecePhotoEstimate,
+  mockPieceTestDetail,
+  createMockPiece,
+  updateMockPiece,
+  deleteMockPiece,
+  alignMockPiece,
+  uploadMockPiecePhoto,
+  deleteMockPiecePhoto,
   mockProjection,
   mockRepeatLastWorkout,
   mockSavedMeals,
@@ -134,6 +144,11 @@ import type {
   PersonalBests,
   PhotoEstimateItem,
   PhotoEstimateResult,
+  CreatePieceResult,
+  Piece,
+  PiecePhotoEstimate,
+  PieceSplitRow,
+  PieceTestDetail,
   ProjectionResult,
   RepeatWorkoutPlanItem,
   SavedMealItem,
@@ -474,6 +489,121 @@ export async function makePacingPlan(body: {
 export async function fetchProjection(type: ErgTestType): Promise<ProjectionResult> {
   if (isMock) return delay(mockProjection(type));
   return request<ProjectionResult>(`/api/tests/projection?type=${encodeURIComponent(type)}`);
+}
+
+// --- Pieces (session 17 — see PLAN.md, the task called itself "session 13") -------------
+
+export async function fetchPieces(canonicalId: number): Promise<Piece[]> {
+  if (isMock) return delay(mockPieces(canonicalId));
+  const { pieces } = await request<{ pieces: Piece[] }>(`/api/activities/${canonicalId}/pieces`);
+  return pieces;
+}
+
+export async function fetchPieceTemplate(canonicalId: number, pieceType: ErgTestType, distanceM?: number, durationS?: number): Promise<PieceSplitRow[]> {
+  if (isMock) return delay(mockPieceTemplate(pieceType, distanceM, durationS));
+  const search = new URLSearchParams({ type: pieceType });
+  if (distanceM) search.set("distance_m", String(distanceM));
+  if (durationS) search.set("duration_s", String(durationS));
+  const { splits } = await request<{ splits: PieceSplitRow[] }>(`/api/activities/${canonicalId}/pieces/template?${search.toString()}`);
+  return splits;
+}
+
+export interface CreatePieceBody {
+  piece_type: ErgTestType;
+  splits: PieceSplitRow[];
+  distance_m?: number | null;
+  duration_s?: number | null;
+  drag_factor?: number | null;
+  source?: "manual" | "photo";
+  notes?: string | null;
+  force?: boolean;
+}
+
+export async function createPiece(canonicalId: number, body: CreatePieceBody): Promise<CreatePieceResult> {
+  if (isMock) return delay(createMockPiece(canonicalId, body), 200);
+  return request<CreatePieceResult>(`/api/activities/${canonicalId}/pieces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+// Multipart, like the nutrition photo-estimate — the only other upload this app does.
+export async function estimatePiecePhoto(canonicalId: number, photo: Blob): Promise<PiecePhotoEstimate> {
+  if (isMock) return delay(mockPiecePhotoEstimate(), 1200);
+  const form = new FormData();
+  form.append("photo", photo, "pm5.jpg");
+  const res = await fetch(`/api/activities/${canonicalId}/pieces/photo-estimate`, { method: "POST", credentials: "include", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, body.detail ?? res.statusText);
+  }
+  return res.json() as Promise<PiecePhotoEstimate>;
+}
+
+export interface UpdatePieceBody {
+  splits?: PieceSplitRow[];
+  distance_m?: number | null;
+  duration_s?: number | null;
+  notes?: string | null;
+  force?: boolean;
+}
+
+export async function updatePiece(pieceId: number, body: UpdatePieceBody): Promise<CreatePieceResult> {
+  if (isMock) return delay(updateMockPiece(pieceId, body), 200);
+  return request<CreatePieceResult>(`/api/pieces/${pieceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deletePiece(pieceId: number): Promise<void> {
+  if (isMock) {
+    deleteMockPiece(pieceId);
+    return delay(undefined, 150);
+  }
+  await request(`/api/pieces/${pieceId}`, { method: "DELETE" });
+}
+
+export async function alignPiece(pieceId: number, activityId?: number, startS?: number): Promise<Piece> {
+  if (isMock) return delay(alignMockPiece(pieceId, activityId, startS), 150);
+  return request<Piece>(`/api/pieces/${pieceId}/align`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activity_id: activityId, start_s: startS }),
+  });
+}
+
+export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ has_photo: true }> {
+  if (isMock) return delay(uploadMockPiecePhoto(pieceId), 400);
+  const form = new FormData();
+  form.append("photo", photo, "pm5.jpg");
+  const res = await fetch(`/api/pieces/${pieceId}/photo`, { method: "POST", credentials: "include", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, body.detail ?? res.statusText);
+  }
+  return res.json() as Promise<{ has_photo: true }>;
+}
+
+export function piecePhotoUrl(pieceId: number): string {
+  return `/api/pieces/${pieceId}/photo`;
+}
+
+export async function deletePiecePhoto(pieceId: number): Promise<void> {
+  if (isMock) {
+    deleteMockPiecePhoto(pieceId);
+    return delay(undefined, 150);
+  }
+  await request(`/api/pieces/${pieceId}/photo`, { method: "DELETE" });
+}
+
+export async function fetchPieceTestDetail(pieceId: number): Promise<PieceTestDetail> {
+  if (isMock) return delay(mockPieceTestDetail(pieceId));
+  return request<PieceTestDetail>(`/api/pieces/${pieceId}/test-detail`);
 }
 
 // --- Settings --------------------------------------------------------------

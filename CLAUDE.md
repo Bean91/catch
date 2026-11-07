@@ -42,7 +42,12 @@ catch/
                 Settings → Status page's one call: per-source sync health, Garmin key
                 expiry, backup status (reads backups/status.json, written by
                 deploy/backup.sh — null on any instance that's never backed up), disk/DB
-                size, uptime, build)
+                size, uptime, build; session 17: routes_pieces.py — add/list/update/delete a
+                piece, its photo-estimate/upload/serve/delete, align (auto or a manual drag
+                from the HR graph), and POST /api/pieces/parse-paste; routes_tests.py gained
+                GET /api/pieces/{piece_id}/test-detail, a separate route from GET /api/tests/
+                {canonical_id} since a piece's own canonical_id is the *containing* activity,
+                not unique to the piece)
   core/         SQLModel models, config, db, security; session 16: healthchecks.py (the
                 sync dead-man's-switch ping), uptime.py (process-start timestamp, its own
                 module so routes_status.py can import it without a main.py cycle)
@@ -84,7 +89,15 @@ catch/
                 `sleepEndTimestampLocal` — see docs/garmin-endpoints.md's gotcha on why
                 that field, unlike its GMT sibling, isn't a real UTC instant);
                 scheduler.py gained check_notifications (the 10-minute job driving all
-                five catch/notify/triggers.py checks)
+                five catch/notify/triggers.py checks); session 17: piece.py (the DB-facing
+                half of pieces — create/update/delete, auto/manual alignment against a
+                member's own sample stream, the Part D.3 power overlay
+                power_member_and_samples called from canonical.py's _resolve_zones, and Part
+                D.4's absorb_concept2_piece_results, called from matching.py's run_matching);
+                matching.py gained that absorb call; canonical.py gained the rowing
+                power-zone-label branch the power overlay exposed was missing;
+                rowing_predict.py's recent_rower_pieces now also draws from confirmed pieces,
+                not just real Concept2 results
   analytics/    recovery/strain/load/zones/predict/technique — pure functions, no I/O;
                 session 8/12: matching.py (sport_family/is_indoor/match_pair — the pure
                 scoring half of cross-source matching), cycling_load.py (TSS-style power
@@ -103,7 +116,12 @@ catch/
                 (test-type auto-detect, pacing-plan generation, pacing analysis, trend
                 projection — §24); session 16: wake_time.py (one pure function — a plain
                 arithmetic mean over a trailing window of wake_time_minutes samples, the
-                morning-brief notification's send-time baseline)
+                morning-brief notification's send-time baseline); session 17: piece.py
+                (PIECE_TYPES, split template generation, validate_splits/
+                aggregate_from_splits, the watts<->split formula, paste parsing, and
+                find_best_window — the O(n) highest-average-HR window scan for auto-align —
+                §25); zones_samples.py gained hr_recovery_drop, shared with the per-lap HR
+                recovery routes_analytics.py already had
   coach/        tools.py (the ONE shared tool registry — in-app coach, MCP server, and
                 GET/POST /api/coach/tools all call catch.coach.tools.call_tool, never
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
@@ -123,7 +141,15 @@ catch/
                 saves to the athlete's next upcoming event by default); get_today's existing
                 payload (not a new tool) now also carries today's check-in/niggle flag and
                 the illness early-warning level, and the per-turn memory block
-                (memory.py::memory_block) surfaces both unprompted
+                (memory.py::memory_block) surfaces both unprompted; session 17:
+                piece_vision.py (one-shot Anthropic vision call reading a PM5 photo into a
+                piece draft — every time value comes back as the screen's own display
+                string, parsed server-side rather than trusted to the model's arithmetic;
+                `_normalize_splits` handles two other real PM5 display shapes); tools.py
+                gained add_piece (free text or structured splits, preview-then-confirm like
+                merge_activities/log_strength); get_test's `id` param is now optional
+                alongside a new `piece_id` param, since get_tests' rows carry a "kind" of
+                "test" or "piece"
   notify/       session 16 (see PLAN.md Part A/B): push.py (Web Push from scratch —
                 py-vapid + http-ece + httpx directly, not the full pywebpush package, which
                 transitively pulls in requests+aiohttp for a .send() this app never calls;
@@ -131,7 +157,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 27 tools + 2 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 28 tools + 2 prompts, built once, shared by both
                 transports), backend.py (RestBackend for stdio -> HTTP with a device
                 token; InProcessBackend for the /mcp mount, which dispatches straight into
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py
@@ -158,7 +184,12 @@ web/
                 zoom buttons removed" note; pan/pinch/press-hold run through the shared
                 lib/useChartInteraction.ts hook against `touch-action: none` HTML wrapper divs,
                 never the `<svg>` itself — WebKit's touch-action support on SVG root elements
-                has real gaps, see DESIGN.md's "Chart touch-action" note), shell/ (AppShell,
+                has real gaps, see DESIGN.md's "Chart touch-action" note; session 17: HrChart
+                gained a pieceBands/selectedPieceId/onPieceDragEnd prop trio — a piece's
+                window as a shaded accent-hue band, plus a drag handle (a sibling absolutely-
+                positioned div, not inside the chart's own SVG, so it never fights
+                useChartInteraction's own pointer claim on the surface) at its start edge —
+                see DESIGN.md's "Adding a piece" note), shell/ (AppShell,
                 Sidebar, BottomNav, UpdateToast — the "New version — tap to reload" banner),
                 coach/ (Timeline, ToolCallChip, SuggestedPrompts, CoachSettingsCard),
                 nutrition/ (session 13: AddFoodDialog — search/My-Foods/saved-meals quick
@@ -188,7 +219,14 @@ web/
                 session 16: settings/NotificationsCard (enable/disable push on this device,
                 per-device list + test-send, per-type toggles, quiet hours — detects "iOS
                 Safari, not installed to home screen" and says so rather than showing a
-                button that can't work there)
+                button that can't work there);
+                pieces/ (session 17: AddPieceDialog — one dialog, a branching first step
+                (an activity picker, only when opened from the test center) then photo-or-
+                typed entry, both ending at the same SplitsReviewTable; TimeInput — the
+                m:ss.t digit-entry field, since iOS's numeric keyboard has no colon, see
+                DESIGN.md; SplitsReviewTable — shared by AddPieceDialog and PieceCard's own
+                edit mode, highlights exactly the rows validate_splits flagged; PieceCard —
+                a piece's summary on workout detail: splits, edit, delete, view/delete photo)
     lib/        api.ts (fetch + mock switch; streamMessage() parses the coach's SSE body by
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
@@ -234,7 +272,19 @@ web/
                 enablePush()'s Notification.requestPermission()-first-in-the-tap-handler
                 ordering — see docs/notifications.md); api.ts/mock.ts/types.ts gained the
                 push-subscription/status functions and AppStatus/PushSubscriptionRow types;
-                format.ts gained formatBytes/formatUptime
+                format.ts gained formatBytes/formatUptime; session 17: pieceSplits.ts (a TS
+                port of catch/analytics/piece.py's pure functions — PIECE_TYPES, split
+                templates, validate_splits/aggregate_from_splits, the watts<->split formula,
+                paste parsing — same "duplicated, not shared" precedent as equipment.ts, for
+                live validation with zero network; its paste parser shares a test-vector
+                fixture, tests/fixtures/pieces/paste_vectors.json, with the Python one so
+                they can't silently drift), image.ts (resizeImage(), pulled out of
+                PhotoEstimateDialog so AddPieceDialog's photo tab can reuse the same ~1500px
+                JPEG downscale); api.ts/mock.ts/types.ts gained the piece CRUD/photo-
+                estimate/align functions and Piece/PieceSplitRow/PieceTestDetail/
+                PiecePhotoEstimate types; ErgTestSummary and PbEntry both gained a
+                `kind`/`piece_id` (PbEntry: just `piece_id`) so a row can resolve to either a
+                confirmed test's or a piece's own detail route
     pages/      Today.tsx (eager); Workouts (session 8/12: a Select mode for bulk retype/
                 tag/exclude-from-totals, links to Duplicates), Duplicates (the flagged-
                 possible-duplicate-pairs review screen, merge/not-duplicate actions),
@@ -261,7 +311,14 @@ web/
                 so the sync_broken/garmin_key_expiring push notifications' deep links have
                 somewhere operational to point at — no bottom-nav slot, same
                 Duplicates/Tests pattern, reached via a "Status" link on Settings' Connected
-                sources card) (React.lazy,
+                sources card); session 17: WorkoutDetail gained a "Pieces" card (list +
+                "Add piece" + per-piece selection, wired to HrChart's new drag handle) and
+                TestCenter gained an "Add piece" entry point (AddPieceDialog with its
+                activity-picker first step) plus a "piece" badge on piece rows in the
+                confirmed-tests list; PieceTestDetail (`/tests/piece/:id` — the piece
+                equivalent of TestDetail, a separate route since a piece's own canonical_id
+                is the *containing* activity; pacing chart + the embedded PieceCard for
+                edit/delete/photo) (React.lazy,
                 one chunk per route — keeps the initial bundle under budget)
     styles/     tokens.css — design tokens as CSS vars, see /DESIGN.md
   public/       manifest.webmanifest, icons/ (generated, see /DESIGN.md); sw.js is NOT
@@ -275,8 +332,16 @@ tests/          fixtures/ has recorded JSON; no live network calls in the suite;
                 keypair, not just a mocked HTTP call) and the five trigger types' gating
                 logic (session 16); coach/ has
                 the tool-layer, chat-loop, and provider tests (Anthropic client mocked,
-                Ollama mocked via httpx.MockTransport). `web/` has its own test trees:
-                `web/src/**/*.test.ts` (Vitest, pure-function unit tests, e.g. chartRange.ts) and
+                Ollama mocked via httpx.MockTransport), plus (session 17) piece_vision.py's
+                fake-anthropic-module tests (screen-shape normalization, server-side
+                validation); test_piece_sync.py/test_piece_test_center.py/test_api_pieces.py
+                (session 17) cover the alignment fixture, the Part D.3 strain-unchanged
+                guarantee, and the Part D.4 absorb (a fixture with real Stroke rows,
+                asserting the parent canonical's duration/strain survive untouched — the
+                exact bug a second advisor review caught). `web/` has its own test trees:
+                `web/src/**/*.test.ts` (Vitest, pure-function unit tests, e.g. chartRange.ts,
+                and session 17's pieceSplits.test.ts, which also runs the shared
+                tests/fixtures/pieces/paste_vectors.json vectors) and
                 `web/tests/touch/` (Playwright, real touch-device gesture regression tests —
                 `playwright.config.ts` runs a Chromium+iPhone-profile project driven via CDP
                 multi-touch, since Playwright's own WebKit bindings only support a single tap
@@ -311,7 +376,9 @@ docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 endpoint and why it's opt-in (`include_off`) rather than part of the
                 debounced as-you-type search box), notifications.md (session 16: the five
                 push notification types' exact trigger/dedup/deep-link rules, the Web Push
-                implementation, GET /api/status's fields, the off-Pi backup design)
+                implementation, GET /api/status's fields, the off-Pi backup design);
+                analytics.md §25 (session 17): piece validation/alignment/strain-refinement/
+                Part D.4 absorb — see that section for the full writeup
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
 

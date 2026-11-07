@@ -40,6 +40,11 @@ import type {
   PacingStyle,
   PersonalBests,
   PhotoEstimateResult,
+  Piece,
+  PieceSplitRow,
+  PieceTestDetail,
+  PieceValidation,
+  PiecePhotoEstimate,
   ProjectionResult,
   PushSubscriptionRow,
   AppStatus,
@@ -75,6 +80,7 @@ import type {
 } from "./types";
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
+import { aggregateFromSplits, defaultSplits, validateSplits } from "./pieceSplits";
 
 // "illness_watch"/"illness_likely" (session 15 Part B): not in the task's own fixture list,
 // added so the illness card's two non-"none" states have somewhere to screenshot/test from
@@ -721,6 +727,8 @@ const CANDIDATE_CANONICAL_ID = MOCK_WORKOUTS[2].id;
 
 function workoutToTestSummary(w: WorkoutListItem): ErgTestSummary {
   return {
+    kind: "test",
+    piece_id: null,
     canonical_id: w.id,
     activity_id: w.sources[0]?.activity_id ?? w.id,
     test_type: (w.test_type as ErgTestType) ?? null,
@@ -731,6 +739,24 @@ function workoutToTestSummary(w: WorkoutListItem): ErgTestSummary {
     avg_power: w.avg_power,
     avg_stroke_rate: w.avg_cadence,
     avg_hr: w.avg_hr,
+  };
+}
+
+function pieceToTestSummary(p: Piece): ErgTestSummary {
+  const w = MOCK_WORKOUTS.find((x) => x.id === p.canonical_id);
+  return {
+    kind: "piece",
+    piece_id: p.id,
+    canonical_id: p.canonical_id,
+    activity_id: null,
+    test_type: p.piece_type,
+    title: w?.title ?? null,
+    date: w?.start ? w.start.slice(0, 10) : null,
+    distance_m: p.distance_m,
+    duration_s: p.duration_s,
+    avg_power: p.avg_watts,
+    avg_stroke_rate: p.avg_rate,
+    avg_hr: p.splits.find((s) => s.hr != null)?.hr ?? null,
   };
 }
 
@@ -752,9 +778,9 @@ export function mockTestCandidates(): ErgTestCandidate[] {
 }
 
 export function mockTests(type?: ErgTestType): ErgTestSummary[] {
-  return MOCK_WORKOUTS.filter((w) => (w.tags ?? []).includes("test") && (!type || w.test_type === type))
-    .map(workoutToTestSummary)
-    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+  const confirmed = MOCK_WORKOUTS.filter((w) => (w.tags ?? []).includes("test") && (!type || w.test_type === type)).map(workoutToTestSummary);
+  const pieces = MOCK_PIECES.filter((p) => !type || p.piece_type === type).map(pieceToTestSummary);
+  return [...confirmed, ...pieces].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
 }
 
 function mockEvenSplits(distanceM: number, totalS: number, n: number): { split_index: number; distance_m: number; actual_split_s: number; actual_cum_s: number }[] {
@@ -805,6 +831,185 @@ export function mockTestDetail(id: number): ErgTestDetail {
     },
     compare_to_earlier: earlier,
     w_per_kg: w.avg_power ? w.avg_power / 79 : null,
+  };
+}
+
+// --- Session 17 (see PLAN.md — the task called itself "session 13"): pieces ---------------
+
+const TASK_2K_SPLITS: PieceSplitRow[] = [
+  { split_index: 1, distance_m: 500, split_s: 96.8, rate: 32, watts: 221, hr: 168, hr_source: "derived" },
+  { split_index: 2, distance_m: 1000, split_s: 98.9, rate: 30, watts: 209, hr: 174, hr_source: "derived" },
+  { split_index: 3, distance_m: 1500, split_s: 99.0, rate: 31, watts: 208, hr: 177, hr_source: "derived" },
+  { split_index: 4, distance_m: 2000, split_s: 97.7, rate: 32, watts: 213, hr: 180, hr_source: "derived" },
+];
+
+// Attached to a real on-water row (index 5: bucket 0, Garmin-sourced, ~30min, has HR
+// samples) — long enough to plausibly contain a 2k piece, Garmin-only so there's no PM5 data
+// already captured (the realistic case a typed/photo piece actually fills in), and not one
+// of the two workouts already tagged as a standalone confirmed test above, so the demo shows
+// both features coexisting rather than looking like the same thing twice.
+const PIECE_HOST_CANONICAL_ID = MOCK_WORKOUTS[5].id;
+
+const MOCK_PIECES: Piece[] = [
+  {
+    id: 1,
+    canonical_id: PIECE_HOST_CANONICAL_ID,
+    piece_type: "2000m",
+    distance_m: 2000,
+    duration_s: 392.4,
+    avg_split_s: 98.1,
+    avg_rate: 31.25,
+    avg_watts: 212.75,
+    drag_factor: 118,
+    splits: TASK_2K_SPLITS,
+    source: "manual",
+    window_activity_id: MOCK_WORKOUTS[5].sources[0]?.activity_id ?? PIECE_HOST_CANONICAL_ID,
+    window_start_s: 1180,
+    window_end_s: 1572,
+    concept2_activity_id: null,
+    time_in_zone: { UT2: 0, UT1: 0, AT: 40, TR: 180, AN: 172 },
+    hr_recovery_bpm: 22,
+    notes: null,
+    has_photo: false,
+    created_at: shiftDate(TODAY, -3),
+  },
+];
+let nextMockPieceId = MOCK_PIECES.length + 1;
+
+export function mockPieces(canonicalId: number): Piece[] {
+  return MOCK_PIECES.filter((p) => p.canonical_id === canonicalId);
+}
+
+export function mockPieceTemplate(pieceType: ErgTestType, distanceM?: number, durationS?: number): PieceSplitRow[] {
+  return defaultSplits(pieceType, distanceM, durationS);
+}
+
+export function createMockPiece(
+  canonicalId: number,
+  body: { piece_type: ErgTestType; splits: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; drag_factor?: number | null; source?: string; notes?: string | null; force?: boolean },
+): { piece: Piece | null; validation: PieceValidation } {
+  const agg = aggregateFromSplits(body.splits);
+  const distance = body.distance_m ?? agg.distance_m;
+  const duration = body.duration_s ?? agg.duration_s;
+  const validation = validateSplits(body.splits, distance, duration);
+  if (!validation.ok && !body.force) return { piece: null, validation };
+
+  const piece: Piece = {
+    id: nextMockPieceId++,
+    canonical_id: canonicalId,
+    piece_type: body.piece_type,
+    distance_m: distance,
+    duration_s: duration,
+    avg_split_s: agg.avg_split_s,
+    avg_rate: agg.avg_rate,
+    avg_watts: agg.avg_watts,
+    drag_factor: body.drag_factor ?? null,
+    splits: body.splits,
+    source: (body.source as Piece["source"]) ?? "manual",
+    window_activity_id: MOCK_WORKOUTS.find((w) => w.id === canonicalId)?.sources[0]?.activity_id ?? null,
+    window_start_s: 60,
+    window_end_s: duration ? 60 + Math.round(duration) : null,
+    concept2_activity_id: null,
+    time_in_zone: null,
+    hr_recovery_bpm: null,
+    notes: body.notes ?? null,
+    has_photo: false,
+    created_at: new Date().toISOString(),
+  };
+  MOCK_PIECES.push(piece);
+  return { piece, validation };
+}
+
+export function updateMockPiece(
+  pieceId: number,
+  body: { splits?: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; notes?: string | null; force?: boolean },
+): { piece: Piece | null; validation: PieceValidation } {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId);
+  if (!piece) return { piece: null, validation: { ok: false, issues: [] } };
+  if (body.splits) {
+    const targetDistance = body.distance_m ?? piece.distance_m;
+    const targetDuration = body.duration_s ?? piece.duration_s;
+    const validation = validateSplits(body.splits, targetDistance, targetDuration);
+    if (!validation.ok && !body.force) return { piece: null, validation };
+    const agg = aggregateFromSplits(body.splits);
+    piece.splits = body.splits;
+    piece.distance_m = targetDistance ?? agg.distance_m;
+    piece.duration_s = targetDuration ?? agg.duration_s;
+    piece.avg_split_s = agg.avg_split_s;
+    piece.avg_rate = agg.avg_rate;
+    piece.avg_watts = agg.avg_watts;
+    if (body.notes !== undefined) piece.notes = body.notes;
+    return { piece, validation };
+  }
+  if (body.notes !== undefined) piece.notes = body.notes;
+  return { piece, validation: { ok: true, issues: [] } };
+}
+
+export function deleteMockPiece(pieceId: number): boolean {
+  const idx = MOCK_PIECES.findIndex((p) => p.id === pieceId);
+  if (idx < 0) return false;
+  MOCK_PIECES.splice(idx, 1);
+  return true;
+}
+
+export function alignMockPiece(pieceId: number, activityId?: number, startS?: number): Piece {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId) ?? MOCK_PIECES[0];
+  const start = startS ?? piece.window_start_s ?? 0;
+  piece.window_activity_id = activityId ?? piece.window_activity_id;
+  piece.window_start_s = start;
+  piece.window_end_s = piece.duration_s ? start + Math.round(piece.duration_s) : null;
+  return piece;
+}
+
+export function uploadMockPiecePhoto(pieceId: number): { has_photo: true } {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId);
+  if (piece) piece.has_photo = true;
+  return { has_photo: true };
+}
+
+export function deleteMockPiecePhoto(pieceId: number): boolean {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId);
+  if (!piece || !piece.has_photo) return false;
+  piece.has_photo = false;
+  return true;
+}
+
+export function mockPiecePhotoEstimate(): PiecePhotoEstimate {
+  return {
+    splits: TASK_2K_SPLITS.map((s) => ({ ...s, hr: null, hr_source: null })),
+    distance_m: 2000,
+    duration_s: 392.4,
+    avg_split_s: 98.1,
+    avg_rate: 31.25,
+    avg_watts: 212.75,
+    drag_factor: 118,
+    validation: { ok: true, issues: [] },
+    notes: "Drag factor read off the screen; HR not shown on this display mode.",
+    cost_usd: 0.012,
+  };
+}
+
+export function mockPieceTestDetail(pieceId: number): PieceTestDetail {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId) ?? MOCK_PIECES[0];
+  const splits = piece.splits;
+  const points = splits.map((s, i) => ({ distance_cum: s.distance_m, t_cum: splits.slice(0, i + 1).reduce((a, x) => a + (x.split_s ?? 0), 0) }));
+  const evenSplit = (piece.duration_s ?? 0) / splits.length;
+  const worst = splits.reduce((a, s) => ((s.split_s ?? 0) > (a.split_s ?? 0) ? s : a), splits[0]);
+  return {
+    activity: mockWorkoutDetail(piece.canonical_id),
+    piece,
+    test_type: piece.piece_type,
+    plan: null,
+    pacing_analysis: {
+      splits: splits.map((s, i) => ({ split_index: s.split_index, distance_m: s.distance_m ?? 0, actual_split_s: s.split_s, actual_cum_s: points[i].t_cum })),
+      even_split_s: evenSplit,
+      segments: { start: splits[0]?.split_s ?? null, middle_1000: splits.length > 2 ? splits[1].split_s : null, sprint: splits[splits.length - 1]?.split_s ?? null },
+      deviation_from_even_pct: 2.2,
+      worst_split_vs_even: { split_index: worst.split_index, seconds_lost_vs_even: (worst.split_s ?? 0) - evenSplit },
+      vs_plan: null,
+    },
+    compare_to_earlier: null,
+    w_per_kg: piece.avg_watts ? piece.avg_watts / 79 : null,
   };
 }
 
@@ -1137,6 +1342,7 @@ export function mockVolume(weeks: number): VolumeWeek[] {
 export function mockPbs(): PersonalBests {
   const entry = (distance: number, pace: number, daysAgo: number): PbEntryLike => ({
     activity_id: 1,
+    piece_id: null,
     date: shiftDate(TODAY, -daysAgo),
     distance_m: distance,
     duration_s: (distance / 500) * pace,
@@ -1145,10 +1351,13 @@ export function mockPbs(): PersonalBests {
   return {
     "500m": entry(500, 92.0, 40),
     "1000m": entry(1000, 95.5, 120),
-    "2000m": entry(2000, 98.4, 10),
+    // The 2k PB is the piece itself (task Part A.1 — "pieces count ... like Concept2
+    // results"), not a separate standalone result, so this demonstrates piece_id's real
+    // navigation target rather than always being null.
+    "2000m": { activity_id: PIECE_HOST_CANONICAL_ID, piece_id: MOCK_PIECES[0].id, date: MOCK_PIECES[0].created_at.slice(0, 10), distance_m: 2000, duration_s: 392.4, pace_s_per_500: 98.1 },
     "5000m": entry(5000, 104.2, 60),
     "6000m": null,
-    "30min": { activity_id: 1, date: shiftDate(TODAY, -200), distance_m: 8300, duration_s: 1800, pace_s_per_500: null },
+    "30min": { activity_id: 1, piece_id: null, date: shiftDate(TODAY, -200), distance_m: 8300, duration_s: 1800, pace_s_per_500: null },
     "60min": null,
   };
 }

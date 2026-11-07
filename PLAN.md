@@ -2935,3 +2935,190 @@ The task's own quality bar asks for live checks this environment cannot complete
 - **The actual Pi deployment** — `./deploy.sh`, after the two steps above (or without them;
   both are optional and no-op cleanly) and after copying this session's new `VAPID_*`/
   `HEALTHCHECKS_*`/`NTFY_TOPIC`/`BACKUP_SCP_TARGET` keys into `/var/lib/catch/catch.env`.
+
+## Session 17 checklist
+
+The task that opened this session called itself "session 13" — PLAN.md's own numbering
+already used that number (nutrition), so this continues the file's own sequence instead, the
+same resolution sessions 8 and 12 used for an identical collision.
+
+Adding a piece (a segment of a canonical activity — a 2k inside a longer steady-state row, a
+30r20, etc.) from a photo of the PM5 screen or typed/pasted splits, both ending in the same
+editable review table that never silently "corrects" a bad reading.
+
+- [x] **Part A — pieces**: new `Piece`/`PiecePhoto` tables (`catch/core/models.py`; the photo
+      lives in its own 1:1 table so an ordinary `select(Piece)` — test-center listings,
+      `resolve_all_canonicals`, coach/MCP reads — never has to pull image bytes along with
+      it). `catch/analytics/piece.py` (pure): `PIECE_TYPES` reuses `TEST_TYPES`'/
+      `TEST_SPECS`' exact vocabulary, `default_splits` (piece-type-aware templates),
+      `validate_splits` (table-level time/distance-sum checks + per-row rate-plausibility and
+      watts-vs-split-implied checks, via `erg_math.watts_from_pace`), `aggregate_from_splits`,
+      `parse_time_token`/`parse_splits_paste` (paste support), `find_best_window` (Part D.1's
+      auto-align scan). `catch/sync/piece.py` is the DB-facing half — create/update/delete,
+      alignment, the Part D.3 power overlay, and Part D.4's Concept2 absorb (see below).
+- [x] **Part B — photo**: `catch/coach/piece_vision.py` mirrors `nutrition_vision.py`'s
+      strict-tool-use vision call (auto `tool_choice`, never forced — several current models
+      400 on forced tool use), with one deliberate difference: every time value comes back as
+      the screen's **own display string** (`"1:36.8"`), parsed into seconds in Python, never
+      trusted to the model's own arithmetic. `_normalize_splits` handles two other real PM5
+      display shapes a screen can show instead of cumulative-distance/per-split-time: a
+      per-split distance column (500, 500, 500, 500 — cumulated) and a cumulative-elapsed-time
+      column (recognized as strictly increasing with its last value close to the piece's own
+      total — differenced). Validated server-side in the estimate response itself (task Part
+      B.3's "validate before showing"), not only on save. The photo is attached to the piece
+      only after the athlete confirms (`POST /api/pieces/{id}/photo`), hidden behind the same
+      `anthropic_key.configured` check Nutrition's photo-estimate entry point already uses.
+- [x] **Part C — typed splits**: `parse_splits_paste`/its TS mirror (`m:ss[.t] [rate]` tokens
+      separated by `/` or a newline — matches the task's own example exactly), a shared
+      pytest/Vitest test-vector fixture (`tests/fixtures/pieces/paste_vectors.json`) so the two
+      parsers can't silently drift, and `TimeInput.tsx` — digit entry with auto-format
+      (typing "1382" renders "1:38.2") since iOS's numeric keyboard has no colon.
+- [x] **Part D — lining the piece up with the watch data**: `find_best_window` auto-suggests
+      the window (an O(n) prefix-sum scan over the containing activity's own HR samples,
+      tie-broken toward more defined data) whose average HR is highest; a manual drag on the
+      HR graph's new band + start handle (`HrChart.tsx`) re-aligns explicitly. Per-split HR is
+      derived on every align but never overwrites a typed/photo/Concept2-sourced reading
+      (`hr_source` tagging). `power_member_and_samples` (called from `canonical.py`'s
+      `_resolve_zones`, before `has_power` is computed) overlays each aligned piece's own
+      per-split watts onto its window in the zones/strain pipeline — never a flat average,
+      never outside the window — refining, not adding to, the activity's strain (verified
+      directly: `strain_trimp` is byte-identical with and without the piece, since rowing
+      strain stays HR-Banister-based regardless; the piece only refines the power-zone label
+      and the muscular-load split). A later Concept2 sync wins over the typed/photo fallback
+      (`absorb_concept2_piece_results`, run from `matching.py`'s `run_matching`) — see the bug
+      log below for the real fix this needed.
+- [x] **Part E — coach + MCP**: `add_piece` tool (free text like "my 2k was 6:32.4, splits
+      1:36.8, 1:38.9, 1:39.0, 1:37.7" or structured splits, preview-then-`confirm=true` like
+      `merge_activities`/`log_strength`; defaults to the most recent activity when no
+      `canonical_id` given). `get_tests`/`get_test` now include pieces: every `get_tests` row
+      carries a `"kind"` of `"test"` or `"piece"` (a piece's own `canonical_id` is the
+      *containing* activity, not unique to the piece the way a confirmed test's canonical is),
+      and `get_test` takes either `id` (a test) or `piece_id` (a piece) to dispatch to the
+      right detail. MCP tool count 27 -> 28 (`docs/mcp.md`).
+- [x] **Test center integration**: pieces are first-class rows in `list_tests`/`GET /api/
+      tests`, a piece PB counts in `GET /api/pbs` exactly like a standalone Concept2 result,
+      and `GET /api/pieces/{id}/test-detail` is a separate route from `GET /api/tests/
+      {canonical_id}` (same reason as the `kind`/`piece_id` split above). Frontend: a new
+      `/tests/piece/:id` page (`PieceTestDetail.tsx`), an "Add piece" entry point on both
+      Workout detail and the test center (the latter gaining an activity-picker first step
+      `AddPieceDialog` doesn't need when it already knows which workout), and `PbTable`
+      navigating to the right detail route per entry.
+- [x] Tests: 42 new backend tests (664 total, `uv run pytest` all green) — split/total
+      validation and the task's own exact worked example as a fixture
+      (`tests/analytics/test_piece.py`), the warm-up/piece/cool-down alignment fixture (mirrors
+      session 12's own fixture shape), the strain-unchanged-with-and-without-the-piece
+      guarantee checked directly (not just "a number exists"), the Part D.4 absorb with real
+      `Stroke` rows (asserting the *parent* canonical's duration/strain survive byte-identical
+      — the exact corruption a second advisor review caught), paste parsing, and the vision
+      call's screen-shape normalization + server-side validation (`tests/coach/
+      test_piece_vision.py`, a fake `anthropic` module like `test_nutrition_vision.py`). 17
+      new Vitest tests (`pieceSplits.test.ts`, incl. the shared paste-vector fixture) + 20/7
+      `test:touch` (unchanged pass/skip counts — `HrChart`'s new band/handle didn't regress any
+      existing gesture). `npx tsc -b`, `npm run build` (186.3 KB gzip initial JS, budget
+      250 KB), `npm run lint`, `ruff check .` all clean.
+- [x] Verified live against a real dev server + Playwright MCP (`?mock=1`, 390px and 1280px,
+      both themes): the full add-piece flow (paste -> review -> save) on a real on-water
+      Garmin-only workout, the resulting band + drag handle on the HR chart, the Pieces card
+      with Edit/Delete/Pacing-link, the test center's "piece" badge and Add-piece activity
+      picker, and the piece test-detail page's pacing chart. No new console errors (the one
+      pre-existing "unsupported MIME type" error is the ZXing-wasm dev-server quirk, present
+      before this session's changes too).
+- [x] `CLAUDE.md` (layout: new files, MCP tool count), `DESIGN.md` ("Adding a piece" note —
+      the band/handle's accent-hue reuse, the handle as a sibling DOM element rather than
+      inside the chart's own SVG, the one-dialog-branching-first-step shape),
+      `docs/analytics.md` §25, `docs/mcp.md` updated. PLAN.md + commit.
+
+## Two advisor reviews
+
+**Before writing any code**, an advisor review caught five real design problems the task's
+own framing didn't surface on its own — all five changed the plan before anything was built:
+a naive Concept2 absorb would double-count (the duration-ratio gate that makes a PM5-only
+result fail normal merging in the first place); the test center was gated on a Concept2
+member everywhere, which would have made "pieces count ... like Concept2 results" structurally
+impossible without first-class rows; the power-zone-label overlay would have been a silent
+no-op on this real account (zero Concept2 results — session 12's finding, still true) unless
+pieces themselves fed the same threshold; the photo blob belonged in its own table, not on
+`Piece` itself; and iOS's numeric keyboard has no colon. See `docs/analytics.md` §25 for how
+each landed in the final design.
+
+**After the first implementation pass**, a second advisor review caught six real bugs before
+any of this shipped:
+
+- **The Concept2-absorb design (as first built) would have corrupted the containing
+  session.** Reassigning a PM5-only result's `canonical_id` onto the parent meant
+  `resolve_canonical`'s ordinary field priority (Concept2 first for start/duration/distance,
+  preferred for HR) would overwrite a 90-minute session's own resolved fields with the
+  absorbed 6-minute piece's. Fixed: the short result's own (otherwise-orphan) canonical is
+  marked `absorbed_into_piece_id` + `exclude_from_totals` and left exactly where it is —
+  never merged, never deleted (it may carry user overrides) — filtered out of `GET /api/
+  activities` and the test-center's own-candidate detection by that persisted column (a SQL-
+  level filter, not a Python post-filter, for the same pagination-correctness reason session
+  12's category-filter fix exists). Caught only because the review asked for an explicit
+  before/after assertion on the *parent's* own fields, not just on the piece.
+- **An absorbed piece silently lost its power/rate/HR.** `_splits_from_concept2` set them to
+  `None` on every row, which (via the Part D.3 overlay) made the power-zone-label refinement
+  disappear the moment a piece got absorbed — the opposite of "Concept2 stroke data wins."
+  Fixed by bucketing each real stroke by its own cumulative time against the split boundaries
+  `actual_splits` already computed, and recomputing real per-split averages.
+- **Dragging a piece's window kept the previous window's HR.** `_apply_alignment` only filled
+  a row's HR when it was still `None`, so a derived value from the first auto-align survived
+  every later re-align untouched. Fixed with an `hr_source` tag (`"typed"`/`"concept2"`
+  protected from overwrite; `"derived"`/unset refreshed on every align) — covered by a test
+  that aligns, checks the derived value, drags to a different window, and checks it changed.
+- **The no-double-counting strain test checked nothing** — it only asserted `strain_trimp is
+  not None`, which is true with or without a bug. Fixed to assert the exact same number
+  before and after the piece is added, plus that the day's strain has exactly one component
+  for that canonical.
+- **The strict-tool vision schema's nullable fields were unverified against the real API
+  docs** before any photo had been tried against it — fetched the live `structured-outputs`/
+  `strict-tool-use` docs (not assumed from training-data familiarity) and confirmed `"type":
+  ["string", "null"]` is supported, with an 11-of-16 nullable/union-field budget this schema
+  stays under.
+- **`update_piece`'s total-time/distance check became tautological after the first edit** —
+  it recomputed `distance_m`/`duration_s` from the very splits being validated, so "do the
+  splits match the total" always trivially passed on every edit after creation. Fixed by
+  adding independent `distance_m`/`duration_s` params that default to the piece's *existing*
+  total rather than re-deriving one from the edit itself.
+
+## Gotchas / deviations from the literal task spec
+
+- **Rowing's power-zone label was a real pre-existing gap this feature exposed, not
+  introduced** — session 12's `_resolve_zones` computed `threshold_watts` for the rowing
+  branch (used only for the muscular-AU split) but never actually built `power_zones` the way
+  the cycling branch does. Moot before this session (no rowing session in this real account
+  ever had per-sample power — zero Concept2 results), surfaced the moment a piece supplied the
+  first real power data a rowing session here can have. Fixed alongside this feature.
+- **A confirmed piece now feeds `rowing_predict.py`'s "recent best pieces" pool**, the same
+  one `GET /api/predict/2k` and the Today screen's headline predicted-2k number already draw
+  from — a deliberate choice (flagged by the first advisor review, not a scope-creep
+  afterthought): this real account's zero Concept2 results mean that ensemble has had nothing
+  to draw from at all since session 8/12, so a typed/photo piece is the only way either the
+  power-zone threshold or the predicted-2k number can ever reflect anything real on this
+  account. Filtered by the containing activity's own date, not when the piece was typed in.
+- **No `distance_m`/`duration_s` editing via the frontend's AddPieceDialog paste flow** — the
+  typed-entry form exposes "total distance/time, if different" fields (task Part C.1's "enter
+  the total and splits and it checks they match"), but the paste box itself only fills splits;
+  the athlete types the independent total into those two fields afterward if the pasted splits
+  alone don't already sum to it. A small extra step, not a missing feature.
+- **No real PM5 photo was tried through the installed PWA** — this environment has no PM5 and
+  no camera; the vision call's screen-shape handling is covered by fixture tests (fake
+  `anthropic` module responses matching the task's own worked example, plus the two other real
+  PM5 display shapes an advisor review flagged) and the strict-tool schema was checked against
+  the live Anthropic docs, but never exercised against a real photo end to end. See "Not yet
+  done" below.
+- **The Pi itself was confirmed healthy this session** (`ssh opensky-pi`: `catch.service`
+  active, `GET /api/health` 200 locally, `cloudflared` running) — the Catch MCP connection's
+  502 at this session's start was not a sign the Pi or the deployed app is down; most likely
+  transient on Cloudflare's side. No deploy had happened yet at the time of that check.
+
+## Not yet done — needs the user
+
+- **A real PM5 photo, through the installed PWA, with a real Anthropic key configured on that
+  instance.** Everything up to "the strict-tool schema is valid and the normalization/
+  validation logic is correct against every screen shape this session could reason about" is
+  built and fixture-tested from here; whether the model actually transcribes a real,
+  imperfectly-lit phone photo of a real PM5 screen correctly needs a real photo. Send one (or
+  point at an existing one) and this can be checked directly.
+- **Live-verify the Part D.4 Concept2-absorb against a real PM5 result**, once one exists —
+  this account has had zero real Concept2 results across every session since session 2, so
+  the absorb path (both shapes) is covered only by fixtures with synthetic `Stroke` rows.

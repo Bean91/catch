@@ -7,8 +7,9 @@ id), the `remember`/`add_event`/`update_event`/`set_goal`/`forget`/`recall` memo
 (session 8/12) `rename_activity`/`tag_activity`/`merge_activities` for the cross-source
 matching/editing tools, (session 13) `get_nutrition`/`log_food` for the nutrition diary, and
 (session 14) `log_strength`/`get_strength`/`get_muscle_readiness` for the gym logger, and
-(session 15) `get_tests`/`get_test`/`make_pacing_plan` for the erg test center —
-27 tools total — to Claude Desktop (or any MCP client) over two transports:
+(session 15) `get_tests`/`get_test`/`make_pacing_plan` for the erg test center, and
+(session 17) `add_piece` for adding a piece (a segment of a workout, e.g. a 2k inside a
+longer row) — 28 tools total — to Claude Desktop (or any MCP client) over two transports:
 
 - **stdio** — for Claude Desktop, running on your laptop while Catch itself runs on the Pi.
   Tool calls are thin `httpx` calls to Catch's `POST /api/coach/tools/{name}`, authenticated

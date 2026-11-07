@@ -1,12 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { fetchActivitySamples, fetchErgStrokes, fetchSettings, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
+import { alignPiece, fetchActivitySamples, fetchErgStrokes, fetchPieces, fetchSettings, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily } from "../lib/types";
 import { ErgChart } from "../components/charts/ErgChart";
-import { HrChart } from "../components/charts/HrChart";
+import { HrChart, type PieceBand } from "../components/charts/HrChart";
+import { AddPieceDialog } from "../components/pieces/AddPieceDialog";
+import { PieceCard } from "../components/pieces/PieceCard";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
 import { TechniqueGrid } from "../components/workouts/TechniqueGrid";
@@ -121,6 +123,30 @@ export function WorkoutDetailPage() {
     placeholderData: keepPreviousData,
   });
   const chartPoints = windowedSamples?.has_data ? windowedSamples.points : samples?.has_data ? samples.points : [];
+
+  // --- Pieces (session 17 — see PLAN.md, the task called itself "session 13") -----------
+  const { data: pieces } = useQuery({
+    queryKey: ["pieces", canonicalId],
+    queryFn: () => fetchPieces(canonicalId),
+    enabled: !!workout,
+  });
+  const [addPieceOpen, setAddPieceOpen] = useState(false);
+  const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
+  const effectiveSelectedPieceId = selectedPieceId ?? pieces?.[0]?.id ?? null;
+  const pieceBands: PieceBand[] = (pieces ?? [])
+    .filter((p) => p.window_start_s != null && p.window_end_s != null)
+    .map((p) => ({ id: p.id, startS: p.window_start_s as number, endS: p.window_end_s as number }));
+  const alignMutation = useMutation({
+    mutationFn: ({ pieceId, startS }: { pieceId: number; startS: number }) => {
+      const piece = pieces?.find((p) => p.id === pieceId);
+      return alignPiece(pieceId, piece?.window_activity_id ?? undefined, startS);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["activity-samples", canonicalId] });
+    },
+  });
 
   // --- Editing (task Part C) ------------------------------------------------
   const [editingTitle, setEditingTitle] = useState(false);
@@ -300,6 +326,9 @@ export function WorkoutDetailPage() {
             onDomainChange={setHrDomain}
             onDomainSettled={onHrDomainSettled}
             onResetDomain={resetHrDomain}
+            pieceBands={pieceBands}
+            selectedPieceId={effectiveSelectedPieceId}
+            onPieceDragEnd={(pieceId, startS) => alignMutation.mutate({ pieceId, startS })}
           />
         </Card>
       )}
@@ -308,6 +337,29 @@ export function WorkoutDetailPage() {
           <p className="text-sm text-text-tertiary">No heart-rate data for this activity.</p>
         </Card>
       )}
+
+      <Card
+        title="Pieces"
+        action={
+          <button type="button" onClick={() => setAddPieceOpen(true)} className="min-h-9 rounded-md border border-accent px-3 text-xs font-medium text-accent">
+            Add piece
+          </button>
+        }
+      >
+        {pieces == null || pieces.length === 0 ? (
+          <p className="text-sm text-text-tertiary">No pieces yet — a 2k inside this session, say.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {pieces.map((p) => (
+              <div key={p.id} onClick={() => setSelectedPieceId(p.id)} className={p.id === effectiveSelectedPieceId ? "rounded-md ring-2 ring-accent/40" : undefined}>
+                <PieceCard piece={p} canonicalId={canonicalId} />
+              </div>
+            ))}
+            {pieceBands.length > 0 && <p className="text-xs text-text-tertiary">Tap a piece to select it, then drag its band's edge on the heart-rate chart above to re-align.</p>}
+          </div>
+        )}
+      </Card>
+      <AddPieceDialog open={addPieceOpen} onClose={() => setAddPieceOpen(false)} canonicalId={canonicalId} onSaved={() => setAddPieceOpen(false)} />
 
       {isRowing && hasStrokes && fullStrokesData && fullDomain && (
         <>

@@ -121,7 +121,14 @@ def list_activities(
     db: Session = Depends(get_db),
 ):
     from_, to = as_utc(from_), as_utc(to)
-    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))
+    # Session 17 (see PLAN.md Part D.4) — a canonical absorbed into a piece (its own,
+    # otherwise-orphan Concept2 result that Part D.4 linked into a longer session's piece
+    # rather than merging) never shows up as its own Workouts row — that effort is already
+    # represented inside the piece it was absorbed into. A SQL-level filter, not a Python
+    # post-filter, so this page's own pagination can't silently come back short (the exact
+    # bug class session 12's category-filter fix exists to avoid — see this column's
+    # docstring in models.py).
+    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None), CanonicalActivity.absorbed_into_piece_id.is_(None))
     if from_:
         stmt = stmt.where(CanonicalActivity.start >= from_)
     if to:

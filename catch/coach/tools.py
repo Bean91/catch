@@ -444,7 +444,102 @@ def _get_tests(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _get_test(session: Session, args: dict, ctx: dict) -> dict:
-    return routes_tests.get_test_detail(int(args["id"]), db=session)
+    """Session 17: get_tests' rows now include pieces (`"kind": "piece"`, with their own
+    `piece_id`, since a piece's `canonical_id` is the *containing* activity, not unique to it)
+    — pass `piece_id` for one of those rows instead of `id`."""
+    if args.get("piece_id") is not None:
+        return routes_tests.get_piece_test_detail(int(args["piece_id"]), db=session)
+    if args.get("id") is not None:
+        return routes_tests.get_test_detail(int(args["id"]), db=session)
+    raise ValueError("Provide either `id` (a confirmed test) or `piece_id` (a piece row from get_tests).")
+
+
+_PIECE_TIME_RE = re.compile(r"\d+:\d+(?:\.\d+)?")
+
+
+def _parse_piece_free_text(piece_type: str, text: str) -> tuple[list[dict], float | None]:
+    """Session 17 Part E: "my 2k was 6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7" -> split
+    rows + the total time. The first m:ss token is always the total; every token after it is
+    one split, in order — matching the task's own example exactly. When the split count
+    matches this piece_type's standard row count, each split's distance comes from
+    catch/analytics/piece.py's own template (so 500/1000/1500/2000m line up); otherwise the
+    rows are left distance-less rather than guessed."""
+    from catch.analytics.piece import default_splits, parse_time_token
+
+    times = _PIECE_TIME_RE.findall(text)
+    if not times:
+        raise ValueError("Couldn't find any m:ss split times in that text.")
+    total_s = parse_time_token(times[0], "total time")
+    split_tokens = times[1:]
+    if not split_tokens:
+        return [], total_s
+
+    template = default_splits(piece_type, duration_s=total_s)
+    if len(template) == len(split_tokens):
+        rows = []
+        for row, tok in zip(template, split_tokens):
+            r = dict(row)
+            r["split_s"] = parse_time_token(tok, "split")
+            rows.append(r)
+        return rows, total_s
+    return (
+        [{"split_index": i + 1, "distance_m": None, "split_s": parse_time_token(t, f"split {i + 1}"), "rate": None, "watts": None, "hr": None} for i, t in enumerate(split_tokens)],
+        total_s,
+    )
+
+
+def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
+    """Task Part E: free text or a structured splits list, always previewed first — same
+    two-step pattern as merge_activities/log_strength, so a misheard "my 2k was ..." never
+    saves without the athlete seeing the parsed table. canonical_id defaults to the most
+    recent activity with a start time (the session the athlete is presumably still talking
+    about) when omitted."""
+    from catch.analytics.piece import PIECE_TYPES, aggregate_from_splits, validate_splits
+    from catch.core.models import CanonicalActivity
+    from catch.sync import piece as piece_sync
+
+    piece_type = args["piece_type"]
+    if piece_type not in PIECE_TYPES:
+        raise ValueError(f"piece_type must be one of {PIECE_TYPES}")
+
+    canonical_id = args.get("canonical_id")
+    if canonical_id is None:
+        latest = session.exec(select(CanonicalActivity).where(CanonicalActivity.start.is_not(None)).order_by(CanonicalActivity.start.desc())).first()
+        canonical_id = latest.id if latest else None
+    if canonical_id is None or session.get(CanonicalActivity, canonical_id) is None:
+        return {"saved": False, "message": "No activity found to attach this piece to — ask which workout it belongs to."}
+
+    splits = args.get("splits")
+    total_duration_s = args.get("duration_s")
+    if not splits:
+        text = args.get("text")
+        if not text:
+            raise ValueError("Provide either `text` or a structured `splits` list.")
+        splits, parsed_total = _parse_piece_free_text(piece_type, text)
+        total_duration_s = total_duration_s or parsed_total
+
+    agg = aggregate_from_splits(splits)
+    distance_m = args.get("distance_m") or agg["distance_m"]
+    duration_s = total_duration_s or agg["duration_s"]
+    validation = validate_splits(splits, distance_m, duration_s)
+
+    if not args.get("confirm"):
+        return {
+            "saved": False,
+            "preview": splits,
+            "validation": validation,
+            "piece_type": piece_type,
+            "canonical_id": canonical_id,
+            "message": "Preview only — confirm this table with the athlete, then call add_piece again with confirm=true.",
+        }
+
+    # force=True: the preview above already surfaced any validation issues to the athlete —
+    # confirm=true means they've seen them and still want it saved as typed (task's "manual
+    # entry always works" — the same athlete-facing issues list is still on the response).
+    piece, validation = piece_sync.create_piece(
+        session, canonical_id, piece_type, splits, distance_m=distance_m, duration_s=duration_s, source="manual", force=True
+    )
+    return {"saved": True, "piece": piece_sync.piece_dict(piece), "validation": validation}
 
 
 def _make_pacing_plan(session: Session, args: dict, ctx: dict) -> dict:
@@ -780,11 +875,54 @@ TOOLS: dict[str, dict[str, Any]] = {
     "get_test": {
         "fn": _get_test,
         "write": False,
-        "description": "One erg test's full detail: pacing analysis (start/middle-1000/sprint, deviation from even split, where time was lost) vs. any saved plan, comparison to the athlete's earlier test of the same type, and W/kg.",
+        "description": "One erg test's full detail: pacing analysis (start/middle-1000/sprint, deviation from even split, where time was lost) vs. any saved plan, comparison to the athlete's earlier test of the same type, and W/kg. get_tests' rows carry a \"kind\" of \"test\" or \"piece\" — pass that row's id for a test, or piece_id for a piece.",
         "input_schema": {
             "type": "object",
-            "properties": {"id": {"type": "integer", "description": "Canonical workout id, from get_tests or list_workouts."}},
-            "required": ["id"],
+            "properties": {
+                "id": {"type": "integer", "description": "Canonical workout id, for a get_tests row with kind=='test'."},
+                "piece_id": {"type": "integer", "description": "For a get_tests row with kind=='piece'."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "add_piece": {
+        "fn": _add_piece,
+        "write": True,
+        "description": (
+            "Add a piece (a segment of a workout, e.g. a 2k inside a longer row) from free text like 'my 2k was "
+            "6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7' or a structured splits list. Always call once without "
+            "confirm=true first to preview the parsed table for the athlete to check, then call again with the "
+            "same data and confirm=true once they've confirmed it's right."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "piece_type": {
+                    "type": "string",
+                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                },
+                "canonical_id": {"type": "integer", "description": "Which workout this piece belongs to. Defaults to the most recent workout."},
+                "text": {"type": "string", "description": "Free text containing the total time followed by each split, e.g. '6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7'."},
+                "splits": {
+                    "type": "array",
+                    "description": "Structured splits, alternative to text.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "split_index": {"type": "integer"},
+                            "distance_m": {"type": "number"},
+                            "split_s": {"type": "number"},
+                            "rate": {"type": "number"},
+                            "watts": {"type": "number"},
+                            "hr": {"type": "number"},
+                        },
+                    },
+                },
+                "distance_m": {"type": "number", "description": "Total distance, if not implied by piece_type."},
+                "duration_s": {"type": "number", "description": "Total time in seconds, if not already parsed from text."},
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only)."},
+            },
+            "required": ["piece_type"],
             "additionalProperties": False,
         },
     },

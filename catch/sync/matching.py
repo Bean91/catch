@@ -192,6 +192,14 @@ def run_matching(session: Session) -> dict:
     result = apply_auto_merges(session, pairs)
     remaining = find_candidate_pairs(session)
     result["flagged"] = sum(1 for _, _, r in remaining if r.flagged and not r.auto_merge)
+
+    # Session 17 (see PLAN.md Part D.4): after the ordinary merge pass above (which a PM5
+    # piece's own short Concept2 result almost always fails, on duration ratio alone — see
+    # that function's docstring), absorb any piece a Concept2 sync now has real stroke data
+    # for.
+    from catch.sync.piece import absorb_concept2_piece_results
+
+    result["pieces_absorbed"] = absorb_concept2_piece_results(session)
     return result
 
 

@@ -23,12 +23,54 @@ def _overrides(canonical: CanonicalActivity) -> dict:
 
 
 def _erg_canonicals_with_concept2_member(session: Session) -> list[tuple[CanonicalActivity, Activity]]:
-    rows = session.exec(select(CanonicalActivity).where(CanonicalActivity.category == "erg")).all()
+    # Session 17 (see PLAN.md Part D.4) — excludes a canonical absorbed into a piece
+    # (`absorbed_into_piece_id`): its own Concept2 result is already represented as that
+    # piece's row elsewhere in the test center, so letting it through here would also show
+    # up as its own (duplicate) confirmed-test candidate or confirmed test.
+    rows = session.exec(
+        select(CanonicalActivity).where(CanonicalActivity.category == "erg", CanonicalActivity.absorbed_into_piece_id.is_(None))
+    ).all()
     out = []
     for c in rows:
         member = session.exec(select(Activity).where(Activity.canonical_id == c.id, Activity.source == "concept2")).first()
         if member is not None:
             out.append((c, member))
+    return out
+
+
+def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
+    """Session 17 (see PLAN.md Part A.1/A.2): pieces count in the test center exactly like
+    confirmed Concept2 results — "kind": "piece" plus a "piece_id" distinguish a row here from
+    a confirmed-test row (which uses the canonical id as its own detail id), since a piece's
+    canonical is the *containing* activity, not unique to the piece the way a confirmed test's
+    canonical is."""
+    from catch.core.models import Piece
+
+    pieces = session.exec(select(Piece)).all()
+    out = []
+    for p in pieces:
+        if test_type and p.piece_type != test_type:
+            continue
+        canonical = session.get(CanonicalActivity, p.canonical_id)
+        splits = json.loads(p.splits_json) if p.splits_json else []
+        hrs = [s["hr"] for s in splits if s.get("hr") is not None]
+        out.append(
+            {
+                "kind": "piece",
+                "piece_id": p.id,
+                "canonical_id": p.canonical_id,
+                "activity_id": None,
+                "test_type": p.piece_type,
+                "title": canonical.title if canonical else None,
+                "date": canonical.start.date().isoformat() if canonical and canonical.start else None,
+                "start": canonical.start if canonical else None,
+                "distance_m": p.distance_m,
+                "duration_s": p.duration_s,
+                "avg_power": p.avg_watts,
+                "avg_stroke_rate": p.avg_rate,
+                "avg_hr": (sum(hrs) / len(hrs)) if hrs else None,
+            }
+        )
     return out
 
 
@@ -43,6 +85,8 @@ def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
             continue
         out.append(
             {
+                "kind": "test",
+                "piece_id": None,
                 "canonical_id": canonical.id,
                 "activity_id": member.id,
                 "test_type": this_type,
@@ -56,6 +100,7 @@ def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
                 "avg_hr": member.avg_hr,
             }
         )
+    out += _piece_rows(session, test_type)
     out.sort(key=lambda r: r["start"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return out
 

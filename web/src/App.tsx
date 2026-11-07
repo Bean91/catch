@@ -16,6 +16,7 @@ const GymPage = lazy(() => import("./pages/Gym").then((m) => ({ default: m.GymPa
 const MuscleReadinessPage = lazy(() => import("./pages/MuscleReadiness").then((m) => ({ default: m.MuscleReadinessPage })));
 const TestCenterPage = lazy(() => import("./pages/TestCenter").then((m) => ({ default: m.TestCenterPage })));
 const TestDetailPage = lazy(() => import("./pages/TestDetail").then((m) => ({ default: m.TestDetailPage })));
+const PieceTestDetailPage = lazy(() => import("./pages/PieceTestDetail").then((m) => ({ default: m.PieceTestDetailPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
@@ -73,6 +74,11 @@ export function App() {
           <Route path="/gym" element={<GymPage />} />
           <Route path="/gym/readiness" element={<MuscleReadinessPage />} />
           <Route path="/tests" element={<TestCenterPage />} />
+          {/* Registered before /tests/:id — react-router v6 scores static segments higher
+              than dynamic ones regardless of order, but matching the backend's own
+              "more specific first" convention here too (see routes_tests.py's comment on
+              GET /api/pieces/{piece_id}/test-detail) keeps the two trees easy to compare. */}
+          <Route path="/tests/piece/:id" element={<PieceTestDetailPage />} />
           <Route path="/tests/:id" element={<TestDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/body" element={<BodyPage />} />

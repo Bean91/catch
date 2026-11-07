@@ -15,6 +15,7 @@ from catch.analytics.predict import predict_2k
 from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, training_zones, zone_for_hr
+from catch.analytics.zones_samples import hr_recovery_drop
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.api.routes_checkins import niggle_streak_days
 from catch.coach.memory import next_a_race as _next_a_race
@@ -701,23 +702,38 @@ _PB_DISTANCES_M = (500, 1000, 2000, 5000, 6000)
 _PB_DURATIONS_S = {1800: "30min", 3600: "60min"}
 
 
-def _pb_entry(activity: Activity | None) -> dict | None:
-    if activity is None:
+def _pb_entry(candidate: dict | None) -> dict | None:
+    if candidate is None:
         return None
-    pace = (activity.duration / activity.distance) * 500.0 if activity.distance else None
+    pace = (candidate["duration"] / candidate["distance"]) * 500.0 if candidate["distance"] else None
     return {
         # The canonical id — /workouts/:id now always means a canonical, never a raw
         # per-source Activity id (session 8/12, see PLAN.md).
-        "activity_id": activity.canonical_id,
-        "date": activity.start.date().isoformat() if activity.start else None,
-        "distance_m": activity.distance,
-        "duration_s": activity.duration,
+        "activity_id": candidate["canonical_id"],
+        # Session 17 (see PLAN.md Part A.1) — set only when this PB came from a piece rather
+        # than a standalone Concept2 result, so the frontend can link to the piece specifically.
+        "piece_id": candidate.get("piece_id"),
+        "date": candidate["date"],
+        "distance_m": candidate["distance"],
+        "duration_s": candidate["duration"],
         "pace_s_per_500": pace,
+    }
+
+
+def _candidate_from_activity(a: Activity) -> dict:
+    return {
+        "distance": a.distance,
+        "duration": a.duration,
+        "date": a.start.date().isoformat() if a.start else None,
+        "canonical_id": a.canonical_id,
+        "piece_id": None,
     }
 
 
 @router.get("/api/pbs")
 def personal_bests(db: Session = Depends(get_db)):
+    from catch.sync.piece import piece_pb_candidates
+
     # type=="rower" only — a SkiErg/BikeErg 2k isn't the same PB, and only continuous
     # workouts (same restriction _predict_2k uses) since interval/piece sets mix rest into
     # duration.
@@ -727,17 +743,21 @@ def personal_bests(db: Session = Depends(get_db)):
         Activity.distance.is_not(None),
         Activity.duration.is_not(None),
     )
-    continuous = [a for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
+    continuous = [_candidate_from_activity(a) for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
+    # Session 17 (see PLAN.md Part A.1) — confirmed pieces count toward PBs too, exactly like
+    # a standalone Concept2 result; piece_pb_candidates already excludes any piece absorbed
+    # into a real Concept2 result (that result is already in `continuous` above).
+    continuous += piece_pb_candidates(db)
 
     result: dict[str, dict | None] = {}
     for target in _PB_DISTANCES_M:
         tolerance = max(25.0, target * 0.02)
-        candidates = [a for a in continuous if a.distance and abs(a.distance - target) <= tolerance]
-        best = min(candidates, key=lambda a: a.duration) if candidates else None
+        candidates = [c for c in continuous if c["distance"] and abs(c["distance"] - target) <= tolerance]
+        best = min(candidates, key=lambda c: c["duration"]) if candidates else None
         result[f"{target}m"] = _pb_entry(best)
     for target, label in _PB_DURATIONS_S.items():
-        candidates = [a for a in continuous if a.duration and abs(a.duration - target) <= 30.0]
-        best = max(candidates, key=lambda a: a.distance) if candidates else None
+        candidates = [c for c in continuous if c["duration"] and abs(c["duration"] - target) <= 30.0]
+        best = max(candidates, key=lambda c: c["distance"]) if candidates else None
         result[label] = _pb_entry(best)
     return result
 
@@ -764,18 +784,10 @@ def _concept2_laps(db: Session, activity_id: int) -> list[dict]:
 
 
 def _hr_recovery(hr_full: list[float | None], from_offset: int, window_s: int = 60) -> float | None:
-    """Drop in HR over `window_s` seconds starting at `from_offset` — used both for "after
-    the session" (from_offset = the last work sample) and, generically, after any lap
-    boundary. None if the recording doesn't extend far enough past that point to measure it."""
-    if from_offset < 0 or from_offset >= len(hr_full):
-        return None
-    end = from_offset + window_s
-    if end >= len(hr_full):
-        return None
-    start_hr, end_hr = hr_full[from_offset], hr_full[end]
-    if start_hr is None or end_hr is None:
-        return None
-    return start_hr - end_hr
+    """Used both for "after the session" (from_offset = the last work sample) and,
+    generically, after any lap boundary — see catch/analytics/zones_samples.py's
+    hr_recovery_drop (shared with catch/sync/piece.py's post-piece recovery, session 17)."""
+    return hr_recovery_drop(hr_full, from_offset, window_s)
 
 
 @router.get("/api/activities/{canonical_id}/samples")

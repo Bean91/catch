@@ -213,6 +213,36 @@ nothing to zoom into. `SplitBarChart` is deliberately dependency-free — no `Do
 `useChartInteraction` — and the full interactive stroke/HR chart for the same activity stays
 one tap away via a "Full workout detail" link rather than being duplicated on the test page.
 
+## Adding a piece (session 17)
+
+**The piece band is the accent hue, not a new one.** `HrChart`'s shaded band (a piece's
+window) and its drag handle both use `var(--accent)` at low opacity (0.1 unselected, 0.22
+selected) — the same "recovery/strain bands and the accent are the only strong colours"
+rule session 3 established, applied to a third chart overlay rather than a new hue. The
+handle itself is a thin accent-coloured bar inside a 44px-wide invisible hit area (a real
+touch target, not just a visually-thin one).
+
+**The piece drag handle is a sibling DOM element, not inside the chart's own SVG.**
+`useChartInteraction` already claims pointer events on the chart's wrapping div for pan/zoom/
+pinch; a drag target living inside that same surface would either get swallowed by the
+chart's own gesture handling or require teaching that hook about a second kind of drag it has
+no reason to know about. Instead the handle is a small absolutely-positioned `<div>` rendered
+as a later sibling of the chart surface (so it paints on top without a z-index fight), with
+its own `onPointerDown`/`setPointerCapture`/`stopPropagation` — completely independent of the
+chart's own interaction state, following the same live-local-state-then-commit-on-release
+split as every other chart gesture here (live while dragging, one `PATCH /api/pieces/{id}/
+align` on release).
+
+**"Add piece" is one dialog with a branching first step, not three screens.** Photo and
+typed/pasted entry both exist only to produce the same `splits` array; routing them through
+separate dialogs would mean keeping two review-table implementations in sync instead of one
+(`SplitsReviewTable`, shared with the piece-edit card). The photo tab is hidden outright when
+no Anthropic key is configured (same `anthropic_key.configured` check Nutrition's photo-
+estimate entry point already uses), not shown-then-erroring. When opened from the test center
+rather than a workout's own page, the dialog gains one extra first step — an activity picker
+— since the test center doesn't already have one workout in scope; workout detail already
+knows which activity, so it skips straight to choosing a method.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never
