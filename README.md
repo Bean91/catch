@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/Bean91/catch/actions/workflows/ci.yml/badge.svg)](https://github.com/Bean91/catch/actions/workflows/ci.yml)
 
+> **DISCLAIMER:** This app was *fully* vibe-coded, so if you find any bugs, let me know. Feel free to fork this repo and make your own edits. I have more plans for expanding this in the future, and I will upload my prompt pack soon.
+
 Self-hosted, single-user rowing training app. Garmin + Withings + Concept2 data, Whoop-style
 recovery/strain, an AI coach (bring-your-own Anthropic key or a local Ollama model) with a
 shared MCP server for Claude Desktop. Designed to run 24/7 on a Raspberry Pi 3 alongside
