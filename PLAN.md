@@ -3196,24 +3196,38 @@ rateable, and never claims more certainty than the data supports.
       `build_server()` registers, not just a count; `memory.py::memory_block` gained a line
       surfacing the single most severe *active* recommendation, same unprompted shape as the
       illness-level line.
-- [x] Tests: 61 new backend tests (666 → 727 total — `uv run pytest` all green): ~44 pure-logic
+- [x] Tests: 65 new backend tests (666 → 731 total — `uv run pytest` all green): 42 pure-logic
       tests (`tests/analytics/test_training_intelligence.py` — equivalence bucketing, the
       rate-vs-pace/drag-factor notes, the full suppression matrix for `training_suggestion`
       (including the post-advisor-review positive-evidence requirements — a confirmed green
-      band, a real physiological component, enough history, the yellow-band-must-also-suppress
-      case), overload's sustained-not-single-day gate, the structural certainty guarantees —
-      confidence capped by the weakest input, `insufficient_data` only ever from a data-
-      quality warning, low/medium wording always hedged — plus a narrow banned-phrase
-      backstop) and ~17 sync/route/MCP tests (`tests/test_api_training_intelligence.py` —
-      same-day idempotency, dismissal-doesn't-reopen-cooldown, next-day staleness, failure
-      isolation around the `recompute_scores` hook, no-recursion, the four CRUD routes
-      (asserting the `recommendation_dict` response shape), MCP/coach-tool-registry parity, a
-      fresh-install DB producing only `data_quality:*` rows, the consistency/insights date-
-      clamping fixes, and the nutrition/daily-activity/note context fields). No new Vitest
+      band, a real *non-null* physiological component, enough history, the yellow-band-must-
+      also-suppress case), overload's sustained-not-single-day gate, the structural certainty
+      guarantees — confidence capped by the weakest input, `insufficient_data` only ever from
+      a data-quality warning, low/medium wording always hedged — plus a narrow banned-phrase
+      backstop) and 23 sync/route/MCP tests (`tests/test_api_training_intelligence.py` —
+      same-day idempotency, dismissal-doesn't-reopen-cooldown, next-day staleness,
+      re-confirming-within-cooldown-refreshes-the-body (not just the date), failure isolation
+      around the `recompute_scores` hook, no-recursion, the four CRUD routes (asserting the
+      `recommendation_dict` response shape), MCP/coach-tool-registry parity, the exact live-bug
+      scenario that used to produce a false `training:add_session`, the consistency/insights
+      date-clamping fixes with exact-value assertions (not loose bounds that could pass on
+      either the old or new code depending on which weekday the suite happens to run), the
+      concentrated-block gate's positive and negative cases using a timezone-safe local-date
+      helper, and the nutrition/daily-activity/note context fields). No new Vitest
       tests — unlike `equipment.ts`/`pieceSplits.ts`, none of this feature's math needs an
       offline-capable client-side port, so there's nothing to duplicate into TS this time.
       `npx tsc --noEmit`, `npm run build`, `npm run test`, `npm run test:touch` (20/7, unchanged
-      — the Trends.tsx header change didn't regress any gesture test) all clean.
+      — the Trends.tsx header change didn't regress any gesture test) all clean. Re-confirmed
+      after the second advisor-review round's own fixes: `uv run pytest` still 731 passed (42 +
+      23 in this feature's two files, recounted via `--collect-only`, unchanged — the round's
+      fixes corrected logic inside existing tests rather than adding new ones), `ruff check`
+      clean, `tsc --noEmit` clean, Vitest 53/53. Also ran `make check` (the full CI gate —
+      ruff, pytest, tsc, oxlint, vitest, `vite build`, the bundle-size check, and the real
+      `CI=1 npx playwright test` touch suite) end to end: all green, touch suite still 20
+      passed/7 skipped. And `npm run test:gym` — the one Playwright suite that boots the real
+      `catch.main` app via real uvicorn + a scratch DB — passed, exercising the real
+      `recompute_scores` → `generate_recommendations` hook path end to end on a genuine offline-
+      log-then-sync flow, not just a fixture-seeded unit test.
 - [x] Verified live against a real dev server + Playwright MCP (`?mock=1`/`?mock=empty`, 390px
       and 1280px, **both themes genuinely toggled and confirmed via `data-theme`/computed
       background-color**, not assumed from ambient state — see the advisor-review note below
@@ -3223,17 +3237,22 @@ rateable, and never claims more certainty than the data supports.
       nutrition/daily-activity/note context lines on the profile card. The empty-state pass
       showed "Not yet known"/"insufficient data" everywhere rather than any false-confident
       claim.
-- [x] Verified against a copy of the real local `data/catch.db` (never the live file —
-      `CATCH_DB_PATH` pointed at a scratch copy, `init_db()` run to pick up the new
-      `recommendations` table and catch up to the current schema from this file's older
-      snapshot). As expected: performance trends/strengths/weaknesses came back empty (this
-      account has zero confirmed Concept2 tests/pieces — the same known gap PLAN.md's sessions
-      12/15/17 already documented), consistency/distribution numbers were plausible (34
-      sessions, 2555 min over 38 days, mostly UT2/UT1), one real low-confidence insight fired
-      with genuine evidence (`recovery_after_high_strain`), and — critically — zero
-      recommendations fired, including no false `training:add_session`, because today's
-      "green" recovery reading had no physiological component behind it (only `prior_strain`)
-      — exactly the condition the advisor-review fix below targets.
+- [~] **Not a real-data verification — corrected after a second advisor review.** The local
+      `data/catch.db` this session pulled from is a stale, session-2-era snapshot (9 tables, 34
+      activities, last modified Oct 31) — it predates the matching engine, pieces, and most of
+      this app's schema, and is nowhere near the live account's real size (session 12's own
+      count was roughly 280 sessions). Running the gather functions against it (after `init_db`
+      caught the schema up) exercised real code paths end to end and surfaced the
+      `training_suggestion`/recovery-physiological-component bug this session's follow-up
+      fixes it, which has standalone value, but it is **not** evidence about the current real
+      account's trends/strengths/consistency numbers, and the earlier draft of this bullet was
+      wrong to call it that. The real database lives on the Pi (`ssh opensky-pi`,
+      `/var/lib/catch/catch.db`, confirmed live and current — 872KB, an active WAL file, last
+      write today) — a WAL-consistent read-only pull from there was attempted and blocked by
+      this session's own auto-mode permission classifier ("Production Reads"), which this
+      session did not attempt to route around. **Needs the user**: either approve a read-only
+      pull from the Pi in a future session, or treat the pure-logic + synthetic-fixture test
+      suite (731 passing) as the verification this feature has actually received so far.
 - [x] `CLAUDE.md` (layout: new files, MCP tool/prompt counts), `DESIGN.md` ("Training
       intelligence" note — confidence as plain text, the two static-chart reuses, no new nav
       slot), `docs/analytics.md` §26, `docs/mcp.md` updated. PLAN.md + commit.
@@ -3269,7 +3288,9 @@ governing rule ("reuse the existing engines, never re-derive them") than the pla
 
 A review run against the live smoke-test output (not just the design) caught real correctness
 bugs the pure-logic test suite's synthetic contexts hadn't exercised — every fix below is
-verified against both new tests and a real copy of `data/catch.db`:
+verified against new, exact-value tests and re-run against the `data/catch.db` local snapshot
+(a real end-to-end run, not a verification of the current account's actual numbers — see the
+corrected bullet above):
 
 - **`training_suggestion` fired on a "green" recovery reading backed by nothing physiological,
   and contradicted `recovery_suggestion` at the yellow/red boundary.** The smoke run had
@@ -3342,6 +3363,47 @@ verified against both new tests and a real copy of `data/catch.db`:
   recent `Note` in the last 7 days) — present as context on the profile, not yet factored into
   phase/strengths/confidence (see "Not yet done" below).
 
+## A second advisor review, run against this round's own output
+
+- **A metric name present in `recovery.components` with `value: None` still counted as real
+  physiological evidence** — `recovery.py`'s own zero-spread/insufficient-baseline guards can
+  leave `hrv`/`resting_hr` in the components list with a null `value` (present by name, didn't
+  actually contribute to the score). Fixed with a shared `_physiological_metrics_present`
+  helper requiring both the metric name *and* a non-null value, used by both
+  `evaluate_training_suggestion` and `evaluate_recovery_suggestion`'s confidence.
+- **Re-confirming a recommendation within its cooldown window left the stored `body`/
+  `confidence`/`evidence_json` stale** — every body quotes the day's own numbers ("Today's
+  recovery score is 30," "today 1.62," "you're at 1 of your 5"), and `_upsert_recommendation`
+  only bumped `last_confirmed_on`, so the coach could assert an earlier day's numbers as
+  "today's" for up to the whole cooldown window. Fixed to refresh `title`/`body`/`confidence`/
+  `evidence_json` on every re-confirm, leaving only `id`/`created_at`/`dismissed`/`saved`/
+  `rating` untouched (the row's own identity and the athlete's prior actions on it).
+- **`zone_polarization`'s divisor was always effectively 1.0** — `hard_baseline` is already a
+  0-1 fraction, so `max(hard_baseline, 1.0)` silently turned "≥30% *relative* drift" (what the
+  insight's own title and this doc already claimed) into "≥30 absolute percentage points," a
+  much harder bar that almost never fires in practice. Fixed with a small floor (0.05) instead
+  of 1.0, plus a minimum-volume gate (≥30 min on both the recent and baseline side) so a
+  genuinely tiny sample can't produce a noisy "drift."
+- **`recovery_after_high_strain` could fire on a single real data point** — its sample-size
+  gate counted total pairs, not how many actually had a non-null `after` value (a pair is
+  `after: None` whenever the next day has no `DailyScore` yet). Fixed to gate on the count of
+  non-null values specifically.
+- **Three of this round's own new tests didn't discriminate old behavior from fixed behavior**
+  — the "fresh install" test passed vacuously (`recompute_scores` returns early on a truly
+  empty DB, before the hook ever runs, so `all([])` is trivially `True`); the future-days test
+  used a `<=` bound the old buggy code could also satisfy on some weekdays; the concentrated-
+  block test seeded an activity at literal UTC midnight, which lands on the *previous* local
+  day in a negative-UTC-offset timezone and could silently test an empty week either way.
+  Replaced with the exact live-bug scenario, exact-value assertions, and a timezone-safe
+  `_local_dt` helper (matching `catch/sync/scoring.py`'s own local-day convention) respectively
+  — plus the concentrated-block gate's missing positive case.
+- **The "real data" verification claim was false** — see the corrected bullet in the Session 18
+  checklist above; this session's own auto-mode permission classifier blocked a read-only pull
+  from the real Pi database ("Production Reads"), which this session did not attempt to route
+  around. Needs the user's explicit approval in a future session, or acceptance that this
+  feature's verification so far is the pure-logic/synthetic-fixture test suite plus a run
+  against a known-stale local snapshot.
+
 ## Not yet done — scope left honest rather than silently implied
 
 - **Recent performance isn't an input to the recommendation engine.** `generate_recommendations`
@@ -3358,8 +3420,8 @@ verified against both new tests and a real copy of `data/catch.db`:
   but there's no separate monthly aggregation endpoint or UI toggle. A reasonable reading of
   "weekly and monthly training volume," not a missed requirement, but recorded here rather than
   left to look like a dedicated monthly view exists.
-- **No real PM5-photo-adjacent verification was needed this session** (training intelligence
-  touches no new photo/vision path), but the account this was verified against
-  (`data/catch.db`, see above) still has zero confirmed Concept2 tests or pieces — the same gap
-  every session since 12 has noted — so `gather_performance_trends`/strengths/weaknesses have
-  never been exercised against a real non-empty bucket, only fixtures and mocks.
+- **`gather_performance_trends`/strengths/weaknesses have never been exercised against a real
+  non-empty equivalence bucket** — only fixtures/mocks and the `data/catch.db` local snapshot
+  (also empty on this front). Whether the Pi's real, current account has any confirmed
+  Concept2 tests or pieces by now (session 17 shipped pieces after this snapshot was taken) is
+  unknown — see the corrected real-data bullet above.

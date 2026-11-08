@@ -343,6 +343,18 @@ def evaluate_data_quality_warning(context: dict, settings: dict) -> dict | None:
 _PHYSIOLOGICAL_RECOVERY_METRICS = {"hrv", "resting_hr", "sleep"}
 
 
+def _physiological_metrics_present(recovery: dict) -> set[str]:
+    """Metric *names alone* aren't enough — recovery.py's own spread/baseline guards can leave
+    a component in the list with `value: None` (e.g. a zero-spread 60d baseline), meaning it
+    didn't actually contribute to the score despite being present. Only a component with a
+    real, non-null value counts as genuine physiological evidence."""
+    return {
+        c.get("metric")
+        for c in recovery.get("components", [])
+        if c.get("metric") in _PHYSIOLOGICAL_RECOVERY_METRICS and c.get("value") is not None
+    }
+
+
 def _training_suggestion_suppressed(context: dict, settings: dict) -> str | None:
     ti = settings["training_intelligence"]
     illness_level = (context.get("illness") or {}).get("level", "none")
@@ -356,8 +368,7 @@ def _training_suggestion_suppressed(context: dict, settings: dict) -> str | None
     # "not red" alone let a real contradiction through.
     if recovery.get("band") != "green" or recovery.get("value") is None:
         return "recovery isn't a confirmed green reading"
-    recovery_metrics = {c.get("metric") for c in recovery.get("components", [])}
-    if not recovery_metrics & _PHYSIOLOGICAL_RECOVERY_METRICS:
+    if not _physiological_metrics_present(recovery):
         return "recovery's green reading has no physiological component (hrv/resting_hr/sleep) behind it"
     niggle_days = context.get("niggle_streak_days", 0)
     if niggle_days >= settings.get("niggle_flag_min_days", 3):
@@ -424,8 +435,7 @@ def evaluate_recovery_suggestion(context: dict, settings: dict) -> dict | None:
     ti = settings["training_intelligence"]
     if value > ti["recovery_suggestion_recovery_max"]:
         return None
-    recovery_metrics = {c.get("metric") for c in recovery.get("components", [])}
-    confidence = "high" if recovery_metrics & _PHYSIOLOGICAL_RECOVERY_METRICS else "low"
+    confidence = "high" if _physiological_metrics_present(recovery) else "low"
     body = _apply_hedge(
         confidence,
         f"Today's recovery score is {value:.0f} ({recovery.get('band')}) — a lighter session, "
@@ -505,10 +515,13 @@ def training_insights(context: dict, settings: dict) -> list[dict]:
             )
 
     recovery_pairs = context.get("recovery_after_high_strain") or []
-    if len(recovery_pairs) >= 3:
-        after = [p["after"] for p in recovery_pairs if p.get("after") is not None]
+    after = [p["after"] for p in recovery_pairs if p.get("after") is not None]
+    # Gated on non-null after-values specifically, not total pairs — a pair with
+    # after=None (no DailyScore the next day) carries no evidence at all; three pairs where
+    # only one has a real value is one data point, not three.
+    if len(after) >= 3:
         baseline = context.get("recovery_baseline_avg")
-        if after and baseline is not None:
+        if baseline is not None:
             avg_after = sum(after) / len(after)
             if avg_after < baseline - 5:
                 insights.append(
@@ -540,7 +553,12 @@ def training_insights(context: dict, settings: dict) -> list[dict]:
     if zone_recent and zone_baseline:
         hard_recent = zone_recent.get("AT", 0) + zone_recent.get("TR", 0) + zone_recent.get("AN", 0)
         hard_baseline = zone_baseline.get("AT", 0) + zone_baseline.get("TR", 0) + zone_baseline.get("AN", 0)
-        if hard_baseline and abs(hard_recent - hard_baseline) / max(hard_baseline, 1.0) >= 0.3:
+        # hard_baseline is already a fraction of total volume (0-1) — `max(hard_baseline, 1.0)`
+        # was always 1.0 in practice, silently turning "≥30% relative drift" (what this
+        # insight's own title/docs/analytics.md §26 claim) into "≥30 absolute percentage
+        # points," a much harder bar that almost never fires. A small floor (not 1.0) restores
+        # genuine relative-drift semantics without blowing up on a near-zero baseline.
+        if hard_baseline and abs(hard_recent - hard_baseline) / max(hard_baseline, 0.05) >= 0.3:
             direction = "more" if hard_recent > hard_baseline else "less"
             insights.append(
                 {

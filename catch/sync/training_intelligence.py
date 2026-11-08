@@ -281,13 +281,17 @@ def gather_training_insights(session: Session, settings: dict) -> list[dict]:
     recent_weeks = vol_weeks[-2:]
     baseline_weeks = vol_weeks[:-2] or vol_weeks
 
+    _MIN_ZONE_SECONDS_FOR_POLARIZATION = 1800  # 30 min — below this a %-split is mostly noise
+
     def _pct(weeks_subset: list[dict]) -> dict[str, float]:
         totals: dict[str, float] = defaultdict(float)
         for w in weeks_subset:
             for z, secs in w["zones"].items():
                 totals[z] += secs
         grand = sum(totals.values())
-        return {z: (secs / grand if grand else 0.0) for z, secs in totals.items()}
+        if grand < _MIN_ZONE_SECONDS_FOR_POLARIZATION:
+            return {}
+        return {z: secs / grand for z, secs in totals.items()}
 
     pairs, baseline_avg = _recovery_after_high_strain(session, range_start, range_end)
     context = {
@@ -464,6 +468,16 @@ def _upsert_recommendation(session: Session, type_name: str, result: dict, today
     # date, and comparing a raw UTC date against it is the exact day-boundary bug class
     # scoring.py's own _local_day_utc_range docstring already warns about.
     if existing is not None and existing.created_at.astimezone().date() >= today - timedelta(days=cooldown_days):
+        # Re-confirming must also refresh title/body/confidence/evidence — every body quotes
+        # today's own numbers ("Today's recovery score is 30," "today 1.62"), so bumping only
+        # last_confirmed_on would leave the coach asserting an earlier day's numbers as
+        # "today's" for up to the whole cooldown window. id/created_at/dismissed/saved/rating
+        # are deliberately left untouched — those are the row's own identity and the
+        # athlete's own prior actions on it, neither of which a re-fire should reset.
+        existing.confidence = result["confidence"]
+        existing.title = result["title"]
+        existing.body = result["body"]
+        existing.evidence_json = json.dumps(result.get("evidence") or [])
         existing.last_confirmed_on = today
         existing.updated_at = datetime.now(timezone.utc)
         session.add(existing)

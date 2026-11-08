@@ -127,7 +127,7 @@ def _base_training_context(**overrides) -> dict:
         # A real, physiologically-backed green reading — band alone ("not red") is no longer
         # enough to fire a load-increasing suggestion; see evaluate_training_suggestion's own
         # suppression matrix.
-        "recovery": {"value": 75, "band": "green", "components": [{"metric": "hrv"}, {"metric": "resting_hr"}]},
+        "recovery": {"value": 75, "band": "green", "components": [{"metric": "hrv", "value": 70}, {"metric": "resting_hr", "value": 80}]},
         "load": {"band": "optimal"},
         "niggle_streak_days": 0,
         "next_event": None,
@@ -221,7 +221,7 @@ def test_training_suggestion_requires_a_green_band_not_merely_not_red():
     # The exact contradiction an advisor review caught live: at recovery == recovery_suggestion_
     # recovery_max, both recovery_suggestion and (pre-fix) training_suggestion could fire at
     # once, since only a "red" band suppressed the latter. "yellow" must suppress it too.
-    yellow = {"value": TI["recovery_suggestion_recovery_max"], "band": "yellow", "components": [{"metric": "hrv"}]}
+    yellow = {"value": TI["recovery_suggestion_recovery_max"], "band": "yellow", "components": [{"metric": "hrv", "value": 60}]}
     assert evaluate_training_suggestion(_base_training_context(recovery=yellow), SETTINGS) is None
 
 
@@ -261,9 +261,20 @@ def test_low_and_medium_confidence_bodies_are_hedged():
 
 
 def test_high_confidence_bodies_are_not_hedged():
-    result = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red", "components": [{"metric": "hrv"}]}}, SETTINGS)
+    result = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red", "components": [{"metric": "hrv", "value": 20}]}}, SETTINGS)
     assert result["confidence"] == "high"
     assert not result["body"].startswith("Based on the data so far")
+
+
+def test_a_present_metric_name_with_a_null_value_does_not_count_as_physiological_evidence():
+    # recovery.py's own spread/baseline guards can leave a component in the list with
+    # value: None (e.g. a zero-spread 60d baseline) — present by name, but it didn't actually
+    # contribute to the score. Must not be treated as real evidence either direction.
+    null_valued = {"value": 75, "band": "green", "components": [{"metric": "hrv", "value": None}, {"metric": "resting_hr", "value": None}]}
+    assert evaluate_training_suggestion(_base_training_context(recovery=null_valued), SETTINGS) is None
+
+    low_conf = evaluate_recovery_suggestion({"recovery": {"value": 10, "band": "red", "components": [{"metric": "hrv", "value": None}]}}, SETTINGS)
+    assert low_conf["confidence"] == "low"
 
 
 def test_no_evaluator_output_contains_a_banned_phrase():

@@ -4,9 +4,12 @@ from datetime import date, datetime, timedelta, timezone
 
 from conftest import TEST_PASSWORD
 
+from catch.analytics.defaults import DEFAULT_SETTINGS
 from catch.core.models import CanonicalActivity, DailyWellness, Recommendation
 from catch.sync import training_intelligence as ti
 from catch.sync.scoring import recompute_scores
+
+TI = DEFAULT_SETTINGS["training_intelligence"]
 
 
 def _login(client):
@@ -21,6 +24,16 @@ def _seed_wellness(session, today: date, n: int = 95):
     for i in range(0, n + 1):
         session.add(DailyWellness(date=today - timedelta(days=i), resting_hr=50.0, hrv_rmssd=55.0, sleep_seconds=8 * 3600))
     session.commit()
+
+
+def _local_dt(day: date, hour: int = 12) -> datetime:
+    """A UTC-aware datetime that round-trips back to exactly `day` via the production code's
+    own `a.start.astimezone().date()` convention (catch/sync/scoring.py's
+    _local_day_utc_range), regardless of this machine's system timezone — unlike
+    `datetime.combine(day, ..., tzinfo=timezone.utc)`, which stores `day` as a literal UTC
+    date and can round-trip to the *previous* local day in a negative-UTC-offset timezone (the
+    exact bug an advisor review caught in an earlier version of this fixture)."""
+    return datetime(day.year, day.month, day.day, hour, 0).astimezone(timezone.utc)
 
 
 def _seed_activity(session, when: datetime, **kwargs):
@@ -84,6 +97,35 @@ def test_dismissal_does_not_reopen_the_cooldown(session):
     assert rows[0].dismissed is True
 
 
+def test_reconfirming_within_cooldown_refreshes_the_body_not_just_the_date(session):
+    """Every body quotes the day's own numbers ("You're at N of your 5-session weekly
+    target"). Bumping only last_confirmed_on on a re-fire would leave the coach asserting an
+    earlier day's numbers as "today's" for the rest of the cooldown window — a real bug an
+    advisor review caught."""
+    today = date.today()
+    _seed_wellness(session, today)
+    _seed_steady_background_training(session, today)
+    _seed_activity(session, datetime.now(timezone.utc))
+    recompute_scores(session)
+
+    from sqlmodel import select
+
+    first = session.exec(select(Recommendation).where(Recommendation.rule_key == "training:add_session")).first()
+    assert first is not None
+    assert "at 1 of your" in first.body
+    first_id = first.id
+
+    # A second session logged today changes sessions_this_week from 1 to 2 — still within
+    # cooldown, so this must update the existing row's body in place, not insert a new one.
+    _seed_activity(session, datetime.now(timezone.utc) + timedelta(hours=1))
+    recompute_scores(session)
+
+    rows = session.exec(select(Recommendation).where(Recommendation.rule_key == "training:add_session")).all()
+    assert len(rows) == 1
+    assert rows[0].id == first_id
+    assert "at 2 of your" in rows[0].body
+
+
 def test_a_rule_that_stops_firing_is_no_longer_active_the_next_day(session):
     today = date.today()
     _seed_wellness(session, today)
@@ -140,16 +182,34 @@ def test_recompute_scores_runs_exactly_once(session, monkeypatch):
 
 
 def test_fresh_install_produces_only_data_quality_rows(session):
-    """No wellness, no activities at all — recompute_scores should never claim anything about
-    training/recovery/overload on a database with nothing in it; the only thing it's honest
-    to say is "not enough data." The live smoke-test scenario an advisor review caught
-    producing a false training:add_session claim."""
+    """A completely empty DB: recompute_scores returns early (no earliest date to anchor the
+    day-loop on), so the recommendation hook never runs at all — no rows of any kind. This is
+    the vacuous case; the real regression test is the one below."""
+    count = recompute_scores(session)
+    assert count == 0
+
+    from sqlmodel import select
+
+    assert session.exec(select(Recommendation)).all() == []
+
+
+def test_training_suggestion_never_fires_on_the_exact_live_bug_scenario(session):
+    """The exact shape of the real bug: 24 days of wellness history (clears
+    data_quality_min_history_days) but *no row for today itself*, plus one activity logged
+    today with no cached strain_trimp and no max_hr configured (so day_strain's HR-based
+    TRIMP chain has nothing to compute from). Recovery ends up "green" from prior_strain
+    alone — no physiological component for today — and load stays insufficient_data. Before
+    the advisor-review fix, this produced a false "nothing to hold you back" claim."""
+    today = date.today()
+    for i in range(1, 25):
+        session.add(DailyWellness(date=today - timedelta(days=i), resting_hr=50.0, hrv_rmssd=55.0, sleep_seconds=8 * 3600))
+    session.commit()
+    _seed_activity(session, datetime.now(timezone.utc))  # no strain_trimp, settings.max_hr unset
     recompute_scores(session)
 
     from sqlmodel import select
 
     rows = session.exec(select(Recommendation)).all()
-    assert all(r.type == "data_quality_warning" for r in rows)
     assert not any(r.rule_key == "training:add_session" for r in rows)
 
 
@@ -231,14 +291,18 @@ def test_consistency_never_counts_future_days_of_the_current_week(session):
 
     today = date.today()
     _seed_wellness(session, today, n=10)
-    _seed_activity(session, datetime.now(timezone.utc))
+    _seed_activity(session, _local_dt(today))
     recompute_scores(session)
 
     result = gather_training_consistency(session, get_settings(session), weeks=1)
-    # The window can never run past today — rest_days can't exceed the days that have
-    # actually elapsed so far.
-    days_elapsed_so_far = (today - (today - timedelta(days=today.weekday()))).days + 1
-    assert result["rest_days"] <= days_elapsed_so_far
+    # Exact values, not a loose bound — the old (buggy) code also happened to satisfy a bare
+    # "<=" check on some weekdays (e.g. a Saturday/Sunday run), which is exactly why this was
+    # rewritten to assert the precise number rather than an inequality that could pass either
+    # way. elapsed_days = today.weekday() + 1 (Monday..today, inclusive) once range_end is
+    # correctly clamped to today + 1 and range_start to this week's Monday.
+    elapsed_days = today.weekday() + 1
+    assert result["rest_days"] == elapsed_days - 1  # one active day (today) in the window
+    assert result["sessions_target"] == round(TI["target_sessions_per_week"] * elapsed_days / 7.0)
 
 
 def test_consistency_never_counts_a_gap_before_the_accounts_own_history(session):
@@ -272,13 +336,29 @@ def test_concentrated_block_requires_at_least_three_sessions_in_the_week(session
     _seed_wellness(session, today, n=10)
     # Exactly 2 sessions this week, both on the same day — would trivially read as 100%
     # concentrated on the old unguarded check.
-    when = datetime.combine(this_week_start, datetime.min.time(), tzinfo=timezone.utc)
-    _seed_activity(session, when, duration=1800.0)
-    _seed_activity(session, when + timedelta(hours=3), duration=1800.0)
+    _seed_activity(session, _local_dt(this_week_start), duration=1800.0)
+    _seed_activity(session, _local_dt(this_week_start, hour=15), duration=1800.0)
     recompute_scores(session)
 
     result = gather_training_consistency(session, get_settings(session), weeks=1)
     assert result["concentrated_block"] is False
+
+
+def test_concentrated_block_fires_on_a_genuine_pattern(session):
+    """The positive case: 3+ sessions this week, all on the same 2 days — this should fire."""
+    from catch.sync.training_intelligence import gather_training_consistency
+    from catch.core.settings_store import get_settings
+
+    today = date.today()
+    this_week_start = today - timedelta(days=today.weekday())
+    _seed_wellness(session, today, n=10)
+    _seed_activity(session, _local_dt(this_week_start), duration=1800.0)
+    _seed_activity(session, _local_dt(this_week_start, hour=15), duration=1800.0)
+    _seed_activity(session, _local_dt(this_week_start, hour=18), duration=1800.0)
+    recompute_scores(session)
+
+    result = gather_training_consistency(session, get_settings(session), weeks=1)
+    assert result["concentrated_block"] is True
 
 
 # --- read endpoints smoke-test (full gather pipeline through the real routes) -------------------
