@@ -32,6 +32,11 @@ def get_performance_trends(piece_type: str | None = Query(None, alias="piece_typ
     return training_intelligence.gather_performance_trends(db, get_settings(db), piece_type)
 
 
+@router.get("/api/training-intelligence/intervals")
+def get_interval_comparisons(db: Session = Depends(get_db)):
+    return training_intelligence.gather_interval_comparisons(db, get_settings(db))
+
+
 @router.get("/api/training-intelligence/distribution")
 def get_training_distribution(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get_db)):
     return training_intelligence.gather_training_distribution(db, get_settings(db), weeks)

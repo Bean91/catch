@@ -1,10 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { deletePiece, deletePiecePhoto, piecePhotoUrl, updatePiece } from "../../lib/api";
+import { deletePiece, deletePiecePhoto, piecePhotoUrl, replaceIntervals, updatePiece } from "../../lib/api";
 import { formatDistance, formatDuration, formatSplit } from "../../lib/format";
-import type { Piece, ZoneName } from "../../lib/types";
+import type { IntervalValidationIssue, Piece, PieceInterval, ZoneName } from "../../lib/types";
 import { zoneColor, ZONE_NAMES } from "../../lib/zoneColors";
+import { IntervalEditor } from "./IntervalEditor";
+import { PieceIntervalTable } from "./PieceIntervalTable";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
@@ -17,11 +19,31 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
   const [validation, setValidation] = useState<{ ok: boolean; issues: { split_index: number | null; field: string; message: string }[] } | null>(null);
   const [showPhoto, setShowPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState<PieceInterval[]>(piece.intervals);
+  const [ivIssues, setIvIssues] = useState<IntervalValidationIssue[] | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
     queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
     queryClient.invalidateQueries({ queryKey: ["activity-samples", canonicalId] });
+    queryClient.invalidateQueries({ queryKey: ["piece-test-detail", piece.id] });
+    queryClient.invalidateQueries({ queryKey: ["interval-comparisons"] });
+    queryClient.invalidateQueries({ queryKey: ["tests"] });
+    queryClient.invalidateQueries({ queryKey: ["pbs"] });
+  };
+
+  const saveIntervals = async (force: boolean) => {
+    setBusy(true);
+    try {
+      const result = await replaceIntervals(piece.id, rows, force);
+      setIvIssues(result.validation.issues);
+      if (result.saved) {
+        setEditing(false);
+        invalidate();
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const saveEdit = async (force: boolean) => {
@@ -63,17 +85,60 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
     <div className="rounded-md border border-border p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <span className="text-sm font-medium text-text-primary">{piece.piece_type}</span>
+          <span className="text-sm font-medium text-text-primary">{piece.has_intervals ? (piece.interval_signature ?? "Intervals") : piece.piece_type}</span>
           <span className="ml-2 font-mono-nums text-xs text-text-tertiary">
             {formatDistance(piece.distance_m)} / {formatDuration(piece.duration_s)}
+            {piece.has_intervals && " work"}
           </span>
         </div>
-        <Link to={`/tests/piece/${piece.id}`} className="text-xs text-accent hover:underline">
-          Pacing →
-        </Link>
+        {!piece.has_intervals && (
+          <Link to={`/tests/piece/${piece.id}`} className="text-xs text-accent hover:underline">
+            Pacing →
+          </Link>
+        )}
       </div>
 
-      {!editing ? (
+      {!editing && piece.has_intervals ? (
+        <>
+          <div className="mt-3">
+            <PieceIntervalTable intervals={piece.intervals} summary={piece.interval_summary} />
+          </div>
+          {piece.source === "concept2" && <p className="mt-2 text-xs text-text-tertiary">Imported from the Concept2 result's own interval data.</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setRows(piece.intervals);
+                setIvIssues(null);
+                setEditing(true);
+              }}
+              className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary"
+            >
+              Edit intervals
+            </button>
+            <button type="button" disabled={busy} onClick={remove} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-band-red/40 hover:text-band-red-text disabled:opacity-50">
+              Delete piece
+            </button>
+          </div>
+        </>
+      ) : editing && piece.has_intervals ? (
+        <div className="mt-3 flex flex-col gap-3">
+          <IntervalEditor rows={rows} onChange={setRows} canonicalId={canonicalId} issues={ivIssues ?? []} />
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditing(false)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => saveIntervals(ivIssues != null && ivIssues.length > 0)}
+              className="min-h-9 flex-1 rounded-md border border-accent bg-accent px-3 text-xs font-medium text-accent-contrast disabled:opacity-50"
+            >
+              {ivIssues && ivIssues.length > 0 ? "Save anyway" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : !editing ? (
         <>
           <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
             <div>

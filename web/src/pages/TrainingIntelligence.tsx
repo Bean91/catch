@@ -10,7 +10,9 @@ import { TrainingProfileCard } from "../components/intelligence/TrainingProfileC
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
+import { IntervalComparisonCard } from "../components/intelligence/IntervalComparisonCard";
 import {
+  fetchIntervalComparisons,
   fetchPerformanceTrends,
   fetchRecommendations,
   fetchTrainingConsistency,
@@ -28,6 +30,7 @@ import {
 export function TrainingIntelligencePage() {
   const profileQuery = useQuery({ queryKey: ["training-profile"], queryFn: fetchTrainingProfile });
   const trendsQuery = useQuery({ queryKey: ["performance-trends"], queryFn: () => fetchPerformanceTrends() });
+  const intervalsQuery = useQuery({ queryKey: ["interval-comparisons"], queryFn: fetchIntervalComparisons });
   const distributionQuery = useQuery({ queryKey: ["training-distribution"], queryFn: () => fetchTrainingDistribution(12) });
   const consistencyQuery = useQuery({ queryKey: ["training-consistency"], queryFn: () => fetchTrainingConsistency() });
   const insightsQuery = useQuery({ queryKey: ["training-insights"], queryFn: fetchTrainingInsights });
@@ -56,6 +59,12 @@ export function TrainingIntelligencePage() {
         {trendsQuery.isLoading && <CardSkeleton lines={2} />}
         {trendsQuery.isError && <ErrorState message="Couldn't load performance trends." onRetry={() => trendsQuery.refetch()} />}
         {trendsQuery.data && <PerformanceTrendsCard buckets={trendsQuery.data.buckets} />}
+      </Card>
+
+      <Card title="Interval sessions">
+        {intervalsQuery.isLoading && <CardSkeleton lines={2} />}
+        {intervalsQuery.isError && <ErrorState message="Couldn't load interval comparisons." onRetry={() => intervalsQuery.refetch()} />}
+        {intervalsQuery.data && <IntervalComparisonCard buckets={intervalsQuery.data.buckets} />}
       </Card>
 
       <Card title="Training distribution (last 12 weeks)">

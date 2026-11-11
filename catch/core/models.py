@@ -859,6 +859,39 @@ class Piece(SQLModel, table=True):
     time_in_zone_json: Optional[str] = None
     hr_recovery_bpm: Optional[float] = None
     notes: Optional[str] = None
+    # Session 19: True while the piece has PieceInterval rows. An interval piece is not one
+    # continuous effort, so every single-effort reader (PBs, 2k predict, test-center rows,
+    # fast-start flags) filters on this — a cheap column instead of an EXISTS per piece.
+    has_intervals: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class PieceInterval(SQLModel, table=True):
+    """Session 19 (see PLAN.md): one work interval inside a piece (4x500m, 8x1:00/1:00, a
+    custom ladder), with the rest that follows it. Real columns, not JSON, so interval metrics
+    stay queryable and comparable across workouts. `target_type` records which side was
+    prescribed; the other side is what was achieved and may be empty (an incomplete interval
+    is a valid saved state). Unique on (piece_id, position) — enforced in the service layer,
+    which rewrites positions contiguously."""
+
+    __tablename__ = "piece_intervals"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    piece_id: int = Field(foreign_key="pieces.id", index=True)
+    position: int
+    target_type: str  # "distance" | "time"
+    work_distance_m: Optional[float] = None
+    work_duration_s: Optional[float] = None
+    rest_duration_s: Optional[float] = None
+    avg_split_s: Optional[float] = None
+    avg_watts: Optional[float] = None
+    avg_rate: Optional[float] = None
+    avg_hr: Optional[float] = None
+    max_hr: Optional[float] = None
+    calories: Optional[float] = None
+    notes: Optional[str] = None
+    source: str = "manual"  # "manual" | "concept2"
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

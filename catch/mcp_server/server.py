@@ -191,16 +191,20 @@ def build_server(backend: ToolBackend) -> MCPServer:
         splits: Optional[list[dict]] = None,
         distance_m: Optional[float] = None,
         duration_s: Optional[float] = None,
+        repeat: Optional[dict] = None,
+        intervals: Optional[list[dict]] = None,
         confirm: Optional[bool] = None,
     ) -> dict:
         """Add a piece (a segment of a workout, e.g. a 2k inside a longer row) from free text
         like 'my 2k was 6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7' or a structured splits
         list. Call once without confirm to preview the parsed table for the athlete to check,
         then call again with the same data and confirm=true once they agree. canonical_id
-        defaults to the most recent workout."""
+        defaults to the most recent workout. For interval work (e.g. 4 x 500m with 1:00 rest) pass
+        piece_type='custom' and repeat={count, distance_m or duration_s, rest_s}, or an explicit
+        intervals list for variable structures."""
         return await _call(
             "add_piece", piece_type=piece_type, canonical_id=canonical_id, text=text, splits=splits,
-            distance_m=distance_m, duration_s=duration_s, confirm=confirm,
+            distance_m=distance_m, duration_s=duration_s, repeat=repeat, intervals=intervals, confirm=confirm,
         )
 
     @mcp.tool()
@@ -300,6 +304,13 @@ def build_server(backend: ToolBackend) -> MCPServer:
         trend projection, and whether an apparent improvement might just be a pacing/rate
         change."""
         return await _call("get_performance_trends", piece_type=piece_type)
+
+    @mcp.tool()
+    async def get_interval_comparisons() -> dict:
+        """Interval-session progress grouped by identical structure (e.g. '4x500m/r60'):
+        best/typical/recent weighted-average split across sessions. Interval pieces are kept
+        out of single-effort PBs and test trends, so this is where their progress is read."""
+        return await _call("get_interval_comparisons")
 
     @mcp.tool()
     async def get_training_distribution(weeks: Optional[int] = None) -> dict:

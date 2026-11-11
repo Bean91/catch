@@ -63,7 +63,7 @@ Add Result), not the start — local time unless `date_utc` is given (then that'
 and `timezone` is ignored) or `timezone` is an IANA zone name (then `date` is localized with
 it). If neither is present we fall back to treating `date` as UTC — a documented guess, not
 confirmed, since no live result exists yet to check it against. Activity `start` = `date` end
-time minus `(time + rest_time) / 10` seconds.
+time minus `(time + rest_time) / 10` seconds. (Session 19: `workout.intervals[]` entries — `distance`, `time`, `rest_time` in tenths of a second, `stroke_rate`, `type` — are what the on-demand interval import maps into `piece_intervals`; verified against the synthetic `result_102_detail.json` fixture only.)
 
 ### Stroke fields (`stroke_data` / the `strokes` embed)
 

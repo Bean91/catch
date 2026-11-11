@@ -83,6 +83,35 @@ def gather_performance_trends(session: Session, settings: dict, piece_type: str 
     return {"buckets": buckets}
 
 
+def gather_interval_comparisons(session: Session, settings: dict) -> dict:
+    """Session 19: interval pieces grouped by prescription signature. They are kept out of
+    gather_performance_trends/PBs/predict (not single continuous efforts), so this is where
+    interval-level progress is read from."""
+    from catch.analytics.piece_intervals import interval_signature, summarize_intervals
+    from catch.analytics.training_intelligence import compare_equivalent_intervals
+    from catch.sync.piece_intervals import interval_row, list_interval_rows
+
+    cutoff = date.today() - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
+    today = date.today()
+    n_history_days = _history_days(session, today)
+    by_sig: dict[str, list[dict]] = defaultdict(list)
+    for p in session.exec(select(Piece).where(Piece.has_intervals.is_(True))).all():
+        canonical = session.get(CanonicalActivity, p.canonical_id)
+        if canonical is None or canonical.start is None:
+            continue
+        d = canonical.start.astimezone().date()
+        if d < cutoff:
+            continue
+        rows = [interval_row(r) for r in list_interval_rows(session, p.id)]
+        sig = interval_signature(rows)
+        if sig is None:
+            continue
+        by_sig[sig].append({"date": d.isoformat(), "piece_id": p.id, "canonical_id": p.canonical_id, "summary": summarize_intervals(rows)})
+    buckets = [compare_equivalent_intervals(sig, sessions, n_history_days, settings) for sig, sessions in by_sig.items()]
+    buckets.sort(key=lambda b: b["bucket_label"])
+    return {"buckets": buckets}
+
+
 # --- Training distribution ---------------------------------------------------------------------
 
 
@@ -232,7 +261,7 @@ def _fast_start_flags(session: Session, limit: int = 10) -> list[bool]:
     zero extra queries beyond this one, unlike re-fetching a confirmed test's real Concept2
     stroke data, which this deliberately skips to keep this cheap enough to run from
     generate_recommendations' context assembly."""
-    rows = session.exec(select(Piece).order_by(Piece.created_at.desc()).limit(limit)).all()
+    rows = session.exec(select(Piece).where(Piece.has_intervals.is_(False)).order_by(Piece.created_at.desc()).limit(limit)).all()
     flags = []
     for p in rows:
         if not p.splits_json or not p.distance_m:

@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, createPiece, estimatePiecePhoto, fetchCoachSettings, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
 import { parseSplitsPaste, validateSplits } from "../../lib/pieceSplits";
-import { ERG_TEST_TYPES, type ErgTestType, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
+import { ERG_TEST_TYPES, type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
 import { formatDuration, formatShortDate } from "../../lib/format";
+import { IntervalEditor } from "./IntervalEditor";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 import { TimeInput } from "./TimeInput";
 
-type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "saving" | "saved";
+type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "intervals" | "saving" | "saved";
 
 /** Task Part A.2: "Add piece" button on any activity's detail page and in the test center,
  * with two input methods (photo, typed/pasted splits), both ending in the same editable
@@ -31,6 +32,8 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
   const [visionNotes, setVisionNotes] = useState("");
   const [validation, setValidation] = useState<PieceValidation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [intervalRows, setIntervalRows] = useState<PieceInterval[]>([]);
+  const [intervalIssues, setIntervalIssues] = useState<IntervalValidationIssue[]>([]);
 
   const coachSettings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings, enabled: open });
   const photoAvailable = coachSettings.data?.anthropic_key.configured ?? false;
@@ -49,6 +52,8 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     setVisionNotes("");
     setValidation(null);
     setError(null);
+    setIntervalRows([]);
+    setIntervalIssues([]);
   };
 
   // Radix's Dialog.Content unmounts its own subtree when `open` goes false, but this
@@ -114,6 +119,30 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't read that photo — try again or enter the splits manually.");
       setStep("choose-method");
+    }
+  };
+
+  // The server's interval validation returns `index`, the splits one `split_index` — one
+  // normalising step so the editor highlights the right row either way.
+  const saveIntervals = async (force: boolean) => {
+    if (canonicalId == null) return;
+    setStep("saving");
+    setError(null);
+    try {
+      const result = await createPiece(canonicalId, { piece_type: "custom", splits: [], intervals: intervalRows, force });
+      if (!result.piece) {
+        setIntervalIssues(result.validation.issues.map((i) => ({ index: (i as { index?: number | null }).index ?? i.split_index, field: i.field, message: i.message })));
+        setStep("intervals");
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["interval-comparisons"] });
+      setStep("saved");
+      onSaved();
+    } catch {
+      setError("Couldn't save these intervals — try again.");
+      setStep("intervals");
     }
   };
 
@@ -224,6 +253,9 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
               <button type="button" onClick={startTyped} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
                 Type or paste splits
               </button>
+              <button type="button" onClick={() => setStep("intervals")} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+                Intervals (4 × 500m, 8 × 1:00 …)
+              </button>
             </div>
           )}
 
@@ -280,6 +312,26 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
                   className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast"
                 >
                   {validation && !validation.ok ? "Save anyway" : "Save piece"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "intervals" && canonicalId != null && (
+            <div className="mt-4 flex flex-col gap-3">
+              <IntervalEditor rows={intervalRows} onChange={setIntervalRows} canonicalId={canonicalId} issues={intervalIssues} />
+              {error && <p className="text-sm text-band-red-text">{error}</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setStep("choose-method")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={intervalRows.length === 0}
+                  onClick={() => saveIntervals(intervalIssues.length > 0)}
+                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                >
+                  {intervalIssues.length > 0 ? "Save anyway" : "Save intervals"}
                 </button>
               </div>
             </div>

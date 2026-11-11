@@ -203,6 +203,14 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
     data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
     data["day_note"] = note
     data["has_samples"] = any(db.get(ActivitySamples, m.id) is not None for m in members)
+    # Session 19: pieces (with their intervals) ride along so the coach/analytics read one
+    # detail payload; a Concept2 member that actually reported intervals is flagged so the UI
+    # can offer the on-demand import.
+    from catch.sync import piece as piece_sync
+    from catch.sync.piece_intervals import has_concept2_intervals
+
+    data["pieces"] = piece_sync.list_pieces_payload(db, canonical_id)
+    data["concept2_interval_activity_id"] = next((m.id for m in members if m.source == "concept2" and has_concept2_intervals(m)), None)
     if canonical.sport_family == "strength":
         from catch.sync import gym
 

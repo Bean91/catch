@@ -959,3 +959,34 @@ definition above) recommendation as one line + its body — the same unprompted-
 the illness-level line already uses, and for the same reason: the coach should see it without
 having to think to call a tool first, but it must never be a stale claim once a later
 recompute has stopped confirming it.
+
+
+## 27. Intervals within a piece (`catch/analytics/piece_intervals.py`, `catch/sync/piece_intervals.py`), session 19
+
+A piece may be made of intervals (`piece_intervals` rows; `Piece.has_intervals`). Each row has
+a *prescribed* side (`target_type` = distance or time) and an optional *achieved* other side.
+
+**Validation** (`validate_intervals`, soft like `validate_splits`): no negatives; the prescribed
+target must be > 0; positions are exactly 0..n-1; rate 14-50 spm; avg HR 30-230; max HR >=
+avg HR; a stored split must agree with distance/time within max(1s, 3%); <= 100 intervals.
+
+**Summary** (`summarize_intervals`): work distance/time and rest time are separate sums
+(rest is never folded into work). Piece average split = sum(time)/sum(distance)*500 over rows
+that have *both* values. Watts, rate and HR are weighted by work time over rows that have that
+metric — missing values are skipped, not zero — so two unequal intervals never produce a mean of
+means. Max HR is the max of max-HRs; calories sum. `complete_count` reports how many rows have
+both distance and time.
+
+**No double counting.** An interval piece keeps `splits_json = []` and no sample window, so
+`power_member_and_samples`/zones/strain see nothing from it; the parent canonical's strain,
+duration and distance are unchanged (asserted exactly). `has_intervals` excludes it from test
+rows, PBs, 2k prediction, fast-start flags and the Concept2 absorb pass.
+
+**Comparison** (`interval_signature`, `compare_equivalent_intervals`): sessions are bucketed by
+prescription (`4x500m/r60`; non-uniform sets list each `work/rest` in order; the last rest is
+ignored). Within a bucket: best/typical(median)/recent weighted-average split, % vs typical, and
+the shared `confidence_level` ladder. No time-projection (that is for standard test distances).
+
+**Concept2 import** (on demand): `workout.intervals[]` -> rows (`distance`, `time`/10 s,
+`rest_time`/10 s, `stroke_rate`), watts/HR/rate from strokes with the same `interval_index`.
+Missing intervals -> error; nothing is derived from aggregate distance/time.

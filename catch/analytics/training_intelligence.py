@@ -201,6 +201,40 @@ def compare_equivalent_pieces(test_type: str, rows: list[dict], settings: dict) 
 # --- Training profile ------------------------------------------------------------------------
 
 
+def compare_equivalent_intervals(signature: str, sessions: list[dict], n_history_days: int, settings: dict) -> dict:
+    """Session 19: one equivalence bucket of interval pieces sharing a prescription signature
+    (piece_intervals.interval_signature, e.g. "4x500m/r60"). Each session is
+    {date: ISO str, summary: summarize_intervals' output}. The metric is the weighted average
+    split (lower is faster) — comparable across distance- and time-prescribed work alike.
+    Deliberately no project_time trend: that's built for standard test distances, and a handful
+    of interval sessions doesn't support a projection. Confidence reuses the same ladder."""
+    points = sorted(
+        (
+            {"date": s["date"], "value": s["summary"]["avg_split_s"], "avg_watts": s["summary"].get("avg_watts"), "avg_rate": s["summary"].get("avg_rate"), "avg_hr": s["summary"].get("avg_hr")}
+            for s in sessions
+            if s.get("summary") and s["summary"].get("avg_split_s")
+        ),
+        key=lambda p: p["date"],
+    )
+    base = {"bucket_label": signature, "n_points": len(points), "best": None, "typical": None, "recent": None, "delta_vs_typical_pct": None}
+    if not points:
+        return {**base, "confidence": "insufficient_data", "note": "No sessions with both distance and time recorded yet."}
+    values = [p["value"] for p in points]
+    best = min(points, key=lambda p: p["value"])
+    typical = statistics.median(values)
+    recent = points[-1]
+    delta = (recent["value"] - typical) / typical * 100.0 if typical and len(points) > 1 else None
+    return {
+        **base,
+        "best": best,
+        "typical": {"value": typical},
+        "recent": recent,
+        "delta_vs_typical_pct": delta,
+        "confidence": confidence_level(n_history_days, len(points), settings),
+        "note": None if len(points) > 1 else "Only one session of this structure so far — nothing to compare against yet.",
+    }
+
+
 def _infer_phase(load: dict, next_event: dict | None) -> dict:
     # Taper only means something ahead of a genuinely important event — a training camp (no
     # priority set) or a C-priority race 10 days out isn't a reason to call this a taper

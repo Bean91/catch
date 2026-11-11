@@ -465,6 +465,10 @@ def _get_training_profile(session: Session, args: dict, ctx: dict) -> dict:
     return routes_training_intelligence.get_training_profile(db=session)
 
 
+def _get_interval_comparisons(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_training_intelligence.get_interval_comparisons(db=session)
+
+
 def _get_performance_trends(session: Session, args: dict, ctx: dict) -> dict:
     return routes_training_intelligence.get_performance_trends(piece_type=args.get("piece_type"), db=session)
 
@@ -549,6 +553,9 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
     if canonical_id is None or session.get(CanonicalActivity, canonical_id) is None:
         return {"saved": False, "message": "No activity found to attach this piece to — ask which workout it belongs to."}
 
+    if args.get("intervals") or args.get("repeat"):
+        return _add_interval_piece(session, args, piece_type, canonical_id)
+
     splits = args.get("splits")
     total_duration_s = args.get("duration_s")
     if not splits:
@@ -580,6 +587,34 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
         session, canonical_id, piece_type, splits, distance_m=distance_m, duration_s=duration_s, source="manual", force=True
     )
     return {"saved": True, "piece": piece_sync.piece_dict(piece), "validation": validation}
+
+
+def _add_interval_piece(session: Session, args: dict, piece_type: str, canonical_id: int) -> dict:
+    """Session 19: a piece made of intervals — either `repeat` ({count, distance_m|duration_s,
+    rest_s}, expanded by the same expand_repeat the API/UI use) or an explicit `intervals`
+    list. Same preview-then-confirm contract as the splits path."""
+    from catch.analytics.piece_intervals import expand_repeat, summarize_intervals, validate_intervals
+    from catch.sync import piece as piece_sync
+    from catch.sync import piece_intervals as intervals_sync
+
+    if args.get("repeat"):
+        r = args["repeat"]
+        rows = expand_repeat(int(r["count"]), work_distance_m=r.get("distance_m"), work_duration_s=r.get("duration_s"), rest_duration_s=r.get("rest_s"))
+    else:
+        rows = [{**row, "position": i} for i, row in enumerate(args["intervals"])]
+    validation = validate_intervals(rows)
+    if not args.get("confirm"):
+        return {
+            "saved": False,
+            "preview": rows,
+            "summary": summarize_intervals(rows),
+            "validation": validation,
+            "piece_type": piece_type,
+            "canonical_id": canonical_id,
+            "message": "Preview only — confirm these intervals with the athlete, then call add_piece again with confirm=true.",
+        }
+    piece, validation = intervals_sync.create_interval_piece(session, canonical_id, rows, piece_type=piece_type, force=True)
+    return {"saved": True, "piece": piece_sync.piece_payload(session, piece), "validation": validation}
 
 
 def _make_pacing_plan(session: Session, args: dict, ctx: dict) -> dict:
@@ -946,6 +981,12 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "get_interval_comparisons": {
+        "fn": _get_interval_comparisons,
+        "write": False,
+        "description": "Interval-session progress, grouped by identical structure (e.g. '4x500m/r60'): best/typical/recent weighted-average split across sessions, with watts/rate/HR for each. Interval pieces are kept out of single-effort PBs, 2k prediction and test trends, so this is where interval progress lives.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
     "get_training_distribution": {
         "fn": _get_training_distribution,
         "write": False,
@@ -1031,6 +1072,17 @@ TOOLS: dict[str, dict[str, Any]] = {
                             "hr": {"type": "number"},
                         },
                     },
+                },
+                "repeat": {
+                    "type": "object",
+                    "description": "An interval piece such as 4 x 500m with 1:00 rest: {count, distance_m OR duration_s, rest_s}. Use piece_type 'custom'. Alternative to text/splits.",
+                    "properties": {"count": {"type": "integer"}, "distance_m": {"type": "number"}, "duration_s": {"type": "number"}, "rest_s": {"type": "number"}},
+                    "required": ["count"],
+                },
+                "intervals": {
+                    "type": "array",
+                    "description": "Explicit interval list for variable structures; each has target_type ('distance'|'time'), work_distance_m and/or work_duration_s, and optional rest_duration_s, avg_split_s, avg_watts, avg_rate, avg_hr, max_hr, calories.",
+                    "items": {"type": "object"},
                 },
                 "distance_m": {"type": "number", "description": "Total distance, if not implied by piece_type."},
                 "duration_s": {"type": "number", "description": "Total time in seconds, if not already parsed from text."},

@@ -46,6 +46,11 @@ import {
   mockPerformanceTrends,
   mockPhotoEstimate,
   mockPieces,
+  mockIntervalTemplate,
+  replaceMockIntervals,
+  reorderMockIntervals,
+  importMockConcept2Intervals,
+  mockIntervalComparisons,
   mockPieceTemplate,
   mockPiecePhotoEstimate,
   mockPieceTestDetail,
@@ -113,6 +118,10 @@ import {
   mockStatus,
 } from "./mock";
 import type {
+  IntervalComparisonBucket,
+  IntervalRepeatSpec,
+  IntervalsResult,
+  PieceInterval,
   ActivityOverrides,
   ActivitySamplesResponse,
   BarcodeLookupResult,
@@ -528,6 +537,8 @@ export async function fetchPieceTemplate(canonicalId: number, pieceType: ErgTest
 export interface CreatePieceBody {
   piece_type: ErgTestType;
   splits: PieceSplitRow[];
+  /** Session 19: present => an interval piece; splits are ignored server-side. */
+  intervals?: PieceInterval[];
   distance_m?: number | null;
   duration_s?: number | null;
   drag_factor?: number | null;
@@ -616,6 +627,57 @@ export async function deletePiecePhoto(pieceId: number): Promise<void> {
     return delay(undefined, 150);
   }
   await request(`/api/pieces/${pieceId}/photo`, { method: "DELETE" });
+}
+
+// --- Intervals within a piece (session 19 — see PLAN.md) ---------------------------------
+
+/** "4 x 500m r1:00" -> rows. The server owns this (catch.analytics.piece_intervals.expand_repeat)
+ * so the UI, the API and the coach can't disagree. */
+export async function fetchIntervalTemplate(canonicalId: number, spec: IntervalRepeatSpec): Promise<PieceInterval[]> {
+  if (isMock) return delay(mockIntervalTemplate(spec), 80);
+  const search = new URLSearchParams({ count: String(spec.count) });
+  if (spec.distance_m) search.set("distance_m", String(spec.distance_m));
+  if (spec.duration_s) search.set("duration_s", String(spec.duration_s));
+  if (spec.rest_s) search.set("rest_s", String(spec.rest_s));
+  const { intervals } = await request<{ intervals: PieceInterval[] }>(`/api/activities/${canonicalId}/pieces/interval-template?${search.toString()}`);
+  return intervals;
+}
+
+/** Replaces the piece's whole ordered interval set (rows that carry an `id` keep it). Soft
+ * validation like splits: `saved: false` + issues unless `force`. */
+export async function replaceIntervals(pieceId: number, intervals: PieceInterval[], force = false): Promise<IntervalsResult> {
+  if (isMock) return delay(replaceMockIntervals(pieceId, intervals, force), 200);
+  return request<IntervalsResult>(`/api/pieces/${pieceId}/intervals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ replace: intervals, force }),
+  });
+}
+
+export async function reorderIntervals(pieceId: number, ids: number[]): Promise<IntervalsResult> {
+  if (isMock) {
+    return delay(reorderMockIntervals(pieceId, ids), 150);
+  }
+  return request<IntervalsResult>(`/api/pieces/${pieceId}/intervals/order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export async function importConcept2Intervals(canonicalId: number, activityId: number): Promise<Piece> {
+  if (isMock) return delay(importMockConcept2Intervals(canonicalId), 300);
+  const { piece } = await request<{ piece: Piece }>(`/api/activities/${canonicalId}/pieces/from-concept2`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ activity_id: activityId }),
+  });
+  return piece;
+}
+
+export async function fetchIntervalComparisons(): Promise<{ buckets: IntervalComparisonBucket[] }> {
+  if (isMock) return delay(mockIntervalComparisons());
+  return request<{ buckets: IntervalComparisonBucket[] }>("/api/training-intelligence/intervals");
 }
 
 export async function fetchPieceTestDetail(pieceId: number): Promise<PieceTestDetail> {

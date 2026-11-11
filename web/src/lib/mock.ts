@@ -41,6 +41,12 @@ import type {
   PersonalBests,
   PhotoEstimateResult,
   Piece,
+  PieceInterval,
+  PieceIntervalSummary,
+  IntervalComparisonBucket,
+  IntervalRepeatSpec,
+  IntervalsResult,
+  IntervalValidation,
   PieceSplitRow,
   PieceTestDetail,
   PieceValidation,
@@ -882,9 +888,136 @@ const MOCK_PIECES: Piece[] = [
     notes: null,
     has_photo: false,
     created_at: shiftDate(TODAY, -3),
+    has_intervals: false,
+    intervals: [],
+    interval_summary: null,
+    interval_signature: null,
   },
 ];
 let nextMockPieceId = MOCK_PIECES.length + 1;
+let nextMockIntervalId = 1;
+
+// --- Session 19: intervals. The mock server's summary below is a fixture stand-in for
+// catch/analytics/piece_intervals.py (the one real implementation) — it exists only so
+// ?mock=1 renders realistic totals; nothing outside this file calls it.
+function mockIntervalSummary(rows: PieceInterval[]): PieceIntervalSummary {
+  const sum = (f: (r: PieceInterval) => number | null) => rows.reduce((a, r) => a + (f(r) ?? 0), 0);
+  const dist = sum((r) => r.work_distance_m);
+  const dur = sum((r) => r.work_duration_s);
+  const rest = sum((r) => r.rest_duration_s);
+  const both = rows.filter((r) => r.work_distance_m && r.work_duration_s);
+  const bothD = both.reduce((a, r) => a + (r.work_distance_m ?? 0), 0);
+  const bothT = both.reduce((a, r) => a + (r.work_duration_s ?? 0), 0);
+  const weighted = (f: (r: PieceInterval) => number | null) => {
+    let num = 0;
+    let den = 0;
+    for (const r of rows) {
+      const v = f(r);
+      if (v == null || !r.work_duration_s) continue;
+      num += v * r.work_duration_s;
+      den += r.work_duration_s;
+    }
+    return den ? num / den : null;
+  };
+  const maxes = rows.map((r) => r.max_hr).filter((v): v is number => v != null);
+  return {
+    count: rows.length,
+    complete_count: both.length,
+    work_distance_m: dist || null,
+    work_duration_s: dur || null,
+    rest_duration_s: rest || null,
+    total_duration_s: dur + rest || null,
+    avg_split_s: bothD ? (bothT / bothD) * 500 : null,
+    avg_watts: weighted((r) => r.avg_watts),
+    avg_rate: weighted((r) => r.avg_rate),
+    avg_hr: weighted((r) => r.avg_hr),
+    max_hr: maxes.length ? Math.max(...maxes) : null,
+    calories: null,
+  };
+}
+
+function mockFinishIntervals(piece: Piece, rows: PieceInterval[]): void {
+  piece.intervals = rows.map((r, i) => ({
+    ...r,
+    id: r.id ?? nextMockIntervalId++,
+    position: i,
+    source: r.source ?? "manual",
+    split_s: r.avg_split_s ?? (r.work_distance_m && r.work_duration_s ? (r.work_duration_s / r.work_distance_m) * 500 : null),
+  }));
+  piece.has_intervals = piece.intervals.length > 0;
+  const s = mockIntervalSummary(piece.intervals);
+  piece.interval_summary = piece.has_intervals ? s : null;
+  piece.distance_m = s.work_distance_m;
+  piece.duration_s = s.work_duration_s;
+  piece.avg_split_s = s.avg_split_s;
+  piece.avg_rate = s.avg_rate;
+  piece.avg_watts = s.avg_watts;
+  piece.splits = [];
+  piece.interval_signature = piece.has_intervals ? `${piece.intervals.length}x${piece.intervals[0].work_distance_m ?? piece.intervals[0].work_duration_s}` : null;
+}
+
+function mockValidateIntervals(rows: PieceInterval[]): IntervalValidation {
+  const issues: IntervalValidation["issues"] = [];
+  rows.forEach((r, i) => {
+    const field = r.target_type === "distance" ? "work_distance_m" : "work_duration_s";
+    if (!r[field]) issues.push({ index: i, field, message: "A work target greater than zero is required." });
+    if (r.max_hr != null && r.avg_hr != null && r.max_hr < r.avg_hr) issues.push({ index: i, field: "max_hr", message: "Max HR can't be below average HR." });
+  });
+  return { ok: issues.length === 0, issues };
+}
+
+export function mockIntervalTemplate(body: IntervalRepeatSpec): PieceInterval[] {
+  const blank = { avg_split_s: null, avg_watts: null, avg_rate: null, avg_hr: null, max_hr: null, calories: null, notes: null };
+  return Array.from({ length: body.count }, (_, i) => ({
+    target_type: body.distance_m ? ("distance" as const) : ("time" as const),
+    work_distance_m: body.distance_m ?? null,
+    work_duration_s: body.duration_s ?? null,
+    rest_duration_s: body.rest_s && i < body.count - 1 ? body.rest_s : null,
+    ...blank,
+  }));
+}
+
+export function replaceMockIntervals(pieceId: number, rows: PieceInterval[], force = false): IntervalsResult {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId) ?? MOCK_PIECES[0];
+  const validation = mockValidateIntervals(rows);
+  if (!validation.ok && !force) return { saved: false, validation, piece };
+  mockFinishIntervals(piece, rows);
+  return { saved: true, validation, piece };
+}
+
+export function reorderMockIntervals(pieceId: number, ids: number[]): IntervalsResult {
+  const piece = MOCK_PIECES.find((p) => p.id === pieceId) ?? MOCK_PIECES[0];
+  const byId = new Map(piece.intervals.map((r) => [r.id, r]));
+  mockFinishIntervals(
+    piece,
+    ids.map((id) => byId.get(id)!).filter(Boolean),
+  );
+  return { saved: true, validation: { ok: true, issues: [] }, piece };
+}
+
+export function importMockConcept2Intervals(canonicalId: number): Piece {
+  const rows = mockIntervalTemplate({ count: 4, distance_m: 500, rest_s: 60 }).map((r) => ({ ...r, work_duration_s: 105, avg_rate: 32, avg_hr: 168, max_hr: 175, source: "concept2" as const }));
+  const piece = createMockPiece(canonicalId, { piece_type: "custom", splits: [], intervals: rows, force: true }).piece!;
+  piece.source = "concept2";
+  return piece;
+}
+
+export function mockIntervalComparisons(): { buckets: IntervalComparisonBucket[] } {
+  return {
+    buckets: [
+      {
+        bucket_label: "4x500m/r60",
+        n_points: 3,
+        best: { date: shiftDate(TODAY, -3), value: 101.5, avg_watts: 262, avg_rate: 32, avg_hr: 171 },
+        typical: { value: 103.2 },
+        recent: { date: shiftDate(TODAY, -3), value: 101.5, avg_watts: 262, avg_rate: 32, avg_hr: 171 },
+        delta_vs_typical_pct: -1.6,
+        confidence: "low",
+        note: null,
+      },
+    ],
+  };
+}
 
 export function mockPieces(canonicalId: number): Piece[] {
   return MOCK_PIECES.filter((p) => p.canonical_id === canonicalId);
@@ -896,8 +1029,16 @@ export function mockPieceTemplate(pieceType: ErgTestType, distanceM?: number, du
 
 export function createMockPiece(
   canonicalId: number,
-  body: { piece_type: ErgTestType; splits: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; drag_factor?: number | null; source?: string; notes?: string | null; force?: boolean },
+  body: { piece_type: ErgTestType; splits: PieceSplitRow[]; intervals?: PieceInterval[]; distance_m?: number | null; duration_s?: number | null; drag_factor?: number | null; source?: string; notes?: string | null; force?: boolean },
 ): { piece: Piece | null; validation: PieceValidation } {
+  if (body.intervals) {
+    const ivValidation = mockValidateIntervals(body.intervals);
+    if ((!ivValidation.ok && !body.force) || body.intervals.length === 0) return { piece: null, validation: { ok: false, issues: ivValidation.issues.map((i) => ({ split_index: i.index, index: i.index, field: i.field ?? "", message: i.message })) } };
+    const ivPiece = { ...MOCK_PIECES[0], id: nextMockPieceId++, canonical_id: canonicalId, piece_type: body.piece_type, drag_factor: null, source: "manual" as const, window_activity_id: null, window_start_s: null, window_end_s: null, time_in_zone: null, hr_recovery_bpm: null, notes: body.notes ?? null, has_photo: false, created_at: new Date().toISOString() };
+    mockFinishIntervals(ivPiece, body.intervals);
+    MOCK_PIECES.push(ivPiece);
+    return { piece: ivPiece, validation: { ok: true, issues: [] } };
+  }
   const agg = aggregateFromSplits(body.splits);
   const distance = body.distance_m ?? agg.distance_m;
   const duration = body.duration_s ?? agg.duration_s;
@@ -925,6 +1066,10 @@ export function createMockPiece(
     notes: body.notes ?? null,
     has_photo: false,
     created_at: new Date().toISOString(),
+    has_intervals: false,
+    intervals: [],
+    interval_summary: null,
+    interval_signature: null,
   };
   MOCK_PIECES.push(piece);
   return { piece, validation };

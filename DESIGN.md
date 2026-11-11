@@ -270,6 +270,26 @@ tight; the training-intelligence page lives at `/trends/intelligence`, reached b
 on Trends' own header, matching the Tests/MuscleReadiness/Duplicates/Status precedent of a
 standalone route with no nav slot of its own.
 
+## Intervals within a piece (session 19)
+
+- **Stacked rows, not a wide table, in the editor.** Target + result + rest + five optional
+  metrics per row can't fit 390px without sideways scrolling (the existing splits table's
+  `min-w-[480px]` scroll is the thing to avoid repeating). Only the prescription, the result
+  and rest are always visible; watts/rate/HR/max HR/calories/notes sit under a per-row "More".
+- **Quick add first.** A "Reps x distance-or-time, rest" bar generates rows in one tap, so
+  4 x 500m is a handful of taps; "+ Add custom interval" covers ladders. The ordinary single-piece
+  flow is unchanged — Intervals is just one more choice on the method step.
+- **Reorder with up/down buttons**, 44px-ish targets, no drag dependency and no drag-vs-scroll
+  conflict on touch.
+- **Work vs rest.** Totals strip keeps Work and Rest as separate figures. In the list, rest is
+  a muted, italic inset line under the interval it follows — a different register from effort
+  rows, never a row of its own with fake metrics.
+- **Honest partial data.** "N of M intervals have both distance and time" appears when
+  averages exclude some rows; blank cells are "—", never 0.
+- **Interval pieces have no Pacing link** (that view is for one continuous effort).
+- Interval comparisons live on the Training intelligence page as plain text + confidence, same
+  as the other cards — no new nav slot.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

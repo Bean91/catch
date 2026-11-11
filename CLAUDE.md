@@ -180,7 +180,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 35 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 36 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -429,6 +429,19 @@ docs/           garmin-endpoints.md, withings-endpoints.md, garmin-openapi.json,
                 Part D.4 absorb — see that section for the full writeup
 DESIGN.md       palette/type/motion decisions for the web frontend
 ```
+
+Session 19 (intervals within a piece — see PLAN.md, docs/analytics.md §27, DESIGN.md): a piece
+can be made of `piece_intervals` rows (`PieceInterval` in core/models.py; `Piece.has_intervals`
+flags it). Pure math/validation/"4 x 500m" expansion/signatures live only in
+`catch/analytics/piece_intervals.py`; the DB layer is `catch/sync/piece_intervals.py` (in-place
+id-stable updates, parent totals re-derived on every mutation, on-demand Concept2 import from
+`workout.intervals`); routes are in `routes_pieces.py`, comparisons in
+`routes_training_intelligence.py`/`gather_interval_comparisons`, coach `get_interval_comparisons`
++ `add_piece` `repeat`/`intervals`. Interval pieces are excluded from every single-effort reader
+(`has_intervals` filter: test rows, PBs, 2k predict, fast-start, Concept2 absorb) and never
+change the parent's strain. Web: `components/pieces/IntervalEditor.tsx` (stacked rows),
+`PieceIntervalTable.tsx`, `components/intelligence/IntervalComparisonCard.tsx`; the browser holds
+no interval math, the server returns every total. Playwright: `web/tests/touch/intervals.spec.ts`.
 
 ## Commands
 

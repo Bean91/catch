@@ -258,6 +258,84 @@ export interface Piece {
   notes: string | null;
   has_photo: boolean;
   created_at: string;
+  /** Session 19: an interval piece's distance_m/duration_s are *work only*; rest is in
+   * interval_summary. Totals and weighted averages always come from the server. */
+  has_intervals: boolean;
+  intervals: PieceInterval[];
+  interval_summary: PieceIntervalSummary | null;
+  interval_signature: string | null;
+}
+
+export type IntervalTarget = "distance" | "time";
+
+export interface PieceInterval {
+  /** Absent on a not-yet-saved row in the editor. */
+  id?: number;
+  position?: number;
+  target_type: IntervalTarget;
+  work_distance_m: number | null;
+  work_duration_s: number | null;
+  rest_duration_s: number | null;
+  avg_split_s: number | null;
+  avg_watts: number | null;
+  avg_rate: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  calories: number | null;
+  notes: string | null;
+  source?: "manual" | "concept2";
+  /** Server-derived (stored split, or time/distance) — never computed in the browser. */
+  split_s?: number | null;
+}
+
+export interface PieceIntervalSummary {
+  count: number;
+  complete_count: number;
+  work_distance_m: number | null;
+  work_duration_s: number | null;
+  rest_duration_s: number | null;
+  total_duration_s: number | null;
+  avg_split_s: number | null;
+  avg_watts: number | null;
+  avg_rate: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  calories: number | null;
+}
+
+export interface IntervalValidationIssue {
+  index: number | null;
+  field: string | null;
+  message: string;
+}
+
+export interface IntervalValidation {
+  ok: boolean;
+  issues: IntervalValidationIssue[];
+}
+
+export interface IntervalsResult {
+  saved: boolean;
+  validation: IntervalValidation;
+  piece: Piece;
+}
+
+export interface IntervalRepeatSpec {
+  count: number;
+  distance_m?: number;
+  duration_s?: number;
+  rest_s?: number;
+}
+
+export interface IntervalComparisonBucket {
+  bucket_label: string;
+  n_points: number;
+  best: { date: string; value: number; avg_watts: number | null; avg_rate: number | null; avg_hr: number | null } | null;
+  typical: { value: number } | null;
+  recent: { date: string; value: number; avg_watts: number | null; avg_rate: number | null; avg_hr: number | null } | null;
+  delta_vs_typical_pct: number | null;
+  confidence: "insufficient_data" | "low" | "medium" | "high";
+  note: string | null;
 }
 
 export interface PieceSplitRow {
@@ -534,6 +612,10 @@ export interface WorkoutDetail extends WorkoutListItem {
   hr_zone: string | null;
   day_note: Note | null;
   has_samples: boolean;
+  /** Session 19: pieces ride along on the detail payload; a Concept2 member that reported
+   * real intervals is flagged so the page can offer the on-demand import. */
+  pieces?: Piece[];
+  concept2_interval_activity_id?: number | null;
   /** Session 14 (see PLAN.md Part C.4) — present only when category === "strength": this
    * session's own logged/draft sets, and its per-muscle-group raw AU breakdown (the same
    * cache catch/sync/gym.py writes onto the canonical). */

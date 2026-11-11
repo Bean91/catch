@@ -3425,3 +3425,70 @@ corrected bullet above):
   (also empty on this front). Whether the Pi's real, current account has any confirmed
   Concept2 tests or pieces by now (session 17 shipped pieces after this snapshot was taken) is
   unknown — see the corrected real-data bullet above.
+
+---
+
+# Session 19: intervals within a piece
+
+A piece can now be made of structured intervals (4 x 500m, 8 x 1:00 on / 1:00 off,
+3 x 2000m r3:00, ladders, mixed distance/time) — real rows in `piece_intervals`, not JSON.
+
+## Decisions
+
+- **New table, not more JSON.** `PieceInterval` (FK `piece_id`, `position`, `target_type`
+  "distance"|"time", `work_distance_m`, `work_duration_s`, `rest_duration_s`, `avg_split_s`,
+  `avg_watts`, `avg_rate`, `avg_hr`, `max_hr`, `calories`, `notes`, `source`). `target_type` is
+  the prescribed side; the other side is the achieved result and may be empty, so an
+  incomplete interval is a normal saved state. Rest belongs to the work interval it follows.
+- **Interval pieces are Pieces.** `Piece.has_intervals` (new column) flags them; their
+  `distance_m`/`duration_s`/averages are derived server-side from `summarize_intervals` and are
+  *work only*. `splits_json` stays `[]`, so the Part D.3 power overlay has nothing to apply and
+  strain/zones for the parent are byte-identical with and without intervals (tested with exact
+  equality).
+- **Excluded from single-effort analytics** via `has_intervals`: test-center rows
+  (`erg_test._piece_rows`), PB and 2k-prediction candidates (`piece_pb_candidates`,
+  `confirmed_piece_pace_candidates`), fast-start flags, and the Part D.4 Concept2 absorb pass.
+  They feed `gather_interval_comparisons` instead, grouped by `interval_signature`
+  ("4x500m/r60"), metric = weighted average split, confidence via the existing ladder.
+- **Weighted averages.** Piece split = total time / total distance over intervals that carry
+  both (not a mean of splits); watts/rate/HR are time-weighted over intervals that have the
+  metric (missing is skipped, never zero).
+- **One implementation of the math.** `catch/analytics/piece_intervals.py` is the only place
+  totals/averages/validation/"4 x 500m" expansion live. The browser computes nothing: the editor
+  calls `GET .../pieces/interval-template` for the generator and every save returns the summary.
+  (`web/src/lib/mock.ts` has a small stand-in so `?mock=1` renders; nothing else uses it.)
+- **Stable ids.** Mutations update rows in place by id; an early draft deleted and recreated
+  rows, which churned ids (and SQLite reuses freed rowids), so a client holding a stale id could
+  have edited a different interval. Caught by the delete-then-404 test.
+- **Concept2 import is on demand** (user's choice): `POST /api/activities/{id}/pieces/from-concept2`
+  parses the result's own `workout.intervals` (distance, time and rest_time in tenths of a
+  second, stroke_rate) and joins strokes by `interval_index` for watts/HR. No interval data in
+  the payload -> 422; nothing is inferred from aggregates. Re-running refreshes the same piece.
+- **Migration.** One `_NEW_COLUMNS["pieces"]["has_intervals"]` entry; `piece_intervals` comes
+  from `create_all`. Existing pieces default to `has_intervals = 0` and are untouched.
+
+## Added
+
+API: `GET /api/pieces/{id}`, `GET|POST /api/pieces/{id}/intervals` (body: one of `repeat`,
+`intervals`, `replace`), `PUT /api/pieces/{id}/intervals/order`, `PATCH|DELETE
+/api/pieces/intervals/{iid}`, `GET /api/activities/{id}/pieces/interval-template`,
+`POST /api/activities/{id}/pieces/from-concept2`, `GET /api/training-intelligence/intervals`;
+`POST /api/activities/{id}/pieces` accepts `intervals`; `GET /api/activities/{id}` now embeds
+`pieces` and `concept2_interval_activity_id`. Coach/MCP: `get_interval_comparisons` (36 tools),
+`add_piece` takes `repeat`/`intervals`. UI: `IntervalEditor`, `PieceIntervalTable`,
+`IntervalComparisonCard`, an "Intervals" path in `AddPieceDialog`, interval mode in `PieceCard`,
+an "Import intervals from Concept2" action on workout detail.
+
+## Not done / limitations
+
+- The Concept2 mapping is fixture-verified only (`result_102_detail.json`); the account has no
+  live Concept2 results, so real payload shapes (e.g. whether `workout.intervals[].type` is
+  always present) are unconfirmed. Strokes are matched to intervals by `interval_index`, which
+  assumes the client's reset detection saw every interval.
+- Reordering is up/down buttons, not drag — no new dependency, and 44px targets on a phone.
+- No frontend unit tests: the web has no jsdom/testing-library and, by design, no interval math
+  to unit test; the interactions are covered by `web/tests/touch/intervals.spec.ts`.
+- Adding a piece still shifts nothing global for interval pieces (they never reach
+  `rowing_watts_2k`), but an interval piece has no pacing detail page or HR-window alignment.
+- Interval comparison needs >= 2 sessions of an identical structure; a one-rep difference
+  starts a new bucket.

@@ -12,7 +12,8 @@ matching/editing tools, (session 13) `get_nutrition`/`log_food` for the nutritio
 longer row), and (session 18) `get_training_profile`/`get_performance_trends`/
 `get_training_distribution`/`get_training_consistency`/`get_training_insights`/
 `get_recommendations`/`rate_recommendation` for training intelligence & recommendations —
-35 tools total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
+(session 19) `get_interval_comparisons` (and `add_piece` also taking `repeat`/`intervals` for
+interval pieces) — 36 tools total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 
 - **stdio** — for Claude Desktop, running on your laptop while Catch itself runs on the Pi.

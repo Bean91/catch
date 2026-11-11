@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { alignPiece, fetchActivitySamples, fetchErgStrokes, fetchPieces, fetchSettings, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
+import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchSettings, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily } from "../lib/types";
@@ -136,6 +136,14 @@ export function WorkoutDetailPage() {
   const pieceBands: PieceBand[] = (pieces ?? [])
     .filter((p) => p.window_start_s != null && p.window_end_s != null)
     .map((p) => ({ id: p.id, startS: p.window_start_s as number, endS: p.window_end_s as number }));
+  const importIntervals = useMutation({
+    mutationFn: (activityId: number) => importConcept2Intervals(canonicalId, activityId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["interval-comparisons"] });
+    },
+  });
   const alignMutation = useMutation({
     mutationFn: ({ pieceId, startS }: { pieceId: number; startS: number }) => {
       const piece = pieces?.find((p) => p.id === pieceId);
@@ -346,6 +354,17 @@ export function WorkoutDetailPage() {
           </button>
         }
       >
+        {workout?.concept2_interval_activity_id != null && !pieces?.some((p) => p.has_intervals && p.concept2_activity_id === workout.concept2_interval_activity_id) && (
+          <button
+            type="button"
+            disabled={importIntervals.isPending}
+            onClick={() => importIntervals.mutate(workout.concept2_interval_activity_id!)}
+            className="mb-2 min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50"
+          >
+            {importIntervals.isPending ? "Importing…" : "Import intervals from Concept2"}
+          </button>
+        )}
+        {importIntervals.isError && <p className="mb-2 text-xs text-band-red-text">Couldn't import — this result has no interval data.</p>}
         {pieces == null || pieces.length === 0 ? (
           <p className="text-sm text-text-tertiary">No pieces yet — a 2k inside this session, say.</p>
         ) : (

@@ -64,6 +64,10 @@ _NEW_COLUMNS = {
         # Session 17 (see PLAN.md Part D.4) — see the field's docstring in models.py.
         "absorbed_into_piece_id": "INTEGER",
     },
+    "pieces": {
+        # Session 19 (see PLAN.md): see the field's docstring in models.py.
+        "has_intervals": "BOOLEAN NOT NULL DEFAULT 0",
+    },
     "daily_wellness": {
         # Session 13 (see PLAN.md Part A).
         "steps": "INTEGER",

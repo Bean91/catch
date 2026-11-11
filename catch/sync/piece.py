@@ -19,7 +19,7 @@ from catch.analytics.piece import aggregate_from_splits, find_best_window, stand
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.technique import interval_summary
 from catch.analytics.zones_samples import drop_dropouts, hr_recovery_drop, smooth, time_in_zone_seconds
-from catch.core.models import Activity, ActivitySamples, CanonicalActivity, MergeLog, Piece, PiecePhoto, Stroke
+from catch.core.models import Activity, ActivitySamples, CanonicalActivity, MergeLog, Piece, PieceInterval, PiecePhoto, Stroke
 from catch.core.settings_store import get_settings
 
 logger = logging.getLogger("catch.piece")
@@ -76,6 +76,17 @@ def piece_dict(piece: Piece, has_photo: bool = False) -> dict:
     }
 
 
+def piece_payload(session: Session, piece: Piece, has_photo: bool = False) -> dict:
+    """piece_dict plus the piece's intervals/summary — the shape every API and coach read
+    returns. A lazy import because piece_intervals imports _resolve_and_rescore from here."""
+    from catch.sync.piece_intervals import intervals_payload
+
+    out = piece_dict(piece, has_photo=has_photo)
+    out["has_intervals"] = bool(piece.has_intervals)
+    out.update(intervals_payload(session, piece) if piece.has_intervals else {"intervals": [], "interval_summary": None, "interval_signature": None})
+    return out
+
+
 def list_pieces_for_canonical(session: Session, canonical_id: int) -> list[Piece]:
     return session.exec(select(Piece).where(Piece.canonical_id == canonical_id).order_by(Piece.created_at)).all()
 
@@ -83,7 +94,7 @@ def list_pieces_for_canonical(session: Session, canonical_id: int) -> list[Piece
 def list_pieces_payload(session: Session, canonical_id: int) -> list[dict]:
     pieces = list_pieces_for_canonical(session, canonical_id)
     photo_ids = set(session.exec(select(PiecePhoto.piece_id).where(PiecePhoto.piece_id.in_([p.id for p in pieces]))).all()) if pieces else set()
-    return [piece_dict(p, has_photo=p.id in photo_ids) for p in pieces]
+    return [piece_payload(session, p, has_photo=p.id in photo_ids) for p in pieces]
 
 
 def get_piece(session: Session, piece_id: int) -> Optional[Piece]:
@@ -235,6 +246,8 @@ def delete_piece(session: Session, piece_id: int) -> bool:
     photo = session.get(PiecePhoto, piece_id)
     if photo is not None:
         session.delete(photo)
+    for interval in session.exec(select(PieceInterval).where(PieceInterval.piece_id == piece_id)).all():
+        session.delete(interval)
     session.delete(piece)
     session.commit()
     _resolve_and_rescore(session, canonical_id)
@@ -501,7 +514,7 @@ def absorb_concept2_piece_results(session: Session) -> int:
        this just finds which Stroke.interval_index group matches the piece's own signature.
     """
     absorbed = 0
-    unlinked = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None))).all()
+    unlinked = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False))).all()
     for piece in unlinked:
         canonical = session.get(CanonicalActivity, piece.canonical_id)
         if canonical is None or piece.distance_m is None or piece.duration_s is None:
@@ -588,7 +601,7 @@ def piece_pb_candidates(session: Session) -> list[dict]:
     A.1: "pieces count in the test center like Concept2 results" — this is the PB half of
     that). Excludes any piece Part D.4 already absorbed into a real Concept2 result, whose
     own Activity row is already a PB candidate via the normal path."""
-    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None))).all()
+    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False))).all()
     out = []
     for p in pieces:
         if not p.distance_m or not p.duration_s:
@@ -616,7 +629,7 @@ def confirmed_piece_pace_candidates(session: Session, cutoff: datetime) -> list[
     must be judged by when the effort happened, not when it was typed in, exactly like every
     other "recent" window in this app (predict_lookback_days elsewhere always means the
     activity's date)."""
-    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.distance_m >= 1000)).all()
+    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False), Piece.distance_m >= 1000)).all()
     out = []
     for p in pieces:
         if not p.duration_s:

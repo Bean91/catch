@@ -46,7 +46,8 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
     canonical is."""
     from catch.core.models import Piece
 
-    pieces = session.exec(select(Piece)).all()
+    # Session 19: an interval piece isn't one continuous effort — it never becomes a test row.
+    pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(False))).all()
     out = []
     for p in pieces:
         if test_type and p.piece_type != test_type:
