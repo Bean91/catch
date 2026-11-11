@@ -290,6 +290,33 @@ standalone route with no nav slot of its own.
 - Interval comparisons live on the Training intelligence page as plain text + confidence, same
   as the other cards — no new nav slot.
 
+## Maps, GPS and weather (session 20)
+
+- **Provenance in words.** Every figure computed from GPS fixes carries a small "GPS-derived" chip;
+  Garmin's own numbers sit in a separate "What Garmin reported" block with a "Garmin-reported" chip —
+  never blended, never colour alone. Missing values read "—" / "not available", never 0.
+- **The map is a vector overlay on a basemap that can fail.** The route is drawn as SVG polylines, so it
+  still shows (on `--surface-2`) when tiles can't load offline. OSM attribution is always visible. Leaflet
+  loads in its own lazy chunk, only as the placeholder nears the viewport (never in the initial bundle).
+- **Speed on the line = weight and opacity in the one accent hue** (thin/faint = slow, thick/solid = fast)
+  with a numeric legend — no new hues. Start is a larger ring under a smaller solid finish dot so a loop
+  shows both.
+- **The map must never trap page scroll.** Touch: one finger scrolls the page (`dragging` off, a "Use two
+  fingers to move the map" hint appears), two fingers pan/zoom. Mouse: drag pans; the wheel zooms only with
+  ctrl/cmd held (a trackpad pinch sends exactly that) and otherwise shows a hint and lets the page scroll.
+  Zoom buttons are 44px on a coarse pointer. Verified with real CDP touch and mouse input
+  (`web/tests/touch/route-map*.spec.ts`).
+- **The speed/pace chart is read-only**, so unlike the HR/erg charts it sets `touch-action: pan-y`: a
+  horizontal drag moves the crosshair (and a marker on the map), a vertical swipe still scrolls. Pace is
+  plotted inverted (faster = higher) like speed; y-range is the 2nd–98th percentile so one noisy fix can't
+  flatten the line; the line breaks at a GPS gap rather than bridging it.
+- **Weather is observed data, labelled as context.** Chips on the summary card, a Conditions card with
+  coverage, provisional/partial flags, the wind arrow pointing where the wind blows *to* (the text says
+  "from"), the Open-Meteo attribution link, and the standing note that it is not a performance correction.
+- **Routes** have no nav slot (the Tests/Duplicates/Status precedent): a desktop sidebar entry plus a
+  "Routes" pill in the Workouts header (which now wraps). Route history is plain text + one static SVG
+  histogram, with the not-corrected caveats printed on the page.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

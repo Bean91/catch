@@ -949,3 +949,99 @@ class Recommendation(SQLModel, table=True):
     rating: Optional[str] = None  # "useful" | "not_useful"
     rated_at: Optional[datetime] = None
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ActivityTrack(SQLModel, table=True):
+    """Session 20 (see PLAN.md, docs/analytics.md §28): the GPS track of one *source* Activity
+    (keyed like ActivitySamples, so merging canonicals never touches track bytes). Positions are
+    the raw FIT fixes, struct-packed + zlib'd (catch/analytics/samples_codec.py): lat/lon as
+    delta-coded int32 degrees*1e7, time as whole seconds from the file's first record (the same
+    origin as ActivitySamples, so elapsed_s lines up across series). Filtering happens at read
+    time (catch/analytics/gps.py), never on write — the stored track is what the device recorded.
+
+    `n_points == 0` means "parsed, no GPS in this file" (an indoor erg/bike FIT): the row exists
+    so sync doesn't re-parse the same positionless file on every run. `provider_json` holds what
+    Garmin itself reported (kept apart from anything we derive); `summary_json` caches the
+    derived figures route matching/history read so they never decode blobs."""
+
+    __tablename__ = "activity_tracks"
+
+    activity_id: int = Field(foreign_key="activities.id", primary_key=True)
+    start: datetime
+    n_points: int = 0
+    n_records: int = 0  # every FIT record, with or without a fix
+    t_blob: Optional[bytes] = None
+    lat_blob: Optional[bytes] = None
+    lon_blob: Optional[bytes] = None
+    dist_blob: Optional[bytes] = None  # provider cumulative distance, centimetres
+    speed_blob: Optional[bytes] = None  # provider enhanced_speed, 0.01 m/s
+    alt_blob: Optional[bytes] = None  # (m + 500) * 10; only if the records carry altitude
+    hr_blob: Optional[bytes] = None
+    acc_blob: Optional[bytes] = None  # only written if the device reported gps_accuracy
+    laps_json: Optional[str] = None
+    provider_json: Optional[str] = None
+    summary_json: Optional[str] = None
+    route_id: Optional[int] = Field(default=None, foreign_key="routes.id", index=True)
+    # Set when the athlete assigned (or unassigned) the route by hand — auto-matching then leaves
+    # this track alone.
+    route_pinned: bool = False
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class Route(SQLModel, table=True):
+    """A repeated course, formed only once a second session aligns with the first (a single
+    session is never promoted to a route). `name`/`tags_json` are the athlete's own; `auto_label`
+    is a derived fallback (Garmin's locationName + length) and is never shown as if it were a name."""
+
+    __tablename__ = "routes"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: Optional[str] = None
+    tags_json: str = "[]"
+    auto_label: Optional[str] = None
+    sport_family: str = "rowing"
+    signature_json: str = "[]"  # reference polyline, [[lat, lon], ...] resampled by distance
+    length_m: float = 0.0
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class WeatherCell(SQLModel, table=True):
+    """One provider response for one 0.1-degree cell and one UTC day — fetched once and reused
+    for every activity in that cell-day. Coordinates are rounded to 0.1 degree *before* being
+    sent, so the provider never sees a precise route. `complete` is False while the day is still
+    inside the reanalysis delay; incomplete days are re-fetched after a TTL
+    (catch/sync/weather.py)."""
+
+    __tablename__ = "weather_cells"
+    __table_args__ = (
+        UniqueConstraint("provider", "lat_e1", "lon_e1", "utc_date", name="uq_weather_cell_day"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    provider: str
+    lat_e1: int
+    lon_e1: int
+    utc_date: date_
+    hourly_json: str = "{}"
+    complete: bool = False
+    grid_lat: Optional[float] = None
+    grid_lon: Optional[float] = None
+    grid_elevation: Optional[float] = None
+    fetched_at: datetime = Field(default_factory=_utcnow)
+
+
+class ActivityWeather(SQLModel, table=True):
+    """The weather matched to one activity's time window and location — observed provider data
+    (reanalysis, not a station at the water), never a performance correction."""
+
+    __tablename__ = "activity_weather"
+
+    activity_id: int = Field(foreign_key="activities.id", primary_key=True)
+    status: str  # ok | partial | unavailable
+    provider: str
+    summary_json: str = "{}"
+    attribution: str = ""
+    lat_e1: Optional[int] = None
+    lon_e1: Optional[int] = None
+    fetched_at: datetime = Field(default_factory=_utcnow)

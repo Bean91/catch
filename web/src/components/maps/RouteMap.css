@@ -1,0 +1,30 @@
+/* Leaflet themed to the app's tokens. The polyline is vector, so it still draws when tiles
+   can't load (offline); the background shows through instead of a broken grid. */
+.catch-map.leaflet-container {
+  background: var(--surface-2);
+  font: inherit;
+  color: var(--text-primary);
+}
+.catch-map .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.catch-map .leaflet-control-attribution a {
+  color: var(--accent);
+}
+.catch-map .leaflet-bar a,
+.catch-map .leaflet-bar a:hover {
+  background: var(--surface);
+  color: var(--text-primary);
+  border-bottom-color: var(--border);
+}
+@media (pointer: coarse) {
+  /* 44px targets (DESIGN.md) instead of Leaflet's 30px zoom buttons. */
+  .catch-map .leaflet-bar a {
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+    font-size: 22px;
+  }
+}

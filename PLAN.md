@@ -3492,3 +3492,144 @@ an "Import intervals from Concept2" action on workout detail.
   `rowing_watts_2k`), but an interval piece has no pacing detail page or HR-window alignment.
 - Interval comparison needs >= 2 sessions of an identical structure; a one-rep difference
   starts a new bucket.
+
+
+# Session 20: GPS, on-water analytics, routes and weather
+
+**Numbering note.** The brief called itself "Session 15" and referred to "Session 14 training
+intelligence" and a future "Session 19 Supabase Auth". The repo was at Session 19 (training
+intelligence was 18; this file already has a "Session 15" for check-ins/erg tests), so this is
+recorded as **Session 20**. The stale references were left as written in the brief; "Session 19
+Supabase Auth" is now simply a future item.
+
+## Decisions
+
+- **Leaflet + OpenStreetMap tiles** (user's choice; new deps `leaflet@1.9.4`, `@types/leaflet`), and the
+  map/track/weather work for **any activity with a position track** (running, cycling, rowing), not only
+  rowing — the user's request. *My* extension beyond the brief: track ingestion, GPS metrics and weather for
+  every GPS sport. Rowing-only: route formation/history and the /500m pace. Apple Maps was not used:
+  from my understanding (not re-verified) MapKit JS needs an Apple Developer account, a signed token and
+  Apple's script, and its tiles can't be used inside Leaflet — incompatible with a self-hosted key-free app.
+- **Weather: Open-Meteo archive API** behind a small provider class. Free tier is non-commercial only, fine
+  for this personal install; see Blockers. Coordinates are rounded to 0.1° before they leave the box.
+- **Separate FIT pass, separate table.** `parse_fit_track` is its own streaming pass and `activity_tracks` its
+  own table (keyed like `activity_samples`), so HR/zones/strain are byte-for-byte untouched and a GPS bug is
+  isolated (own try/except in sync). Filtering is done at read time; the stored track is what the device said.
+- **Provenance everywhere.** Each figure is `gps_derived`, `provider` or `manual`; Garmin's numbers sit
+  beside the derived ones, never merged. Nothing is wind-/current-corrected and the UI/coach say so.
+- **A route needs two sessions.** Single sessions are never promoted; manual pin/unpin/create/name/tags exist.
+- **Coach never sees coordinates.** `get_route` returns an area (0.1°-rounded centre + Garmin's place name)
+  and summary figures; the polyline is only on the REST endpoint that feeds the map.
+- **Weather hour semantics per variable** (an advisor catch): precipitation is a preceding-hour sum, the rest
+  are instantaneous and interpolated; UTC instants only.
+
+## Bugs found by running against real data (all fixed, all with regression tests)
+
+1. **Distance under-counted by ~2.2%.** The first version excluded sub-threshold ("stationary jitter") pairs
+   from distance. Against Garmin on 29 real rows that was −2.2% (median); counting every in-segment pair is
+   **+0.15%** (−0.09…+0.50%). Moving *time* keeps the 0.5 m/s threshold (−2.5% vs Garmin's own).
+2. **Garmin's `averageSpeed` is distance/*elapsed*,** not moving time (7731.93/2922.4 = 2.646). Compared against
+   a moving-basis average it looked 15–20% off. An elapsed-basis average is now reported for like-for-like.
+3. **Peak speed overshot Garmin's max by up to 30%** (a 3-point median of pair speeds can't remove a two-pair GPS
+   spike). Now the best ≥10 s *chord* speed; error bounded by position-error/window (tested).
+4. **`Activity.sport_family` is NULL on rows older than that column** (the migration adds it empty) — found only
+   when running `backfill-gps` on a copy of the real DB: 0 routes formed and the wrong speed ceiling. Fixed with
+   `tracks.family_of()`.
+5. **Weather status judged on the average** of core-variable coverage, so a window with no temperature at all read
+   "ok". Now the weakest core variable decides.
+6. UI: on a loop the finish marker hid the start; the last x tick was clipped. Fixed after screenshot review.
+
+**Caught by the advisor review (also fixed, with tests):**
+
+7. **`backfill-gps --weather` could loop forever** — `enrich_pending` counted any attempt as progress, and the CLI
+   stops only when a pass makes none. Provider down, request budget spent, or an erg track with no usable summary
+   would spin (and in the scheduler retry the same rows every sync). Now only tracks with a usable summary are
+   selected, `processed` counts rows actually written, the pass stops at the first provider failure, and the CLI
+   waits out the per-minute budget (max 10 × 60 s) or stops and prints how many are still pending.
+8. **The coach tool skipped the `split_m` bounds** the REST handler enforces — `split_m: 1` on a long row meant
+   thousands of rows into the LLM context. Validated in `build_on_water` (50–10000 m, and ≤ 400 rows), in the tool
+   schema, and as a 422 on REST.
+9. **A failed refresh rewrote the row** (with a fresh `fetched_at`) from stale cells, claiming a refresh that never
+   happened. A refresh that couldn't reach the provider now leaves the row untouched (an explicit "Refresh" gets
+   an honest 503).
+10. **Two devices recording one outing formed a "route" with itself.** Routes form at ingest, before matching merges
+    the recordings into a canonical, so the guard is time overlap (plus same-canonical); a late twin can't join the
+    route its sibling is on, and history counts one row per canonical.
+
+## Verification
+
+- `uv run pytest`: **913 passed** (started this session at 814). New: `test_gps` (hand-checked: 0.001° lat =
+  111.195 m; a 2 km track at 4 m/s → four 125 s 500 m splits; noisy/duplicate/out-of-order/jump/relocation/gap/
+  stationary/incomplete fixtures), `test_gps_codec`, `test_routes`, `test_weather` (precipitation proration,
+  shortest-arc direction, missing stamps, UTC-midnight crossing, Sydney/New York/DST), `test_fit_track_parse`
+  (2**30 semicircles = 90°), `test_tracks`, `test_weather_client` (`MockTransport`: request params, rounding, no
+  email in the User-Agent, fail-open, budgets), `test_weather_sync` (one fetch per cell-day however many
+  activities/forced refreshes, provisional TTL, attribution, missing stays missing), `test_routes_sync`,
+  `test_api_gps` (incl. **non-rowing regression**: erg/unprocessed rows say why, `/samples` unchanged), and the
+  coach/MCP tool tests + registry parity (40 tools).
+- **Real-data smoke (local only, numbers only):** 29 `rowing_v2` FITs. GPS distance vs Garmin median **+0.15%**;
+  elapsed-basis average speed median +0.3%; moving time median −2.5%; peak speed within −2.4%…+5.5% of Garmin's
+  max on the five rows rechecked after the fix. **6 routes covering 15 of 29 sessions** (sizes 3,3,3,2,2,2); of 812
+  ordered pairs 44 failed on length only, 52 on coverage only, 4 on direction only.
+- **Pi/data compatibility:** `catch backfill-gps` on a scratch copy of the real `data/catch.db` (an old-schema
+  DB): migrates, parses 34 files (29 with GPS, 5 without) in ~5 s, peak RSS ~80 MB on this Mac (the Pi is
+  unmeasured), ~9–14 KB of blobs per track, second run is a no-op, original DB hash unchanged. No new Python deps,
+  nothing under `deploy/` touched, new tables only (`create_all`), no `_NEW_COLUMNS` entries.
+  `--weather` was **not** run on real data (it would send 0.1°-rounded rowing locations to Open-Meteo); one
+  read-only live call with neutral coordinates confirmed the field names, units and recent-day behaviour.
+- Web: `tsc -b`, `npm run build`, `check:bundle-size` (initial JS 193.6 KB gzip of 250; Leaflet is a separate
+  45 KB-gzip lazy chunk), `npm test` (53), `test:touch` (52 passed, 8 CDP-only skipped on WebKit — incl. new real-
+  input specs: a one-finger swipe over the map scrolls the page, a two-finger pinch zooms it, ctrl+wheel zooms,
+  a plain wheel scrolls the page, drag pans, chart hover moves a map marker, no horizontal overflow at 390 px,
+  fallbacks for no-GPS/erg/weather states), `test:update` (4), `test:gym` (1, boots the real backend).
+
+## Added
+
+DB: `activity_tracks`, `routes`, `weather_cells`, `activity_weather`. API: `GET /api/activities/{id}/track|
+on-water|weather`, `POST .../weather/refresh`, `PUT .../route`, `GET /api/routes`, `GET|PATCH /api/routes/{id}`,
+`GET /api/routes/{id}/history`; `GET /api/activities/{id}` gains `has_track`. CLI: `catch backfill-gps
+[--weather] [--force]`. Sync: track ingest on every Garmin activity + a bounded post-sync weather pass (own
+try/except, after the sync is recorded successful). Settings block `on_water`. Coach/MCP: 4 tools (36 → 40),
+system-prompt section on observed-vs-inferred. Web: Route/GPS metrics/Speed & pace/Splits/Laps/Conditions
+cards on workout detail, weather chips in the summary card, Routes list + route detail (history, speed
+distribution, HR context, observed weather differences, rename/tags), sidebar + Workouts-header links.
+
+## Not done / limitations
+
+- **Real iOS Safari pinch/pan is unverified** (no device here): Chromium CDP touch + real-WebKit rendering are
+  the substitute. Leaflet's touch handling and this app's global gesture `preventDefault` coexist in Chromium;
+  worth one real-phone check.
+- Map→chart hover sync is one-way (chart → map). Elevation and GPS accuracy are stored only if a device reports
+  them (this one reports neither), so those paths are tested synthetically only.
+- The checked-in Garmin fixtures have coordinates nulled, so every GPS test uses synthetic tracks; the 29 real
+  FITs are local and uncommitted.
+- Route matching is whole-course only: rows on the same water but of different length (44 such pairs here) don't
+  group. Segment-level comparison is future work. Formation is greedy/order-dependent.
+- Weather: no head/tail-wind component, no per-segment weather; one cell per activity (centre of the track).
+  Archive data for the last ~5 days is provisional and refreshed every 12 h.
+- Concept2 `water` (SpeedCoach) rows have no GPS in Catch. `rowing`/`virtual_rowing` Garmin typeKeys are not
+  recognised (as before).
+- **Weather lookups start automatically** after the first Garmin sync following a deploy (`on_water.weather_enabled`
+  defaults to true; up to 20 activities per sync pass), sending 0.1°-rounded locations to Open-Meteo. Turn it off with
+  `on_water.weather_enabled = false` (Settings API) before deploying if that isn't wanted.
+- Weather lookup requires outbound HTTPS from the Pi; if it can't reach Open-Meteo, activities simply stay
+  "not fetched" (a card says so; "Look up" retries).
+
+## Blockers (for the public Supabase/FastAPI Cloud build, not this install)
+
+- **Open-Meteo's free tier is non-commercial.** An app with subscriptions or ads needs a paid plan.
+- **OpenStreetMap's public tile server isn't meant for commercial-scale traffic** — swap `TILE_URL`
+  (`web/src/lib/mapConfig.ts`) for a self-hosted/commercial tile source.
+- Sending even 0.1°-rounded coordinates to a third party should be an explicit, documented user choice in a
+  multi-user app (a `weather_enabled` setting exists; a per-user consent flow doesn't).
+- Track blobs use SQLModel `LargeBinary`-style columns and plain `*_json` text, so the Postgres move should be
+  mechanical, but `_NEW_COLUMNS`/`ALTER TABLE` is the SQLite migration path only.
+
+## Next steps
+
+1. After `./deploy.sh`: on the Pi run `uv run catch backfill-gps --weather` (the sync loop only reaches its own
+   window). **First confirm the Pi has its own `data/fit/`** — the local copy may exist only on the Mac; if not,
+   re-download the FITs. Check memory on the Pi (`/usr/bin/time -v`) — only a Mac number exists.
+2. Try the map on a real iPhone (one-finger scroll over the map, two-finger pinch).
+3. Optional: sub-route/segment comparison; wind component relative to the course heading (clearly labelled as
+   inference); map→chart hover; per-user weather consent for the public build.

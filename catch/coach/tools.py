@@ -10,7 +10,15 @@ from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
 from catch.analytics.zones import training_zones
-from catch.api import routes_activities, routes_analytics, routes_body, routes_tests, routes_training_intelligence, routes_wellness
+from catch.api import (
+    routes_activities,
+    routes_analytics,
+    routes_body,
+    routes_gps,
+    routes_tests,
+    routes_training_intelligence,
+    routes_wellness,
+)
 from catch.core.models import Activity, DailyScore, Food
 from catch.core.settings_store import get_settings
 from catch.coach import memory
@@ -452,6 +460,28 @@ def _get_test(session: Session, args: dict, ctx: dict) -> dict:
     if args.get("id") is not None:
         return routes_tests.get_test_detail(int(args["id"]), db=session)
     raise ValueError("Provide either `id` (a confirmed test) or `piece_id` (a piece row from get_tests).")
+
+
+# --- Session 20 (see PLAN.md): GPS, on-water metrics, routes and weather ---------------------
+# Read-only, delegating to routes_gps's build_* functions (same precedent as _get_tests). The
+# coach is deliberately never handed a coordinate track: get_route returns an area and summary
+# figures, and the weather payload carries only the 0.1-degree cell the provider was asked about.
+
+
+def _get_route(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_gps.build_route_summary(session, int(args["activity_id"]))
+
+
+def _get_route_history(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_gps.build_route_history(session, int(args["route_id"]))
+
+
+def _get_on_water_metrics(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_gps.build_on_water(session, int(args["activity_id"]), args.get("split_m"))
+
+
+def _get_workout_weather(session: Session, args: dict, ctx: dict) -> dict:
+    return routes_gps.build_weather(session, int(args["activity_id"]))
 
 
 # --- Session 18 (see PLAN.md): training intelligence & recommendations ---------------------
@@ -978,6 +1008,53 @@ TOOLS: dict[str, dict[str, Any]] = {
                     "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
                 },
             },
+            "additionalProperties": False,
+        },
+    },
+    "get_route": {
+        "fn": _get_route,
+        "write": False,
+        "description": "GPS summary of one workout (by the same id get_workout uses): the general area, GPS-derived distance/moving time/average speed next to the distance Garmin itself reported, the filtering report, and which repeated route (if any) it belongs to. Returns no coordinates. Every figure is labelled gps_derived or provider. If the activity has no GPS track it says why — report that rather than guessing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"activity_id": {"type": "integer", "description": "The workout id (as in list_workouts)."}},
+            "required": ["activity_id"],
+            "additionalProperties": False,
+        },
+    },
+    "get_route_history": {
+        "fn": _get_route_history,
+        "write": False,
+        "description": "Every session on one repeated route (route id from get_route): best, typical (median) and recent moving average speed, speed distribution, heart-rate context and the weather beside each session. Times are NOT wind-, current- or water-corrected and include workout structure; weather differences are observations, not adjustments. Comparisons only exist because the tracks aligned.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"route_id": {"type": "integer"}},
+            "required": ["route_id"],
+            "additionalProperties": False,
+        },
+    },
+    "get_on_water_metrics": {
+        "fn": _get_on_water_metrics,
+        "write": False,
+        "description": "GPS-derived on-water (or any outdoor) metrics for one workout: distance, elapsed vs moving time, average and peak speed, pace (s/500m for rowing), split table over a chosen distance, pace consistency, and lap breakdown when more than one lap was recorded. Each figure has a source (gps_derived, provider or manual); provider figures are shown alongside, never blended. These are raw GPS figures and are not corrected for conditions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "activity_id": {"type": "integer"},
+                "split_m": {"type": "number", "minimum": 50, "maximum": 10000, "description": "Split distance in metres (50-10000). Default 500 for rowing, 1000 for running."},
+            },
+            "required": ["activity_id"],
+            "additionalProperties": False,
+        },
+    },
+    "get_workout_weather": {
+        "fn": _get_workout_weather,
+        "write": False,
+        "description": "Observed weather for a workout's time window and area: temperature, wind speed/gusts and the direction it blows FROM, precipitation, humidity, pressure and conditions, with a status (ok/partial/unavailable/not_fetched/no_gps) and coverage. It is gridded reanalysis data for the area, not a measurement at the water, and context only: it may help explain a session but is never a performance correction. Anything you say about how conditions affected the session is your inference, not data — say so.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"activity_id": {"type": "integer"}},
+            "required": ["activity_id"],
             "additionalProperties": False,
         },
     },

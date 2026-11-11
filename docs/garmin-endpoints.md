@@ -89,6 +89,28 @@ non-ambulatory activity like indoor cycling — confirmed against the real recor
   resting HR, HRV, and nightly respiration only — not a stand-in, a genuine absence. Revisit
   only if Garmin ever adds the field and the spec is re-pulled.
 
+## GPS (session 20)
+
+- **The only documented source of a route is the FIT download** (`/download-service/files/activity/{id}`).
+  `docs/garmin-openapi.json` documents `hasPolyline` (a boolean) and start/end lat/lon on the summary,
+  but no endpoint that returns the polyline or track points.
+- The activity summary (`SummarizedActivityDTO`, i.e. the list item) carries `startLatitude`,
+  `startLongitude`, `endLatitude`, `endLongitude`, `locationName`, `averageSpeed`, `maxSpeed` and
+  `movingDuration` for `rowing_v2` rows (not for `indoor_rowing`/trainer rows). The checked-in fixtures
+  have the coordinates nulled for privacy.
+- **`averageSpeed` is distance / *elapsed* duration**, not moving time (7,731.93 m / 2,922.4 s = 2.646 m/s;
+  `movingDuration` is a separate field).
+- Real `rowing_v2` FIT files (this account, 29 rows) — `record` messages: `timestamp`, `position_lat`,
+  `position_long` (semicircles, `deg = semi * 180 / 2**31`), `enhanced_speed`, `distance`, `heart_rate`,
+  `cadence` at smart-recording intervals (median 3 s). No `gps_accuracy` and no record-level altitude.
+  A separate ~1 Hz `gps_metadata` message carries `enhanced_altitude`/`enhanced_speed` but has no
+  timestamp or position, so it is not aligned to fixes and is ignored. `session` carries
+  `enhanced_avg_speed`/`enhanced_max_speed`, start/end positions and a bounding box; `lap` carries
+  `start_time`, `total_elapsed_time`, `total_distance`, `enhanced_avg_speed`, `avg_heart_rate`.
+- Indoor rowing FIT files have no position fields at all.
+- Garmin typeKeys known to Catch: `rowing_v2` (on-water), `indoor_rowing` (erg). `rowing`/
+  `virtual_rowing` are not recognised and would classify as "other".
+
 ## Backfill strategy
 
 Use the **range endpoints** (`dailySleepSummariesByDate`, `hrv/daily`, `v2/dailysummaries`)

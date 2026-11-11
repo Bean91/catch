@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from catch.analytics.zones import training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
-from catch.core.models import Activity, ActivitySamples, CanonicalActivity, DailyScore, Note
+from catch.core.models import Activity, ActivitySamples, ActivityTrack, CanonicalActivity, DailyScore, Note
 from catch.core.settings_store import get_settings
 from catch.sync.canonical import provenance, resolve_canonical
 
@@ -203,6 +203,8 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
     data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
     data["day_note"] = note
     data["has_samples"] = any(db.get(ActivitySamples, m.id) is not None for m in members)
+    # Session 20: a flag only — the track itself is GET /api/activities/{id}/track.
+    data["has_track"] = any((t := db.get(ActivityTrack, m.id)) is not None and t.n_points >= 2 for m in members)
     # Session 19: pieces (with their intervals) ride along so the coach/analytics read one
     # detail payload; a Concept2 member that actually reported intervals is flagged so the UI
     # can offer the on-demand import.

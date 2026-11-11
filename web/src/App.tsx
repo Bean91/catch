@@ -24,6 +24,8 @@ const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.C
 const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
+const RoutesPage = lazy(() => import("./pages/Routes").then((m) => ({ default: m.RoutesPage })));
+const RouteDetailPage = lazy(() => import("./pages/RouteDetail").then((m) => ({ default: m.RouteDetailPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -81,6 +83,8 @@ export function App() {
               GET /api/pieces/{piece_id}/test-detail) keeps the two trees easy to compare. */}
           <Route path="/tests/piece/:id" element={<PieceTestDetailPage />} />
           <Route path="/tests/:id" element={<TestDetailPage />} />
+          <Route path="/routes" element={<RoutesPage />} />
+          <Route path="/routes/:id" element={<RouteDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/trends/intelligence" element={<TrainingIntelligencePage />} />
           <Route path="/body" element={<BodyPage />} />

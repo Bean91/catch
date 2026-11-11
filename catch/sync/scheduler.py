@@ -65,6 +65,8 @@ def run_sync(source: str, days: int = 3) -> dict:
                 from catch.sync.scoring import recompute_scores
 
                 recompute_scores(session)
+                if source == "garmin":
+                    _post_garmin_enrichment(session)
                 return {"source": source, **result}
             except Exception as exc:
                 logger.exception("sync failed for %s", source)
@@ -72,6 +74,19 @@ def run_sync(source: str, days: int = 3) -> dict:
                 return {"source": source, "error": str(exc)}
     finally:
         lock.release()
+
+
+def _post_garmin_enrichment(session) -> None:
+    """Session 20: weather for GPS activities (routes are grouped at ingest). Its own try/except
+    and run only after the sync is already recorded successful — a weather outage or bug must
+    never mark a Garmin sync as failed."""
+    try:
+        from catch.sync.weather import enrich_pending
+
+        enrich_pending(session)
+    except Exception:
+        logger.warning("weather enrichment failed", exc_info=True)
+        session.rollback()
 
 
 _NOTIFICATION_CHECKS = (

@@ -32,12 +32,12 @@ export default defineConfig({
     {
       name: "mobile-gestures",
       use: { ...devices["iPhone 13"], browserName: "chromium" },
-      testIgnore: /mouse\.spec\.ts/,
+      testIgnore: /(mouse|route-map-desktop)\.spec\.ts/,
     },
     {
       name: "mobile-webkit",
       use: { ...devices["iPhone 13"] },
-      testIgnore: /mouse\.spec\.ts/,
+      testIgnore: /(mouse|route-map-desktop)\.spec\.ts/,
     },
     // The task's "mouse ... profile" — plain desktop Chromium, no touch emulation, so mouse
     // wheel/drag/click paths (DESIGN.md's ctrl/cmd+wheel zoom, drag-to-pan) run through
@@ -47,7 +47,7 @@ export default defineConfig({
     {
       name: "desktop-mouse",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /mouse\.spec\.ts/,
+      testMatch: /(mouse|route-map-desktop)\.spec\.ts/,
     },
   ],
 });

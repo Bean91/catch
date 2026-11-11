@@ -187,4 +187,42 @@ DEFAULT_SETTINGS: dict = {
         "rate_delta_material_pct": 0.05,
         "piece_trend_lookback_days": 365,
     },
+    # Session 20 (see PLAN.md, docs/analytics.md §28) — GPS filtering, splits, route matching
+    # and weather. Flat, one level deep, for the same _validate_patch reason as above.
+    # Thresholds are illustrative defaults checked against this account's real rowing_v2 FIT
+    # files, not validated constants.
+    "on_water": {
+        # Pair speeds below this are "stopped": that time isn't moving time and that distance
+        # isn't moving distance (total distance still counts every pair — see gps.filter_track).
+        "moving_speed_min_mps": 0.5,
+        # Peak speed is the best chord speed over at least this long a stretch, not a single
+        # fix-to-fix pair (which one noisy fix can inflate).
+        "peak_window_s": 10,
+        # A gap is dt > max(gap_median_multiple x median dt, gap_min_s); distance is never
+        # interpolated across one.
+        "gap_min_s": 30,
+        "gap_median_multiple": 10,
+        # N consecutive "impossible" points that agree with each other are a genuine
+        # relocation (GPS lost then re-acquired), not noise — a new segment starts there.
+        "reanchor_consecutive_points": 3,
+        # Implied-speed ceilings for the impossible-jump filter, m/s.
+        "speed_ceiling_rowing_mps": 10,
+        "speed_ceiling_running_mps": 12,
+        "speed_ceiling_walking_mps": 6,
+        "speed_ceiling_cycling_mps": 25,
+        "speed_ceiling_paddling_mps": 8,
+        "speed_ceiling_other_mps": 15,
+        "split_m_rowing": 500,
+        "split_m_running": 1000,
+        "split_m_cycling": 5000,
+        "split_m_other": 1000,
+        "pace_consistency_min_splits": 4,
+        # Route alignment (catch/analytics/routes.py).
+        "route_endpoint_tol_m": 150,
+        "route_length_ratio_tol": 0.10,
+        "route_coverage_min": 0.9,
+        "route_coverage_dist_m": 50,
+        "route_max_gap_fraction": 0.2,
+        "weather_enabled": True,
+    },
 }

@@ -142,3 +142,13 @@ export function TestsIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function RoutesIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="6" cy="18" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="18" cy="6" r="2.2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 17.5c6 0 2-7 7-10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}

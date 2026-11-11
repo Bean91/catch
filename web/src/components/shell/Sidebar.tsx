@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
@@ -11,6 +11,8 @@ const ITEMS = [
   // Center's only nav entry point is here on desktop, plus a link from the Workouts page
   // header on mobile (same pattern Duplicates/Muscle-readiness already use).
   { to: "/tests", label: "Tests", Icon: TestsIcon },
+  // Session 20 — same no-bottom-nav-slot pattern as Tests: desktop sidebar plus a Workouts header link.
+  { to: "/routes", label: "Routes", Icon: RoutesIcon },
   { to: "/trends", label: "Trends", Icon: TrendsIcon },
   { to: "/body", label: "Body", Icon: BodyIcon },
   { to: "/nutrition", label: "Nutrition", Icon: NutritionIcon },

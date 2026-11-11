@@ -7,6 +7,8 @@ import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily } from "../lib/types";
 import { ErgChart } from "../components/charts/ErgChart";
 import { HrChart, type PieceBand } from "../components/charts/HrChart";
+import { GpsSection } from "../components/gps/GpsSection";
+import { WeatherChips } from "../components/gps/WeatherCard";
 import { AddPieceDialog } from "../components/pieces/AddPieceDialog";
 import { PieceCard } from "../components/pieces/PieceCard";
 import { IntervalTable } from "../components/workouts/IntervalTable";
@@ -260,6 +262,7 @@ export function WorkoutDetailPage() {
             {workout.strain_method?.includes("estimated") && <span className="text-xs text-text-tertiary">(estimated FTP)</span>}
           </div>
         )}
+        <WeatherChips canonicalId={canonicalId} enabled={!!workout.has_track} />
         {(workout.zones?.hr || workout.zones?.power) && (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-3">
             {workout.zones?.hr && (
@@ -345,6 +348,8 @@ export function WorkoutDetailPage() {
           <p className="text-sm text-text-tertiary">No heart-rate data for this activity.</p>
         </Card>
       )}
+
+      <GpsSection canonicalId={canonicalId} category={workout.category} hasTrack={!!workout.has_track} sportFamily={workout.sport_family} />
 
       <Card
         title="Pieces"

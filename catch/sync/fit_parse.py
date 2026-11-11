@@ -244,3 +244,147 @@ def _resample(
         out[offset] = value
         last_value, last_offset = value, offset
     return out
+
+
+_SEMICIRCLE_TO_DEG = 180.0 / 2**31
+
+
+@dataclass
+class FitTrack:
+    """Session 20 — see docs/analytics.md §28. One streamed pass over `record`/`lap`/`session`
+    messages. `t` is seconds from the file's first record (any record, positioned or not), the
+    same origin parse_fit uses for ActivitySamples. Only records that carry a position are kept;
+    `n_records` is the total, so "how much of the recording had no fix" stays visible."""
+
+    start: datetime
+    n_records: int
+    t: list[float]
+    lat: list[float]
+    lon: list[float]
+    speed: list[Optional[float]]
+    dist: list[Optional[float]]
+    alt: list[Optional[float]]
+    hr: list[Optional[float]]
+    acc: list[Optional[float]]
+    laps: list[dict]
+    session: dict
+
+
+def parse_fit_track(path: str | Path) -> Optional[FitTrack]:
+    """None if the file is missing/unreadable/has no records. A positionless file (indoor erg,
+    trainer) returns a FitTrack with empty arrays — callers store that as 'parsed, no GPS'.
+    `gps_metadata` messages are ignored on purpose: they carry altitude/speed but no timestamp
+    or position, so they cannot be aligned to a fix without guessing (docs/garmin-endpoints.md)."""
+    path = Path(path)
+    if not path.exists():
+        return None
+
+    first_ts: Optional[datetime] = None
+    n_records = 0
+    rows: list[tuple] = []
+    raw_laps: list[dict] = []
+    session: dict = {}
+
+    try:
+        with fitdecode.FitReader(str(path)) as fit:
+            for frame in fit:
+                if not isinstance(frame, fitdecode.FitDataMessage):
+                    continue
+                if frame.name == "record":
+                    ts = _field_value(frame, "timestamp")
+                    if ts is None:
+                        continue
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    n_records += 1
+                    if first_ts is None or ts < first_ts:
+                        first_ts = ts
+                    lat_s = _field_value(frame, "position_lat")
+                    lon_s = _field_value(frame, "position_long")
+                    if lat_s is None or lon_s is None:
+                        continue
+                    speed = _field_value(frame, "enhanced_speed")
+                    if speed is None:
+                        speed = _field_value(frame, "speed")
+                    alt = _field_value(frame, "enhanced_altitude")
+                    if alt is None:
+                        alt = _field_value(frame, "altitude")
+                    rows.append(
+                        (
+                            ts,
+                            lat_s * _SEMICIRCLE_TO_DEG,
+                            lon_s * _SEMICIRCLE_TO_DEG,
+                            _opt_float(speed),
+                            _opt_float(_field_value(frame, "distance")),
+                            _opt_float(alt),
+                            _opt_float(_field_value(frame, "heart_rate")),
+                            _opt_float(_field_value(frame, "gps_accuracy")),
+                        )
+                    )
+                elif frame.name == "lap":
+                    lap_start = _field_value(frame, "start_time")
+                    lap_elapsed = _field_value(frame, "total_elapsed_time")
+                    if lap_start is None or lap_elapsed is None:
+                        continue
+                    if lap_start.tzinfo is None:
+                        lap_start = lap_start.replace(tzinfo=timezone.utc)
+                    speed = _field_value(frame, "enhanced_avg_speed")
+                    if speed is None:
+                        speed = _field_value(frame, "avg_speed")
+                    raw_laps.append(
+                        {
+                            "_start": lap_start,
+                            "duration_s": float(lap_elapsed),
+                            "distance_m": _opt_float(_field_value(frame, "total_distance")),
+                            "avg_speed_mps": _opt_float(speed),
+                            "avg_hr": _opt_float(_field_value(frame, "avg_heart_rate")),
+                            "max_hr": _opt_float(_field_value(frame, "max_heart_rate")),
+                            "avg_cadence": _opt_float(_field_value(frame, "avg_cadence")),
+                        }
+                    )
+                elif frame.name == "session":
+                    speed = _field_value(frame, "enhanced_avg_speed")
+                    if speed is None:
+                        speed = _field_value(frame, "avg_speed")
+                    max_speed = _field_value(frame, "enhanced_max_speed")
+                    if max_speed is None:
+                        max_speed = _field_value(frame, "max_speed")
+                    session = {
+                        "avg_speed_mps": _opt_float(speed),
+                        "max_speed_mps": _opt_float(max_speed),
+                        "total_distance_m": _opt_float(_field_value(frame, "total_distance")),
+                        "timer_s": _opt_float(_field_value(frame, "total_timer_time")),
+                        "elapsed_s": _opt_float(_field_value(frame, "total_elapsed_time")),
+                    }
+    except Exception:
+        logger.exception("failed to parse FIT track from %s", path)
+        return None
+
+    if first_ts is None:
+        return None
+
+    rows.sort(key=lambda r: r[0])
+    laps = []
+    for lap in sorted(raw_laps, key=lambda x: x["_start"]):
+        item = {k: v for k, v in lap.items() if k != "_start"}
+        item["offset_s"] = max(0.0, (lap["_start"] - first_ts).total_seconds())
+        laps.append(item)
+
+    return FitTrack(
+        start=first_ts,
+        n_records=n_records,
+        t=[(r[0] - first_ts).total_seconds() for r in rows],
+        lat=[r[1] for r in rows],
+        lon=[r[2] for r in rows],
+        speed=[r[3] for r in rows],
+        dist=[r[4] for r in rows],
+        alt=[r[5] for r in rows],
+        hr=[r[6] for r in rows],
+        acc=[r[7] for r in rows],
+        laps=laps,
+        session=session,
+    )
+
+
+def _opt_float(value) -> Optional[float]:
+    return None if value is None else float(value)

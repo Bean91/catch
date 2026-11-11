@@ -49,6 +49,45 @@ def cmd_backfill(args: argparse.Namespace) -> None:
         print(f"recomputed {n} daily_scores rows")
 
 
+def cmd_backfill_gps(args: argparse.Namespace) -> None:
+    """Parses GPS tracks out of every FIT file already on disk (the sync loop only reaches the
+    sync window), then groups rowing tracks into routes; --weather also fetches weather."""
+    init_db()
+    with get_session() as session:
+        from catch.sync.tracks import backfill_tracks
+
+        print(f"tracks: {backfill_tracks(session, force=args.force)}")
+        from catch.sync.routes import assign_all_routes
+
+        print(f"routes: {assign_all_routes(session)}")
+        if args.weather:
+            import time
+
+            from catch.sync.weather import enrich_pending, pending_count
+            from catch.sync.weather_client import minute_budget_exhausted
+
+            total = {"processed": 0, "ok": 0}
+            waits = 0
+            while True:
+                result = enrich_pending(session, limit=20)
+                if result.get("disabled"):
+                    print("weather: disabled in settings (on_water.weather_enabled)")
+                    break
+                total["processed"] += result["processed"]
+                total["ok"] += result["ok"]
+                if result["processed"] > 0:
+                    continue
+                left = pending_count(session)
+                if left and result.get("stopped") == "provider_unavailable" and minute_budget_exhausted() and waits < 10:
+                    waits += 1
+                    print(f"weather: per-minute request limit reached, waiting 60 s ({left} left)")
+                    time.sleep(61)
+                    continue
+                note = f" — {left} still pending (provider unreachable or budget spent; run again later)" if left else ""
+                print(f"weather: {total}{note}")
+                break
+
+
 def cmd_token_create(args: argparse.Namespace) -> None:
     from catch.api.deps import hash_token
     from catch.core.models import ApiToken
@@ -90,6 +129,11 @@ def main() -> None:
     backfill_parser = sub.add_parser("backfill", help="Backfill all sources")
     backfill_parser.add_argument("--days", type=int, default=None)
     backfill_parser.set_defaults(func=cmd_backfill)
+
+    gps_parser = sub.add_parser("backfill-gps", help="Parse GPS tracks from stored FIT files (and weather)")
+    gps_parser.add_argument("--weather", action="store_true", help="also fetch weather for each track")
+    gps_parser.add_argument("--force", action="store_true", help="re-parse tracks that already exist")
+    gps_parser.set_defaults(func=cmd_backfill_gps)
 
     token_parser = sub.add_parser("token", help="Manage device bearer tokens (for the MCP server)")
     token_sub = token_parser.add_subparsers(dest="token_command", required=True)

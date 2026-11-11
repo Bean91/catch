@@ -13,7 +13,10 @@ longer row), and (session 18) `get_training_profile`/`get_performance_trends`/
 `get_training_distribution`/`get_training_consistency`/`get_training_insights`/
 `get_recommendations`/`rate_recommendation` for training intelligence & recommendations —
 (session 19) `get_interval_comparisons` (and `add_piece` also taking `repeat`/`intervals` for
-interval pieces) — 36 tools total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
+interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water_metrics`/
+`get_workout_weather` for GPS routes, on-water metrics and weather (GPS-derived and provider figures
+are labelled; `get_route` never returns coordinates; weather is context, not a correction) — 40 tools
+total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 
 - **stdio** — for Claude Desktop, running on your laptop while Catch itself runs on the Pi.

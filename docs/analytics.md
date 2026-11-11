@@ -990,3 +990,122 @@ the shared `confidence_level` ladder. No time-projection (that is for standard t
 **Concept2 import** (on demand): `workout.intervals[]` -> rows (`distance`, `time`/10 s,
 `rest_time`/10 s, `stroke_rate`), watts/HR/rate from strokes with the same `interval_index`.
 Missing intervals -> error; nothing is derived from aggregate distance/time.
+
+## 28. GPS tracks, on-water metrics, routes and weather (`gps.py`, `routes.py`, `weather.py`), session 20
+
+Everything GPS-derived is computed from the watch's own position fixes and **labelled as such**
+(`source: "gps_derived"`); what Garmin reported is kept alongside (`"provider"`), never blended
+into it. A figure that can't be computed is `null` and shown as missing — never a stand-in zero.
+Thresholds live in `settings.on_water` (`catch/analytics/defaults.py`) and are illustrative
+defaults checked against this account's real rowing files, not validated constants.
+
+### 28.1 Where the track comes from
+
+The only documented source of a route is the activity's FIT file (`docs/garmin-endpoints.md`
+§GPS). `parse_fit_track` (`catch/sync/fit_parse.py`) streams `record`/`lap`/`session` messages in
+one separate pass — `parse_fit` and therefore HR/zones/strain are untouched — converting FIT
+semicircles to degrees (`semi * 180 / 2**31`). `gps_metadata` messages (altitude + speed at ~1 Hz,
+but no timestamp or position) are ignored because they can't be aligned to a fix without guessing.
+This account's `rowing_v2` files record at smart-recording intervals (median 3 s, p90 7 s); there
+is no `gps_accuracy` field and no record-level altitude, so accuracy and elevation are stored only
+when a device reports them (a nullable blob each).
+
+Storage (`activity_tracks`, one row per source activity, like `activity_samples`): int32
+degrees×1e7 delta-coded + zlib for lat/lon, whole-second offsets, centimetre distance, 0.01 m/s
+speed — about 9–14 KB per ~800-point track. **Filtering happens at read time, never on write**: the
+stored track is what the device recorded. `n_points = 0` means "parsed, no GPS" (an erg/trainer file)
+so sync never re-parses it. The time origin is the file's first record, the same as
+`activity_samples`, so `elapsed_s` lines up across the HR and speed charts.
+
+### 28.2 Filtering (`filter_track`)
+
+Every step is counted in the `filter_report` shown to the user.
+
+1. **No fix**: missing, NaN, out-of-range, or (0, 0) coordinates are dropped.
+2. **Timestamps**: strictly increasing — a duplicate timestamp keeps the first fix, a backwards one
+   is dropped.
+3. **Impossible jumps**: a fix implying a speed above a per-sport ceiling from the last accepted fix
+   is dropped (rowing 10, running 12, walking/hiking 6, paddling 8, cycling 25, other 15 m/s). If N=3
+   consecutive rejected fixes agree with *each other* it was a real relocation (GPS lost, then
+   re-acquired) — a new segment starts there and the jump itself adds no distance.
+4. **Gaps**: dt > max(10 × median dt, 30 s) starts a new segment; distance is **never interpolated
+   across a gap** and the gap's time is nobody's moving time.
+5. Positions are not smoothed. Display speed is a 3-point median of the pair speeds.
+
+### 28.3 Metrics
+
+- **Distance** = haversine sum (R = 6,371,008.8 m) over *every* in-segment pair. An earlier version
+  skipped pairs below the moving threshold ("stationary jitter") and under-counted by a median 2.2%
+  against Garmin on this account's real rows; counting all pairs matches Garmin's own distance to a
+  median **+0.15%** (range −0.09% to +0.50%, 29 sessions). The device's own FIT record `distance`
+  agrees with Garmin's summary exactly.
+- **Moving time** = sum of dt where pair speed ≥ 0.5 m/s (a median −2.5% vs Garmin's
+  `movingDuration`, i.e. a slightly different threshold). `moving_distance` is the pairs above that
+  threshold, and **average speed = moving distance / moving time**.
+- **Garmin's `averageSpeed` is distance / *elapsed* time** (7,731.93 m / 2,922 s = 2.646 m/s), not
+  moving time. So an `avg_speed_elapsed_mps` is reported too, for a like-for-like comparison (median
+  +0.3% vs Garmin). Mixing the two bases looked like a 15–20% discrepancy until this was checked.
+- **Peak speed** = best *chord* speed (straight-line displacement / time) over any ≥ 10 s stretch.
+  Chord, not path length: a one-fix GPS spike adds its out-and-back to the path but barely moves the
+  endpoints. The remaining bias is at most (position error ÷ window), e.g. 6 m / 10 s = 0.6 m/s —
+  tested. (A 3-point median of pair speeds read up to 30% over Garmin's max on real data.)
+- **Pace**: s/500 m rowing, s/km running, km/h otherwise.
+- **Splits** (`compute_splits`) over a configurable distance: each boundary is the instant the GPS
+  cumulative distance reaches k × split_m, linearly interpolated between fixes; split time is
+  elapsed wall time. A final remainder under max(1 m, 0.2% of the split) is float error, not a split;
+  a real short remainder is `partial`; a split touching a gap is flagged `has_gap`.
+- **Pace consistency** = population CV of full, gap-free split speeds; `null` with fewer than 4.
+- **Laps**: FIT lap messages are used only when ≥ 2 exist (this account's rows have one). Each lap
+  shows GPS-derived distance/speed (`cum_dist_at`, flat across gaps) next to the lap's own numbers.
+
+### 28.4 Routes (rowing only)
+
+A signature is 64 points resampled by GPS distance. Two tracks align only if they run in the same
+direction, start and end within 150 m of each other, their lengths agree within 10%, and each covers
+the other (≥ 90% of points within 50 m of the other's polyline, point-to-segment). A track whose gap
+fraction exceeds 20% is never compared. Two tracks whose time windows overlap (or that are already
+merged into one canonical) are one outing recorded twice, never a repeat — routes form at ingest,
+before matching merges two devices' recordings, so time overlap is the merge-independent guard. Direction is recorded: an out-and-back and its reverse are
+not silently merged.
+
+A `Route` is created only when a **second** aligned session appears; a single session is never
+promoted, so the Routes page doesn't fill with one-off outings. Formation is greedy and
+order-dependent (the earliest session anchors). The athlete can name/tag a route, pin or unpin a
+session by hand (`route_pinned` — auto-matching then leaves it alone), or save one course as a route.
+
+Validated on this account's 29 real rows: **6 routes covering 15 sessions** (sizes 3, 3, 3, 2, 2, 2);
+14 sessions form no route. Of 812 ordered pairs, 44 failed on length alone (same water, different
+distance), 52 on coverage alone and 4 on direction alone — i.e. most rows are different-length
+outings on the same stretch, which strict whole-course matching deliberately does not equate.
+Segment-level comparison would be future work.
+
+History (`history_stats`, reads only each session's cached `summary_json` — never a blob): best =
+highest average moving speed, typical = median, recent = latest; speed distribution (quartiles +
+5-bin histogram of per-session averages), HR context (mean/range over sessions that have HR),
+confidence via the shared `confidence_level` ladder. **Not wind-, current- or water-corrected**, and a
+session's structure (steady vs intervals vs warm-up) is included — both stated in the payload's
+`caveats`. Weather differences between the best session and the rest are returned as
+`observed_difference` items with a note that they are not corrections.
+
+### 28.5 Weather matching
+
+See `docs/weather-endpoints.md` for the provider. Matching is on UTC instants only — never
+`startTimeLocal` or the host timezone. Hour semantics differ per variable: `precipitation` is a
+*preceding-hour sum* (the value stamped T covers (T−1h, T]), so a 20:37–21:25 UTC session takes
+23/60 of the 21:00 stamp and 25/60 of the 22:00 one; temperature, humidity, wind speed/gusts,
+direction and pressure are *instantaneous* and interpolated linearly between stamps (direction along
+the shortest arc, mean by unit vectors) — never across a missing stamp. A window crossing UTC midnight
+fetches both days. `coverage` is the covered fraction of the window; status is `ok`, `partial` (the
+*weakest* of temperature/wind/precipitation covers under half the window, or the reanalysis day is
+still provisional) or `unavailable`.
+
+### 28.6 Scope limits, stated explicitly
+
+- Route formation is rowing-only; the map, GPS metrics and weather work for any activity with a
+  position track (running, cycling).
+- Weather is gridded reanalysis (≈9–25 km), not a reading at the water, and wind *direction relative
+  to the course* is not computed — so nothing here says whether wind helped or hurt.
+- No on-water pace is corrected for conditions. The coach is told to separate observed data from its
+  own inference (`system_prompt.md`).
+- Garmin's `locationName` seeds an auto route label only; it is not shown as the athlete's name.
+- GPS accuracy is unavailable on this device; elevation likewise.

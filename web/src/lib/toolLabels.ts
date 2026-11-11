@@ -54,6 +54,14 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Read strength history${rangePhrase(input)}`;
     case "get_muscle_readiness":
       return "Read muscle readiness";
+    case "get_route":
+      return `Read the GPS route of workout #${input.activity_id}`;
+    case "get_route_history":
+      return `Read history of route #${input.route_id}`;
+    case "get_on_water_metrics":
+      return `Read GPS metrics of workout #${input.activity_id}`;
+    case "get_workout_weather":
+      return `Read weather for workout #${input.activity_id}`;
     default:
       return name;
   }

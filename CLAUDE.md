@@ -12,7 +12,8 @@ Python 3.12 via `uv`, FastAPI + uvicorn, SQLModel on SQLite (WAL mode), httpx, A
 `.env`), `anthropic` (official SDK, lazy-imported), `mcp` (official Python SDK, lazy-imported
 for the optional HTTP transport). Frontend: React + Vite + TS, Tailwind v4 (CSS-first config,
 tokens as CSS vars), Radix primitives, Framer Motion, TanStack Query, React Router,
-`barcode-detector` (session 13: a ponyfill over a self-hosted ZXing-wasm binary — Vite's
+`leaflet` (session 20: the route map — OpenStreetMap tiles, lazy-loaded in its own chunk;
+tile URL in one constant, `web/src/lib/mapConfig.ts`), `barcode-detector` (session 13: a ponyfill over a self-hosted ZXing-wasm binary — Vite's
 `?url` import serves it from `/assets` rather than the package's default jsDelivr-CDN fetch —
 used only as a fallback when `window.BarcodeDetector` is absent, e.g. iOS Safari) — built to
 `catch/api/static` (gitignored), served by FastAPI. No Docker, no Postgres, no Redis, no Node
@@ -180,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 36 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 40 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -443,11 +444,32 @@ change the parent's strain. Web: `components/pieces/IntervalEditor.tsx` (stacked
 `PieceIntervalTable.tsx`, `components/intelligence/IntervalComparisonCard.tsx`; the browser holds
 no interval math, the server returns every total. Playwright: `web/tests/touch/intervals.spec.ts`.
 
+Session 20 (GPS, on-water metrics, routes, weather — see PLAN.md, docs/analytics.md §28,
+docs/weather-endpoints.md, DESIGN.md "Maps, GPS and weather"): a separate streaming FIT pass
+(`parse_fit_track` in `sync/fit_parse.py`; `parse_fit`/HR/strain untouched) stores each activity's
+GPS fixes in `activity_tracks` (`sync/tracks.py`; delta-coded int32 + zlib blobs, filtering at *read*
+time). Pure math only in `analytics/gps.py` (filter, distance/moving/peak speed, splits, laps),
+`analytics/routes.py` (signature, alignment, history stats) and `analytics/weather.py` (per-variable hour
+semantics, UTC-only matching); DB layers are `sync/routes.py` (a route forms only when a second session
+aligns; rowing only), `sync/weather.py` + `sync/weather_client.py` (Open-Meteo archive, one cached
+`weather_cells` row per 0.1° cell per UTC day, coordinates rounded before sending, generic User-Agent),
+`api/routes_gps.py` (REST + the `build_*` functions the coach tools call). Coach/MCP gained
+`get_route` (area + summary, **never coordinates**), `get_route_history`, `get_on_water_metrics`,
+`get_workout_weather` (40 tools). Every figure is labelled `gps_derived`/`provider`/`manual`; nothing
+is wind-/current-corrected. `Activity.sport_family` is NULL on rows older than that column — always go
+through `sync/tracks.py::family_of`. Web: `components/gps/` (GpsSection composes the cards),
+`components/maps/` (Leaflet in a lazy chunk; two-finger-only touch pan, ctrl/cmd+wheel zoom),
+`pages/Routes.tsx`/`RouteDetail.tsx`, `lib/mockGps.ts` (mock ids 1/6/11/16 = full/partial weather/no weather/no GPS).
+Playwright: `web/tests/touch/route-map.spec.ts`, `route-map-desktop.spec.ts`.
+
 ## Commands
 
 - `uv sync` — install deps
 - `uv run catch sync --source garmin --days 30` — sync one source
 - `uv run catch backfill` — backfill `BACKFILL_DAYS` from `.env`
+- `uv run catch backfill-gps [--weather] [--force]` — parse GPS tracks from FIT files already on disk
+  (the sync loop only reaches its window), group rowing tracks into routes, and with `--weather` look
+  up weather (sends 0.1°-rounded coordinates to Open-Meteo)
 - `uv run catch token create --name <device>` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)

@@ -496,6 +496,8 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
         ? { id: 1, date: localDate, text: "Felt strong on the back half.", rpe: 6, created_at: new Date().toISOString() }
         : null,
     has_samples: base.category !== "other" && base.category !== "strength",
+    // Session 20: see mockGps.ts — every 4th mock on-water row has no GPS recorded.
+    has_track: base.category === "on_water" && Math.floor((id - 1) / 5) % 4 !== 3,
     strength_sets: base.category === "strength" ? mockStrengthSets(id) : undefined,
     muscular_by_muscle: base.category === "strength" ? MOCK_STRENGTH_MUSCULAR_BY_MUSCLE : null,
   };

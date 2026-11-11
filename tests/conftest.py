@@ -132,6 +132,17 @@ def _no_live_off_search_calls(monkeypatch):
     monkeypatch.setattr(OpenFoodFactsClient, "search", lambda self, query, page_size=10: [])
 
 
+@pytest.fixture(autouse=True)
+def _no_live_weather_calls(monkeypatch):
+    """Weather enrichment runs from the sync path and the track endpoints; without this, any
+    test reaching it would hit the live-network guard above (a non-httpx exception). A test that
+    exercises the client builds one over an httpx.MockTransport; a test of the DB layer passes a
+    fake client explicitly."""
+    from catch.sync.weather_client import OpenMeteoClient
+
+    monkeypatch.setattr(OpenMeteoClient, "fetch_day", lambda self, lat_e1, lon_e1, day: None)
+
+
 def load_fixture(*parts: str) -> dict | list:
     return json.loads((FIXTURE_DIR.joinpath(*parts)).read_text())
 

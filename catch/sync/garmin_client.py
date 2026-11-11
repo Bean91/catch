@@ -190,6 +190,7 @@ class GarminClient:
                     self.db.commit()
             if row.fit_path:
                 self._ingest_fit_samples(row)
+                self._ingest_track(row)
             resolve_canonical(self.db, row.canonical_id)
             count += 1
         return count
@@ -222,6 +223,17 @@ class GarminClient:
         self.db.add(row)
         self.db.commit()
         store_samples_from_fit(self.db, row.id, fit_samples)
+
+    def _ingest_track(self, row) -> None:
+        """Session 20: the GPS track, parsed once per activity in its own pass. Isolated so a
+        GPS bug can never break the HR/strain ingest above or abort the sync."""
+        try:
+            from catch.sync.tracks import ingest_track
+
+            ingest_track(self.db, row)
+        except Exception:
+            logger.warning("GPS track ingest failed for activity %s", row.external_id, exc_info=True)
+            self.db.rollback()
 
     # -- health -------------------------------------------------------------
 

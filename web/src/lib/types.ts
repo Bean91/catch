@@ -612,6 +612,8 @@ export interface WorkoutDetail extends WorkoutListItem {
   hr_zone: string | null;
   day_note: Note | null;
   has_samples: boolean;
+  /** Session 20: a flag only — the track itself is GET /api/activities/{id}/track. */
+  has_track?: boolean;
   /** Session 19: pieces ride along on the detail payload; a Concept2 member that reported
    * real intervals is flagged so the page can offer the on-demand import. */
   pieces?: Piece[];
@@ -1404,4 +1406,244 @@ export interface TrainingInsight {
   confidence: ConfidenceLevel;
   evidence: EvidenceItem[];
   category: string;
+}
+
+
+// --- Session 20: GPS tracks, on-water metrics, weather and routes -----------------------------
+// Every derived figure carries its `source`: "gps_derived" (computed from the watch's own
+// fixes), "provider" (what Garmin reported) or "manual". A null value means the figure is
+// missing — it is never a stand-in zero.
+
+export type GpsSource = "gps_derived" | "provider" | "manual";
+export type PaceUnit = "s_per_500m" | "s_per_km" | "km_per_h";
+
+export interface SourcedFigure {
+  value: number | null;
+  source: GpsSource;
+  method: string;
+}
+
+export interface TrackPoint {
+  elapsed_s: number;
+  lat: number;
+  lon: number;
+  distance_m: number;
+  speed_mps: number;
+  provider_speed_mps: number | null;
+  pace_unit: PaceUnit;
+  pace: number | null;
+  hr: number | null;
+  elevation_m: number | null;
+  segment: number;
+}
+
+export interface GpsFilterReport {
+  points_in: number;
+  dropped_no_fix: number;
+  dropped_duplicate_time: number;
+  dropped_out_of_order: number;
+  dropped_jump: number;
+  reanchored: number;
+  gaps: number;
+  gap_seconds: number;
+  ceiling_mps: number;
+  gap_threshold_s?: number;
+  records_total?: number;
+  records_without_fix?: number;
+  accuracy_reported?: boolean;
+}
+
+export interface NoTrack {
+  has_track: false;
+  reason: "no_gps_recorded" | "not_processed" | "too_few_fixes" | string;
+  message: string;
+  detection?: OnWaterDetection;
+}
+
+export interface TrackData {
+  has_track: true;
+  activity_id: number;
+  sport_family: SportFamily;
+  pace_unit: PaceUnit;
+  points: TrackPoint[];
+  returned_count: number;
+  accepted_count: number;
+  bounds: { min_lat: number; max_lat: number; min_lon: number; max_lon: number };
+  start: { lat: number; lon: number };
+  end: { lat: number; lon: number };
+  has_elevation: boolean;
+  has_hr: boolean;
+  filter_report: GpsFilterReport;
+  provenance: Record<string, string>;
+}
+
+export type TrackResponse = NoTrack | TrackData;
+
+export interface OnWaterDetection {
+  kind: "on_water" | "erg" | "unknown";
+  basis: string;
+  category: WorkoutCategory | null;
+}
+
+export interface RouteRef {
+  id: number;
+  name: string | null;
+  auto_label: string | null;
+  display_name: string;
+  name_is_manual: boolean;
+  tags: string[];
+  sport_family: SportFamily;
+  length_m: number;
+  length_source: GpsSource;
+  n_sessions: number | null;
+  pinned?: boolean;
+  last_session?: string | null;
+}
+
+export interface WeatherBrief {
+  status: string;
+  temperature_avg_c: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_from_label: string | null;
+  precipitation_mm: number | null;
+  condition: string | null;
+}
+
+export interface SplitRow {
+  index: number;
+  start_distance_m: number;
+  distance_m: number;
+  start_s: number;
+  time_s: number;
+  speed_mps: number;
+  avg_hr: number | null;
+  partial: boolean;
+  has_gap: boolean;
+  pace: { unit: PaceUnit; value: number | null };
+  source: GpsSource;
+}
+
+export interface LapRow {
+  offset_s: number;
+  duration_s: number;
+  gps_distance_m: number;
+  gps_avg_speed_mps: number | null;
+  gps_avg_hr: number | null;
+  provider: { distance_m: number | null; avg_speed_mps: number | null; avg_hr: number | null; max_hr: number | null; avg_cadence: number | null };
+}
+
+export interface OnWaterData {
+  has_track: true;
+  activity_id: number;
+  sport_family: SportFamily;
+  detection: OnWaterDetection;
+  metrics: {
+    distance_m: SourcedFigure;
+    moving_distance_m: SourcedFigure;
+    elapsed_s: SourcedFigure;
+    moving_s: SourcedFigure;
+    stopped_s: SourcedFigure;
+    gap_s: SourcedFigure;
+    avg_speed_mps: SourcedFigure;
+    avg_speed_elapsed_mps: SourcedFigure;
+    peak_speed_mps: SourcedFigure;
+    provider: Record<"distance_m" | "moving_s" | "elapsed_s" | "avg_speed_mps" | "max_speed_mps", SourcedFigure | null>;
+    distance_delta_vs_provider_pct: number | null;
+    filter_report: GpsFilterReport;
+  };
+  pace: { unit: PaceUnit; value: number | null; source: GpsSource; method: string };
+  splits: {
+    split_m: number;
+    splits: SplitRow[];
+    consistency: { cv_pct: number | null; split_time_sd_s: number; n_splits: number; source: GpsSource; method: string } | null;
+    source: GpsSource;
+    method: string;
+  };
+  laps: { usable: boolean; count: number; rows: LapRow[]; note: string | null };
+  route: RouteRef | null;
+  weather: WeatherBrief | null;
+  environment_corrected: false;
+  environment_note: string;
+  likely_rowing?: { value: boolean; kind: "inference"; basis: string };
+}
+
+export type OnWaterResponse = NoTrack | OnWaterData;
+
+export interface WeatherSummary {
+  window_start: string;
+  window_end: string;
+  duration_s: number;
+  temperature_c: { avg: number | null; min: number | null; max: number | null };
+  humidity_pct: number | null;
+  wind: {
+    speed_kmh: number | null;
+    speed_mps: number | null;
+    gust_max_kmh: number | null;
+    direction_from_deg: number | null;
+    direction_from_label: string | null;
+  };
+  pressure_hpa: number | null;
+  precipitation_mm: number | null;
+  condition: { code: number | null; text: string | null; codes_in_window: { code: number; text: string }[] };
+  coverage: number;
+  core_coverage_min: number;
+  variable_coverage: Record<string, number>;
+  provisional: boolean;
+  location_rounded: { lat: number; lon: number };
+  grid: { utc_date: string; lat: number | null; lon: number | null; elevation_m: number | null }[];
+}
+
+export interface WeatherResponse {
+  status: "ok" | "partial" | "unavailable" | "not_fetched" | "no_gps";
+  weather: WeatherSummary | null;
+  attribution: string;
+  attribution_url: string;
+  disclaimer?: string;
+  source?: string;
+  fetched_at?: string;
+  reason?: string;
+  message?: string;
+  activity_id?: number;
+}
+
+export interface RouteSession {
+  date: string | null;
+  canonical_id: number | null;
+  activity_id: number;
+  distance_m: number | null;
+  moving_s: number | null;
+  elapsed_s: number | null;
+  avg_speed_mps: number | null;
+  peak_speed_mps: number | null;
+  avg_hr: number | null;
+  weather: WeatherBrief | null;
+  pinned: boolean;
+}
+
+export interface RouteHistory {
+  route: RouteRef;
+  sessions: RouteSession[];
+  stats: {
+    n_sessions: number;
+    best: RouteSession | null;
+    typical_avg_speed_mps: number | null;
+    recent: RouteSession | null;
+    recent_vs_typical_pct: number | null;
+    speed_distribution: {
+      min: number; p25: number; median: number; p75: number; max: number; n: number;
+      histogram: { from: number; to: number; count: number }[];
+      basis: string;
+    } | null;
+    hr: { n: number; mean: number; min: number; max: number } | null;
+    weather_differences: { metric: string; best_session: number; other_sessions_median: number; difference: number; kind: string; note: string }[];
+    caveats: string[];
+    source: GpsSource;
+  };
+  confidence: "insufficient_data" | "low" | "medium" | "high";
+  note: string | null;
+  comparison: string;
+}
+
+export interface RouteDetailData extends RouteRef {
+  reference: [number, number][];
 }

@@ -117,7 +117,24 @@ import {
   mockPushSubscriptions,
   mockStatus,
 } from "./mock";
+import {
+  mockOnWater,
+  mockRouteDetail,
+  mockRouteHistory,
+  mockRoutes,
+  mockTrack,
+  mockWeather,
+  patchMockRoute,
+  putMockActivityRoute,
+  refreshMockWeather,
+} from "./mockGps";
 import type {
+  OnWaterResponse,
+  RouteDetailData,
+  RouteHistory,
+  RouteRef,
+  TrackResponse,
+  WeatherResponse,
   IntervalComparisonBucket,
   IntervalRepeatSpec,
   IntervalsResult,
@@ -1306,4 +1323,63 @@ export async function rateRecommendation(id: number, rating: RecommendationRatin
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rating }),
   });
+}
+
+
+// --- Session 20: GPS track, on-water metrics, weather, routes -----------------------------------
+
+export async function fetchTrack(canonicalId: number, points = 600): Promise<TrackResponse> {
+  if (isMock) return delay(mockTrack(canonicalId, points));
+  return request<TrackResponse>(`/api/activities/${canonicalId}/track?points=${points}`);
+}
+
+export async function fetchOnWater(canonicalId: number, splitM?: number): Promise<OnWaterResponse> {
+  if (isMock) return delay(mockOnWater(canonicalId, splitM));
+  return request<OnWaterResponse>(`/api/activities/${canonicalId}/on-water${splitM ? `?split_m=${splitM}` : ""}`);
+}
+
+export async function fetchWorkoutWeather(canonicalId: number): Promise<WeatherResponse> {
+  if (isMock) return delay(mockWeather(canonicalId));
+  return request<WeatherResponse>(`/api/activities/${canonicalId}/weather`);
+}
+
+export async function refreshWorkoutWeather(canonicalId: number): Promise<WeatherResponse> {
+  if (isMock) return delay(refreshMockWeather(canonicalId), 500);
+  return request<WeatherResponse>(`/api/activities/${canonicalId}/weather/refresh`, { method: "POST" });
+}
+
+export async function setActivityRoute(
+  canonicalId: number,
+  body: { route_id?: number | null; unpin?: boolean; new_route?: boolean; name?: string },
+): Promise<{ route: RouteRef | null }> {
+  if (isMock) return delay(putMockActivityRoute(canonicalId, body));
+  return request<{ route: RouteRef | null }>(`/api/activities/${canonicalId}/route`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchRoutes(): Promise<RouteRef[]> {
+  if (isMock) return delay(mockRoutes());
+  return (await request<{ routes: RouteRef[] }>("/api/routes")).routes;
+}
+
+export async function fetchRoute(id: number): Promise<RouteDetailData> {
+  if (isMock) return delay(mockRouteDetail(id));
+  return request<RouteDetailData>(`/api/routes/${id}`);
+}
+
+export async function patchRoute(id: number, patch: { name?: string | null; tags?: string[] }): Promise<RouteDetailData> {
+  if (isMock) return delay(patchMockRoute(id, patch), 200);
+  return request<RouteDetailData>(`/api/routes/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function fetchRouteHistory(id: number): Promise<RouteHistory> {
+  if (isMock) return delay(mockRouteHistory(id));
+  return request<RouteHistory>(`/api/routes/${id}/history`);
 }

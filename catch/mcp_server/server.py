@@ -23,7 +23,9 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "distribution/consistency, insights, and recommendations), plus food/strength "
             "logging and a small shared memory of events/goals/athlete facts that the "
             "in-app coach also reads and writes. get_today also carries today's morning "
-            "check-in and the illness early-warning level."
+            "check-in and the illness early-warning level. For outdoor workouts with GPS: "
+            "get_route, get_route_history, get_on_water_metrics and get_workout_weather "
+            "(GPS-derived figures are labelled; weather is context, not a correction)."
         ),
     )
 
@@ -311,6 +313,37 @@ def build_server(backend: ToolBackend) -> MCPServer:
         best/typical/recent weighted-average split across sessions. Interval pieces are kept
         out of single-effort PBs and test trends, so this is where their progress is read."""
         return await _call("get_interval_comparisons")
+
+    @mcp.tool()
+    async def get_route(activity_id: int) -> dict:
+        """GPS summary of one workout: general area, GPS-derived distance/moving time/average
+        speed next to the distance Garmin reported, the filtering report, and the repeated
+        route it belongs to (if any). No coordinates are returned. If there is no GPS track
+        it says why."""
+        return await _call("get_route", activity_id=activity_id)
+
+    @mcp.tool()
+    async def get_route_history(route_id: int) -> dict:
+        """Sessions on one repeated route: best/typical/recent moving average speed, speed
+        distribution, heart-rate context and the weather beside each. Not wind-, current- or
+        water-corrected; weather differences are observations, not adjustments."""
+        return await _call("get_route_history", route_id=route_id)
+
+    @mcp.tool()
+    async def get_on_water_metrics(activity_id: int, split_m: Optional[float] = None) -> dict:
+        """GPS-derived metrics for one workout: distance, elapsed vs moving time, average and
+        peak speed, pace (s/500m for rowing), a split table over split_m metres, pace
+        consistency and a lap breakdown. Each figure is labelled gps_derived or provider; raw
+        GPS figures are not corrected for conditions."""
+        return await _call("get_on_water_metrics", activity_id=activity_id, split_m=split_m)
+
+    @mcp.tool()
+    async def get_workout_weather(activity_id: int) -> dict:
+        """Observed weather for a workout's window and area (temperature, wind speed/gusts and
+        the direction it blows from, precipitation, humidity, conditions) with a status and
+        coverage. Gridded reanalysis for the area, not a measurement at the water; context
+        only, never a performance correction."""
+        return await _call("get_workout_weather", activity_id=activity_id)
 
     @mcp.tool()
     async def get_training_distribution(weeks: Optional[int] = None) -> dict:

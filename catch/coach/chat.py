@@ -96,6 +96,10 @@ def _tool_label(name: str, args: dict) -> str:
         "get_tests": "Read erg tests",
         "get_test": f"Read test #{args.get('id')}",
         "make_pacing_plan": f"Build a {args.get('test_type', '')} pacing plan".strip(),
+        "get_route": f"Read the GPS route of workout #{args.get('activity_id')}",
+        "get_route_history": f"Read history of route #{args.get('route_id')}",
+        "get_on_water_metrics": f"Read GPS metrics of workout #{args.get('activity_id')}",
+        "get_workout_weather": f"Read weather for workout #{args.get('activity_id')}",
     }
     return labels.get(name, name)
 
