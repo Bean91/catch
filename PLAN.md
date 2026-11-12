@@ -3987,3 +3987,83 @@ recovery-inputs card, recovery details with sources/calibration.
 2. Add one real key per provider in Settings → AI Providers and send a message, a meal photo and a PM5 photo through each.
 3. After `./deploy.sh`, confirm on the Pi that the Anthropic key still works (it is adopted into `ai_credentials` on first read
    and the old row is kept until you replace or remove the key).
+
+
+# Session 24: public deployment — Supabase + FastAPI Cloud, multi-user accounts
+
+**Numbering note.** The brief called itself "Session 19", the future item that Session 20's note anticipated; this file already has a Session 19 (intervals), so it is
+recorded as **Session 24**. Full write-ups: [docs/public-architecture.md](docs/public-architecture.md) (written first, before any schema change),
+[docs/public-setup.md](docs/public-setup.md), [docs/public-storage.md](docs/public-storage.md), [docs/personal-to-public.md](docs/personal-to-public.md),
+[docs/security.md](docs/security.md), DESIGN.md "Accounts on the public build". **`.env` was not read.** The only personal data touched was a *copy* of the 270 KB October
+`data/catch.db` (its `.schema` is now a committed test fixture; no rows).
+
+## Decisions (mine, with the reasoning; the brief fixed the stack)
+
+- **One owner mechanism for both deployments** — a request-scoped ContextVar (`core/tenant.py`): the constant `"owner"` on the Pi, the verified Supabase `sub` in public, **no default in
+  public** (touching an owned table raises). Enforced in three layers that don't rely on each other: (1) the owner comes only from a verified token; (2) ORM hooks add `owner_id` to every query and
+  verify it on every write and cross-row reference; (3) Postgres RLS evaluated on the same connection. Advisor-recommended before coding; it changed the design in several places below.
+- **`owner_id` stays the column name** (10 tables had it from session 23; `user_id` would have meant rewriting sealed-credential bindings and ~80 call sites for no isolation gain) and is **TEXT on both engines**
+  with an FK to `user_profiles(id) ON DELETE CASCADE` — the Pi's owner isn't a uuid and one model has to serve SQLite and PostgreSQL. The link to `auth.users` is a trigger pair plus a lazy upsert.
+- **The runtime never bypasses RLS.** `catch_api` (NOINHERIT, NOBYPASSRLS, no table privileges) can only `SET ROLE authenticated`; every *transaction* (not request — routes `commit()` mid-request) starts with
+  `SET LOCAL ROLE` + both `request.jwt.claim*` settings. The three lookups that happen before an owner is known (session liveness, device-token resolution, the user list for the tick) are SECURITY DEFINER
+  functions in a non-exposed schema. The admin/service credentials are used for migrations and for one GoTrue call.
+- **Tables live in a non-exposed `catch` schema**, so a signed-in user can't use the publishable key against PostgREST to rewrite their own `ai_usage_events` (RLS would allow it). RLS is still on, forced, four policies per table.
+- **Composite tenant FKs only where the model already declares an FK** (20); the 9 soft ids (technique notes, feedback, merge log…) get the ORM guard but no DB constraint, since the app deliberately keeps them after the target is merged.
+- **Alembic for Postgres only**; the Pi keeps `core/db.py`'s additive migration. The baseline is a frozen DDL snapshot generated from the models and a test fails if `alembic upgrade head` and the metadata ever disagree.
+- **No in-process scheduler in public** (scale-to-zero, undocumented cron): an authenticated per-user tick with a lease, driven by pg_cron. **No local files**: FIT-based features stay Pi-only.
+- **Supabase Storage for photos** (private bucket, per-user folder policies, signed URLs) — bucket, policies and account-deletion purge are built; the upload path still writes to the table (see Not done).
+- **Browser session in localStorage** (auth-js default, PKCE): an SPA with a separate API has no httpOnly option. Mitigations are real, not decorative: a strict hash-based CSP, a short token life, and a total wipe on sign-out / user switch. The Supabase client is in a lazy chunk that a personal build does not contain.
+- psycopg-binary has no 32-bit ARM wheel → the public dependencies are the optional `public` extra; the Pi's `uv sync` is unchanged.
+
+## Bugs / near-misses found while building (all fixed, with tests unless noted)
+
+1. **Context loss through sync dependencies.** A FastAPI sync dependency runs in a thread copy of the context, so an owner set there never reached the endpoint. `require_auth` and the tool-auth dependencies are now `async` and set the tenant in the request's task.
+2. **The loader-criteria lambda is analysed once against the unmapped marker class**, where `owner_id` doesn't exist — it broke ~660 tests at once. A helper resolves it.
+3. **Mid-request `commit()` ends the transaction and `SET LOCAL` with it.** Identity is applied from `after_begin`, not per request (test: two commits in one session, both authenticated).
+4. **My own near-miss:** the first version of the PostgreSQL test-run helper dropped foreign keys across *every* schema of the database; it died on a permission error in a Supabase-internal schema before touching anything (verified: the 24 `auth` FKs are intact). It is scoped to the scratch schema now.
+5. **A test that reshaped the shared schema** (`DROP TABLE events` on the suite's engine) silently corrupted every later test in the PostgreSQL run; those two tests now use a private SQLite engine.
+6. **Dialect checks were the wrong switch.** "Is this Postgres?" also matched the PostgreSQL *test run* and called functions that exist only on Supabase. The switch is now the `catch_rls` flag on the engine.
+7. `httpx.delete()` takes no body (`request("DELETE", json=…)`); `DROP OWNED BY` needs privileges on the role (and wasn't needed); a policy name can't contain `-`; the baseline splitter dropped the first statement because it began with a comment; table creation order has an `activities↔canonical↔pieces` cycle (the closing FKs are added after).
+8. `SET ROLE anon`/`service_role`/`postgres` **is refused** to `catch_api` (a test asserts it) — that is the property the design depends on.
+9. The cached JWKS must not outlive Supabase's 10-minute edge cache, and an unknown `kid` refetches at most once per 10 s (tests); a JWKS outage is a 503, not a "bad token".
+10. The service worker caches `GET /api/*` by URL, not by user — on a shared device user B could be served user A's cached responses offline. Sign-out and user-switch now delete those caches, the offline gym queue and every `catch:*` key (Playwright-tested).
+11. Found by the PostgreSQL run, *not* app bugs: tests that rely on SQLite not enforcing foreign keys (placeholder `canonical_id=5`), and a test whose premise is SQLite reusing a freed rowid. The run drops FKs for the suite (the enforced constraints are exercised in `tests/pg`) and skips the one SQLite-only premise.
+
+## Verification
+
+- **SQLite (personal):** `uv run pytest` — see the counts in the final status below; the original 1362 tests all still pass (nine were edited, none weakened: second-owner tests now switch the tenant context, two schema-reshaping tests got a private engine, PK lookups use `tenant.pk`).
+- **PostgreSQL (whole suite):** `CATCH_TEST_PG_URL=… uv run pytest --ignore=tests/pg` — everything passes except one SQLite-only premise (skipped).
+- **Real Supabase stack** (`supabase start`: Postgres 17.11, GoTrue 2.197, Storage, Supavisor): `tests/pg` — 37 tests: `alembic upgrade head` ≡ the models, every table has forced RLS and the right policy count, grants (runtime role, `anon`, `service_role` see nothing), downgrade/upgrade keeping data, pg_dump/pg_restore keeping rows + policies + isolation, sign-up trigger / delete cascade / a failing trigger never blocking sign-up,
+  RLS with separate identities (reads, updates, deletes, inserts naming another user, no-identity, composite FK attack, shared rows, profiles, SECURITY DEFINER lookups), the Storage API (per-user folders, private bucket, MIME/size limits, signed URLs), the **FastAPI app on the real runtime path** with real GoTrue JWTs (isolation end to end, RLS holding when the ORM filter is bypassed, identity surviving mid-request commits, global sign-out revoking an unexpired token, account deletion incl. Storage + GoTrue admin + cascade, the tick, transaction-pooler settings, the startup guard), and a **real Supavisor transaction pooler** (60 interleaved transactions, 3 users, no leakage).
+- **Isolation (SQLite, public mode):** `tests/tenancy/` — for **every** owned table: two users with identical natural keys coexist; a stranger sees/updates/deletes nothing; a PK lookup finds nothing; a write naming another owner is refused; no owner = no access. 28 JWT cases (alg none, HS256 confusion, wrong key/kid/issuer/audience/role, tampering, expiry, anonymous, JWKS rotation/outage, revocation). API-level two-user scenarios incl. cross-user links. A structural file (every table classified, every key per-owner, migration lists = models, no raw SQL outside the reviewed modules, a personal install imports none of the public stack). Personal→public transfer. CSP.
+- **Pi independence:** `tests/test_personal_unchanged.py` — an October Pi database schema upgrades in place (rows kept, `owner_id` added with `'owner'`, second startup a no-op, scoring runs), cookie login still guards the API, the public surfaces 404. By hand against a copy of the real `data/catch.db` (hash unchanged): 31 wellness days, 34 activities, recompute OK.
+- **Web:** `tsc -b`, oxlint (only the existing `gymSync.ts` warnings), `npm test` 73 (3 new files' worth), `npm run build` initial JS **208.2 KB gzip of 250** (207.4 before; **auth-js is absent from the personal bundle** — checked by grepping the clean build), Playwright `CI=1` touch **139 passed / 8 skipped** (unchanged), `test:update` 4, `test:gym` 1, **`test:public` 16** (8 × mobile + desktop).
+
+## Added
+
+DB: `user_profiles`; `owner_id` on 51 tables (48 strict, 3 shared nullable) and per-owner primary/unique keys; Postgres: `catch` + `catch_private` schemas, `catch_api`, RLS, tenant FKs, auth triggers, `piece-photos` bucket. API: `GET /api/me`, `DELETE /api/account`, `/internal/tick/{sync,notifications}`, `/internal/db-check`. CLI: `db upgrade|check|seed`, `export-personal`, `import-personal`.
+Env: `CATCH_DEPLOYMENT`, `DATABASE_URL`, `DATABASE_ADMIN_URL`, `CATCH_DB_POOL_MODE/SIZE`, `SUPABASE_URL/PUBLISHABLE_KEY/SECRET_KEY`, `CATCH_TICK_SECRET`, `CATCH_SESSION_CHECK_TTL`; web: `VITE_CATCH_DEPLOYMENT`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
+
+## Not done / limitations
+
+- **Nothing ran against a hosted Supabase project or FastAPI Cloud.** Egress to the pooler, a custom role through the *hosted* pooler, whether the `public` extra and the gitignored `catch/api/static` ship, SSE streaming, request timeouts and `pg_cron`+`pg_net` ticking are untested — `catch db check` and `GET /internal/db-check` are the probes, and docs/public-setup.md marks each ⚠.
+- **No per-user source connections.** Withings/Whoop OAuth is a browser redirect with no Authorization header; a signed-state callback isn't built, so those routes 404 in public mode. Garmin (needs Garmin's developer approval) and Concept2 (one server-wide token) are skipped. A public user today has: manual entry, check-ins, nutrition, gym, calendar/plans, library, notes, the coach with their own AI keys, and an import from a personal install.
+- **Piece photos still use the table** in both deployments; the `BlobStore` that routes the public build through Storage is the follow-up (bucket, policies, deletion purge exist and are tested).
+- **Push on a shared device**: subscriptions are per `(owner, endpoint)`; sign-out doesn't yet unsubscribe, so two accounts on one browser can both receive pushes there.
+- **Rate limits are per replica** (the DB-backed daily caps hold); Whoop's rotating refresh token needs `SELECT … FOR UPDATE` before it is offered publicly.
+- **Time zones**: still the host zone (UTC on FastAPI Cloud) — a per-user zone is needed before the morning brief means anything for a non-UTC user.
+- References to the three *shared* tables (exercises, foods, templates) keep a plain FK + the ORM guard (a composite key can't match a NULL-owner parent).
+- Hosted Postgres versions: the composite `ON DELETE SET NULL (col)` needs PostgreSQL ≥ 15.
+- The import was exercised on synthetic rows and a tiny real schema, not a large real database. Large imports have no progress output.
+- `tests/pg` needs a throwaway local Supabase stack and is skipped otherwise (like `test_postgres_optional.py`); no CI job runs it yet.
+
+## Blockers (for actually opening it to users)
+
+Garmin Connect Developer Program approval; Whoop's 10-member cap until tiers are approved; an Open-Meteo commercial licence and a non-OSM tile source (sessions 20/23); an email sender (the built-in one allows 2/hour); the per-user connection flow above; the account/data-processing terms for health data in your jurisdiction (not a code question).
+
+## Next steps
+
+1. Create the Supabase project and FastAPI Cloud app and follow docs/public-setup.md; run `curl …/internal/db-check` from the deployed app and read the four fields.
+2. Decide the frontend hosting (the gitignored static build) from the answer to setup step 4.5.
+3. Build the signed-state OAuth callback (Withings, then Whoop), then route piece photos through Storage, then a `pg_cron` tick.
+4. Add the `tests/pg` job to CI with `supabase start`.

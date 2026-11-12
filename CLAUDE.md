@@ -543,7 +543,7 @@ Session 24 (public deployment: Supabase + FastAPI Cloud, multi-user accounts —
 public-setup.md, public-storage.md, personal-to-public.md, DESIGN.md "Accounts on the public build"; the brief called itself "session
 19"). **Two deployments from one codebase, sharing nothing**: `CATCH_DEPLOYMENT=personal` (default — the Pi, SQLite, one owner `"owner"`,
 cookie login, APScheduler) and `public` (Supabase Postgres + Supabase Auth, many users, no in-process scheduler, no local files).
-**Every user-owned table has `owner_id`** (TEXT, FK → `user_profiles.id` ON DELETE CASCADE; 49 owned + 3 shared-reference tables + `weather_cells`/`user_profiles`
+**Every user-owned table has `owner_id`** (TEXT, FK → `user_profiles.id` ON DELETE CASCADE; 48 owned + 3 shared-reference tables + `weather_cells`/`user_profiles`
 global). `catch/core/tenant.py` is the one owner mechanism: a request-scoped ContextVar (personal default `"owner"`; **public default none — touching an owned
 table raises**), the `OwnedStrict`/`OwnedOrShared` markers, `owner_field()`, `tenant.pk(...)` for `session.get` on tables keyed `(owner_id, …)`. `core/tenant_hooks.py`
 (installed on SQLAlchemy's `Session` by importing `core/models.py`): `do_orm_execute` adds `owner_id = :owner` to every ORM SELECT/UPDATE/DELETE (incl.

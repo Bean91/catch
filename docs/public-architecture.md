@@ -29,10 +29,10 @@ Hosted by **neither / the owner**: the cron trigger for scheduled work (§5), DN
 
 ## 2. Data inventory — every table, and who owns it
 
-52 tables. `owner_id` is Catch's name for the brief's `user_id` (10 tables already carried it from session 23; renaming
+52 tables before this session (53 with `user_profiles`): 48 strictly owned, 3 shared-reference, 2 global. `owner_id` is Catch's name for the brief's `user_id` (10 tables already carried it from session 23; renaming
 them would have rewritten sealed-credential AAD bindings and ~80 call sites for no isolation benefit).
 
-**Global reference data (3, no user data, shared read-only to everyone):**
+**Global / shared reference data (no user data, shared read-only to everyone):**
 
 | Table | Why global |
 |---|---|
