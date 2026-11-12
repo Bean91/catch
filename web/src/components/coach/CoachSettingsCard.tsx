@@ -27,6 +27,8 @@ export function CoachSettingsCard() {
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; model_count?: number } | null>(null);
   const [newTokenName, setNewTokenName] = useState("");
   const [mintedToken, setMintedToken] = useState<string | null>(null);
+  const [coachToken, setCoachToken] = useState(false);
+  const [coachName, setCoachName] = useState("");
 
   const provider = settingsQuery.data?.provider ?? "anthropic";
   const modelsQuery = useQuery({
@@ -59,10 +61,12 @@ export function CoachSettingsCard() {
   });
 
   const createDeviceToken = useMutation({
-    mutationFn: () => createToken(newTokenName),
+    mutationFn: () => createToken(newTokenName, coachToken ? "coach" : "athlete", coachToken ? coachName : undefined),
     onSuccess: (row) => {
       setMintedToken(row.token);
       setNewTokenName("");
+      setCoachToken(false);
+      setCoachName("");
       queryClient.invalidateQueries({ queryKey: ["coach-tokens"] });
     },
   });
@@ -211,7 +215,13 @@ export function CoachSettingsCard() {
             {tokensQuery.data?.map((t) => (
               <div key={t.id} className="flex items-center justify-between gap-2 text-sm text-text-secondary">
                 <span>
-                  {t.name} · last used {formatRelativeTime(t.last_used_at)}
+                  {t.name}
+                  {t.role === "coach" && (
+                    <span data-testid="coach-token-badge" className="ml-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">
+                      Coach{t.display_name ? ` · ${t.display_name}` : ""}
+                    </span>
+                  )}{" "}
+                  · last used {formatRelativeTime(t.last_used_at)}
                 </span>
                 <button type="button" onClick={() => removeToken.mutate(t.id)} className="text-xs font-medium text-band-red-text hover:underline">
                   Revoke
@@ -231,14 +241,21 @@ export function CoachSettingsCard() {
               e.preventDefault();
               createDeviceToken.mutate();
             }}
-            className="mt-2 flex gap-2"
+            className="mt-2 flex flex-wrap gap-2"
           >
             <input
               placeholder="e.g. laptop"
               value={newTokenName}
               onChange={(e) => setNewTokenName(e.target.value)}
-              className={`${inputCls} flex-1`}
+              className={`${inputCls} min-w-0 flex-1`}
             />
+            <label className="flex min-h-11 w-full items-center gap-2 text-sm text-text-secondary">
+              <input type="checkbox" checked={coachToken} onChange={(e) => setCoachToken(e.target.checked)} className="h-4 w-4" />
+              A coach's token — sees only notes and feedback you share, and the workout library
+            </label>
+            {coachToken && (
+              <input placeholder="Coach's name (shown on their feedback)" value={coachName} onChange={(e) => setCoachName(e.target.value)} className={`${inputCls} w-full`} />
+            )}
             <button
               type="submit"
               disabled={!newTokenName.trim() || createDeviceToken.isPending}

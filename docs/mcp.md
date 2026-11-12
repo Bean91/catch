@@ -15,7 +15,10 @@ longer row), and (session 18) `get_training_profile`/`get_performance_trends`/
 (session 19) `get_interval_comparisons` (and `add_piece` also taking `repeat`/`intervals` for
 interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water_metrics`/
 `get_workout_weather` for GPS routes, on-water metrics and weather (GPS-derived and provider figures
-are labelled; `get_route` never returns coordinates; weather is context, not a correction) — 47 tools
+are labelled; `get_route` never returns coordinates; weather is context, not a correction), and
+(session 22) the workout library, technique notes and coach feedback — `search_workout_library`/
+`get_workout_template`/`create_workout_template`/`update_workout_template`, `get_technique_notes`/
+`add_technique_note`, `get_coach_feedback`/`add_coach_feedback` — 55 tools
 total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 
@@ -55,6 +58,18 @@ uv run catch token create --name "laptop"
 This prints the raw token **once** — copy it now, only its sha256 hash is stored. Manage
 tokens afterward from Settings → Coach → Device tokens (list, see last-used time, revoke), or
 `uv run catch token list`.
+
+### Coach tokens (session 22)
+
+```bash
+uv run catch token create --name "sam" --role coach --display-name "Coach Sam"
+```
+
+A **coach** token is for someone other than the athlete. It reaches only `search_workout_library`,
+`get_workout_template`, `get_technique_notes`, `get_coach_feedback` and `add_coach_feedback` (everything else answers
+403 over REST / an error over MCP), sees only notes and feedback the athlete shared, and its feedback is saved under its
+display name. Details and the full visibility rules: [library.md](library.md). Settings → Coach → Device tokens can also
+create one (`role: "coach"`) and shows each token's role. A token with no role is the athlete's own device.
 
 ## 2. Configure Claude Desktop
 
@@ -141,3 +156,10 @@ and `forget` of an `event:<id>` all **preview unless `confirm=true`**: the first
 `{"saved": false, "preview": …}` and changes nothing; pass `confirm=true` only after the athlete has agreed.
 `add_event` no longer exists — use `create_event`. A planned session is an intention, not a workout.
 (The stdio bridge previously failed on any tool with its own `name` argument; fixed in the same session.)
+
+## Library, technique notes and feedback writes (session 22)
+
+`create_workout_template`, `update_workout_template`, `add_technique_note` and `add_coach_feedback` all **preview
+unless `confirm=true`**, same convention as the calendar writes. Private notes and feedback are returned only to the
+athlete's own principal; a coach token never receives them. Catch can't measure technique, so none of these tools scores
+or rates it. See [library.md](library.md).

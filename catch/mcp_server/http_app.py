@@ -11,7 +11,8 @@ from catch.api.deps import hash_token
 from catch.core.config import settings
 from catch.core.db import get_session
 from catch.core.models import ApiToken
-from catch.mcp_server.backend import InProcessBackend
+from catch.core.principal import Principal, principal_from_token
+from catch.mcp_server.backend import InProcessBackend, current_principal
 from catch.mcp_server.server import build_server
 
 # Module-level singleton: streamable_http_app() lazily creates the session manager
@@ -53,17 +54,23 @@ class _BearerAuthMiddleware:
         headers = dict(scope.get("headers") or [])
         auth_header = headers.get(b"authorization", b"").decode()
         token = auth_header[len("bearer ") :].strip() if auth_header.lower().startswith("bearer ") else ""
-        if not token or not self._token_is_valid(token):
+        principal = self._principal_for(token) if token else None
+        if principal is None:
             response = JSONResponse({"detail": "Not authenticated"}, status_code=401)
             await response(scope, receive, send)
             return
-        await self._app(scope, receive, send)
+        # Scoped to this request; reset in `finally` so a later request can never inherit it.
+        reset = current_principal.set(principal)
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            current_principal.reset(reset)
 
     @staticmethod
-    def _token_is_valid(raw_token: str) -> bool:
+    def _principal_for(raw_token: str) -> Principal | None:
         with get_session() as session:
             row = session.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
-            return row is not None
+            return principal_from_token(row.id, row.role, row.display_name) if row is not None else None
 
 
 def mounted_mcp_app() -> ASGIApp:

@@ -214,8 +214,23 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
+import type {
+  FeedbackEntry,
+  FeedbackFilters,
+  FeedbackInput,
+  FeedbackRevision,
+  ScheduleInput,
+  TechniqueNote,
+  TechniqueNoteInput,
+  TemplateInput,
+  TemplatePreview,
+  TemplateScope,
+  WorkoutTemplate,
+} from "./types";
 import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
 import * as mockCal from "./mockCalendar";
+import * as mockCoach from "./mockCoaching";
+import * as mockLib from "./mockLibrary";
 
 export const MOCK_SCENARIO = mockScenarioFromQuery();
 export const isMock = MOCK_SCENARIO !== null;
@@ -833,12 +848,12 @@ export async function fetchTokens(): Promise<DeviceToken[]> {
   return request<DeviceToken[]>("/api/coach/tokens");
 }
 
-export async function createToken(name: string): Promise<DeviceToken & { token: string }> {
-  if (isMock) return delay(createMockToken(name), 150);
+export async function createToken(name: string, role: "athlete" | "coach" = "athlete", displayName?: string): Promise<DeviceToken & { token: string }> {
+  if (isMock) return delay(createMockToken(name, role, displayName), 150);
   return request("/api/coach/tokens", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, role, display_name: displayName || null }),
   });
 }
 
@@ -1530,4 +1545,123 @@ export async function approvePhase(id: number, approvedBy: string | null, note: 
 export async function unapprovePhase(id: number): Promise<PlanPhase> {
   if (isMock) return mocked(() => mockCal.unapproveMockPhase(id));
   return send(`/api/phases/${id}/unapprove`, "POST");
+}
+
+
+// --- Session 22: workout library, technique notes, coach feedback ---------------------------------
+
+export async function fetchLibraryTemplates(opts: { scope?: TemplateScope; q?: string; workout_type?: string; difficulty?: string } = {}): Promise<{ templates: WorkoutTemplate[] }> {
+  if (isMock) {
+    if (MOCK_SCENARIO === "error") throw new ApiError(500, "Mock server error");
+    return delay({ templates: mockLib.mockTemplates(opts) }, 120);
+  }
+  const qs = new URLSearchParams({ scope: opts.scope ?? "mine" });
+  if (opts.q) qs.set("q", opts.q);
+  if (opts.workout_type) qs.set("workout_type", opts.workout_type);
+  if (opts.difficulty) qs.set("difficulty", opts.difficulty);
+  return request<{ templates: WorkoutTemplate[] }>(`/api/library/templates?${qs}`);
+}
+
+export async function fetchLibraryTemplate(id: number): Promise<WorkoutTemplate> {
+  if (isMock) return mocked(() => mockLib.mockTemplate(id), 120);
+  return request<WorkoutTemplate>(`/api/library/templates/${id}`);
+}
+
+export async function previewLibraryTemplate(body: TemplateInput): Promise<TemplatePreview> {
+  if (isMock) return mocked(() => mockLib.mockPreview(body), 60);
+  return send("/api/library/templates/preview", "POST", body);
+}
+
+export async function createLibraryTemplate(body: TemplateInput): Promise<WorkoutTemplate> {
+  if (isMock) return mocked(() => mockLib.createMockTemplate(body));
+  return send("/api/library/templates", "POST", body);
+}
+
+export async function updateLibraryTemplate(id: number, body: Partial<TemplateInput>): Promise<WorkoutTemplate> {
+  if (isMock) return mocked(() => mockLib.updateMockTemplate(id, body));
+  return send(`/api/library/templates/${id}`, "PATCH", body);
+}
+
+export async function duplicateLibraryTemplate(id: number, name?: string): Promise<WorkoutTemplate> {
+  if (isMock) return mocked(() => mockLib.duplicateMockTemplate(id, name));
+  return send(`/api/library/templates/${id}/duplicate`, "POST", name ? { name } : {});
+}
+
+export async function setLibraryTemplateArchived(id: number, archived: boolean): Promise<WorkoutTemplate> {
+  if (isMock) return mocked(() => mockLib.archiveMockTemplate(id, archived));
+  return send(`/api/library/templates/${id}/${archived ? "archive" : "unarchive"}`, "POST");
+}
+
+export async function scheduleLibraryTemplate(id: number, body: ScheduleInput): Promise<{ planned: PlannedWorkout[] }> {
+  if (isMock) return mocked(() => ({ planned: mockLib.scheduleMockTemplate(id, body) }));
+  return send(`/api/library/templates/${id}/schedule`, "POST", body);
+}
+
+export async function fetchTechniqueNotes(q: { workout_id?: number; piece_id?: number; date?: string; category?: string } = {}): Promise<{ notes: TechniqueNote[]; note: string }> {
+  if (isMock) {
+    if (MOCK_SCENARIO === "error") throw new ApiError(500, "Mock server error");
+    return delay({ notes: mockCoach.mockNotes(q), note: "" }, 120);
+  }
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") qs.set(k, String(v));
+  return request<{ notes: TechniqueNote[]; note: string }>(`/api/technique-notes?${qs}`);
+}
+
+export async function createTechniqueNote(body: TechniqueNoteInput): Promise<TechniqueNote> {
+  if (isMock) return mocked(() => mockCoach.createMockNote(body));
+  return send("/api/technique-notes", "POST", body);
+}
+
+export async function updateTechniqueNote(id: number, body: Partial<TechniqueNoteInput>): Promise<TechniqueNote> {
+  if (isMock) return mocked(() => mockCoach.updateMockNote(id, body));
+  return send(`/api/technique-notes/${id}`, "PATCH", body);
+}
+
+export async function deleteTechniqueNote(id: number): Promise<{ ok: boolean }> {
+  if (isMock) return mocked(() => {
+    mockCoach.deleteMockNote(id);
+    return { ok: true };
+  });
+  return request<{ ok: boolean }>(`/api/technique-notes/${id}`, { method: "DELETE" });
+}
+
+export async function fetchFeedback(f: FeedbackFilters = {}): Promise<{ feedback: FeedbackEntry[]; coaches: string[] }> {
+  if (isMock) {
+    if (MOCK_SCENARIO === "error") throw new ApiError(500, "Mock server error");
+    return delay(mockCoach.mockFeedback(f), 120);
+  }
+  const qs = new URLSearchParams();
+  if (f.coach) qs.set("coach", f.coach);
+  if (f.category) qs.set("category", f.category);
+  if (f.from) qs.set("from", f.from);
+  if (f.to) qs.set("to", f.to);
+  return request<{ feedback: FeedbackEntry[]; coaches: string[] }>(`/api/coach-feedback?${qs}`);
+}
+
+export async function createFeedback(body: FeedbackInput): Promise<FeedbackEntry> {
+  if (isMock) return mocked(() => mockCoach.createMockFeedback(body));
+  return send("/api/coach-feedback", "POST", body);
+}
+
+export async function updateFeedback(id: number, body: Partial<FeedbackInput>): Promise<FeedbackEntry> {
+  if (isMock) return mocked(() => mockCoach.updateMockFeedback(id, body));
+  return send(`/api/coach-feedback/${id}`, "PATCH", body);
+}
+
+export async function respondToFeedback(id: number, response: string | null): Promise<FeedbackEntry> {
+  if (isMock) return mocked(() => mockCoach.respondMockFeedback(id, response));
+  return send(`/api/coach-feedback/${id}/response`, "POST", { response });
+}
+
+export async function deleteFeedback(id: number): Promise<{ ok: boolean }> {
+  if (isMock) return mocked(() => {
+    mockCoach.deleteMockFeedback(id);
+    return { ok: true };
+  });
+  return request<{ ok: boolean }>(`/api/coach-feedback/${id}`, { method: "DELETE" });
+}
+
+export async function fetchFeedbackHistory(id: number): Promise<{ history: FeedbackRevision[] }> {
+  if (isMock) return mocked(() => ({ history: mockCoach.mockHistory(id) }), 100);
+  return request<{ history: FeedbackRevision[] }>(`/api/coach-feedback/${id}/history`);
 }

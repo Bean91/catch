@@ -369,6 +369,10 @@ class ApiToken(SQLModel, table=True):
     token_hash: str
     created_at: datetime = Field(default_factory=_utcnow)
     last_used_at: Optional[datetime] = None
+    # Session 22 (see PLAN.md): NULL / "athlete" = the athlete's own device; "coach" = a coach's
+    # token, restricted to the library/technique-note/feedback tools (catch/core/principal.py).
+    role: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 class CoachCredential(SQLModel, table=True):
@@ -1087,6 +1091,7 @@ class PlannedWorkout(SQLModel, table=True):
     series_id: Optional[str] = Field(default=None, index=True)
     event_id: Optional[int] = Field(default=None, foreign_key="events.id", ondelete="SET NULL")
     declined_json: Optional[str] = None  # canonical ids the athlete said "not this one" to
+    template_id: Optional[int] = None  # session 22: provenance only — the plan is a snapshot copy
     notes: Optional[str] = None
     coach_feedback: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
@@ -1119,3 +1124,112 @@ class TrainingPhase(SQLModel, table=True):
     coach_approved_note: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# --- Session 22 (see PLAN.md, docs/library.md): workout library, technique notes, feedback ---
+
+
+class WorkoutTemplate(SQLModel, table=True):
+    """A reusable workout definition. Never a workout: no Activity/Canonical row is created from
+    it, and scheduling copies it into a `PlannedWorkout` snapshot (editing the template later
+    doesn't touch sessions already scheduled). `structure_json` is
+    `{warmup, blocks[], cooldown, strength_items[]}` — validated by
+    catch/analytics/workout_library.py, plain TEXT so SQLite and PostgreSQL treat it alike."""
+
+    __tablename__ = "workout_templates"
+    __table_args__ = (
+        UniqueConstraint("external_id", name="uq_workout_templates_external_id"),
+        Index("ix_workout_templates_owner_archived", "owner_id", "archived_at"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = "owner"
+    external_id: Optional[str] = None  # seeded examples only
+    name: str
+    description: Optional[str] = None
+    workout_type: str
+    session_type: str
+    sport_family: Optional[str] = None
+    purpose: Optional[str] = None
+    difficulty: Optional[str] = None  # easy | moderate | hard
+    target_zone: Optional[str] = None
+    tags_json: str = "[]"
+    structure_json: str = "{}"
+    is_example: bool = False
+    duplicated_from_id: Optional[int] = None
+    archived_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class TechniqueNote(SQLModel, table=True):
+    """The athlete's own written observation about technique. Deliberately has no rating, score or
+    quality column: nothing in Catch's data measures technique quality, so nothing here claims to.
+    (Distinct from analytics/technique.py, which is stroke-data erg metrics.)"""
+
+    __tablename__ = "technique_notes"
+    __table_args__ = (
+        Index("ix_technique_notes_owner_canonical", "owner_id", "canonical_id"),
+        Index("ix_technique_notes_owner_date", "owner_id", "note_date"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = "owner"
+    category: str
+    text: str
+    canonical_id: Optional[int] = None
+    piece_id: Optional[int] = None
+    note_date: Optional[date_] = None
+    visibility: str = "private"  # private | coach
+    media_json: str = "[]"  # references only: [{"url", "label"}]
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class CoachFeedback(SQLModel, table=True):
+    """One feedback entry. `owner_id` is whose training record it is (the athlete); `author_*` is
+    who wrote it. Only the author edits text; only the athlete writes `athlete_response`."""
+
+    __tablename__ = "coach_feedback"
+    __table_args__ = (Index("ix_coach_feedback_owner_date", "owner_id", "entry_date"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = "owner"
+    author_role: str  # coach | athlete
+    author_id: str
+    author_name: str
+    coach_name: Optional[str] = None  # athlete-logged feedback: who it came from
+    entry_date: date_
+    canonical_id: Optional[int] = None
+    event_id: Optional[int] = None
+    planned_id: Optional[int] = None
+    text: str
+    focus_areas_json: str = "[]"
+    visibility: str = "shared"  # private | shared
+    athlete_response: Optional[str] = None
+    athlete_response_at: Optional[datetime] = None
+    created_via: str = "web"  # web | ai_coach | mcp | rest
+    deleted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class CoachFeedbackRevision(SQLModel, table=True):
+    """The state of an entry *before* an edit/response/delete. Each revision carries the
+    visibility the entry had then, so history is filtered per revision (text that was private
+    never surfaces to a coach just because the entry was shared later)."""
+
+    __tablename__ = "coach_feedback_revisions"
+    __table_args__ = (Index("ix_coach_feedback_revisions_fb", "feedback_id", "revision_no"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    feedback_id: int
+    revision_no: int
+    kind: str  # edit | response | delete
+    text: str
+    focus_areas_json: str = "[]"
+    visibility: str
+    athlete_response: Optional[str] = None
+    edited_by_id: str
+    edited_by_name: str
+    edited_at: datetime = Field(default_factory=_utcnow)

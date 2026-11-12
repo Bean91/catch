@@ -1,0 +1,200 @@
+[
+ {
+  "external_id": "example-steady-60",
+  "name": "Example: 60-minute steady row",
+  "workout_type": "steady_state",
+  "description": "An illustrative single continuous block. Pick your own effort, rate and duration.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "blocks": [
+    {
+     "reps": 1,
+     "work_s": 3600,
+     "zone": "UT2",
+     "rate_min": 18,
+     "rate_max": 20
+    }
+   ]
+  },
+  "difficulty": "easy",
+  "target_zone": "UT2"
+ },
+ {
+  "external_id": "example-4x500",
+  "name": "Example: 4 x 500m with rest",
+  "workout_type": "erg_intervals",
+  "description": "An illustrative short-interval layout with a warm-up and cool-down.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "warmup": {
+    "duration_min": 10
+   },
+   "blocks": [
+    {
+     "reps": 4,
+     "work_m": 500,
+     "rest_s": 60
+    }
+   ],
+   "cooldown": {
+    "duration_min": 5
+   }
+  },
+  "difficulty": "hard"
+ },
+ {
+  "external_id": "example-6x3min",
+  "name": "Example: 6 x 3 minutes",
+  "workout_type": "erg_intervals",
+  "description": "An illustrative timed-interval layout.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "warmup": {
+    "duration_min": 10
+   },
+   "blocks": [
+    {
+     "reps": 6,
+     "work_s": 180,
+     "rest_s": 120,
+     "zone": "AT"
+    }
+   ],
+   "cooldown": {
+    "duration_min": 5
+   }
+  },
+  "difficulty": "moderate",
+  "target_zone": "AT"
+ },
+ {
+  "external_id": "example-rate-ladder",
+  "name": "Example: rate ladder 18-26",
+  "workout_type": "rate_ladder",
+  "description": "An illustrative ladder: the same time at a stepped stroke rate.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "warmup": {
+    "duration_min": 10
+   },
+   "blocks": [
+    {
+     "reps": 1,
+     "work_s": 240,
+     "rest_s": 60,
+     "rate_min": 18,
+     "rate_max": 18
+    },
+    {
+     "reps": 1,
+     "work_s": 240,
+     "rest_s": 60,
+     "rate_min": 20,
+     "rate_max": 20
+    },
+    {
+     "reps": 1,
+     "work_s": 240,
+     "rest_s": 60,
+     "rate_min": 22,
+     "rate_max": 22
+    },
+    {
+     "reps": 1,
+     "work_s": 240,
+     "rest_s": 60,
+     "rate_min": 24,
+     "rate_max": 24
+    },
+    {
+     "reps": 1,
+     "work_s": 240,
+     "rate_min": 26,
+     "rate_max": 26
+    }
+   ],
+   "cooldown": {
+    "duration_min": 5
+   }
+  },
+  "difficulty": "moderate"
+ },
+ {
+  "external_id": "example-5k-piece",
+  "name": "Example: 5000m piece",
+  "workout_type": "distance_piece",
+  "description": "A single distance piece. Add your own target split if you want a duration estimate.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "blocks": [
+    {
+     "reps": 1,
+     "work_m": 5000
+    }
+   ]
+  },
+  "difficulty": "moderate"
+ },
+ {
+  "external_id": "example-30min-piece",
+  "name": "Example: 30-minute piece",
+  "workout_type": "time_piece",
+  "description": "A single timed piece.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "blocks": [
+    {
+     "reps": 1,
+     "work_s": 1800
+    }
+   ]
+  },
+  "difficulty": "moderate"
+ },
+ {
+  "external_id": "example-onwater-3x10",
+  "name": "Example: on-water 3 x 10 minutes",
+  "workout_type": "on_water",
+  "description": "An illustrative on-water session with a rate range.",
+  "purpose": "Example structure only \u2014 shows how this kind of session is written down.",
+  "tags": [
+   "example"
+  ],
+  "structure": {
+   "warmup": {
+    "duration_min": 15
+   },
+   "blocks": [
+    {
+     "reps": 3,
+     "work_s": 600,
+     "rest_s": 180,
+     "rate_min": 20,
+     "rate_max": 22
+    }
+   ],
+   "cooldown": {
+    "duration_min": 10
+   }
+  },
+  "difficulty": "moderate"
+ }
+]

@@ -10,6 +10,7 @@ import { HrChart, type PieceBand } from "../components/charts/HrChart";
 import { GpsSection } from "../components/gps/GpsSection";
 import { WeatherChips } from "../components/gps/WeatherCard";
 import { AddPieceDialog } from "../components/pieces/AddPieceDialog";
+import { TechniqueNotesCard } from "../components/coaching/TechniqueNotesCard";
 import { PieceCard } from "../components/pieces/PieceCard";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
@@ -384,6 +385,8 @@ export function WorkoutDetailPage() {
         )}
       </Card>
       <AddPieceDialog open={addPieceOpen} onClose={() => setAddPieceOpen(false)} canonicalId={canonicalId} onSaved={() => setAddPieceOpen(false)} />
+
+      <TechniqueNotesCard canonicalId={canonicalId} date={workout?.local_date ?? null} pieces={(pieces ?? []).map((p) => ({ id: p.id, label: `Piece ${p.piece_type}` }))} />
 
       {isRowing && hasStrokes && fullStrokesData && fullDomain && (
         <>

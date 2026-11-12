@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from catch.api.deps import get_db, hash_token, require_auth, require_tool_auth
+from catch.api.deps import get_db, hash_token, require_auth, require_tool_auth_allow_coach
 from catch.api.sse import stream_until_disconnected
 from catch.coach import chat
 from catch.coach import cost as cost_module
@@ -20,11 +20,12 @@ from catch.coach.providers.anthropic_provider import AnthropicProvider
 from catch.coach.providers.ollama_provider import OllamaProvider
 from catch.core.db import get_session
 from catch.core.models import ApiToken, CoachConversation, CoachMessage
+from catch.core.principal import ATHLETE_ROLE, COACH_ROLE, Principal, may_call_tool
 
 # Split in two: tool_router accepts a device bearer token (the MCP server authenticates this
 # way so it can run off the Pi), coach_router is cookie-only — a stolen device token must
 # never be able to read the Anthropic key, manage tokens, or browse conversation history.
-tool_router = APIRouter(dependencies=[Depends(require_tool_auth)])
+tool_router = APIRouter()
 coach_router = APIRouter(dependencies=[Depends(require_auth)])
 
 
@@ -44,8 +45,9 @@ def _resolve_test_provider(db: Session):
 
 
 @tool_router.get("/api/coach/tools")
-def list_tools():
-    return tools_module.anthropic_tool_schemas()
+def list_tools(principal: Principal = Depends(require_tool_auth_allow_coach)):
+    schemas = tools_module.anthropic_tool_schemas()
+    return [t for t in schemas if may_call_tool(principal, t["name"])]
 
 
 class ToolCallRequest(BaseModel):
@@ -53,11 +55,19 @@ class ToolCallRequest(BaseModel):
 
 
 @tool_router.post("/api/coach/tools/{name}")
-def call_tool_endpoint(name: str, body: ToolCallRequest = Body(default=ToolCallRequest()), db: Session = Depends(get_db)):
+def call_tool_endpoint(
+    name: str,
+    request: Request,
+    body: ToolCallRequest = Body(default=ToolCallRequest()),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_tool_auth_allow_coach),
+):
     if name not in tools_module.TOOLS:
         raise HTTPException(status_code=404, detail=f"Unknown tool '{name}'")
+    if not may_call_tool(principal, name):
+        raise HTTPException(status_code=403, detail=f"This token's role can't use '{name}'")
     try:
-        return tools_module.call_tool(db, name, body.args, ctx={})
+        return tools_module.call_tool(db, name, body.args, ctx={"principal": principal, "via": "mcp" if request.headers.get("x-catch-client") == "mcp" else "rest"})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -229,22 +239,32 @@ def daily_usage(db: Session = Depends(get_db)):
 @coach_router.get("/api/coach/tokens")
 def list_tokens(db: Session = Depends(get_db)):
     rows = db.exec(select(ApiToken)).all()
-    return [{"id": r.id, "name": r.name, "created_at": r.created_at, "last_used_at": r.last_used_at} for r in rows]
+    return [
+        {"id": r.id, "name": r.name, "role": r.role or ATHLETE_ROLE, "display_name": r.display_name, "created_at": r.created_at, "last_used_at": r.last_used_at}
+        for r in rows
+    ]
 
 
 class TokenRequest(BaseModel):
     name: str
+    role: str = ATHLETE_ROLE
+    display_name: str | None = None
 
 
 @coach_router.post("/api/coach/tokens")
 def create_token(body: TokenRequest, db: Session = Depends(get_db)):
+    if body.role not in (ATHLETE_ROLE, COACH_ROLE):
+        raise HTTPException(status_code=422, detail="role must be 'athlete' or 'coach'")
     raw_token = secrets.token_urlsafe(32)
-    row = ApiToken(name=body.name, token_hash=hash_token(raw_token))
+    row = ApiToken(
+        name=body.name, token_hash=hash_token(raw_token), role=None if body.role == ATHLETE_ROLE else body.role,
+        display_name=(body.display_name or "").strip() or None,
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
     # The raw token is returned exactly once, here — only its hash is ever stored.
-    return {"id": row.id, "name": row.name, "token": raw_token, "created_at": row.created_at}
+    return {"id": row.id, "name": row.name, "role": body.role, "display_name": row.display_name, "token": raw_token, "created_at": row.created_at}
 
 
 @coach_router.delete("/api/coach/tokens/{token_id}")

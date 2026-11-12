@@ -101,7 +101,7 @@ owner-filtered — by design of the "new tables only" choice — and the multi-u
 rows, events, phases, projection, and a cross-owner `event_id`. The app is still single-user; this makes the
 Supabase build's job a column and a session lookup, not an audit.
 
-## Coach / MCP tools (47 total)
+## Coach / MCP tools (47 total at session 21; 55 after session 22 — see library.md)
 
 Reads: `get_calendar(from, to)` (≤100 days, planned and completed in separate keys), `get_upcoming_events`,
 `get_event(id)` (overview + projection), `get_training_phase(date?)`. Writes: `create_planned_workout`,
@@ -121,3 +121,11 @@ a test scans the new modules. `_migrate_columns` now uses `sqlalchemy.inspect()`
 the generated `ALTER TABLE`s against SQLAlchemy's `postgresql` dialect. **No real PostgreSQL was run** — there is no
 server or driver here — so execution against Supabase is untested. `CREATE INDEX IF NOT EXISTS` in
 `_migrate_columns` remains SQLite-era code the Postgres move must still revisit.
+
+## Scheduling from the workout library (session 22)
+
+A library template can be added to the calendar (`POST /api/library/templates/{id}/schedule`, or "Add to calendar"
+on the template page). It creates ordinary planned sessions through `create_planned` and records
+`planned_workouts.template_id`; the plan is a snapshot, and matching to completed workouts is unchanged. See
+[library.md](library.md). The legacy `PlannedWorkout.coach_feedback` string is still there and still edited in the
+planned-session sheet; the Feedback page is where authored, versioned feedback lives.

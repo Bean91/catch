@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from catch.core.db import engine
 from catch.core.models import ApiToken
+from catch.core.principal import ATHLETE, Principal, principal_from_token
 from catch.core.security import SESSION_COOKIE_NAME, verify_session_cookie
 
 
@@ -35,14 +36,17 @@ def hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def require_tool_auth(request: Request, db: Session = Depends(get_db)) -> None:
+def _tool_principal(request: Request, db: Session) -> Principal:
     """Cookie OR a per-device bearer token — scoped to the tool-call endpoints only (the MCP
     server authenticates this way so it can run on a laptop while Catch runs on the Pi). Key
     management, coach settings, and conversation history stay cookie-only via require_auth:
-    a stolen device token must not be able to read the Anthropic key or mint more tokens."""
+    a stolen device token must not be able to read the Anthropic key or mint more tokens.
+
+    Returns the caller's Principal (session 22): the cookie and role-less tokens are the athlete;
+    a `role="coach"` token is a coach, which `call_tool` restricts to the coaching tools."""
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if verify_session_cookie(cookie):
-        return
+        return ATHLETE
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         raw_token = auth_header[len("bearer ") :].strip()
@@ -51,5 +55,20 @@ def require_tool_auth(request: Request, db: Session = Depends(get_db)) -> None:
             if row is not None:
                 row.last_used_at = datetime.now(timezone.utc)
                 db.commit()
-                return
+                return principal_from_token(row.id, row.role, row.display_name)
     raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def require_tool_auth(request: Request, db: Session = Depends(get_db)) -> Principal:
+    """Athlete-only bearer access: a coach-role token is refused (403), so a route that adopts
+    this dependency can never hand a coach's token the athlete's data by accident."""
+    principal = _tool_principal(request, db)
+    if not principal.is_athlete:
+        raise HTTPException(status_code=403, detail="This token's role can't use this endpoint")
+    return principal
+
+
+def require_tool_auth_allow_coach(request: Request, db: Session = Depends(get_db)) -> Principal:
+    """The explicit opt-in: only the shared tool endpoints use it, and `call_tool` then restricts a
+    coach principal to the coaching tools."""
+    return _tool_principal(request, db)

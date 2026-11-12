@@ -95,12 +95,18 @@ def cmd_token_create(args: argparse.Namespace) -> None:
     init_db()
     raw_token = secrets.token_urlsafe(32)
     with get_session() as session:
-        session.add(ApiToken(name=args.name, token_hash=hash_token(raw_token)))
+        session.add(
+            ApiToken(
+                name=args.name, token_hash=hash_token(raw_token),
+                role=None if args.role == "athlete" else args.role, display_name=(args.display_name or "").strip() or None,
+            )
+        )
         session.commit()
     # Shown exactly once — only the hash is ever stored (CLAUDE.md: never print secrets to
     # logs, but this is the one deliberate exception, same as an argon2 password hash
     # generated at setup time: there is no other way to hand the raw value to the user).
-    print(f"Device token for '{args.name}' (save this now, it will not be shown again):\n{raw_token}")
+    kind = "coach token" if args.role == "coach" else "Device token"
+    print(f"{kind} for '{args.name}' (save this now, it will not be shown again):\n{raw_token}")
 
 
 def cmd_token_list(args: argparse.Namespace) -> None:
@@ -114,7 +120,7 @@ def cmd_token_list(args: argparse.Namespace) -> None:
         print("No device tokens.")
         return
     for row in rows:
-        print(f"{row.id}\t{row.name}\tcreated {row.created_at}\tlast used {row.last_used_at or 'never'}")
+        print(f"{row.id}\t{row.name}\t{row.role or 'athlete'}\tcreated {row.created_at}\tlast used {row.last_used_at or 'never'}")
 
 
 def main() -> None:
@@ -139,6 +145,8 @@ def main() -> None:
     token_sub = token_parser.add_subparsers(dest="token_command", required=True)
     token_create_parser = token_sub.add_parser("create", help="Create a new device token")
     token_create_parser.add_argument("--name", required=True)
+    token_create_parser.add_argument("--role", choices=["athlete", "coach"], default="athlete", help="coach tokens reach only the workout-library/technique-note/feedback tools")
+    token_create_parser.add_argument("--display-name", default=None, help="the name shown on a coach token's feedback entries")
     token_create_parser.set_defaults(func=cmd_token_create)
     token_list_parser = token_sub.add_parser("list", help="List device tokens")
     token_list_parser.set_defaults(func=cmd_token_list)

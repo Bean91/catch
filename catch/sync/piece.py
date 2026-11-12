@@ -248,6 +248,9 @@ def delete_piece(session: Session, piece_id: int) -> bool:
         session.delete(photo)
     for interval in session.exec(select(PieceInterval).where(PieceInterval.piece_id == piece_id)).all():
         session.delete(interval)
+    from catch.sync import coaching_notes
+
+    coaching_notes.detach_piece(session, piece_id)
     session.delete(piece)
     session.commit()
     _resolve_and_rescore(session, canonical_id)

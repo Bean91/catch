@@ -3739,3 +3739,104 @@ pages, Today "Coming up" card, `lib/dates.ts`.
    against what Trends shows for the same week.
 2. Decide whether B races deserve a reminder, and whether the confirm gate should become an HMAC round trip.
 3. Optional: plan templates, intensity-aware review flags, an ICS export.
+
+
+# Session 22: workout library, technique notes, coach feedback
+
+**Numbering note.** The brief called itself "session 17" and said session 16 added the calendar; this file already has a
+Session 17 (pieces) and the calendar is Session 21, so this is recorded as **Session 22**. Full design and rules:
+[docs/library.md](docs/library.md).
+
+## Decisions (the user chose the first two)
+
+- **Coach identity = a role on device tokens.** There is still no user table. `ApiToken` gained nullable `role`/
+  `display_name`; `catch/core/principal.py` derives *athlete* (cookie, role-less token), *coach* (`--role coach`), or the
+  fail-closed *viewer* per request and holds every visibility/ownership rule.
+- **The athlete principal sees private notes** (login, in-app AI coach, athlete tokens); only coach principals are
+  filtered. Private text therefore reaches the LLM provider the athlete configured — stated in the tool descriptions.
+- A coach token reaches **five tools only** (library search/get, technique-note read, feedback read/write); everything else
+  is refused, because sharing sleep/HR/load with a coach is a decision this app doesn't model. No coach web UI.
+- A coach can only create **shared** feedback; only the author edits an entry; only the athlete writes the response; every
+  edit/response/delete appends a revision that remembers the visibility it had then (so history never leaks pre-share text).
+- A template is **never a workout**; scheduling is a snapshot copy through `create_planned` (+ `template_id`), matching is
+  the existing matcher. A duration is only reported when knowable (`duration_basis`).
+- **No technique quality is inferred**: no rating column, nothing derived from strokes/HR/GPS, stated in payloads, the
+  system prompt and the UI.
+- Seven generic **examples**, read-only, badged "Example — not prescribed training", hidden from the coach's default search.
+
+## Bugs found while building (all fixed, all with regression tests)
+
+1. **The card grid overflowed at 390px on the Examples tab**: an example's long ladder signature (`1x240s/r60+…`) had no
+   break point and a grid item won't shrink below its content. Caught by the spec's own overflow assertion; cards now
+   `min-w-0 break-words` and a signature over 28 characters is left to the detail page.
+2. The first `summarize_template` marked a *timed* block with a split target's **duration** "estimated" (it is exact; only
+   the derived *distance* is estimated) and added warm-up minutes to the zone minutes, which the planner doesn't count — a
+   test comparing the week summary with the template's own totals for every example exposed both.
+3. `require_tool_auth` was a *router-level* dependency whose return value no handler could read, so a coach token would have
+   passed as "authenticated" everywhere it was attached. It is now per-endpoint, the bare dependency refuses coach tokens
+   (403), only two routes opt in, and a test walks every route to prove it.
+4. The mounted `/mcp` app's principal had to survive the SDK's per-session tasks: a contextvar set in the middleware reaches
+   the handler per *request* (tested interleaving athlete and coach tokens on one instance, and a coach token riding an
+   athlete's MCP session id), and is reset in `finally`.
+5. MCP tool type aliases defined *inside* `build_server` can't be resolved under `from __future__ import annotations`
+   (`InvalidSignature`); moved to module level.
+6. **Dangling references** (SQLite doesn't enforce FKs): merges, `delete_event`, `delete_planned` (incl. series scope) and
+   `delete_piece` each now clean up notes/feedback links, one test per path.
+7. A name collision: `fetchTemplates` already meant the gym's strength templates; the library's fetchers are `…LibraryTemplate…`.
+8. The new bottom-sheet specs polled a button's hit-test once, but a web font finishing after the sheet opens re-wraps its text
+   and strands the scroll position; the check now re-scrolls on every poll (it failed ~1 run in 5 under full-suite load, now
+   0 in 8). A separate, pre-existing `intervals.spec.ts` webkit flake showed up once in a loaded run and not in 20 isolated repeats.
+
+## Verification
+
+- `uv run pytest`: **1200 passed, 3 skipped** (the 3 are `test_postgres_optional.py`, which needs `CATCH_TEST_PG_URL`) (1039 at the end of session 21): the new files are `tests/analytics/test_workout_library.py`
+  (62), `test_workout_library_sync.py` (22), `test_coaching_notes_sync.py` (28), `test_api_library.py`/`test_api_coaching.py`
+  (14), `tests/coach/test_library_tools.py` (22), `tests/test_mcp_principal.py` (5, the real mount), and migration/PG-compile
+  additions to `test_db_migrations.py`. Private-text sentinel tests cover the REST tool endpoint, the `/mcp` mount, search,
+  history, soft-deleted entries and `memory_block`.
+- **PostgreSQL 18 (real server, scratch cluster/schema)**: `CATCH_TEST_PG_URL=… uv run --with 'psycopg[binary]' pytest
+  tests/test_postgres_optional.py` — 3 passed: the *entire* metadata creates (twice), the `ALTER TABLE`s run on old-shape
+  tables, and the library/schedule/note/feedback/revision/detach flows behave identically. `uv.lock` untouched. This is the
+  first time any of the app's schema has been run on PostgreSQL.
+- **Migration smoke** on a copy of the real `data/catch.db` (older than `api_tokens`/`planned_workouts`): all four tables and
+  the new columns appear, seven examples seed, a second `init_db` is a no-op, the original's hash is unchanged.
+- Web: `tsc -b`, `oxlint` (only the existing `gymSync.ts` warnings), `npm test` **65** (5 new duration tests),
+  `npm run build`, bundle **205.2 KB gzip of 250** (200.4 before; the pages are lazy chunks, the growth is the API/mock
+  layer), Playwright `CI=1` **116 passed / 8 skipped** (the same CDP-only skips) incl. 13 new specs × 2 mobile projects
+  (real WebKit) + 4 desktop-mouse, `test:gym` 1 (boots the real backend — runs the new seed), `test:update` 4.
+- Screenshots reviewed at 390px (library, template, editor, workout detail, feedback, schedule sheet).
+
+## Added
+
+DB: `workout_templates`, `technique_notes`, `coach_feedback`, `coach_feedback_revisions`; `api_tokens.role/display_name`;
+`planned_workouts.template_id`. API: `GET|POST /api/library/templates`, `POST …/preview`, `GET|PATCH …/{id}`,
+`POST …/{id}/duplicate|archive|unarchive|schedule`; `GET|POST /api/technique-notes`, `PATCH|DELETE …/{id}`;
+`GET|POST /api/coach-feedback`, `GET …/coaches`, `PATCH|DELETE …/{id}`, `POST …/{id}/response`, `GET …/{id}/history`;
+`POST /api/coach/tokens` takes `role`/`display_name`. Coach/MCP: 47 → 55 tools. CLI: `token create --role coach`.
+Web: Library, Template, Editor, Feedback pages; technique-notes card on workout detail; coach-token option in Settings.
+
+## Not done / limitations
+
+- **No coach web UI, invitations or real accounts**: a coach uses a token against the tool endpoint/MCP. The coach role is a
+  token attribute, and the legacy event/memory readers are still not owner-filtered (the multi-user build's job).
+- A coach **cannot edit their own entry** (no update tool; REST is cookie-only) — only add. Ownership is tested both ways at
+  the service layer. Coach tools list ids with title/date labels, and `add_coach_feedback` resolves `workout_date`, but a
+  coach can't discover events.
+- The confirm gate is a shared code path plus the system prompt, not enforcement (as in session 21).
+- The MCP SDK masks tool exceptions as "Error executing tool", so a coach token calling a forbidden tool over MCP sees an
+  error without the reason (REST answers 403 with it). The MCP server also still *lists* all 55 tools to a coach client.
+- Media on notes is references only. There is no template picker inside the planned-session sheet (schedule from the
+  template page). A strength template stores exercise ids and schedules as a plan; it doesn't start the Gym logger.
+- `PlannedWorkout.coach_feedback` (the single legacy string) is left as is and not migrated into the new entries.
+- The Postgres run covers the new services and the whole-metadata `create_all`, not the rest of the app's queries on
+  Postgres; the engine and `CREATE INDEX IF NOT EXISTS` lines in `db.py` are still SQLite-only.
+- Real iOS Safari wasn't available: touch behaviour is Chromium CDP + real WebKit rendering, as in earlier sessions.
+
+## Next steps
+
+1. After `./deploy.sh`: add a few templates, schedule one, log the workout and check the plan is suggested/linked; mint a coach
+   token and try `add_coach_feedback` from Claude Desktop, then confirm a private note doesn't appear in its reads.
+2. Decide whether a coach should be able to edit/retract their own entry (an `update_coach_feedback` tool) and whether the
+   MCP tool list should be filtered by role.
+3. The multi-user build: real accounts and coach links in place of token roles, owner filters on the legacy readers, and a
+   Postgres CI job that runs `tests/test_postgres_optional.py`.

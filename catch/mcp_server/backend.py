@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from contextvars import ContextVar
+
 import httpx
+
+from catch.core.principal import Principal
+
+current_principal: ContextVar[Principal | None] = ContextVar("catch_mcp_principal", default=None)
 
 
 class ToolBackend(Protocol):
@@ -16,7 +22,7 @@ class RestBackend:
 
     def __init__(self, base_url: str, token: str):
         self._client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {token}"}, timeout=30.0
+            base_url=base_url.rstrip("/"), headers={"Authorization": f"Bearer {token}", "X-Catch-Client": "mcp"}, timeout=30.0
         )
 
     async def call_tool(self, name: str, args: dict) -> dict:
@@ -37,6 +43,12 @@ class InProcessBackend:
     async def call_tool(self, name: str, args: dict) -> dict:
         from catch.coach import tools as tools_module
         from catch.core.db import get_session
+        from catch.core.principal import VIEWER, may_call_tool
 
+        # Set per request by http_app's bearer middleware. Unset (a bug, or a call that bypassed
+        # the middleware) means the fail-closed viewer, which may call nothing.
+        principal = current_principal.get() or VIEWER
+        if not may_call_tool(principal, name):
+            raise PermissionError(f"This token's role can't use '{name}'")
         with get_session() as session:
-            return tools_module.call_tool(session, name, args, ctx={})
+            return tools_module.call_tool(session, name, args, ctx={"principal": principal, "via": "mcp"})

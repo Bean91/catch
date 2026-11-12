@@ -93,6 +93,14 @@ _NEW_COLUMNS = {
         "distance_m": "REAL",
         "owner_id": "TEXT",
     },
+    "api_tokens": {
+        # Session 22 (see PLAN.md): nullable only. NULL role = athlete.
+        "role": "TEXT",
+        "display_name": "TEXT",
+    },
+    "planned_workouts": {
+        "template_id": "INTEGER",
+    },
     "sync_state": {
         # Session 16 (see PLAN.md Part A/B) — see SyncState's docstring in models.py.
         "consecutive_failures": "INTEGER NOT NULL DEFAULT 0",
@@ -243,12 +251,22 @@ def _seed_exercise_library() -> None:
             session.commit()
 
 
+def _seed_workout_examples() -> None:
+    from sqlmodel import Session
+
+    from catch.sync import workout_library
+
+    with Session(engine) as session:
+        workout_library.seed_examples(session)
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
     _migrate_linked_activities_to_canonical()
     _migrate_garmin_activity_fields()
     _seed_exercise_library()
+    _seed_workout_examples()
 
 
 @contextmanager

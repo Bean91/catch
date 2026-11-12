@@ -181,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 47 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 55 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -190,7 +190,7 @@ catch/
                 catch.coach.tools to avoid a same-process HTTP deadlock), __main__.py
                 (catch-mcp stdio entry point), http_app.py (the /mcp/ mount + its bearer
                 auth middleware)
-  cli.py        argparse entry point (`uv run catch ...`, now incl. `token create`/`list`)
+  cli.py        argparse entry point (`uv run catch ...`, now incl. `token create`/`list`; session 22: `token create --role coach --display-name ...`)
   main.py       FastAPI app factory
   seed/         exercises.json (session 14: the gym logger's exercise library, seeded
                 idempotently on startup by catch/core/db.py — yuhonas/free-exercise-db,
@@ -482,6 +482,34 @@ Time zones: the pure helpers take an explicit `tz`; the DB layer uses the host z
 (`/calendar/plan`, phases + weekly bars), `components/calendar/`, `components/today/UpcomingEventsCard.tsx`,
 `lib/dates.ts` (local-date math, Monday weeks), `lib/mockCalendar.ts`. Playwright: `web/tests/touch/calendar.spec.ts`.
 
+Session 22 (workout library, technique notes, coach feedback — see PLAN.md, docs/library.md, DESIGN.md "Library, technique
+notes and coaching feedback"; the brief called itself "session 17"): `WorkoutTemplate`, `TechniqueNote`, `CoachFeedback`,
+`CoachFeedbackRevision` in core/models.py (new tables; `api_tokens` gained nullable `role`/`display_name`,
+`planned_workouts` gained `template_id`). **There are still no user accounts**: `catch/core/principal.py` derives a
+*principal* per request (cookie / role-less token = athlete, `role="coach"` token = coach, unknown = the fail-closed
+`viewer`) and holds every visibility/ownership rule (`note_visible`, `feedback_visible`, `can_edit_feedback`,
+`can_respond_to_feedback`, `may_call_tool`). A coach token reaches only five tools (enforced in `call_tool`, and
+`require_tool_auth` refuses coach tokens unless a route opts in via `require_tool_auth_allow_coach` — only the two tool
+endpoints and the `/mcp` mount do); the `/api/library`, `/api/technique-notes`, `/api/coach-feedback` routes are
+cookie-only (no coach web UI). New tool handlers read `principal_from(ctx)` and **fail closed** without one; transports
+set it (REST from auth, `/mcp` via a contextvar set per request in `http_app.py`, `chat.py` = athlete). Pure math is
+`analytics/workout_library.py` (validation, `summarize_template`: rest after every rep but the last, a duration/distance
+only when knowable with `duration_basis`, `to_planned_fields`); DB layers are `sync/workout_library.py` (CRUD,
+duplicate/archive, `schedule_template` = a snapshot copy through `planning.create_planned` + `template_id`, idempotent
+example seed from `catch/seed/workout_templates.json`) and `sync/coaching_notes.py` (notes, feedback, per-revision
+history filtering, soft delete, and the stale-reference hooks: `repoint_canonical` from `_merge_canonicals`,
+`detach_event`/`detach_planned`/`detach_piece`). Technique notes have **no rating/score field and nothing infers
+technique quality** (Catch's data can't measure it). Coach/MCP: 55 tools (`coach/library_tools.py`, merged into
+`TOOLS`; every write previews unless `confirm === true`). Routes: `api/routes_library.py`, `api/routes_coaching.py`
+(`/preview`, `/coaches` registered before `/{id}`). Web: `pages/Library.tsx`, `LibraryTemplate.tsx`, `LibraryEditor.tsx`,
+`Feedback.tsx`; `components/library/` (BlockEditor, StructureView, SummaryPanel, ScheduleSheet — **the browser holds no
+interval math**, the editor asks `POST /api/library/templates/preview`), `components/coaching/` (PrivacyBadge,
+TechniqueNotesCard on WorkoutDetail, FeedbackEntryCard, sheets), `lib/duration.ts` (text↔seconds only),
+`lib/mockLibrary.ts`/`mockCoaching.ts`; the Settings device-token form can mint a coach token. Playwright:
+`web/tests/touch/library.spec.ts` (both mobile projects) and `library-desktop.spec.ts` (desktop-mouse). Postgres: the
+new services were run against a real PostgreSQL 18 via `tests/test_postgres_optional.py` (skipped unless
+`CATCH_TEST_PG_URL`).
+
 ## Commands
 
 - `uv sync` — install deps
@@ -490,7 +518,7 @@ Time zones: the pure helpers take an explicit `tz`; the DB layer uses the host z
 - `uv run catch backfill-gps [--weather] [--force]` — parse GPS tracks from FIT files already on disk
   (the sync loop only reaches its window), group rowing tracks into routes, and with `--weather` look
   up weather (sends 0.1°-rounded coordinates to Open-Meteo)
-- `uv run catch token create --name <device>` — mint a device bearer token for the MCP
+- `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)
 - `uv run pytest` — tests (fixtures only, never hits live APIs)

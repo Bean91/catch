@@ -1633,8 +1633,8 @@ export function mockTokens(): DeviceToken[] {
   return MOCK_TOKENS;
 }
 
-export function createMockToken(name: string): DeviceToken & { token: string } {
-  const row = { id: nextTokenId++, name, created_at: new Date().toISOString(), last_used_at: null };
+export function createMockToken(name: string, role: "athlete" | "coach" = "athlete", displayName?: string): DeviceToken & { token: string } {
+  const row: DeviceToken = { id: nextTokenId++, name, role, display_name: displayName || null, created_at: new Date().toISOString(), last_used_at: null };
   MOCK_TOKENS = [...MOCK_TOKENS, row];
   return { ...row, token: "mock-token-" + row.id };
 }

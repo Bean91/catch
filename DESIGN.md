@@ -338,6 +338,33 @@ standalone route with no nav slot of its own.
 - **Projection card** always shows the number with its range, the data it came from, the assumptions and an
   uncertainty line; with too little data it says why instead of showing a number.
 
+## Library, technique notes and coaching feedback (session 22)
+
+- **Navigation.** No new bottom-nav slot (it is already at eight; `calendar.spec.ts` asserts that). "Library" and
+  "Feedback" are desktop-sidebar entries plus pills under the Calendar and Workouts headers; sub-pages carry a back link.
+- **Privacy is always a glyph and a word, never colour alone.** `PrivacyBadge`: lock + "Private — only you" (quiet
+  outline) or two-people glyph + "Shared with coach" (accent-tinted). It appears on *every* technique note and every
+  feedback entry, and a "Who can see what" card at the top of the feedback page explains both. A coach-written entry
+  reads "Shared with you".
+- **Ownership is visible.** Every feedback entry names its author and role ("Coach" / "Your entry"), shows "via AI coach"
+  when the in-app coach logged it, and an entry the viewer can't edit says "Written by … — only they can edit it" instead of
+  showing a disabled Edit. "Edited · history (n)" expands the earlier versions inline.
+- **No technique verdicts.** The technique-notes card is titled "Technique notes" (distinct from the stroke-metrics
+  "Technique" card) and says "Catch can't see technique in this data, so nothing here is scored or rated." No score,
+  grade, star or colour is attached to technique anywhere; `library.spec.ts` scans for judgement words.
+- **Examples are labelled where they appear**, not just on a tab: a "Example — not prescribed training" pill on every
+  example card and detail page, plus a notice above the Examples tab. Examples are read-only (Duplicate, not Edit).
+- **Honest totals.** A distance-only template shows "Not set" with the reason, never `0:00`; an estimated duration says
+  it is estimated from the split/watts target. Zone minutes are labelled "(work only)".
+- **The editor holds no interval math**: stacked block rows (nothing sideways at 390px), a "Check" panel that shows the
+  server's validation messages and totals, sticky beside the form on desktop and below it on mobile. Rows are reordered
+  with ↑/↓ buttons (no drag-and-drop, as in the calendar).
+- **Sheets** follow the calendar's rules: bottom sheets on mobile at `z-30`, centred on desktop, no auto-focus on date
+  fields, destructive actions confirmed inline. The visibility choice is a two-option radio group (Private is the default
+  for notes) with a one-line consequence under each option.
+- Wording stays neutral — no "missed", "behind", "overdue" — and cards say "Not set", "Estimated", "Exact" rather than
+  grading a template.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

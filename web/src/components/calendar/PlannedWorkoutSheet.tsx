@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createPlanned, deletePlanned, updatePlanned } from "../../lib/api";
@@ -165,6 +166,11 @@ export function PlannedWorkoutSheet({
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             A plan is an intention — it never counts as training until a real workout is logged.
           </Dialog.Description>
+          {existing?.template_id != null && (
+            <p className="mt-1 text-sm text-text-secondary" data-testid="from-template">
+              From a library template — <Link to={`/library/${existing.template_id}`} className="text-accent underline">open it</Link>. This session is a copy, so editing it won't change the template.
+            </p>
+          )}
 
           {existing && (
             <div className="mt-4 flex items-center justify-between gap-2" role="group" aria-label="Move this session">
@@ -269,7 +275,7 @@ export function PlannedWorkoutSheet({
               <Field label="Your notes">
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={`${inputCls} py-2`} />
               </Field>
-              <Field label="Coach feedback">
+              <Field label="Coach feedback (a single note — the Feedback page keeps who wrote what, and its history)">
                 <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} className={`${inputCls} py-2`} />
               </Field>
             </div>

@@ -38,7 +38,7 @@ function planned(p: Partial<PlannedWorkout> & { id: number; date: string; sessio
   return {
     start_time: null, sport_family: FAMILY[p.session_type] ?? null, duration_min: null, distance_m: null, target_zone: null,
     intensity_note: null, description: null, structure: [], status: "planned", display_status: "planned", linked_canonical_id: null,
-    series_id: null, event_id: null, notes: null, coach_feedback: null, planned_minutes: p.duration_min ?? 0, ...p,
+    series_id: null, template_id: null, event_id: null, notes: null, coach_feedback: null, planned_minutes: p.duration_min ?? 0, ...p,
   };
 }
 
@@ -230,6 +230,19 @@ export function createMockPlanned(body: PlannedInput): PlannedWorkout[] {
   state.planned.push(...rows);
   touchPhasesFor(rows.map((r) => r.date));
   return rows.map(view);
+}
+
+// Provenance for a plan scheduled from a library template (session 22). The real server sets this in
+// the same transaction; the mock does it after the fact.
+export function setMockTemplateId(ids: number[], templateId: number): PlannedWorkout[] {
+  const out: PlannedWorkout[] = [];
+  for (const row of state.planned) {
+    if (ids.includes(row.id)) {
+      row.template_id = templateId;
+      out.push(view(row));
+    }
+  }
+  return out;
 }
 
 function touchPhasesFor(dates: string[]) {

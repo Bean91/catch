@@ -73,6 +73,12 @@ export function WorkoutsPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-text-primary">Workouts</h1>
         <div className="flex flex-wrap items-center gap-2">
+          <Link to="/library" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
+            Library
+          </Link>
+          <Link to="/feedback" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
+            Feedback
+          </Link>
           <Link to="/tests" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
             Tests
           </Link>

@@ -995,6 +995,8 @@ export interface CoachModel {
 export interface DeviceToken {
   id: number;
   name: string;
+  role?: "athlete" | "coach";
+  display_name?: string | null;
   created_at: string;
   last_used_at: string | null;
 }
@@ -1682,6 +1684,7 @@ export interface PlannedWorkout {
   display_status: PlannedDisplayStatus;
   linked_canonical_id: number | null;
   series_id: string | null;
+  template_id?: number | null;
   event_id: number | null;
   notes: string | null;
   coach_feedback: string | null;
@@ -1886,4 +1889,211 @@ export interface PhaseInput {
   target_strength_sessions_per_week?: number | null;
   target_zone_pct?: Record<string, { min?: number; max?: number }> | null;
   event_id?: number | null;
+}
+
+
+// --- Session 22: workout library, technique notes, coach feedback ---------------------------------
+// Mirrors catch/api/routes_library.py and routes_coaching.py. The browser holds no interval math:
+// every total below comes from the server (`summary`, or POST /api/library/templates/preview).
+
+export type WorkoutType =
+  | "erg_intervals"
+  | "steady_state"
+  | "rate_ladder"
+  | "distance_piece"
+  | "time_piece"
+  | "strength"
+  | "on_water"
+  | "custom";
+export type Difficulty = "easy" | "moderate" | "hard";
+export type TemplateScope = "mine" | "examples" | "all" | "archived";
+
+export interface TemplateBlock {
+  reps: number;
+  work_s?: number | null;
+  work_m?: number | null;
+  rest_s?: number | null;
+  zone?: ZoneLabel | null;
+  rate_min?: number | null;
+  rate_max?: number | null;
+  split_s?: number | null;
+  watts?: number | null;
+  note?: string | null;
+}
+export interface TemplateSegment {
+  duration_min?: number | null;
+  distance_m?: number | null;
+  zone?: ZoneLabel | null;
+  note?: string | null;
+}
+export interface TemplateStrengthItem {
+  exercise_id: number;
+  target_sets?: number | null;
+  target_reps?: number | null;
+  note?: string | null;
+}
+export interface TemplateStructure {
+  warmup?: TemplateSegment | null;
+  blocks?: TemplateBlock[];
+  cooldown?: TemplateSegment | null;
+  strength_items?: TemplateStrengthItem[];
+}
+export interface TemplateSummary {
+  block_count: number;
+  rep_count: number;
+  work_duration_s: number | null;
+  rest_duration_s: number | null;
+  warmup_duration_s: number | null;
+  cooldown_duration_s: number | null;
+  work_distance_m: number | null;
+  total_duration_s: number | null;
+  total_distance_m: number | null;
+  duration_basis: "exact" | "estimated" | "unknown";
+  distance_basis: "exact" | "estimated" | "unknown";
+  work_rest_ratio: number | null;
+  zone_minutes: Record<string, number>;
+  strength_exercise_count: number;
+}
+export interface WorkoutTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  workout_type: WorkoutType;
+  session_type: SessionType;
+  sport_family: string | null;
+  purpose: string | null;
+  difficulty: Difficulty | null;
+  target_zone: ZoneLabel | null;
+  tags: string[];
+  structure: TemplateStructure;
+  is_example: boolean;
+  example_label: string | null;
+  duplicated_from_id: number | null;
+  archived: boolean;
+  signature: string | null;
+  summary: TemplateSummary;
+  created_at: string;
+  updated_at: string;
+}
+export interface TemplateInput {
+  name: string;
+  workout_type: WorkoutType;
+  session_type?: SessionType | null;
+  description?: string | null;
+  purpose?: string | null;
+  difficulty?: Difficulty | null;
+  target_zone?: ZoneLabel | null;
+  tags?: string[];
+  structure: TemplateStructure;
+}
+export interface TemplateIssue {
+  path: string;
+  message: string;
+}
+export interface TemplatePreview {
+  ok: boolean;
+  issues: TemplateIssue[];
+  summary: TemplateSummary | null;
+  signature?: string | null;
+  planned?: Record<string, unknown> | null;
+}
+export interface ScheduleInput {
+  date: string;
+  start_time?: string | null;
+  event_id?: number | null;
+  repeat?: { weekdays?: number[]; until?: string | null; count?: number | null };
+}
+
+export type TechniqueCategory =
+  | "catch"
+  | "drive"
+  | "finish"
+  | "recovery"
+  | "sequencing"
+  | "posture"
+  | "rate_control"
+  | "blade_boat_handling";
+export type FocusArea = TechniqueCategory | "pacing" | "fitness" | "strength" | "racing" | "other";
+export type NoteVisibility = "private" | "coach";
+export type FeedbackVisibility = "private" | "shared";
+
+export interface MediaRef {
+  url: string;
+  label: string;
+}
+export interface WorkoutRef {
+  id: number;
+  title: string;
+  date: string | null;
+}
+export interface TechniqueNote {
+  id: number;
+  category: TechniqueCategory;
+  text: string;
+  visibility: NoteVisibility;
+  shared_with_coach: boolean;
+  workout: WorkoutRef | null;
+  piece: { id: number; piece_type: string } | null;
+  date: string | null;
+  media: MediaRef[];
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface TechniqueNoteInput {
+  category: TechniqueCategory;
+  text: string;
+  canonical_id?: number | null;
+  piece_id?: number | null;
+  date?: string | null;
+  visibility?: NoteVisibility;
+  media?: MediaRef[];
+}
+
+export interface FeedbackEntry {
+  id: number;
+  author: { role: "coach" | "athlete"; id: string; name: string };
+  coach_name: string | null;
+  created_via: "web" | "ai_coach" | "mcp" | "rest";
+  date: string;
+  text: string;
+  focus_areas: FocusArea[];
+  visibility: FeedbackVisibility;
+  shared: boolean;
+  workout: WorkoutRef | null;
+  event: { id: number; name: string; date: string } | null;
+  planned: { id: number; title: string; date: string } | null;
+  athlete_response: string | null;
+  athlete_response_at: string | null;
+  edited: boolean;
+  edit_count: number;
+  can_edit: boolean;
+  can_respond: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface FeedbackInput {
+  text: string;
+  date?: string | null;
+  canonical_id?: number | null;
+  event_id?: number | null;
+  focus_areas?: FocusArea[];
+  visibility?: FeedbackVisibility;
+  coach_name?: string | null;
+}
+export interface FeedbackRevision {
+  revision_no: number;
+  kind: "edit" | "response" | "delete";
+  text: string;
+  focus_areas: FocusArea[];
+  visibility: FeedbackVisibility;
+  athlete_response: string | null;
+  edited_by: string;
+  edited_at: string;
+}
+export interface FeedbackFilters {
+  coach?: string;
+  category?: FocusArea | "";
+  from?: string;
+  to?: string;
 }

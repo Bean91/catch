@@ -116,6 +116,7 @@ def planned_dict(row: PlannedWorkout, today_: date | None = None) -> dict:
         "display_status": display,
         "linked_canonical_id": row.linked_canonical_id,
         "series_id": row.series_id,
+        "template_id": row.template_id,
         "event_id": row.event_id,
         "notes": row.notes,
         "coach_feedback": row.coach_feedback,
@@ -278,6 +279,9 @@ def delete_planned(session: Session, owner_id: str, planned_id: int, scope: str 
         raise PlanningError("scope must be 'this' or 'this_and_following'")
     row = get_planned(session, owner_id, planned_id)
     targets = _series_following(session, owner_id, row) if scope == "this_and_following" else [row]
+    from catch.sync import coaching_notes
+
+    coaching_notes.detach_planned(session, [t.id for t in targets])
     for t in targets:
         session.delete(t)
     session.commit()
@@ -434,7 +438,10 @@ def update_event(session: Session, owner_id: str, event_id: int, fields: dict) -
 
 
 def delete_event(session: Session, owner_id: str, event_id: int) -> None:
+    from catch.sync import coaching_notes
+
     event = _own_event(session, owner_id, event_id)
+    coaching_notes.detach_event(session, event_id)
     for model in (PlannedWorkout, TrainingPhase):
         for row in session.exec(select(model).where(model.event_id == event_id)).all():
             row.event_id = None

@@ -29,6 +29,10 @@ const RouteDetailPage = lazy(() => import("./pages/RouteDetail").then((m) => ({ 
 const CalendarPage = lazy(() => import("./pages/Calendar").then((m) => ({ default: m.CalendarPage })));
 const EventDetailPage = lazy(() => import("./pages/EventDetail").then((m) => ({ default: m.EventDetailPage })));
 const PlanPage = lazy(() => import("./pages/Plan").then((m) => ({ default: m.PlanPage })));
+const LibraryPage = lazy(() => import("./pages/Library").then((m) => ({ default: m.LibraryPage })));
+const LibraryTemplatePage = lazy(() => import("./pages/LibraryTemplate").then((m) => ({ default: m.LibraryTemplatePage })));
+const LibraryEditorPage = lazy(() => import("./pages/LibraryEditor").then((m) => ({ default: m.LibraryEditorPage })));
+const FeedbackPage = lazy(() => import("./pages/Feedback").then((m) => ({ default: m.FeedbackPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -96,6 +100,11 @@ export function App() {
           <Route path="/body" element={<BodyPage />} />
           <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/coach" element={<CoachPage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/library/new" element={<LibraryEditorPage />} />
+          <Route path="/library/:id/edit" element={<LibraryEditorPage />} />
+          <Route path="/library/:id" element={<LibraryTemplatePage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/status" element={<StatusPage />} />

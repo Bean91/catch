@@ -116,9 +116,11 @@ def _merge_canonicals(session: Session, keep: CanonicalActivity, drop: Canonical
         session.add(m)
     # A calendar plan linked to the canonical being deleted must follow the survivor (this is
     # the only place a CanonicalActivity is ever deleted).
+    from catch.sync.coaching_notes import repoint_canonical
     from catch.sync.planning import relink_after_merge
 
     relink_after_merge(session, keep.id, drop.id)
+    repoint_canonical(session, keep.id, drop.id)
     session.flush()
     session.delete(drop)
     session.commit()

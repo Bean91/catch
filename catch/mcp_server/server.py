@@ -11,6 +11,12 @@ from catch.mcp_server.backend import ToolBackend
 # itself, which keeps every tool's signature a flat set of JSON-primitive parameters.
 
 
+WorkoutType = Literal["erg_intervals", "steady_state", "rate_ladder", "distance_piece", "time_piece", "strength", "on_water", "custom"]
+Zone = Literal["UT2", "UT1", "AT", "TR", "AN"]
+Category = Literal["catch", "drive", "finish", "recovery", "sequencing", "posture", "rate_control", "blade_boat_handling"]
+Focus = Literal["catch", "drive", "finish", "recovery", "sequencing", "posture", "rate_control", "blade_boat_handling", "pacing", "fitness", "strength", "racing", "other"]
+
+
 def build_server(backend: ToolBackend) -> MCPServer:
     mcp = MCPServer(
         "catch",
@@ -31,7 +37,13 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "create_planned_workout, update_planned_workout, delete_planned_workout, "
             "create_event and update_event write them and always preview first — pass "
             "confirm=true only after the athlete has agreed. A planned session is an intention, "
-            "never a completed workout."
+            "never a completed workout. The workout library: search_workout_library, "
+            "get_workout_template, create_workout_template and update_workout_template (templates "
+            "are reusable definitions, not workouts or prescriptions; built-in examples are only "
+            "illustrations). Technique notes and coach feedback: get_technique_notes, "
+            "add_technique_note, get_coach_feedback, add_coach_feedback — written observations only, "
+            "Catch can't measure technique quality, and private items are never shared with a coach. "
+            "Every write previews first; pass confirm=true only after the athlete has agreed."
         ),
     )
 
@@ -488,6 +500,105 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def rate_recommendation(id: int, rating: Literal["useful", "not_useful"]) -> dict:
         """Mark a recommendation (by its id from get_recommendations) useful or not useful."""
         return await _call("rate_recommendation", id=id, rating=rating)
+
+    # --- Session 22: workout library, technique notes, coach feedback ----------------------------
+
+    @mcp.tool()
+    async def search_workout_library(
+        query: Optional[str] = None, workout_type: Optional[WorkoutType] = None, session_type: Optional[str] = None,
+        difficulty: Optional[Literal["easy", "moderate", "hard"]] = None, tags: Optional[list[str]] = None,
+        include_examples: Optional[bool] = None, include_archived: Optional[bool] = None, limit: Optional[int] = None,
+    ) -> dict:
+        """Search the athlete's reusable workout templates. Built-in examples are structural
+        illustrations, excluded unless include_examples=true; never prescribe from them."""
+        return await _call(
+            "search_workout_library", query=query, workout_type=workout_type, session_type=session_type, difficulty=difficulty,
+            tags=tags, include_examples=include_examples, include_archived=include_archived, limit=limit,
+        )
+
+    @mcp.tool()
+    async def get_workout_template(id: int) -> dict:
+        """One template with its structure and computed totals (duration only when it can be known)."""
+        return await _call("get_workout_template", id=id)
+
+    @mcp.tool()
+    async def create_workout_template(
+        name: str, workout_type: WorkoutType, description: Optional[str] = None, session_type: Optional[str] = None,
+        purpose: Optional[str] = None, difficulty: Optional[Literal["easy", "moderate", "hard"]] = None,
+        target_zone: Optional[Zone] = None, tags: Optional[list[str]] = None, structure: Optional[dict] = None,
+        confirm: Optional[bool] = None,
+    ) -> dict:
+        """Create a workout template (not a workout, not a prescription). Previews unless
+        confirm=true — set that only after the athlete confirms the preview."""
+        return await _call(
+            "create_workout_template", name=name, workout_type=workout_type, description=description, session_type=session_type,
+            purpose=purpose, difficulty=difficulty, target_zone=target_zone, tags=tags, structure=structure, confirm=confirm,
+        )
+
+    @mcp.tool()
+    async def update_workout_template(
+        id: int, name: Optional[str] = None, description: Optional[str] = None, workout_type: Optional[WorkoutType] = None,
+        session_type: Optional[str] = None, purpose: Optional[str] = None, difficulty: Optional[Literal["easy", "moderate", "hard"]] = None,
+        target_zone: Optional[Zone] = None, tags: Optional[list[str]] = None, structure: Optional[dict] = None,
+        archived: Optional[bool] = None, confirm: Optional[bool] = None,
+    ) -> dict:
+        """Change or archive a template (built-in examples are read-only). Previews each change
+        unless confirm=true. Sessions already scheduled from it are unaffected."""
+        return await _call(
+            "update_workout_template", id=id, name=name, description=description, workout_type=workout_type, session_type=session_type,
+            purpose=purpose, difficulty=difficulty, target_zone=target_zone, tags=tags, structure=structure, archived=archived, confirm=confirm,
+        )
+
+    @mcp.tool()
+    async def get_technique_notes(
+        workout_id: Optional[int] = None, piece_id: Optional[int] = None, date: Optional[str] = None,
+        category: Optional[Category] = None, from_: Optional[str] = None, to: Optional[str] = None, limit: Optional[int] = None,
+    ) -> dict:
+        """Technique notes (the athlete's own words). Private notes are returned only to the
+        athlete's own assistant, never to a coach. Catch can't measure technique quality, so
+        don't score or rate technique from these notes or from stroke data."""
+        return await _call(
+            "get_technique_notes", workout_id=workout_id, piece_id=piece_id, date=date, category=category,
+            **{"from": from_, "to": to}, limit=limit,
+        )
+
+    @mcp.tool()
+    async def add_technique_note(
+        category: Category, text: str, workout_id: Optional[int] = None, piece_id: Optional[int] = None,
+        date: Optional[str] = None, visibility: Optional[Literal["private", "coach"]] = None,
+        media: Optional[list[dict]] = None, confirm: Optional[bool] = None,
+    ) -> dict:
+        """Save a technique note in the athlete's own words (private by default). Previews unless
+        confirm=true. Never add a quality judgement the athlete didn't state."""
+        return await _call(
+            "add_technique_note", category=category, text=text, workout_id=workout_id, piece_id=piece_id, date=date,
+            visibility=visibility, media=media, confirm=confirm,
+        )
+
+    @mcp.tool()
+    async def get_coach_feedback(
+        coach: Optional[str] = None, category: Optional[Focus] = None, from_: Optional[str] = None, to: Optional[str] = None,
+        workout_id: Optional[int] = None, event_id: Optional[int] = None, limit: Optional[int] = None,
+    ) -> dict:
+        """Coach feedback entries, newest first, with author, edit status and the athlete's
+        response. Private entries never reach a coach."""
+        return await _call(
+            "get_coach_feedback", coach=coach, category=category, **{"from": from_, "to": to},
+            workout_id=workout_id, event_id=event_id, limit=limit,
+        )
+
+    @mcp.tool()
+    async def add_coach_feedback(
+        text: str, date: Optional[str] = None, workout_id: Optional[int] = None, workout_date: Optional[str] = None,
+        event_id: Optional[int] = None, planned_id: Optional[int] = None, focus_areas: Optional[list[Focus]] = None,
+        visibility: Optional[Literal["private", "shared"]] = None, coach_name: Optional[str] = None, confirm: Optional[bool] = None,
+    ) -> dict:
+        """Record feedback. With a coach token it is saved, shared, under that coach's name; the
+        athlete uses it to log feedback they received (coach_name). Previews unless confirm=true."""
+        return await _call(
+            "add_coach_feedback", text=text, date=date, workout_id=workout_id, workout_date=workout_date, event_id=event_id,
+            planned_id=planned_id, focus_areas=focus_areas, visibility=visibility, coach_name=coach_name, confirm=confirm,
+        )
 
     @mcp.prompt()
     def daily_check_in() -> str:

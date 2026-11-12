@@ -243,6 +243,12 @@ export function NavLinks() {
       <Link to="/calendar/plan" className={cls}>
         Training plan
       </Link>
+      <Link to="/library" className={cls}>
+        Library
+      </Link>
+      <Link to="/feedback" className={cls}>
+        Feedback
+      </Link>
       <Link to="/workouts" className={cls}>
         Workouts
       </Link>

@@ -78,6 +78,22 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Read GPS metrics of workout #${input.activity_id}`;
     case "get_workout_weather":
       return `Read weather for workout #${input.activity_id}`;
+    case "search_workout_library":
+      return "Search the workout library";
+    case "get_workout_template":
+      return `Read workout template #${input.id}`;
+    case "create_workout_template":
+      return input.confirm ? `Create template: ${input.name}` : `Preview creating template: ${input.name}`;
+    case "update_workout_template":
+      return input.confirm ? `Update template #${input.id}` : `Preview updating template #${input.id}`;
+    case "get_technique_notes":
+      return "Read technique notes";
+    case "add_technique_note":
+      return input.confirm ? "Save a technique note" : "Preview a technique note";
+    case "get_coach_feedback":
+      return "Read coach feedback";
+    case "add_coach_feedback":
+      return input.confirm ? "Save feedback" : "Preview feedback";
     default:
       return name;
   }

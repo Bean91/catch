@@ -13,6 +13,7 @@ from catch.coach import tools as tools_module
 from catch.coach.providers.anthropic_provider import AnthropicProvider, pick_default_sonnet
 from catch.coach.providers.ollama_provider import OllamaProvider
 from catch.core.models import CoachConversation, CoachMessage
+from catch.core.principal import ATHLETE
 
 _SYSTEM_PROMPT_PATH = Path(__file__).parent / "system_prompt.md"
 # Caps one user turn's tool-calling back-and-forth — a runaway loop (a tool the model keeps
@@ -108,6 +109,14 @@ def _tool_label(name: str, args: dict) -> str:
         "get_route_history": f"Read history of route #{args.get('route_id')}",
         "get_on_water_metrics": f"Read GPS metrics of workout #{args.get('activity_id')}",
         "get_workout_weather": f"Read weather for workout #{args.get('activity_id')}",
+        "search_workout_library": "Search the workout library",
+        "get_workout_template": f"Read workout template #{args.get('id')}",
+        "create_workout_template": f"Create template: {args.get('name')}" if args.get("confirm") else f"Preview creating template: {args.get('name')}",
+        "update_workout_template": f"Update template #{args.get('id')}" if args.get("confirm") else f"Preview updating template #{args.get('id')}",
+        "get_technique_notes": "Read technique notes",
+        "add_technique_note": "Save a technique note" if args.get("confirm") else "Preview a technique note",
+        "get_coach_feedback": "Read coach feedback",
+        "add_coach_feedback": "Save feedback" if args.get("confirm") else "Preview feedback",
     }
     return labels.get(name, name)
 
@@ -227,7 +236,7 @@ async def run_turn(session: Session, conversation_id: int, user_text: str) -> As
                 "label": _tool_label(call["name"], call["input"]),
             }
             try:
-                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id})
+                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": ATHLETE, "via": "ai_coach"})
                 is_error = False
             except Exception as exc:  # noqa: BLE001 — surfaced to the model as a tool error, not raised
                 output = {"error": str(exc)}

@@ -20,6 +20,7 @@ from catch.api import (
     routes_wellness,
 )
 from catch.core.models import Activity, DailyScore, Food
+from catch.core.principal import Principal, may_call_tool
 from catch.core.settings_store import get_settings
 from catch.coach import memory
 from catch.sync import planning
@@ -1563,6 +1564,11 @@ TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
+from catch.coach import library_tools as _library_tools  # noqa: E402 — needs TOOLS' helpers defined above
+
+TOOLS.update(_library_tools.TOOLS)
+
+
 def anthropic_tool_schemas() -> list[dict]:
     return [{"name": name, "description": spec["description"], "input_schema": spec["input_schema"]} for name, spec in TOOLS.items()]
 
@@ -1578,5 +1584,11 @@ def call_tool(session: Session, name: str, args: dict, ctx: dict | None = None) 
     spec = TOOLS.get(name)
     if spec is None:
         raise ValueError(f"Unknown tool '{name}'")
-    result = spec["fn"](session, args, ctx or {})
+    ctx = ctx or {}
+    principal = ctx.get("principal")
+    # Every transport that knows its caller passes it; a coach-role caller reaches only the coaching
+    # tools (checked here so no transport can forget to). No principal = the older internal callers.
+    if isinstance(principal, Principal) and not may_call_tool(principal, name):
+        raise ValueError(f"This token's role can't use '{name}'")
+    result = spec["fn"](session, args, ctx)
     return jsonable_encoder(result)
