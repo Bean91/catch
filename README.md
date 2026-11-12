@@ -152,6 +152,13 @@ including how to mint a device token and what each of the 16 tools does. The in-
 instance on your own machine — Ollama can't run on a Pi 3, so point `CATCH_BASE_URL` at your
 laptop's Ollama if you go that route.
 
+## 4b. A public, multi-user deployment (optional, separate)
+
+The same code can also run as a public service — Supabase (Postgres, Auth, Storage) for data and sign-in, FastAPI Cloud for the API — with every user's data private
+to them. It shares **nothing** with the Pi: a different database, different secrets, and the Pi never installs any of its dependencies (they are the optional `public` extra).
+Start with [docs/public-architecture.md](docs/public-architecture.md), then [docs/public-setup.md](docs/public-setup.md). To move an existing personal install's data
+into a public account (only if you choose to): [docs/personal-to-public.md](docs/personal-to-public.md).
+
 ## 5. Project layout
 
 See `CLAUDE.md` for the full directory breakdown and engineering conventions (upsert
