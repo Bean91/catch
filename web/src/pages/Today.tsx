@@ -8,6 +8,7 @@ import { ErgCard } from "../components/today/ErgCard";
 import { IllnessCard } from "../components/today/IllnessCard";
 import { LoadCard } from "../components/today/LoadCard";
 import { RecommendationAndSync } from "../components/today/RecommendationAndSync";
+import { UpcomingEventsCard } from "../components/today/UpcomingEventsCard";
 import { RecoveryRing } from "../components/today/RecoveryRing";
 import { SleepCard } from "../components/today/SleepCard";
 import { StrainGauge } from "../components/today/StrainGauge";
@@ -109,6 +110,8 @@ export function TodayPage() {
         <ErgCard erg={data.latest_erg} predicted2k={data.predicted_2k} />
         <RecommendationAndSync recommendation={data.recommendation} nextARace={data.next_a_race} />
       </div>
+
+      <UpcomingEventsCard />
 
       <CheckinSheet
         open={sheetOpen}

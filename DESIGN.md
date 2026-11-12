@@ -317,6 +317,27 @@ standalone route with no nav slot of its own.
   "Routes" pill in the Workouts header (which now wraps). Route history is plain text + one static SVG
   histogram, with the not-corrected caveats printed on the page.
 
+## Calendar, plans and events (session 21)
+
+- **Navigation.** The calendar took the old "Log" bottom-nav slot, labelled **"Plan"** (calendar icon): "Calendar"
+  clips at 11px on 375px and 360px phones (measured with a width sweep at 320/360/375/390/430; `calendar.spec.ts` asserts no label truncates at 390px), the same
+  constraint behind "Fuel"/"Gym". The page, the desktop sidebar entry and the URL are "Calendar". The tab also reads
+  active on `/workouts*`. Workouts, Tests, Routes, Duplicates and the training plan are pills under the Calendar
+  header. (`Settings` itself already clips below 375px; that predates this.)
+- **Session states, no shaming.** Planned = accent-tinted solid border, "○ Planned"; Done = filled surface, "✓ Done";
+  Not logged = **dashed** outline and tertiary text, "Not logged"; Skipped = dashed, "Skipped"; Rest = quiet outline,
+  "Rest day"; completed workout = "● Completed"; event = accent "◆". Every state has a glyph *and* a text label.
+  Nothing is red or called missed/behind/overdue, and no week is coloured "over". Bars are neutral: filled = completed,
+  outlined = planned, dashed marker = target.
+- **Week view** is seven stacked day rows (date column / chips / a 44px "+"), so nothing scrolls sideways at 390px.
+  Month is a dot grid (○ planned, ● completed, ◆ event) where every cell has a spoken label; tapping opens the day.
+  No drag-and-drop (poor on touch): a session is moved with the sheet's "← Earlier / Later →" buttons or its date field.
+- **Sheets** are bottom sheets (`z-30` over the bottom nav, per the existing rule), do not auto-focus the date field
+  (iOS would open its picker), keep native date inputs `overflow-hidden`/`min-w-0`, and confirm destructive actions inline.
+- **Review flags** read as "Worth a look" — a calm note in a quiet surface, no icon, no colour — and never say "should".
+- **Projection card** always shows the number with its range, the data it came from, the assumptions and an
+  uncertainty line; with too little data it says why instead of showing a number.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

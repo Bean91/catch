@@ -3633,3 +3633,100 @@ distribution, HR context, observed weather differences, rename/tags), sidebar + 
 2. Try the map on a real iPhone (one-finger scroll over the map, two-finger pinch).
 3. Optional: sub-route/segment comparison; wind component relative to the course heading (clearly labelled as
    inference); map→chart hover; per-user weather consent for the public build.
+
+
+# Session 21: calendar, race planning, periodization
+
+**Numbering note.** The brief called itself "Session 16" and cited a different history (training intelligence = 14,
+test center = 11, notifications = 12, on-water = 15). This file already has a Session 16 (notifications/ops) and
+the repo was at Session 20, so this is recorded as **Session 21**; the stale references were left alone.
+
+## Decisions (the user chose the first three)
+
+- **Calendar replaces the "Log" bottom-nav slot**, and the tab is labelled **"Plan"** (calendar icon): "Calendar"
+  clipped at 11px on 375 px and 360 px phones (measured with a width sweep), the same constraint that made the others
+  "Fuel"/"Gym". Page, sidebar and URL are "Calendar"; the tab also reads active on `/workouts*`.
+- **Owner seam on the new tables** (`owner_id`, constant `"owner"`): every service function filters on it and a
+  foreign row is "not found". The app is still single-user; the Supabase build inherits the seam.
+- **`add_event` → confirm-gated `create_event`.** `update_event` and `forget("event:N")` are gated the same way.
+- **No `timezone` setting** (advisor catch): completed workouts are bucketed by host-local time everywhere, so a
+  second zone would make the calendar and the load numbers disagree. Pure helpers take an explicit `tz` instead.
+- **A plan is not a workout**, structurally (own table, no Activity/Canonical write, unique-linked, read-time
+  suggestions, never auto-applied). Past un-linked plans read "Not logged", never "missed".
+- **Recurrence is expansion at create time** (no RRULE engine, no new dependency) with `this | this_and_following` scopes.
+- **No plan is ever generated.** Large planned changes raise a *review flag* that asks for a look; on a coach-approved
+  phase it defers to the coach. "Edited since approval" is derived from timestamps, not stored.
+- **No age-based safety threshold** — the schema has no athlete age (grepped). Conservative defaults apply to everyone.
+- **Projection = existing models + stated assumptions/uncertainty**, or `available: false` with the reason.
+
+## Bugs found while building (all fixed, with regression tests)
+
+1. **The MCP `add_event` wrapper could never have worked**: `_call(name, **kwargs)` collided with the event's own
+   `name` argument ("multiple values for argument 'name'"). Found by the first MCP test that actually called a tool
+   with a `name`. `_call`'s first parameter is now positional-only.
+2. `PUT /api/coach/memory/events/{id}` passed the raw JSON dict (date as a string) to the ORM; dates are now coerced
+   and a bad date is a 422.
+3. `forget("event:N")` hard-deleted with no confirmation and left dangling `event_id`s; it now previews, then detaches
+   plans/phases in one place (`delete_event`).
+4. A reloaded SQLite datetime is naive while a fresh one is aware, so comparing `updated_at` with `coach_approved_at`
+   would raise; `aware_utc()` plus a fresh-vs-reloaded test.
+5. The existing negative `test_reminder` test never patched the clock, so it could pass because of quiet hours rather
+   than because the event was filtered; it now proves the filter. The reminder also now uses one definition of
+   "tomorrow" and links to the event page.
+6. Sheets auto-focused the date field (iOS would open its picker) — `onOpenAutoFocus` prevented.
+7. The mock matcher assigned greedily in list order and stole a workout from its own-day plan (the Playwright test
+   caught it); it now sorts by day gap like the real one.
+8. `_migrate_columns` called `PRAGMA table_info`; it now uses `sqlalchemy.inspect()` and skips tables that don't exist.
+
+## Verification
+
+- `uv run pytest`: **1032 passed** (913 at the start). New: `tests/analytics/test_planning.py` (41: time zones incl.
+  Sydney/New York/DST/23:30-local, recurrence, matching incl. AM/PM doubles, totals, flags, validation),
+  `tests/test_planning_sync.py` (service: ownership across every operation, one-to-one linking + the DB constraint,
+  planned-never-counts snapshots of volume/distribution/consistency/strain/DailyScore rows, calendar assembly, week
+  summary, review flags and settings, phases/approval/stale, events, projection, Postgres compile + SQL-token scan,
+  recommendation wiring), `tests/test_api_calendar.py`, `tests/coach/test_calendar_tools.py` (every write previews
+  and changes nothing without `confirm`, falsy/"true"/1 don't confirm, MCP parity + schema, `forget` gating, chat
+  labels, system prompt), and 6 new `tests/notify` cases (local tomorrow, quiet-hours hold, toggle, dedup, combined
+  link, deep link).
+- Web: `tsc -b`, `oxlint` (only the existing `gymSync.ts` warnings), `npm test` **60** (7 new date-math tests incl.
+  DST and local-vs-UTC), `npm run build`, `check:bundle-size` **200.4 KB gzip of 250** (193.6 before; the calendar
+  pages are lazy chunks, the growth is the API/mock layer and the Today card), `test:touch` **86 passed / 8 skipped**
+  (the same CDP-only skips as before; 17 new calendar specs × 2 mobile projects, real WebKit included: nav fits, no
+  horizontal overflow, distinct states and no shaming words, suggest/link/decline/unlink, the sheet's save button is
+  hit-testable above the nav, move, repeating series, month grid, review flag wording, race detail + projection,
+  deep-link route, Today card, phase approval staleness), `test:update` 4, `test:gym` 1.
+- Screenshots reviewed at 390 px: week, day, month, race detail, plan, sheet, review note, Today.
+- **Migration smoke** on a scratch copy of the real `data/catch.db` (which predates `events`): new tables and columns
+  appear, a second `init_db` is a no-op, the original's hash is unchanged. The real DB has no events to exercise the
+  legacy-NULL-owner path; that is covered by a test.
+
+## Added
+
+DB: `planned_workouts`, `training_phases`; `events` gained 5 nullable columns. API: `GET /api/calendar`,
+`/api/calendar/week-summary`, `/api/calendar/phase`; `POST|GET|PATCH|DELETE /api/planned` (+ `/move|link|unlink|
+decline|skip|unskip`); `GET|POST /api/events`, `/api/events/upcoming`, `GET|PATCH|DELETE /api/events/{id}`,
+`/api/events/{id}/projection`; `GET|POST /api/phases`, `PATCH|DELETE /api/phases/{id}`, `/approve|unapprove`.
+Settings: `planning.review_threshold_pct` (25). Coach/MCP: 40 → 47 tools. Web: Calendar, Event detail, Training plan
+pages, Today "Coming up" card, `lib/dates.ts`.
+
+## Not done / limitations
+
+- **No real PostgreSQL run** (no server/driver here). Compatibility is ORM-only queries, dialect-compiled DDL and a SQL
+  token scan; `CREATE INDEX IF NOT EXISTS` in `_migrate_columns` is still SQLite-era and the Postgres move must revisit it.
+- The confirm gate is **a shared code path plus the system prompt, not enforcement** — a caller can pass `confirm=true`
+  on the first call (same as the older write tools). A stateless HMAC of the previewed args would fix it; not built.
+- Real iOS Safari was not available: the touch behaviour is Chromium CDP + real WebKit rendering, as in earlier sessions.
+  The `Settings` tab label already clips below 375 px (pre-existing).
+- No drag-and-drop move (taps/buttons instead), no ICS/Google import-export, no automatic plan generation by design.
+- "Edited since approval" can't see a *deleted* planned session. Completed-training zone splits exist for the last 52
+  weeks only. Review flags compare minutes, not intensity.
+- The existing `test_reminder` still only covers 2k tests and A races; B/C races and a 7-day heads-up are not notified.
+- The per-user time zone, a real `owner_id` source and per-user phases are for the multi-user build.
+
+## Next steps
+
+1. After `./deploy.sh`, open Plan → Calendar on a phone; add a phase and a few sessions, and check the week summary
+   against what Trends shows for the same week.
+2. Decide whether B races deserve a reminder, and whether the confirm gate should become an HMAC round trip.
+3. Optional: plan templates, intensity-aware review flags, an ICS export.

@@ -151,6 +151,13 @@ DEFAULT_SETTINGS: dict = {
     # top key, then — if its default is a dict — the immediate child keys), matching
     # "notifications.types" above, so a second level of nesting here would silently bypass
     # that validation rather than trigger it.
+    # Session 21 (see PLAN.md, docs/calendar.md): calendar planning. Flat, one level deep, for the
+    # same _validate_patch reason as "training_intelligence" below.
+    "planning": {
+        # A planned week this many percent above (or below) the reference week/average is
+        # flagged for review — see catch.analytics.planning.workload_change_flags.
+        "review_threshold_pct": 25,
+    },
     "training_intelligence": {
         # Stand-in for "sessions completed vs. planned" — no training-plan/calendar
         # subsystem exists in this app (an Event is a race/test, not a weekly plan). docs/

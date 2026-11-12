@@ -191,7 +191,8 @@ def test_test_reminder_fires_for_tomorrows_2k_test_with_a_pacing_plan(session, m
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "test_reminder"]
     assert len(logs) == 1
     assert "6:30" in logs[0].body or "6:31" in logs[0].body
-    assert logs[0].deep_link == "/tests"
+    event = session.exec(select(Event)).one()
+    assert logs[0].deep_link == f"/calendar/events/{event.id}"
 
 
 def test_check_sync_stale_alerts_once_when_no_success_in_36h(session, monkeypatch):
@@ -243,6 +244,9 @@ def test_check_sync_stale_skips_a_source_that_has_never_been_attempted(session, 
 
 def test_test_reminder_ignores_a_b_priority_race_tomorrow(session, monkeypatch):
     _no_vapid(monkeypatch)
+    # Outside quiet hours, so a zero-row result proves the *event* was filtered out rather than
+    # the send being silenced by the clock.
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
     tomorrow = date.today() + timedelta(days=1)
     session.add(Event(name="Club regatta", date=tomorrow, type="race", priority="B"))
     session.commit()
@@ -252,3 +256,93 @@ def test_test_reminder_ignores_a_b_priority_race_tomorrow(session, monkeypatch):
 
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "test_reminder"]
     assert len(logs) == 0
+
+
+def _event(session, **kw):
+    kw.setdefault("name", "Erg test")
+    kw.setdefault("type", "2k_test")
+    kw.setdefault("date", date.today() + timedelta(days=1))
+    row = Event(**kw)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def _reminders(session):
+    return [n for n in session.exec(select(NotificationLog)).all() if n.type == "test_reminder"]
+
+
+def test_test_reminder_not_sent_for_today_the_day_after_or_a_finished_event(session, monkeypatch):
+    _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    _event(session, date=date.today())
+    _event(session, date=date.today() + timedelta(days=2))
+    _event(session, result="6:40")
+    triggers.check_test_reminder(session)
+    assert _reminders(session) == []
+
+
+def test_test_reminder_is_one_notification_per_day_even_across_ticks(session, monkeypatch):
+    _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    _event(session)
+    triggers.check_test_reminder(session)
+    triggers.check_test_reminder(session)
+    assert len(_reminders(session)) == 1
+
+
+def test_two_events_tomorrow_send_one_combined_notification_linking_to_the_calendar(session, monkeypatch):
+    _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    _event(session, name="Morning test")
+    _event(session, name="Afternoon race", type="race", priority="A")
+    triggers.check_test_reminder(session)
+    logs = _reminders(session)
+    assert len(logs) == 1 and logs[0].deep_link == "/calendar"
+    assert "Morning test" in logs[0].body and "Afternoon race" in logs[0].body
+
+
+def test_test_reminder_is_held_during_quiet_hours_then_sent_later(session, monkeypatch):
+    _no_vapid(monkeypatch)
+    _event(session)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 23, 30))
+    triggers.check_test_reminder(session)
+    assert _reminders(session) == []
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 2, 8, 0))
+    triggers.check_test_reminder(session)
+    assert len(_reminders(session)) == 1
+
+
+def test_test_reminder_respects_the_type_toggle(session, monkeypatch):
+    from catch.core.settings_store import update_settings
+
+    _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    update_settings(session, {"notifications": {"types": {"test_reminder": False}}})
+    _event(session)
+    triggers.check_test_reminder(session)
+    assert _reminders(session) == []
+
+
+def test_test_reminder_uses_the_athletes_local_tomorrow(session, monkeypatch):
+    """The event date is a plain local calendar date, so which day counts as "tomorrow" must
+    follow the planning module's single definition of today, not the UTC date."""
+    from zoneinfo import ZoneInfo
+
+    from catch.analytics import planning as pl
+    from catch.sync import planning
+
+    _no_vapid(monkeypatch)
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 6, 1, 8, 0))
+    instant = datetime(2026, 6, 2, 3, 0, tzinfo=timezone.utc)  # Jun 1 evening in New York, Jun 2 in UTC
+    ny = ZoneInfo("America/New_York")
+    _event(session, date=date(2026, 6, 2))
+    monkeypatch.setattr(planning, "today", lambda: pl.today_in(ny, instant))
+    triggers.check_test_reminder(session)
+    assert len(_reminders(session)) == 1
+    monkeypatch.setattr(planning, "today", lambda: pl.today_in(timezone.utc, instant))
+    session.exec(__import__("sqlmodel").delete(NotificationLog))
+    session.commit()
+    triggers.check_test_reminder(session)  # in UTC "tomorrow" is Jun 3, so Jun 2's event is today
+    assert _reminders(session) == []

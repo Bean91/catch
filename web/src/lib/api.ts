@@ -214,6 +214,8 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
+import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
+import * as mockCal from "./mockCalendar";
 
 export const MOCK_SCENARIO = mockScenarioFromQuery();
 export const isMock = MOCK_SCENARIO !== null;
@@ -1382,4 +1384,150 @@ export async function patchRoute(id: number, patch: { name?: string | null; tags
 export async function fetchRouteHistory(id: number): Promise<RouteHistory> {
   if (isMock) return delay(mockRouteHistory(id));
   return request<RouteHistory>(`/api/routes/${id}/history`);
+}
+
+
+// --- Session 21: calendar, race planning, periodization ----------------------------------------
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method, headers: JSON_HEADERS, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+
+// The mock layer throws plain Errors for the 404/422 cases the server would return; surface them
+// the same way the real client does so a form shows the message either way.
+function mocked<T>(fn: () => T, ms = 150): Promise<T> {
+  try {
+    return delay(fn(), ms);
+  } catch (e) {
+    return Promise.reject(new ApiError(422, e instanceof Error ? e.message : "Request failed"));
+  }
+}
+
+export async function fetchCalendar(from: string, to: string): Promise<CalendarPayload> {
+  if (isMock) {
+    if (MOCK_SCENARIO === "error") throw new ApiError(500, "Mock server error");
+    return delay(mockCal.mockCalendar(from, to), 120);
+  }
+  return request<CalendarPayload>(`/api/calendar?from=${from}&to=${to}`);
+}
+
+export async function fetchPlanWeekSummary(weekStart: string): Promise<PlanWeekSummary> {
+  if (isMock) return delay(mockCal.mockPlanWeekSummary(weekStart), 120);
+  return request<PlanWeekSummary>(`/api/calendar/week-summary?week_start=${weekStart}`);
+}
+
+export async function createPlanned(body: PlannedInput): Promise<{ planned: PlannedWorkout[] }> {
+  if (isMock) return mocked(() => ({ planned: mockCal.createMockPlanned(body) }));
+  return send("/api/planned", "POST", body);
+}
+
+export async function updatePlanned(id: number, patch: Partial<PlannedInput>, scope: "this" | "this_and_following" = "this"): Promise<{ planned: PlannedWorkout[] }> {
+  if (isMock) return mocked(() => ({ planned: mockCal.updateMockPlanned(id, patch, scope) }));
+  return send(`/api/planned/${id}?scope=${scope}`, "PATCH", patch);
+}
+
+export async function movePlanned(id: number, date: string): Promise<PlannedWorkout> {
+  if (isMock) return mocked(() => mockCal.updateMockPlanned(id, { date }, "this")[0]);
+  return send(`/api/planned/${id}/move`, "POST", { date });
+}
+
+export async function deletePlanned(id: number, scope: "this" | "this_and_following" = "this"): Promise<{ deleted: number }> {
+  if (isMock) return mocked(() => ({ deleted: mockCal.deleteMockPlanned(id, scope) }));
+  return request<{ deleted: number }>(`/api/planned/${id}?scope=${scope}`, { method: "DELETE" });
+}
+
+export async function linkPlanned(id: number, canonicalId: number): Promise<PlannedWorkout> {
+  if (isMock) return mocked(() => mockCal.linkMockPlanned(id, canonicalId));
+  return send(`/api/planned/${id}/link`, "POST", { canonical_id: canonicalId });
+}
+
+export async function unlinkPlanned(id: number): Promise<PlannedWorkout> {
+  if (isMock) return mocked(() => mockCal.unlinkMockPlanned(id));
+  return send(`/api/planned/${id}/unlink`, "POST");
+}
+
+export async function declineMatch(id: number, canonicalId: number): Promise<{ ok: boolean }> {
+  if (isMock) return mocked(() => {
+    mockCal.declineMockMatch(id, canonicalId);
+    return { ok: true };
+  });
+  return send(`/api/planned/${id}/decline`, "POST", { canonical_id: canonicalId });
+}
+
+export async function setPlannedSkipped(id: number, skipped: boolean): Promise<PlannedWorkout> {
+  if (isMock) return mocked(() => mockCal.skipMockPlanned(id, skipped));
+  return send(`/api/planned/${id}/${skipped ? "skip" : "unskip"}`, "POST");
+}
+
+export async function fetchUpcomingEvents(limit = 5): Promise<{ events: UpcomingEvent[] }> {
+  if (isMock) return delay({ events: mockCal.mockUpcomingEvents(limit) }, 150);
+  return request<{ events: UpcomingEvent[] }>(`/api/events/upcoming?limit=${limit}`);
+}
+
+export async function fetchEvents(): Promise<{ events: UpcomingEvent[] }> {
+  if (isMock) return delay({ events: mockCal.mockEvents() }, 120);
+  return request<{ events: UpcomingEvent[] }>("/api/events");
+}
+
+export async function fetchEventOverview(id: number): Promise<EventOverview> {
+  if (isMock) return mocked(() => mockCal.mockEventOverview(id), 150);
+  return request<EventOverview>(`/api/events/${id}`);
+}
+
+export async function fetchEventProjection(id: number): Promise<EventProjection> {
+  if (isMock) return mocked(() => mockCal.mockEventProjection(id), 200);
+  return request<EventProjection>(`/api/events/${id}/projection`);
+}
+
+export async function createEvent(body: EventInput): Promise<UpcomingEvent> {
+  if (isMock) return mocked(() => mockCal.createMockEvent(body));
+  return send("/api/events", "POST", body);
+}
+
+export async function updateEvent(id: number, patch: Partial<EventInput>): Promise<UpcomingEvent> {
+  if (isMock) return mocked(() => mockCal.updateMockEvent(id, patch));
+  return send(`/api/events/${id}`, "PATCH", patch);
+}
+
+export async function deleteEvent(id: number): Promise<{ ok: boolean }> {
+  if (isMock) return mocked(() => {
+    mockCal.deleteMockEvent(id);
+    return { ok: true };
+  });
+  return request<{ ok: boolean }>(`/api/events/${id}`, { method: "DELETE" });
+}
+
+export async function fetchPhases(): Promise<{ phases: PlanPhase[] }> {
+  if (isMock) return delay({ phases: mockCal.mockPhases() }, 120);
+  return request<{ phases: PlanPhase[] }>("/api/phases");
+}
+
+export async function createPhase(body: PhaseInput): Promise<PlanPhase> {
+  if (isMock) return mocked(() => mockCal.createMockPhase(body));
+  return send("/api/phases", "POST", body);
+}
+
+export async function updatePhase(id: number, patch: Partial<PhaseInput>): Promise<PlanPhase> {
+  if (isMock) return mocked(() => mockCal.updateMockPhase(id, patch));
+  return send(`/api/phases/${id}`, "PATCH", patch);
+}
+
+export async function deletePhase(id: number): Promise<{ ok: boolean }> {
+  if (isMock) return mocked(() => {
+    mockCal.deleteMockPhase(id);
+    return { ok: true };
+  });
+  return request<{ ok: boolean }>(`/api/phases/${id}`, { method: "DELETE" });
+}
+
+export async function approvePhase(id: number, approvedBy: string | null, note: string | null): Promise<PlanPhase> {
+  if (isMock) return mocked(() => mockCal.approveMockPhase(id, approvedBy, note));
+  return send(`/api/phases/${id}/approve`, "POST", { approved_by: approvedBy, note });
+}
+
+export async function unapprovePhase(id: number): Promise<PlanPhase> {
+  if (isMock) return mocked(() => mockCal.unapproveMockPhase(id));
+  return send(`/api/phases/${id}/unapprove`, "POST");
 }

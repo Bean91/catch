@@ -37,51 +37,24 @@ def remember(
     return fact
 
 
-def add_event(
-    session: Session,
-    name: str,
-    date_: date,
-    type: str,
-    distance: str | None = None,
-    boat_class: str | None = None,
-    priority: str | None = None,
-    goal_time: str | None = None,
-    result: str | None = None,
-) -> Event:
-    allowed = {"race", "2k_test", "camp", "selection"}
-    if type not in allowed:
-        raise ValueError(f"type must be one of {sorted(allowed)}")
-    if priority is not None and priority not in {"A", "B", "C"}:
-        raise ValueError("priority must be one of A, B, C")
-    event = Event(
-        name=name,
-        date=date_,
-        type=type,
-        distance=distance,
-        boat_class=boat_class,
-        priority=priority,
-        goal_time=goal_time,
-        result=result,
-    )
-    session.add(event)
-    session.commit()
-    session.refresh(event)
-    return event
+def add_event(session: Session, name: str, date_: date, type: str, **fields: Any) -> Event:
+    """Kept as the one Memory-page/REST entry point; the rules live in catch.sync.planning so
+    there is a single validation path (the coach tools go through the same service)."""
+    from catch.sync import planning
+
+    try:
+        return planning.create_event(session, planning.OWNER_ID, {"name": name, "date": date_, "type": type, **fields})
+    except planning.PlanningError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def update_event(session: Session, event_id: int, **fields: Any) -> Event:
-    event = session.get(Event, event_id)
-    if event is None:
-        raise ValueError(f"No event with id {event_id}")
-    unknown = set(fields) - {"name", "date", "type", "distance", "boat_class", "priority", "goal_time", "result"}
-    if unknown:
-        raise ValueError(f"Unknown event field(s): {sorted(unknown)}")
-    for key, value in fields.items():
-        if value is not None:
-            setattr(event, key, value)
-    session.commit()
-    session.refresh(event)
-    return event
+    from catch.sync import planning
+
+    try:
+        return planning.update_event(session, planning.OWNER_ID, event_id, fields)
+    except planning.PlanningError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def set_goal(
@@ -109,6 +82,14 @@ def set_goal(
 
 def forget(session: Session, ref: str) -> bool:
     model, row_id = _parse_ref(ref)
+    if model is Event:
+        from catch.sync import planning
+
+        try:
+            planning.delete_event(session, planning.OWNER_ID, row_id)
+        except planning.NotFound:
+            return False
+        return True
     row = session.get(model, row_id)
     if row is None:
         return False
@@ -130,6 +111,7 @@ def _fact_dict(f: AthleteFact) -> dict:
 
 def _event_dict(e: Event, today: date) -> dict:
     return {
+        "id": e.id,
         "ref": f"event:{e.id}",
         "kind": "event",
         "name": e.name,
@@ -140,6 +122,10 @@ def _event_dict(e: Event, today: date) -> dict:
         "priority": e.priority,
         "goal_time": e.goal_time,
         "result": e.result,
+        "location": e.location,
+        "goals": e.goals,
+        "notes": e.notes,
+        "distance_m": e.distance_m,
         "days_to_go": (e.date - today).days,
     }
 
@@ -209,6 +195,7 @@ def next_a_race(session: Session, today: date | None = None) -> dict | None:
         return None
     days_to_go = (row.date - today).days
     return {
+        "id": row.id,
         "name": row.name,
         "date": row.date,
         "days_to_go": days_to_go,

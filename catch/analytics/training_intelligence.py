@@ -521,6 +521,31 @@ def evaluate_overload_warning(context: dict, settings: dict) -> dict | None:
     }
 
 
+def evaluate_planned_load_change(context: dict, settings: dict) -> dict | None:
+    """Session 21 (see PLAN.md, docs/calendar.md): a caution-direction recommendation, so like
+    evaluate_overload_warning it is not suppressed by recovery/illness state — those make a
+    big planned jump *more* worth a look. It only asks the athlete to review; the body text is
+    already built (and hedged, or deferring to a coach on an approved phase) by
+    catch.analytics.planning.workload_change_flags, from review flags the DB layer computed
+    and passed in. Never reads a planned row itself."""
+    flags = (context.get("planned_load") or {}).get("flags") or []
+    increases = [f for f in flags if f["kind"] == "increase"]
+    if not increases:
+        return None
+    flag = min(increases, key=lambda f: f["week_start"])
+    return {
+        "rule_key": "plan:load_change",
+        "title": "A planned week is a big step up",
+        "body": flag["message"],
+        "confidence": _history_confidence(context.get("history_days", 0), settings),
+        "evidence": [
+            {"label": "week_start", "value": flag["week_start"].isoformat(), "source": "planned_workouts"},
+            {"label": "planned_minutes", "value": round(flag["planned_minutes"]), "source": "planned_workouts"},
+            {"label": flag["reference"], "value": round(flag["reference_minutes"]), "source": "canonical_activities"},
+        ],
+    }
+
+
 # --- Insights --------------------------------------------------------------------------------
 
 

@@ -102,6 +102,7 @@ export interface Predicted2k {
 }
 
 export interface NextARace {
+  id?: number;
   name: string;
   date: string;
   days_to_go: number;
@@ -1646,4 +1647,243 @@ export interface RouteHistory {
 
 export interface RouteDetailData extends RouteRef {
   reference: [number, number][];
+}
+
+// --- Session 21: calendar, race planning, periodization ------------------------------------------
+
+export type SessionType = "erg" | "on_water" | "run" | "bike" | "strength" | "cross" | "test" | "rest" | "other";
+export type ZoneLabel = "UT2" | "UT1" | "AT" | "TR" | "AN";
+/** `not_logged` is a past, unlinked, un-skipped plan entry — deliberately not called "missed". */
+export type PlannedDisplayStatus = "planned" | "linked" | "skipped" | "not_logged" | "rest";
+
+export interface IntervalBlock {
+  reps: number;
+  work_min?: number;
+  work_m?: number;
+  rest_min?: number;
+  zone?: ZoneLabel;
+  note?: string;
+}
+
+export interface PlannedWorkout {
+  id: number;
+  date: string;
+  start_time: string | null;
+  session_type: SessionType;
+  sport_family: string | null;
+  title: string;
+  duration_min: number | null;
+  distance_m: number | null;
+  target_zone: ZoneLabel | null;
+  intensity_note: string | null;
+  description: string | null;
+  structure: IntervalBlock[];
+  status: "planned" | "skipped";
+  display_status: PlannedDisplayStatus;
+  linked_canonical_id: number | null;
+  series_id: string | null;
+  event_id: number | null;
+  notes: string | null;
+  coach_feedback: string | null;
+  planned_minutes: number;
+}
+
+export interface CalendarCompleted {
+  id: number;
+  title: string | null;
+  sport_family: string | null;
+  category: string | null;
+  start: string | null;
+  duration_min: number | null;
+  distance_m: number | null;
+  avg_hr: number | null;
+  is_test: boolean;
+  test_type: string | null;
+  notes: string | null;
+  rpe: number | null;
+  excluded_from_totals: boolean;
+  linked_planned_id: number | null;
+}
+
+export interface UpcomingEvent {
+  id: number;
+  ref: string;
+  name: string;
+  date: string;
+  type: string;
+  distance: string | null;
+  distance_m: number | null;
+  boat_class: string | null;
+  priority: "A" | "B" | "C" | null;
+  goal_time: string | null;
+  result: string | null;
+  location: string | null;
+  goals: string | null;
+  notes: string | null;
+  has_pacing_plan: boolean;
+  days_to_go: number;
+  taper: boolean;
+}
+
+export type PhaseKind = "general_prep" | "specific_prep" | "pre_competition" | "competition" | "recovery";
+
+export interface PlanPhase {
+  id: number;
+  kind: PhaseKind;
+  name: string;
+  start_date: string;
+  end_date: string;
+  goals: string | null;
+  target_minutes_per_week: number | null;
+  target_sessions_per_week: number | null;
+  target_strength_sessions_per_week: number | null;
+  target_zone_pct: Record<string, { min?: number; max?: number }> | null;
+  event_id: number | null;
+  coach_approved: boolean;
+  coach_approved_at: string | null;
+  coach_approved_by: string | null;
+  coach_approved_note: string | null;
+  edited_since_approval: boolean;
+}
+
+export interface CalendarDay {
+  date: string;
+  planned: PlannedWorkout[];
+  completed: CalendarCompleted[];
+  events: UpcomingEvent[];
+  phase_id: number | null;
+}
+
+export interface MatchSuggestion {
+  planned_id: number;
+  canonical_id: number;
+  score: number;
+  reasons: string[];
+}
+
+export interface CalendarPayload {
+  from: string;
+  to: string;
+  today: string;
+  days: CalendarDay[];
+  phases: PlanPhase[];
+  suggestions: MatchSuggestion[];
+}
+
+export interface ReviewFlag {
+  week_start: string;
+  kind: "increase" | "drop";
+  planned_minutes: number;
+  reference_minutes: number;
+  reference: string;
+  pct_change: number;
+  phase_approved: boolean;
+  message: string;
+}
+
+export interface WeeklyTargets {
+  minutes: number | null;
+  sessions: number | null;
+  strength_sessions: number | null;
+  zone_pct: Record<string, { min?: number; max?: number }> | null;
+  source: "phase" | "settings";
+}
+
+export interface PlanWeekSummary {
+  week_start: string;
+  week_end: string;
+  planned: {
+    minutes: number;
+    distance_m: number;
+    sessions: number;
+    strength_sessions: number;
+    skipped_sessions: number;
+    zone_minutes: Record<string, number>;
+    zone_pct: Record<string, number>;
+  };
+  completed: {
+    minutes: number;
+    sessions: number;
+    strength_sessions: number;
+    zone_minutes: Record<string, number>;
+    zone_pct: Record<string, number>;
+    zones_available: boolean;
+  };
+  targets: WeeklyTargets;
+  comparison: unknown[];
+  phase: PlanPhase | null;
+  review_flags: ReviewFlag[];
+}
+
+export interface EventProjection {
+  event_id: number;
+  event_date: string;
+  days_to_go: number;
+  test_type: string | null;
+  goal_time_s: number | null;
+  available: boolean;
+  reason: string | null;
+  value_s?: number;
+  range_s?: [number, number] | null;
+  trend: { value: number | null; range: [number, number] | null; n_points?: number; slope_s_per_day?: number; explanation: string } | null;
+  predict_2k: { value: number | null; predicted_time_s?: number | null; band: string; explanation: string } | null;
+  history: { date: string; duration_s: number }[];
+  assumptions: string[];
+  uncertainty: string | null;
+  gap_to_goal_s: number | null;
+}
+
+export interface EventOverview {
+  event: UpcomingEvent;
+  weeks_to_go: number;
+  phase: PlanPhase | null;
+  planned_sessions_before_event: number;
+  test_type: string | null;
+  tests: { kind: string; canonical_id: number | null; piece_id: number | null; test_type: string | null; title: string | null; date: string | null; distance_m: number | null; duration_s: number | null }[];
+  pacing_plan: { goal_time_s?: number; style?: string; distance_m?: number; splits?: { split_index: number; target_split_s: number }[] } | null;
+  linked_phases: PlanPhase[];
+}
+
+export interface PlannedInput {
+  date: string;
+  session_type: SessionType;
+  title?: string | null;
+  start_time?: string | null;
+  duration_min?: number | null;
+  distance_m?: number | null;
+  target_zone?: ZoneLabel | null;
+  intensity_note?: string | null;
+  description?: string | null;
+  structure?: IntervalBlock[] | null;
+  event_id?: number | null;
+  notes?: string | null;
+  coach_feedback?: string | null;
+  repeat?: { weekdays?: number[]; interval_weeks?: number; until?: string | null; count?: number | null } | null;
+}
+
+export interface EventInput {
+  name: string;
+  date: string;
+  type: string;
+  distance?: string | null;
+  distance_m?: number | null;
+  priority?: string | null;
+  goal_time?: string | null;
+  location?: string | null;
+  goals?: string | null;
+  notes?: string | null;
+  boat_class?: string | null;
+}
+
+export interface PhaseInput {
+  kind: PhaseKind;
+  name: string;
+  start_date: string;
+  end_date: string;
+  goals?: string | null;
+  target_minutes_per_week?: number | null;
+  target_sessions_per_week?: number | null;
+  target_strength_sessions_per_week?: number | null;
+  target_zone_pct?: Record<string, { min?: number; max?: number }> | null;
+  event_id?: number | null;
 }

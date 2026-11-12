@@ -3,7 +3,7 @@
 `catch/mcp_server/` exposes the same shared tool layer (`catch/coach/tools.py`) that the
 in-app coach uses — read-only training data (canonical activities only, session 8/12 — see
 PLAN.md: every id a tool takes or returns is a canonical id, never a raw per-source activity
-id), the `remember`/`add_event`/`update_event`/`set_goal`/`forget`/`recall` memory tools,
+id), the `remember`/`set_goal`/`forget`/`recall` memory tools and the calendar tools (`get_calendar`, `get_upcoming_events`, `get_event`, `get_training_phase`, and the confirm-gated `create_planned_workout`/`update_planned_workout`/`delete_planned_workout`/`create_event`/`update_event`),
 (session 8/12) `rename_activity`/`tag_activity`/`merge_activities` for the cross-source
 matching/editing tools, (session 13) `get_nutrition`/`log_food` for the nutrition diary, and
 (session 14) `log_strength`/`get_strength`/`get_muscle_readiness` for the gym logger, and
@@ -15,7 +15,7 @@ longer row), and (session 18) `get_training_profile`/`get_performance_trends`/
 (session 19) `get_interval_comparisons` (and `add_piece` also taking `repeat`/`intervals` for
 interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water_metrics`/
 `get_workout_weather` for GPS routes, on-water metrics and weather (GPS-derived and provider figures
-are labelled; `get_route` never returns coordinates; weather is context, not a correction) — 40 tools
+are labelled; `get_route` never returns coordinates; weather is context, not a correction) — 47 tools
 total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 
@@ -85,7 +85,7 @@ since Claude Desktop doesn't activate the venv.
 
 Restart Claude Desktop after editing the config. It should list `get_today`, `get_wellness`,
 `list_workouts`, `get_workout`, `get_trends`, `get_body_comp`, `get_load`, `predict_2k`,
-`get_zones`, `add_note`, `remember`, `add_event`, `update_event`, `set_goal`, `forget`, and
+`get_zones`, `add_note`, `remember`, `set_goal`, `forget`, and
 `recall` under the `catch` server, plus two prompts, `daily_check_in` and `weekly_review`.
 
 ## 3. Test with the MCP Inspector
@@ -132,3 +132,12 @@ token instead, matching stdio and the tool REST endpoint):
 - The server log showed `StreamableHTTP session manager started` at startup, confirming the
   session manager is actually running inside Catch's own lifespan (not silently absent, which
   is the failure mode a mounted sub-app's lifespan not firing would otherwise cause).
+
+
+## Calendar writes (session 21)
+
+`create_planned_workout`, `update_planned_workout`, `delete_planned_workout`, `create_event`, `update_event`
+and `forget` of an `event:<id>` all **preview unless `confirm=true`**: the first call returns
+`{"saved": false, "preview": …}` and changes nothing; pass `confirm=true` only after the athlete has agreed.
+`add_event` no longer exists — use `create_event`. A planned session is an intention, not a workout.
+(The stdio bridge previously failed on any tool with its own `name` argument; fixed in the same session.)

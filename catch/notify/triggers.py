@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlmodel import Session, select
 
 from catch.analytics.wake_time import average_wake_time_minutes
-from catch.core.models import DailyWellness, Event, IllnessAck, NotificationLog
+from catch.core.models import DailyWellness, IllnessAck, NotificationLog
 from catch.core.settings_store import get_settings
 from catch.notify import ntfy, push
 
@@ -253,19 +253,24 @@ def check_sync_stale(session: Session) -> None:
 
 
 def check_test_reminder(session: Session) -> None:
+    from catch.sync import planning
+
     settings = get_settings(session)
     if not _type_enabled(settings, "test_reminder") or _sent_today(session, "test_reminder"):
         return
-    tomorrow = date.today() + timedelta(days=1)
-    events = session.exec(
-        select(Event).where(Event.date == tomorrow, Event.result.is_(None)).order_by(Event.id)
-    ).all()
-    relevant = [e for e in events if e.type == "2k_test" or (e.type == "race" and e.priority == "A")]
-    if not relevant:
+    # "Tomorrow" is the athlete's local calendar day (the same host-local day the calendar
+    # buckets workouts into), via planning.today() so it's one definition app-wide.
+    tomorrow = planning.today() + timedelta(days=1)
+    events = [
+        e
+        for e in planning.list_events(session, planning.OWNER_ID, start=tomorrow, end=tomorrow)
+        if e.result is None and (e.type == "2k_test" or (e.type == "race" and e.priority == "A"))
+    ]
+    if not events:
         return
 
     lines = []
-    for event in relevant:
+    for event in events:
         line = event.name
         if event.plan_json:
             import json as _json
@@ -276,5 +281,8 @@ def check_test_reminder(session: Session) -> None:
                 m, s = divmod(round(goal_s), 60)
                 line += f" — pacing plan ready, goal {m}:{s:02d}"
         lines.append(line)
-    title = "Test/race tomorrow" if len(relevant) == 1 else "Tests/races tomorrow"
-    _gated_notify(session, settings, type_="test_reminder", title=title, body="; ".join(lines), deep_link="/tests")
+    title = "Test/race tomorrow" if len(events) == 1 else "Tests/races tomorrow"
+    # One event: straight to its page. Several: the calendar, where they're all in view —
+    # dedup is per type per day, so this is one notification either way.
+    deep_link = f"/calendar/events/{events[0].id}" if len(events) == 1 else "/calendar"
+    _gated_notify(session, settings, type_="test_reminder", title=title, body="; ".join(lines), deep_link=deep_link)

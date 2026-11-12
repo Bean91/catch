@@ -1109,3 +1109,17 @@ still provisional) or `unavailable`.
   own inference (`system_prompt.md`).
 - Garmin's `locationName` seeds an auto route label only; it is not shown as the athlete's name.
 - GPS accuracy is unavailable on this device; elevation likewise.
+
+
+## 29. Calendar planning (`catch/analytics/planning.py`, `catch/sync/planning.py`), session 21
+
+Full write-up in `docs/calendar.md`. The numeric rules, for reference:
+
+- **Match score** (0–1.0, offered at ≥ 0.6): same day 0.4 / adjacent day 0.15; specific sport agrees 0.3
+  (an unspecified session type 0.1); erg-vs-on-water agree +0.05 / disagree −0.2; duration ratio 0.75–1.33 → +0.25,
+  0.5–2.0 → +0.1, else −0.1; distance within 0.8–1.25 → +0.1. Hard filters: not a rest day, ≤ 1 day apart, sport agrees.
+- **Planned totals** exclude rest days; skipped sessions are counted separately and not in the minutes. Zone minutes come
+  from block zones (work time only) or the session's `target_zone`.
+- **Review flag**: `Δ ≥ 60 min` and `Δ% > planning.review_threshold_pct` against `max(previous planned week, trailing
+  4-week completed average)`; the baseline for a future week is the 4 weeks before *this* week.
+- **Projection**: `project_time` over confirmed tests (needs ≥ 3), ±1 residual SD; 2000 m also shows `predict_2k`.

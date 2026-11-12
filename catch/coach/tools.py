@@ -22,6 +22,7 @@ from catch.api import (
 from catch.core.models import Activity, DailyScore, Food
 from catch.core.settings_store import get_settings
 from catch.coach import memory
+from catch.sync import planning
 from catch.sync.upsert import upsert_note
 
 # Every range tool is capped — an uncapped "all history" query would blow both the model's
@@ -54,7 +55,9 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 
 def _get_today(session: Session, args: dict, ctx: dict) -> dict:
-    return routes_analytics.today(db=session)
+    # Upcoming events are added here (coach/MCP only); the web Today page reads them from its own
+    # /api/events/upcoming query instead, so GET /api/today's shape stays as it was.
+    return {**routes_analytics.today(db=session), "upcoming_events": planning.upcoming_events(session, planning.OWNER_ID, 5)}
 
 
 def _get_wellness(session: Session, args: dict, ctx: dict) -> dict:
@@ -676,27 +679,126 @@ def _remember(session: Session, args: dict, ctx: dict) -> dict:
     return memory._fact_dict(fact)
 
 
-def _add_event(session: Session, args: dict, ctx: dict) -> dict:
-    event = memory.add_event(
-        session,
-        name=args["name"],
-        date_=_parse_date(args["date"]),
-        type=args["type"],
-        distance=args.get("distance"),
-        boat_class=args.get("boat_class"),
-        priority=args.get("priority"),
-        goal_time=args.get("goal_time"),
-        result=args.get("result"),
-    )
-    return memory._event_dict(event, date.today())
+# --- Calendar / race-planning tools (session 21) ----------------------------------------------
+#
+# Every write here goes through `_gate`: without confirm=true it validates exactly what the
+# real call would and returns a preview, writing nothing. That is one shared code path and a
+# convention the model follows, not hard enforcement — a caller can pass confirm=true on its
+# first call, same as merge_activities/log_strength.
+
+_PLANNED_FIELDS = (
+    "date", "start_time", "session_type", "title", "duration_min", "distance_m", "target_zone",
+    "intensity_note", "description", "structure", "event_id", "notes", "coach_feedback", "status",
+)
+_EVENT_WRITE_FIELDS = ("name", "date", "type", "distance", "distance_m", "boat_class", "priority", "goal_time", "result", "location", "goals", "notes")
+
+
+def _gate(args: dict, preview: dict, what: str) -> dict | None:
+    if args.get("confirm") is True:
+        return None
+    return {
+        "saved": False,
+        "preview": preview,
+        "message": f"Preview only — nothing was saved. Show this to the athlete and ask them to confirm {what}; "
+        "then call again with confirm=true and the same arguments.",
+    }
+
+
+def _pick(args: dict, keys: tuple[str, ...]) -> dict:
+    return {k: args[k] for k in keys if k in args and args[k] is not None}
+
+
+def _repeat_arg(args: dict) -> dict | None:
+    repeat = args.get("repeat")
+    if not repeat:
+        return None
+    out = dict(repeat)
+    if isinstance(out.get("until"), str):
+        out["until"] = _parse_date(out["until"])
+    return out
+
+
+def _get_calendar(session: Session, args: dict, ctx: dict) -> dict:
+    start, end = _parse_date(args.get("from")), _parse_date(args.get("to"))
+    if start is None or end is None:
+        raise ValueError("from and to are both required (ISO dates)")
+    return planning.compact_calendar(planning.build_calendar(session, planning.OWNER_ID, start, end))
+
+
+def _get_upcoming_events(session: Session, args: dict, ctx: dict) -> dict:
+    limit = max(1, min(int(args.get("limit") or 5), 20))
+    return {"events": planning.upcoming_events(session, planning.OWNER_ID, limit)}
+
+
+def _get_event(session: Session, args: dict, ctx: dict) -> dict:
+    event_id = int(args["id"])
+    return {**planning.event_overview(session, planning.OWNER_ID, event_id), "projection": planning.event_projection(session, planning.OWNER_ID, event_id)}
+
+
+def _get_training_phase(session: Session, args: dict, ctx: dict) -> dict:
+    day = _parse_date(args.get("date")) or planning.today()
+    phase = planning.phase_on(session, planning.OWNER_ID, day)
+    summary = planning.build_week_summary(session, planning.OWNER_ID, day)
+    return {
+        "date": day,
+        "phase": planning.phase_dict(phase, session) if phase else None,
+        "weekly_targets": summary["targets"],
+        "this_week": {"planned": summary["planned"], "completed": summary["completed"], "comparison": summary["comparison"]},
+        "review_flags": summary["review_flags"],
+        "note": "Planned figures are intentions. Only 'completed' is training that happened.",
+    }
+
+
+def _create_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
+    fields = {**_pick(args, _PLANNED_FIELDS), "date": _parse_date(args.get("date"))}
+    repeat = _repeat_arg(args)
+    preview = planning.preview_create_planned(session, planning.OWNER_ID, fields, repeat)
+    held = _gate(args, preview, "adding this to the plan")
+    if held:
+        return held
+    rows = planning.create_planned(session, planning.OWNER_ID, fields, repeat)
+    return {"saved": True, "planned": [planning.planned_dict(r) for r in rows]}
+
+
+def _update_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
+    planned_id, scope = int(args["id"]), args.get("scope") or "this"
+    fields = _pick(args, _PLANNED_FIELDS)
+    if "date" in fields:
+        fields["date"] = _parse_date(fields["date"])
+    preview = planning.preview_update_planned(session, planning.OWNER_ID, planned_id, fields, scope)
+    held = _gate(args, preview, "this change to the plan")
+    if held:
+        return held
+    rows = planning.update_planned(session, planning.OWNER_ID, planned_id, fields, scope)
+    return {"saved": True, "planned": [planning.planned_dict(r) for r in rows]}
+
+
+def _delete_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
+    planned_id, scope = int(args["id"]), args.get("scope") or "this"
+    preview = planning.preview_delete_planned(session, planning.OWNER_ID, planned_id, scope)
+    held = _gate(args, preview, "removing these planned sessions")
+    if held:
+        return held
+    return {"saved": True, "deleted": planning.delete_planned(session, planning.OWNER_ID, planned_id, scope)}
+
+
+def _create_event(session: Session, args: dict, ctx: dict) -> dict:
+    fields = _pick(args, _EVENT_WRITE_FIELDS)
+    preview = planning.preview_create_event(fields)
+    held = _gate(args, preview, "adding this event")
+    if held:
+        return held
+    return {"saved": True, "event": planning.event_dict(planning.create_event(session, planning.OWNER_ID, fields))}
 
 
 def _update_event(session: Session, args: dict, ctx: dict) -> dict:
-    fields = {k: v for k, v in args.items() if k != "id"}
-    if "date" in fields:
-        fields["date"] = _parse_date(fields["date"])
-    event = memory.update_event(session, int(args["id"]), **fields)
-    return memory._event_dict(event, date.today())
+    event_id = int(args["id"])
+    fields = _pick(args, _EVENT_WRITE_FIELDS)
+    preview = planning.preview_update_event(session, planning.OWNER_ID, event_id, fields)
+    held = _gate(args, preview, "this change to the event")
+    if held:
+        return held
+    return {"saved": True, "event": planning.event_dict(planning.update_event(session, planning.OWNER_ID, event_id, fields))}
 
 
 def _set_goal(session: Session, args: dict, ctx: dict) -> dict:
@@ -711,7 +813,15 @@ def _set_goal(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _forget(session: Session, args: dict, ctx: dict) -> dict:
-    return {"deleted": memory.forget(session, args["ref"])}
+    ref = str(args["ref"])
+    if ref.startswith("event:") and ref[6:].isdigit():
+        # Deleting an event also detaches the plan entries and phases that point at it, so it
+        # gets the same preview-then-confirm step as every other calendar write.
+        preview = planning.preview_delete_event(session, planning.OWNER_ID, int(ref[6:]))
+        held = _gate(args, preview, "deleting this event")
+        if held:
+            return held
+    return {"deleted": memory.forget(session, ref)}
 
 
 def _recall(session: Session, args: dict, ctx: dict) -> dict:
@@ -1207,21 +1317,178 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
-    "add_event": {
-        "fn": _add_event,
+    "get_calendar": {
+        "fn": _get_calendar,
+        "write": False,
+        "description": "The athlete's calendar for a date range (at most 100 days): planned sessions (intentions), completed workouts (what actually happened), events, phases and possible plan-to-workout matches. Planned and completed are separate and only completed counts as training done.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from": {"type": "string", "format": "date"},
+                "to": {"type": "string", "format": "date"},
+            },
+            "required": ["from", "to"],
+            "additionalProperties": False,
+        },
+    },
+    "get_upcoming_events": {
+        "fn": _get_upcoming_events,
+        "write": False,
+        "description": "The next events (races, tests, camps) with days-to-go, priority and a taper flag.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "description": "Default 5, max 20."}},
+            "additionalProperties": False,
+        },
+    },
+    "get_event": {
+        "fn": _get_event,
+        "write": False,
+        "description": "One event in full: countdown, goals, current training phase, test history, pacing plan, and a race projection that lists its data, assumptions and uncertainty (or says why none is available).",
+        "input_schema": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"], "additionalProperties": False},
+    },
+    "get_training_phase": {
+        "fn": _get_training_phase,
+        "write": False,
+        "description": "The training phase on a date (default today) with its weekly targets, this week's planned-vs-completed numbers, whether a coach has approved the plan, and any review flags for large planned workload changes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"date": {"type": "string", "format": "date"}},
+            "additionalProperties": False,
+        },
+    },
+    "create_planned_workout": {
+        "fn": _create_planned_workout,
         "write": True,
-        "description": "Record a race, test, camp, or selection event the athlete mentioned. Ask for a concrete date first if the athlete was vague about timing.",
+        "description": "Add a planned session (an intention, never a completed workout) to the calendar. Always previews first; set confirm=true only after the athlete agrees. Don't propose aggressive volume: respect recovery and any coach guidance. Optional repeat expands weekly (max 26 weeks).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "format": "date"},
+                "session_type": {"type": "string", "enum": ["erg", "on_water", "run", "bike", "strength", "cross", "test", "rest", "other"]},
+                "title": {"type": "string"},
+                "start_time": {"type": "string", "description": "HH:MM, display only."},
+                "duration_min": {"type": "number"},
+                "distance_m": {"type": "number"},
+                "target_zone": {"type": "string", "enum": ["UT2", "UT1", "AT", "TR", "AN"]},
+                "intensity_note": {"type": "string"},
+                "description": {"type": "string"},
+                "structure": {
+                    "type": "array",
+                    "description": "Optional interval blocks, e.g. [{reps: 4, work_min: 5, rest_min: 2, zone: 'AT'}].",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "reps": {"type": "integer"},
+                            "work_min": {"type": "number"},
+                            "work_m": {"type": "number"},
+                            "rest_min": {"type": "number"},
+                            "zone": {"type": "string", "enum": ["UT2", "UT1", "AT", "TR", "AN"]},
+                            "note": {"type": "string"},
+                        },
+                        "required": ["reps"],
+                        "additionalProperties": False,
+                    },
+                },
+                "event_id": {"type": "integer"},
+                "notes": {"type": "string"},
+                "coach_feedback": {"type": "string"},
+                "repeat": {
+                    "type": "object",
+                    "properties": {
+                        "weekdays": {"type": "array", "items": {"type": "integer"}, "description": "0=Mon..6=Sun; defaults to the start date's weekday."},
+                        "interval_weeks": {"type": "integer"},
+                        "until": {"type": "string", "format": "date"},
+                        "count": {"type": "integer"},
+                    },
+                    "additionalProperties": False,
+                },
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only). Only set true after the athlete has confirmed the preview in chat."},
+            },
+            "required": ["date", "session_type"],
+            "additionalProperties": False,
+        },
+    },
+    "update_planned_workout": {
+        "fn": _update_planned_workout,
+        "write": True,
+        "description": "Change or move a planned session (pass a new date to move it). Always previews the before/after first; set confirm=true only after the athlete agrees. scope='this_and_following' applies to the rest of a repeating series.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "format": "date"},
+                "session_type": {"type": "string", "enum": ["erg", "on_water", "run", "bike", "strength", "cross", "test", "rest", "other"]},
+                "title": {"type": "string"},
+                "start_time": {"type": "string", "description": "HH:MM, display only."},
+                "duration_min": {"type": "number"},
+                "distance_m": {"type": "number"},
+                "target_zone": {"type": "string", "enum": ["UT2", "UT1", "AT", "TR", "AN"]},
+                "intensity_note": {"type": "string"},
+                "description": {"type": "string"},
+                "structure": {
+                    "type": "array",
+                    "description": "Optional interval blocks, e.g. [{reps: 4, work_min: 5, rest_min: 2, zone: 'AT'}].",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "reps": {"type": "integer"},
+                            "work_min": {"type": "number"},
+                            "work_m": {"type": "number"},
+                            "rest_min": {"type": "number"},
+                            "zone": {"type": "string", "enum": ["UT2", "UT1", "AT", "TR", "AN"]},
+                            "note": {"type": "string"},
+                        },
+                        "required": ["reps"],
+                        "additionalProperties": False,
+                    },
+                },
+                "event_id": {"type": "integer"},
+                "notes": {"type": "string"},
+                "coach_feedback": {"type": "string"},
+                "id": {"type": "integer"},
+                "scope": {"type": "string", "enum": ["this", "this_and_following"]},
+                "status": {"type": "string", "enum": ["planned", "skipped"]},
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only). Only set true after the athlete has confirmed the preview in chat."},
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    "delete_planned_workout": {
+        "fn": _delete_planned_workout,
+        "write": True,
+        "description": "Remove a planned session from the calendar (never a completed workout). Always previews first; set confirm=true only after the athlete agrees.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "scope": {"type": "string", "enum": ["this", "this_and_following"]},
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only). Only set true after the athlete has confirmed the preview in chat."},
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    "create_event": {
+        "fn": _create_event,
+        "write": True,
+        "description": "Record a race, test, camp, or selection. Ask for a concrete date first if the athlete was vague. Always previews first; set confirm=true only after the athlete agrees.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
                 "date": {"type": "string", "format": "date"},
                 "type": {"type": "string", "enum": ["race", "2k_test", "camp", "selection"]},
-                "distance": {"type": "string"},
+                "distance": {"type": "string", "description": "Free-text label, e.g. '2000m' or 'Head race 6km'."},
+                "distance_m": {"type": "number"},
                 "boat_class": {"type": "string"},
                 "priority": {"type": "string", "enum": ["A", "B", "C"]},
-                "goal_time": {"type": "string"},
+                "goal_time": {"type": "string", "description": "m:ss or m:ss.t"},
                 "result": {"type": "string"},
+                "location": {"type": "string"},
+                "goals": {"type": "string"},
+                "notes": {"type": "string"},
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only). Only set true after the athlete has confirmed the preview in chat."},
             },
             "required": ["name", "date", "type"],
             "additionalProperties": False,
@@ -1230,7 +1497,7 @@ TOOLS: dict[str, dict[str, Any]] = {
     "update_event": {
         "fn": _update_event,
         "write": True,
-        "description": "Update fields on an existing event (e.g. record a result after it happened). Only pass the fields that changed.",
+        "description": "Update fields on an existing event (e.g. record a result, change the goal). Only pass what changed. Always previews the before/after first; set confirm=true only after the athlete agrees.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -1238,11 +1505,16 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "name": {"type": "string"},
                 "date": {"type": "string", "format": "date"},
                 "type": {"type": "string", "enum": ["race", "2k_test", "camp", "selection"]},
-                "distance": {"type": "string"},
+                "distance": {"type": "string", "description": "Free-text label, e.g. '2000m' or 'Head race 6km'."},
+                "distance_m": {"type": "number"},
                 "boat_class": {"type": "string"},
                 "priority": {"type": "string", "enum": ["A", "B", "C"]},
-                "goal_time": {"type": "string"},
+                "goal_time": {"type": "string", "description": "m:ss or m:ss.t"},
                 "result": {"type": "string"},
+                "location": {"type": "string"},
+                "goals": {"type": "string"},
+                "notes": {"type": "string"},
+                "confirm": {"type": "boolean", "description": "Defaults to false (preview only). Only set true after the athlete has confirmed the preview in chat."},
             },
             "required": ["id"],
             "additionalProperties": False,
@@ -1270,7 +1542,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Delete a memory item by its prefixed ref (e.g. 'fact:12', 'event:3', 'goal:5'), as returned by recall.",
         "input_schema": {
             "type": "object",
-            "properties": {"ref": {"type": "string", "description": "e.g. 'fact:12'"}},
+            "properties": {
+                "ref": {"type": "string", "description": "e.g. 'fact:12'"},
+                "confirm": {"type": "boolean", "description": "Required for 'event:<id>' refs: false/omitted previews, true deletes (after the athlete confirms)."},
+            },
             "required": ["ref"],
             "additionalProperties": False,
         },

@@ -448,6 +448,14 @@ class Event(SQLModel, table=True):
     # actual" once this event's test happens. Not exposed as an update_event tool param —
     # only make_pacing_plan writes it, to keep that tool's surface a plain time/style request.
     plan_json: Optional[str] = None
+    # Session 21 (see PLAN.md): free-text race-planning fields, plus `distance_m` for a numeric
+    # distance (the older `distance` string stays the display label). `owner_id` is NULL on rows
+    # that predate it — the service layer treats NULL as the install's single owner.
+    location: Optional[str] = None
+    goals: Optional[str] = None
+    notes: Optional[str] = None
+    distance_m: Optional[float] = None
+    owner_id: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -1045,3 +1053,69 @@ class ActivityWeather(SQLModel, table=True):
     lat_e1: Optional[int] = None
     lon_e1: Optional[int] = None
     fetched_at: datetime = Field(default_factory=_utcnow)
+
+
+class PlannedWorkout(SQLModel, table=True):
+    """Session 21 (see PLAN.md): a *plan*, never a completed workout. Deliberately its own
+    table — no Activity/CanonicalActivity row is ever created from it, so no existing
+    completed-training reader (volume, strain, load, distribution) can see it. Linking to a
+    real workout only sets `linked_canonical_id`; the unique constraint makes a link one-to-one
+    (NULLs are allowed repeatedly on SQLite and PostgreSQL alike)."""
+
+    __tablename__ = "planned_workouts"
+    __table_args__ = (
+        UniqueConstraint("linked_canonical_id", name="uq_planned_workouts_linked_canonical"),
+        Index("ix_planned_workouts_owner_date", "owner_id", "date"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = "owner"
+    date: date_
+    start_time: Optional[str] = None  # "HH:MM", athlete-local; display only
+    session_type: str  # erg | on_water | run | bike | strength | cross | test | rest | other
+    sport_family: Optional[str] = None
+    title: str
+    duration_min: Optional[float] = None
+    distance_m: Optional[float] = None
+    target_zone: Optional[str] = None  # one of ZONE_ORDER
+    intensity_note: Optional[str] = None
+    description: Optional[str] = None
+    structure_json: Optional[str] = None
+    status: str = "planned"  # planned | skipped (a link is `linked_canonical_id`, not a status)
+    linked_canonical_id: Optional[int] = Field(default=None, foreign_key="canonical_activities.id")
+    linked_at: Optional[datetime] = None
+    series_id: Optional[str] = Field(default=None, index=True)
+    event_id: Optional[int] = Field(default=None, foreign_key="events.id")
+    declined_json: Optional[str] = None  # canonical ids the athlete said "not this one" to
+    notes: Optional[str] = None
+    coach_feedback: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class TrainingPhase(SQLModel, table=True):
+    """Session 21 (see PLAN.md): a periodization block. Phases never overlap (service-enforced
+    so the rule is one code path on every database). `coach_approved_*` is athlete-entered; a
+    plan edited after approval is shown as "edited since approval" by comparing timestamps,
+    not by a stored flag."""
+
+    __tablename__ = "training_phases"
+    __table_args__ = (Index("ix_training_phases_owner_start", "owner_id", "start_date"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = "owner"
+    kind: str  # general_prep | specific_prep | pre_competition | competition | recovery
+    name: str
+    start_date: date_
+    end_date: date_
+    goals: Optional[str] = None
+    target_minutes_per_week: Optional[float] = None
+    target_sessions_per_week: Optional[float] = None
+    target_strength_sessions_per_week: Optional[float] = None
+    target_zone_pct_json: Optional[str] = None  # {"UT2": {"min": 70}, "AN": {"max": 5}}
+    event_id: Optional[int] = Field(default=None, foreign_key="events.id")
+    coach_approved_at: Optional[datetime] = None
+    coach_approved_by: Optional[str] = None
+    coach_approved_note: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

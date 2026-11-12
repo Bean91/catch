@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSyncStatus, triggerSync } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
@@ -33,7 +34,14 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
 
       {nextARace && (
         <p className="mt-2 text-sm text-text-secondary">
-          Next A race: <span className="text-text-primary">{nextARace.name}</span>
+          Next A race:{" "}
+          {nextARace.id != null ? (
+            <Link to={`/calendar/events/${nextARace.id}`} className="text-text-primary underline">
+              {nextARace.name}
+            </Link>
+          ) : (
+            <span className="text-text-primary">{nextARace.name}</span>
+          )}
           <span className="font-mono-nums"> · {nextARace.days_to_go}d</span>
           {nextARace.taper && (
             <span className="ml-2 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Taper</span>

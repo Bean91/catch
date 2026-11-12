@@ -26,6 +26,9 @@ const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ defaul
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
 const RoutesPage = lazy(() => import("./pages/Routes").then((m) => ({ default: m.RoutesPage })));
 const RouteDetailPage = lazy(() => import("./pages/RouteDetail").then((m) => ({ default: m.RouteDetailPage })));
+const CalendarPage = lazy(() => import("./pages/Calendar").then((m) => ({ default: m.CalendarPage })));
+const EventDetailPage = lazy(() => import("./pages/EventDetail").then((m) => ({ default: m.EventDetailPage })));
+const PlanPage = lazy(() => import("./pages/Plan").then((m) => ({ default: m.PlanPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -71,6 +74,9 @@ export function App() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<TodayPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/calendar/plan" element={<PlanPage />} />
+          <Route path="/calendar/events/:id" element={<EventDetailPage />} />
           <Route path="/workouts" element={<WorkoutsPage />} />
           <Route path="/workouts/duplicates" element={<DuplicatesPage />} />
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />

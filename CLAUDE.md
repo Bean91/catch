@@ -181,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 40 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 47 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -455,12 +455,32 @@ aligns; rowing only), `sync/weather.py` + `sync/weather_client.py` (Open-Meteo a
 `weather_cells` row per 0.1° cell per UTC day, coordinates rounded before sending, generic User-Agent),
 `api/routes_gps.py` (REST + the `build_*` functions the coach tools call). Coach/MCP gained
 `get_route` (area + summary, **never coordinates**), `get_route_history`, `get_on_water_metrics`,
-`get_workout_weather` (40 tools). Every figure is labelled `gps_derived`/`provider`/`manual`; nothing
+`get_workout_weather` (40 tools; 47 after session 21). Every figure is labelled `gps_derived`/`provider`/`manual`; nothing
 is wind-/current-corrected. `Activity.sport_family` is NULL on rows older than that column — always go
 through `sync/tracks.py::family_of`. Web: `components/gps/` (GpsSection composes the cards),
 `components/maps/` (Leaflet in a lazy chunk; two-finger-only touch pan, ctrl/cmd+wheel zoom),
 `pages/Routes.tsx`/`RouteDetail.tsx`, `lib/mockGps.ts` (mock ids 1/6/11/16 = full/partial weather/no weather/no GPS).
 Playwright: `web/tests/touch/route-map.spec.ts`, `route-map-desktop.spec.ts`.
+
+Session 21 (calendar, race planning, periodization — see PLAN.md, docs/calendar.md, docs/analytics.md §29,
+DESIGN.md "Calendar, plans and events"; the brief called itself "session 16"): `PlannedWorkout` and
+`TrainingPhase` in core/models.py (new tables, `owner_id` on each; `events` gained location/goals/notes/
+distance_m/owner_id). **A plan is never a completed workout**: its own table, no Activity/Canonical row is
+ever created from it, linking sets only `linked_canonical_id` (unique, one-to-one), and no completed-total
+reader may import it (tested). Pure math (recurrence, matching, planned totals, phase lookup, review flags) is
+`catch/analytics/planning.py`; the DB layer — owner-filtered CRUD, link/unlink/skip, the calendar and
+week-summary assemblers, events, phases/approval, race projection, the write-tool previews — is
+`catch/sync/planning.py`; routes `catch/api/routes_calendar.py` (`/api/calendar`, `/api/planned`, `/api/events`,
+`/api/phases`; `/api/planned/{id}` lives in its own namespace so it can't shadow `/api/calendar/week-summary`).
+Time zones: the pure helpers take an explicit `tz`; the DB layer uses the host zone like the rest of the app (no
+`timezone` setting — see docs/calendar.md). Coach/MCP: 47 tools; `add_event` was replaced by confirm-gated
+`create_event`, and `create_planned_workout`/`update_planned_workout`/`delete_planned_workout`/`update_event`/
+`forget("event:N")` all preview unless `confirm=true` (one `_gate` code path, not hard enforcement); reads are
+`get_calendar`/`get_upcoming_events`/`get_event`/`get_training_phase`. `_migrate_columns` now uses
+`sqlalchemy.inspect()` (dialect-neutral). Web: bottom-nav slot "Plan" (was "Log") → `pages/Calendar.tsx`
+(week/day/month), `EventDetail.tsx` (`/calendar/events/:id`, the notification deep link), `Plan.tsx`
+(`/calendar/plan`, phases + weekly bars), `components/calendar/`, `components/today/UpcomingEventsCard.tsx`,
+`lib/dates.ts` (local-date math, Monday weeks), `lib/mockCalendar.ts`. Playwright: `web/tests/touch/calendar.spec.ts`.
 
 ## Commands
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlmodel import Session, SQLModel, create_engine
 
 from catch.core.config import settings
@@ -86,6 +86,12 @@ _NEW_COLUMNS = {
     "events": {
         # Session 15 (see PLAN.md Part C.3).
         "plan_json": "TEXT",
+        # Session 21 (see PLAN.md): race-planning fields. Nullable only — no BOOLEAN DEFAULT.
+        "location": "TEXT",
+        "goals": "TEXT",
+        "notes": "TEXT",
+        "distance_m": "REAL",
+        "owner_id": "TEXT",
     },
     "sync_state": {
         # Session 16 (see PLAN.md Part A/B) — see SyncState's docstring in models.py.
@@ -99,13 +105,25 @@ _NEW_COLUMNS = {
 }
 
 
+def _add_column_statements(inspector, new_columns: dict[str, dict[str, str]]) -> list[str]:
+    """Dialect-neutral (SQLAlchemy `inspect`, not SQLite's PRAGMA) so the same list drives a
+    PostgreSQL move; the DDL strings themselves are plain `ALTER TABLE ... ADD COLUMN`."""
+    statements: list[str] = []
+    tables = set(inspector.get_table_names())
+    for table, columns in new_columns.items():
+        if table not in tables:
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table)}
+        for name, decl in columns.items():
+            if name not in existing:
+                statements.append(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    return statements
+
+
 def _migrate_columns() -> None:
     with engine.connect() as conn:
-        for table, columns in _NEW_COLUMNS.items():
-            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
-            for name, decl in columns.items():
-                if name not in existing:
-                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        for statement in _add_column_statements(inspect(conn), _NEW_COLUMNS):
+            conn.exec_driver_sql(statement)
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strokes_activity_id ON strokes(activity_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_activities_canonical_id ON activities(canonical_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strength_sets_activity_id ON strength_sets(activity_id)")

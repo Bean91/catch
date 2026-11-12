@@ -24,7 +24,7 @@ def test_new_tools_are_registered_read_only_with_required_ids():
     assert tools.TOOLS["get_route"]["input_schema"]["required"] == ["activity_id"]
     assert tools.TOOLS["get_route_history"]["input_schema"]["required"] == ["route_id"]
     assert "split_m" in tools.TOOLS["get_on_water_metrics"]["input_schema"]["properties"]
-    assert len(tools.TOOLS) == 40
+    assert len(tools.TOOLS) == 47
 
 
 def test_descriptions_state_the_observed_vs_inferred_rules():

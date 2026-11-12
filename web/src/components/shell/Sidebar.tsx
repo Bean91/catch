@@ -1,10 +1,12 @@
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CalendarIcon, CoachIcon, GymIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
+  // Session 21: the same destination as the bottom nav's Calendar tab; Workouts keeps its own entry here.
+  { to: "/calendar", label: "Calendar", Icon: CalendarIcon },
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
   { to: "/gym", label: "Gym", Icon: GymIcon },
   // Session 15 Part C — the bottom nav is already tight at 8 items (DESIGN.md), so the Test

@@ -13,6 +13,7 @@ set by catch.sync.scoring.recompute_scores importing routes_analytics.invalidate
 the same way, to avoid a module-level import cycle between sync and api."""
 
 import json
+import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
@@ -25,6 +26,7 @@ from catch.analytics.training_intelligence import (
     confidence_level,
     evaluate_data_quality_warning,
     evaluate_overload_warning,
+    evaluate_planned_load_change,
     evaluate_recovery_suggestion,
     evaluate_training_suggestion,
     training_insights,
@@ -525,6 +527,19 @@ def _upsert_recommendation(session: Session, type_name: str, result: dict, today
     return row
 
 
+def _planned_load_context(session: Session, settings: dict) -> dict:
+    """Review flags for this week and the next two, computed by catch.sync.planning (the only
+    module that reads planned rows) and handed in as plain data. Its own try/except: a bug in
+    the newer planning code mustn't stop the older recommendations from being generated."""
+    try:
+        from catch.sync.planning import OWNER_ID, planned_load_context
+
+        return planned_load_context(session, OWNER_ID, settings)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("planned-load review flags failed")
+        return {"flags": []}
+
+
 def generate_recommendations(session: Session, settings: dict, today: date) -> list[Recommendation]:
     """Called once from catch.sync.scoring.recompute_scores, after its own commit, scoped to
     `today` only. Deliberately cheap — no 365-day performance-trend scan (that stays in
@@ -558,11 +573,13 @@ def generate_recommendations(session: Session, settings: dict, today: date) -> l
         "acr_recent": _acr_series(session, today, ti["overload_min_consecutive_days"]),
         "missing_hr_pct": missing_hr_pct,
         "missing_hr_lookback_n": lookback_n,
+        "planned_load": _planned_load_context(session, settings),
     }
 
     evaluators = (
         ("data_quality_warning", evaluate_data_quality_warning),
         ("overload_warning", evaluate_overload_warning),
+        ("overload_warning", evaluate_planned_load_change),
         ("recovery_suggestion", evaluate_recovery_suggestion),
         ("training_suggestion", evaluate_training_suggestion),
     )

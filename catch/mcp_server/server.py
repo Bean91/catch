@@ -25,13 +25,21 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "in-app coach also reads and writes. get_today also carries today's morning "
             "check-in and the illness early-warning level. For outdoor workouts with GPS: "
             "get_route, get_route_history, get_on_water_metrics and get_workout_weather "
-            "(GPS-derived figures are labelled; weather is context, not a correction)."
+            "(GPS-derived figures are labelled; weather is context, not a correction). The "
+            "calendar: get_calendar, get_upcoming_events, get_event (with a race projection that "
+            "states its assumptions and uncertainty) and get_training_phase read plans; "
+            "create_planned_workout, update_planned_workout, delete_planned_workout, "
+            "create_event and update_event write them and always preview first — pass "
+            "confirm=true only after the athlete has agreed. A planned session is an intention, "
+            "never a completed workout."
         ),
     )
 
-    async def _call(name: str, **kwargs) -> dict:
+    # Positional-only: a tool with its own `name` parameter (create_event/update_event) would
+    # otherwise collide with this function's first argument ("multiple values for 'name'").
+    async def _call(tool_name: str, /, **kwargs) -> dict:
         args = {k: v for k, v in kwargs.items() if v is not None}
-        return await backend.call_tool(name, args)
+        return await backend.call_tool(tool_name, args)
 
     @mcp.tool()
     async def get_today() -> dict:
@@ -235,21 +243,117 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("remember", category=category, text=text, valid_until=valid_until)
 
     @mcp.tool()
-    async def add_event(
+    async def get_calendar(from_: str, to: str) -> dict:
+        """The calendar for an ISO date range (at most 100 days): planned sessions (intentions),
+        completed workouts (what actually happened), events, training phases, and possible
+        plan-to-workout matches. Only completed workouts count as training done."""
+        return await _call("get_calendar", **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def get_upcoming_events(limit: Optional[int] = None) -> dict:
+        """The next events (races, tests, camps) with days-to-go, priority and a taper flag."""
+        return await _call("get_upcoming_events", limit=limit)
+
+    @mcp.tool()
+    async def get_event(id: int) -> dict:
+        """One event in full: countdown, goals, current phase, test history, pacing plan, and a
+        race projection with its data, assumptions and uncertainty (or why none exists)."""
+        return await _call("get_event", id=id)
+
+    @mcp.tool()
+    async def get_training_phase(date: Optional[str] = None) -> dict:
+        """The training phase on a date (default today): weekly targets, this week's planned vs
+        completed numbers, whether a coach approved the plan, and review flags for large
+        planned workload changes."""
+        return await _call("get_training_phase", date=date)
+
+    @mcp.tool()
+    async def create_planned_workout(
+        date: str,
+        session_type: Literal["erg", "on_water", "run", "bike", "strength", "cross", "test", "rest", "other"],
+        title: Optional[str] = None,
+        start_time: Optional[str] = None,
+        duration_min: Optional[float] = None,
+        distance_m: Optional[float] = None,
+        target_zone: Optional[Literal["UT2", "UT1", "AT", "TR", "AN"]] = None,
+        intensity_note: Optional[str] = None,
+        description: Optional[str] = None,
+        structure: Optional[list[dict]] = None,
+        event_id: Optional[int] = None,
+        notes: Optional[str] = None,
+        coach_feedback: Optional[str] = None,
+        repeat: Optional[dict] = None,
+        confirm: Optional[bool] = None,
+    ) -> dict:
+        """Add a planned session (an intention, never a completed workout). Previews unless
+        confirm=true — set that only after the athlete confirms the preview. Don't propose
+        aggressive volume; respect recovery and any coach guidance."""
+        return await _call(
+            "create_planned_workout", date=date, session_type=session_type, title=title, start_time=start_time,
+            duration_min=duration_min, distance_m=distance_m, target_zone=target_zone, intensity_note=intensity_note,
+            description=description, structure=structure, event_id=event_id, notes=notes, coach_feedback=coach_feedback,
+            repeat=repeat, confirm=confirm,
+        )
+
+    @mcp.tool()
+    async def update_planned_workout(
+        id: int,
+        date: Optional[str] = None,
+        session_type: Optional[Literal["erg", "on_water", "run", "bike", "strength", "cross", "test", "rest", "other"]] = None,
+        title: Optional[str] = None,
+        start_time: Optional[str] = None,
+        duration_min: Optional[float] = None,
+        distance_m: Optional[float] = None,
+        target_zone: Optional[Literal["UT2", "UT1", "AT", "TR", "AN"]] = None,
+        intensity_note: Optional[str] = None,
+        description: Optional[str] = None,
+        structure: Optional[list[dict]] = None,
+        event_id: Optional[int] = None,
+        notes: Optional[str] = None,
+        coach_feedback: Optional[str] = None,
+        status: Optional[Literal["planned", "skipped"]] = None,
+        scope: Optional[Literal["this", "this_and_following"]] = None,
+        confirm: Optional[bool] = None,
+    ) -> dict:
+        """Change or move (new date) a planned session. Previews the before/after unless
+        confirm=true — set that only after the athlete confirms."""
+        return await _call(
+            "update_planned_workout", id=id, date=date, session_type=session_type, title=title, start_time=start_time,
+            duration_min=duration_min, distance_m=distance_m, target_zone=target_zone, intensity_note=intensity_note,
+            description=description, structure=structure, event_id=event_id, notes=notes, coach_feedback=coach_feedback,
+            status=status, scope=scope, confirm=confirm,
+        )
+
+    @mcp.tool()
+    async def delete_planned_workout(
+        id: int, scope: Optional[Literal["this", "this_and_following"]] = None, confirm: Optional[bool] = None
+    ) -> dict:
+        """Remove a planned session (never a completed workout). Previews unless confirm=true —
+        set that only after the athlete confirms."""
+        return await _call("delete_planned_workout", id=id, scope=scope, confirm=confirm)
+
+    @mcp.tool()
+    async def create_event(
         name: str,
         date: str,
         type: Literal["race", "2k_test", "camp", "selection"],
         distance: Optional[str] = None,
+        distance_m: Optional[float] = None,
         boat_class: Optional[str] = None,
         priority: Optional[Literal["A", "B", "C"]] = None,
         goal_time: Optional[str] = None,
         result: Optional[str] = None,
+        location: Optional[str] = None,
+        goals: Optional[str] = None,
+        notes: Optional[str] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
-        """Record a race, test, camp, or selection event. Ask for a concrete date first if the
-        athlete was vague about timing."""
+        """Record a race, test, camp, or selection. Ask for a concrete date first if the athlete
+        was vague. Previews unless confirm=true — set that only after the athlete confirms."""
         return await _call(
-            "add_event", name=name, date=date, type=type, distance=distance, boat_class=boat_class,
-            priority=priority, goal_time=goal_time, result=result,
+            "create_event", name=name, date=date, type=type, distance=distance, distance_m=distance_m,
+            boat_class=boat_class, priority=priority, goal_time=goal_time, result=result, location=location,
+            goals=goals, notes=notes, confirm=confirm,
         )
 
     @mcp.tool()
@@ -259,15 +363,22 @@ def build_server(backend: ToolBackend) -> MCPServer:
         date: Optional[str] = None,
         type: Optional[Literal["race", "2k_test", "camp", "selection"]] = None,
         distance: Optional[str] = None,
+        distance_m: Optional[float] = None,
         boat_class: Optional[str] = None,
         priority: Optional[Literal["A", "B", "C"]] = None,
         goal_time: Optional[str] = None,
         result: Optional[str] = None,
+        location: Optional[str] = None,
+        goals: Optional[str] = None,
+        notes: Optional[str] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
-        """Update fields on an existing event (e.g. record a result after it happened)."""
+        """Update fields on an existing event. Previews the before/after unless confirm=true —
+        set that only after the athlete confirms."""
         return await _call(
-            "update_event", id=id, name=name, date=date, type=type, distance=distance, boat_class=boat_class,
-            priority=priority, goal_time=goal_time, result=result,
+            "update_event", id=id, name=name, date=date, type=type, distance=distance, distance_m=distance_m,
+            boat_class=boat_class, priority=priority, goal_time=goal_time, result=result, location=location,
+            goals=goals, notes=notes, confirm=confirm,
         )
 
     @mcp.tool()
@@ -281,10 +392,10 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("set_goal", text=text, id=id, target_date=target_date, status=status)
 
     @mcp.tool()
-    async def forget(ref: str) -> dict:
+    async def forget(ref: str, confirm: Optional[bool] = None) -> dict:
         """Delete a memory item by its prefixed ref (e.g. 'fact:12', 'event:3', 'goal:5'), as
-        returned by recall."""
-        return await _call("forget", ref=ref)
+        returned by recall. Deleting an event previews unless confirm=true."""
+        return await _call("forget", ref=ref, confirm=confirm)
 
     @mcp.tool()
     async def recall(query: Optional[str] = None) -> dict:

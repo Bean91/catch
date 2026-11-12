@@ -267,11 +267,17 @@ def test_memory_tools_remember_recall_forget(session):
     assert tools.call_tool(session, "recall", {"query": "back"})["results"] == []
 
 
-def test_memory_tools_add_event_and_update_event(session):
-    event = tools.call_tool(session, "add_event", {"name": "Head of the Charles", "date": "2027-10-18", "type": "race", "priority": "A"})
+def test_event_tools_preview_then_save_on_confirm(session):
+    args = {"name": "Head of the Charles", "date": "2027-10-18", "type": "race", "priority": "A"}
+    preview = tools.call_tool(session, "create_event", args)
+    assert preview["saved"] is False and preview["preview"]["name"] == "Head of the Charles"
+    assert tools.call_tool(session, "recall", {"query": "Charles"})["results"] == []
+    event = tools.call_tool(session, "create_event", {**args, "confirm": True})["event"]
     assert event["days_to_go"] > 0
 
-    updated = tools.call_tool(session, "update_event", {"id": int(event["ref"].split(":")[1]), "result": "6:42"})
+    held = tools.call_tool(session, "update_event", {"id": event["id"], "result": "6:42"})
+    assert held["saved"] is False and held["preview"]["changes"]["result"] == {"from": None, "to": "6:42"}
+    updated = tools.call_tool(session, "update_event", {"id": event["id"], "result": "6:42", "confirm": True})["event"]
     assert updated["result"] == "6:42"
 
 
