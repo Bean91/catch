@@ -11,7 +11,7 @@ from catch.core.settings_store import update_settings
 from catch.sync.tracks import ingest_track
 from catch.sync.weather import cell_for, enrich_pending, ensure_weather, pending_count, weather_payload
 from catch.sync.weather_client import ATTRIBUTION, is_final
-from tests.test_fit_parse import FakeDataMessage, _patch_fitdecode
+from tests.test_fit_parse import FakeDataMessage
 from tests.test_fit_track_parse import semi
 
 M_PER_DEG = 111194.93

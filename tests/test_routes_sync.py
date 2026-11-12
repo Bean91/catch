@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import select
 
-from catch.core.models import Activity, ActivitySamples, ActivityTrack, ActivityWeather, Route
+from catch.core.models import Activity, ActivityTrack, ActivityWeather, Route
 from catch.sync.routes import (
     assign_all_routes, assign_route, create_route_from_activity, list_routes, route_for_activity,
     route_history, set_route, unpin_route, update_route,

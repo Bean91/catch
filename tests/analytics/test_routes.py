@@ -23,7 +23,9 @@ def course(points, dt=5.0, speed=4.0, jitter=0.0):
             lons.append(lo + (lb_ - lo) * f)
             ts.append(t)
             t += dt
-    lats.append(points[-1][0]); lons.append(points[-1][1]); ts.append(t)
+    lats.append(points[-1][0])
+    lons.append(points[-1][1])
+    ts.append(t)
     return filter_track(RawTrack(t=ts, lat=lats, lon=lons), 10.0, S)
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 

@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from catch.coach import tools
 from catch.coach.chat import _tool_label
-from catch.sync.matching import run_matching
 from catch.sync.weather import ensure_weather
 from tests.test_api_gps import make_activity, canon, L, _restore_fitdecode  # noqa: F401
 from tests.test_weather_sync import FakeClient
@@ -80,7 +79,7 @@ def test_weather_tool_distinguishes_missing_from_observed(session, tmp_path):
 
 def test_route_history_tool_and_unknown_ids(session, tmp_path):
     a = make_activity(session, tmp_path, "a", L, 0)
-    b = make_activity(session, tmp_path, "b", L, 3, speed=3.0)
+    make_activity(session, tmp_path, "b", L, 3, speed=3.0)
     canon(session, a)
     from catch.core.models import ActivityTrack
 

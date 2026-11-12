@@ -6,6 +6,10 @@ import { noHorizontalOverflow, stubTiles } from "./mapStub";
 // profile (Chromium + WebKit). Mock on-water ids rotate through states (see lib/mockGps.ts):
 // 1 = everything, 6 = partial weather, 11 = weather not fetched, 16 = no GPS recorded; 2 is an erg.
 
+// The built app registers a service worker whose fetches bypass page.route in WebKit, which let real
+// OpenStreetMap tiles through the stub. Blocking it keeps these specs off the network.
+test.use({ serviceWorkers: "block" });
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
 });

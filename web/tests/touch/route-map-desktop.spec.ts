@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { stubTiles } from "./mapStub";
 
+// The built app registers a service worker whose fetches bypass page.route in WebKit, which let real
+// OpenStreetMap tiles through the stub. Blocking it keeps these specs off the network.
+test.use({ serviceWorkers: "block" });
+
 // Session 20, desktop mouse: the map must not hijack page scroll (wheel zooms only with
 // ctrl/cmd), drag pans, and the speed/pace chart's crosshair drives a marker on the map.
 

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 
-from catch.core.models import Activity, ActivityTrack, Route
+from catch.core.models import Activity, ActivityTrack
 from catch.core.settings_store import update_settings
 from catch.sync.matching import run_matching
 from catch.sync.samples import store_samples
