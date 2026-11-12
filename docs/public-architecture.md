@@ -87,8 +87,10 @@ All gain `owner_id` (§6).
 
 - Supabase Auth owns credentials, email verification, password recovery, sessions, refresh tokens. **Catch has no
   password database in public mode** (`CATCH_PASSWORD_HASH` and the cookie are Pi-only).
-- Catch's own `user_profiles(id, display_name, created_at, …)`; `id` is `auth.users.id` (uuid on Postgres, plain text
-  `"owner"` on the Pi's SQLite — one `String().with_variant(UUID, "postgresql")` column type).
+- Catch's own `user_profiles(id, display_name, email, created_at)`; `id` is `auth.users.id` **as text** (and the constant `"owner"` on the Pi).
+  Every `owner_id` column is `TEXT` on both engines, with a foreign key to `user_profiles(id) ON DELETE CASCADE`. (A native `uuid` column would allow a
+  real FK to `auth.users`, but the Pi's owner is not a uuid, one model has to serve both engines, and the suite runs the same schema on SQLite and PostgreSQL.
+  The link to `auth.users` is therefore the trigger pair below plus the lazy upsert, not a foreign key.)
 - **Synchronisation** (two independent paths, so a failure of one never loses a user):
   1. *Trigger* `on auth.users after insert` → insert the profile (`security definer`, in a non-exposed schema,
      body wrapped in `exception when others` so **it can never block a sign-up** — Supabase warns that a failing
@@ -115,8 +117,9 @@ Consequences (**design rules, because these are unknowns**):
 1. **No APScheduler in public mode.** A scale-to-zero replica is not a scheduler, and N replicas would run every job N
    times. `start_scheduler()` is skipped; scheduled work is a **tick endpoint** (`POST /internal/tick/{job}`, bearer
    `CATCH_TICK_SECRET`, constant-time compare, rate-limited) invoked by Supabase `pg_cron` + `pg_net` or any external
-   cron. The tick loops over users **one at a time with an explicit per-user context** and uses `pg_try_advisory_xact_lock`
-   per (job, user) so two overlapping ticks cannot double-run (transaction-level locks only — safe behind the pooler).
+   cron. The tick loops over users **one at a time with an explicit per-user context**. A per-(user, job) *lease* (a `sync_state` row `job:<name>`,
+   claimed under a transaction-scoped advisory lock — the only kind that is safe behind a pooler) stops two overlapping ticks double-running; a lease older
+   than 10 minutes is considered dead. The user list comes from a SECURITY DEFINER function, so the runtime role never needs a bypass.
 2. **No local files.** Nothing in public mode writes to or reads from disk for user data. FIT-file based features
    (Garmin download, `backfill-gps`) stay Pi-only until a Storage-backed blob store exists; Garmin public access needs
    Garmin's developer approval anyway.
@@ -180,9 +183,13 @@ not a user rewriting *their own* `ai_usage_events` (resetting their spend cap) o
 all Catch tables live in a **`catch` schema that is not in the project's exposed-schemas list**, `anon` has no grants, and
 `authenticated` has only the DML grants FastAPI needs. RLS stays on as depth.
 
-**Foreign-key checks bypass RLS.** A user could attach a note to another user's `canonical_id` (the FK check reads the parent
-as the table owner). On Postgres the child FKs are composite `(owner_id, parent_id) → parent(owner_id, id)`; the service
-layer additionally treats a cross-owner id as *not found* (404, never 403 — no existence oracle).
+**Foreign-key checks bypass RLS.** A user could attach a piece to another user's `canonical_id` (the FK check reads the parent
+as the table owner). Two defences: on Postgres the 20 declared child references to strictly-owned parents are *composite*
+`(owner_id, parent_id) → parent(owner_id, id)` keys (migration `0002`, `fk_tenant_*`); and in public mode the ORM's `before_flush`
+resolves **every** reference — those 20 plus the 9 soft ids the models carry without a foreign key (technique notes, coach feedback,
+merge log, template provenance; soft because the app deliberately keeps them after the target is merged or deleted) — *for this owner*, reporting
+a foreign id as *not found* (404, never 403 — no existence oracle). References to the three shared tables (exercises, foods, workout templates)
+keep a plain FK (a composite one can't match a NULL-owner parent) plus the ORM guard; a stray reference there yields an invisible row, not a disclosure.
 
 ## 7. Connection modes
 
@@ -212,9 +219,26 @@ autoscaling, instance-sizes, billing (all under https://fastapicloud.com/docs/).
 auth/sessions, auth/passwords, auth/redirect-urls, auth/managing-user-data, api/api-keys, storage/security/access-control,
 storage/serving/downloads, storage/uploads/file-limits, reference/javascript/auth-admin-deleteuser.
 
-## 10. Needs the owner (cannot be tested from this environment)
+## 10. Verified against a real Supabase stack (`supabase start`, CLI 3.1, Postgres 17.11, GoTrue 2.197) — session 24
 
-1. Create the Supabase project and FastAPI Cloud app; set the secrets in §11.
+* `auth.uid()` is `coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid`
+  (`pg_get_functiondef`) — Supabase's docs don't say which setting it reads; the app sets **both** (`set_config(…, true)`, i.e. `SET LOCAL`).
+* Roles: `service_role` and `postgres` have `rolbypassrls = true`; `anon`, `authenticated`, `authenticator` do not. `postgres` is not a superuser there.
+* The local project signs with **ES256** and publishes `/auth/v1/.well-known/jwks.json` (one P-256 key with a `kid`).
+* `catch_api` (`NOINHERIT`, `NOBYPASSRLS`) **cannot** `SET ROLE anon|service_role|postgres|supabase_admin` — only `authenticated` — and has no table privileges until it does.
+* `GRANT authenticated TO catch_api` and triggers on `auth.users` work for the `postgres` migration role; `storage.objects` policies can be created by it; direct
+  `DELETE FROM storage.objects` is refused by Storage (objects are removed through its API).
+* A real sign-up fires the profile trigger; GoTrue's admin delete with the **secret key in the `apikey` header only** cascades `auth.sessions`, so the app's session
+  check rejects the user's unexpired token; `signOut(scope=global)` does the same.
+* Through a real **Supavisor transaction pooler**, 60 interleaved transactions across three users never saw each other's rows, and a bare pooled connection afterwards carried no
+  identity. (Local Supavisor only knows its provisioned `postgres.<tenant>` user; custom roles through the *hosted* pooler are documented but ⚠ untested.)
+* `alembic upgrade head` ≡ the SQLModel metadata (`compare_metadata` is empty); downgrade to `0001`/`base` and back keeps data; pg_dump/pg_restore of the schema keeps rows,
+  forced RLS and all policies.
+* The whole existing suite passes on SQLite **and** on PostgreSQL (`CATCH_TEST_PG_URL`; the one skip is a SQLite-rowid-reuse premise).
+
+## 11. Needs the owner (cannot be tested from this environment)
+
+1. Create the Supabase project and FastAPI Cloud app; follow `docs/public-setup.md`.
 2. Run `fastapi cloud` deploy, then `catch db check` **on FastAPI Cloud** — egress to the pooler, SSL, role, RLS probe.
 3. Confirm FastAPI Cloud installs the `public` extra (else deploy a `requirements.txt` — documented in `docs/public-setup.md`).
 4. Confirm SSE streaming and request timeouts for the coach on FastAPI Cloud (undocumented).

@@ -125,6 +125,12 @@ async def _validation_errors(request: Request, exc: RequestValidationError):
         return JSONResponse(status_code=422, content={"detail": errors})
     return await request_validation_exception_handler(request, exc)
 
+if tenant.is_public():
+    from catch.api.security_headers import SecurityHeadersMiddleware, csp_for_static
+
+    app.add_middleware(SecurityHeadersMiddleware, csp=csp_for_static(_STATIC_DIR, settings.supabase_url))
+
+
 @app.exception_handler(tenant.ParentNotFound)
 async def _parent_not_found(request: Request, exc: tenant.ParentNotFound):
     # A foreign id is reported exactly like a missing one — never "forbidden", which would confirm it exists.

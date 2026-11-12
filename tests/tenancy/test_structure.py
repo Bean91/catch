@@ -105,13 +105,12 @@ def test_no_raw_sql_or_unscoped_queries_outside_the_reviewed_modules():
     assert not offenders, f"raw SQL / unscoped option outside the reviewed modules: {offenders}"
 
 
-def test_a_personal_install_never_imports_the_public_stack():
+def test_a_personal_install_never_imports_the_public_stack(tmp_path):
     code = (
         "import sys, catch.main\n"
         "bad = [m for m in ('psycopg', 'psycopg_binary', 'alembic', 'jwt', 'catch.core.supabase_auth', 'catch.core.db_pg') if m in sys.modules]\n"
         "print(','.join(bad))"
     )
-    out = subprocess.run([sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "CATCH_DB_PATH": "/tmp/catch-struct-test.db", "PYTHONPATH": str(ROOT)})
-    # `-I` drops PYTHONPATH; run via the project interpreter's own site-packages instead
+    out = subprocess.run([sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "CATCH_DB_PATH": str(tmp_path / "x.db"), "PYTHONPATH": str(ROOT)})
     assert out.returncode == 0, out.stderr[-500:]
     assert out.stdout.strip() == "", f"the personal install imported: {out.stdout.strip()}"

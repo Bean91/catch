@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 from sqlmodel import Session
 
@@ -8,11 +10,14 @@ from catch.core import config, supabase_auth, tenant
 from tests.tenancy import kit
 
 
-@pytest.fixture()
-def public(monkeypatch):
-    """Flip the process to a public deployment for one test (SQLite underneath; the Postgres/RLS half has its own
-    tests). Cookie login is off, there is no default owner, and the JWT path is wired to a local ES256 key."""
-    monkeypatch.setattr(tenant, "is_public", lambda: True)
+@contextlib.contextmanager
+def public_mode():
+    """Flip the process to a public deployment (SQLite underneath; the Postgres/RLS half has its own tests). Cookie login
+    is off, there is no default owner, and the JWT path is wired to a local ES256 key."""
+    from catch.api import deps
+
+    real_is_public = tenant.is_public
+    tenant.is_public = lambda: True
     previous = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_session_check_ttl", "tick_secret")}
     object.__setattr__(config.settings, "deployment", "public")
     object.__setattr__(config.settings, "supabase_url", kit.SUPABASE_URL)
@@ -20,14 +25,21 @@ def public(monkeypatch):
     object.__setattr__(config.settings, "tick_secret", "tick-secret-for-tests")
     supabase_auth.jwks_cache = supabase_auth.JwksCache(fetch=kit.jwks)
     supabase_auth.liveness.reset()
-    from catch.api import deps
-
     deps._profiles_known.clear()
-    yield
-    for k, v in previous.items():
-        object.__setattr__(config.settings, k, v)
-    supabase_auth.jwks_cache = supabase_auth.JwksCache()
-    supabase_auth.liveness.reset()
+    try:
+        yield
+    finally:
+        tenant.is_public = real_is_public
+        for k, v in previous.items():
+            object.__setattr__(config.settings, k, v)
+        supabase_auth.jwks_cache = supabase_auth.JwksCache()
+        supabase_auth.liveness.reset()
+
+
+@pytest.fixture()
+def public():
+    with public_mode():
+        yield
 
 
 @pytest.fixture()

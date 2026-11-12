@@ -69,7 +69,8 @@ def test_two_real_users_with_overlapping_data_are_isolated_through_the_whole_sta
     assert app.get("/api/notes", headers=a.headers, params={"date": "2026-11-02"}).json()["text"] == "alice note"
     assert app.get("/api/notes", headers=b.headers, params={"date": "2026-11-02"}).json()["text"] == "bob note"
     assert app.get("/api/checkins/today", headers=a.headers).json()["checkin"]["soreness"] == 1
-    events = lambda u: app.get("/api/events", headers=u.headers, params={"from": "2026-12-01", "to": "2026-12-31"}).json()["events"]
+    def events(u):
+        return app.get("/api/events", headers=u.headers, params={"from": "2026-12-01", "to": "2026-12-31"}).json()["events"]
     assert [e["name"] for e in events(a)] == ["alice race"] and [e["name"] for e in events(b)] == ["bob race"]
     foreign = events(a)[0]["id"]
     assert app.get(f"/api/events/{foreign}", headers=b.headers).status_code == 404
@@ -164,7 +165,8 @@ def test_the_tick_walks_every_user_under_their_own_identity_and_leases_prevent_d
     a, b = signup("tick-a"), signup("tick-b")
     seen = []
     monkeypatch.setattr(ri, "_sync_work", lambda: seen.append(tenant.current_owner()))
-    tick = lambda secret="tick-secret-for-tests": app.post("/internal/tick/sync", headers={"authorization": f"Bearer {secret}"})
+    def tick(secret="tick-secret-for-tests"):
+        return app.post("/internal/tick/sync", headers={"authorization": f"Bearer {secret}"})
     assert tick("wrong").status_code == 401
     assert app.post("/internal/tick/sync").status_code == 401
     out = tick().json()

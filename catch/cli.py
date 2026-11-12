@@ -192,6 +192,42 @@ def cmd_db_seed(args: argparse.Namespace) -> None:
     print("seeded")
 
 
+def cmd_export_personal(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from catch.sync import personal_transfer
+
+    if settings.is_public:
+        raise SystemExit("export-personal reads the personal SQLite database; run it on the Pi (CATCH_DEPLOYMENT=personal).")
+    init_db()
+    with get_session() as session:
+        manifest = personal_transfer.export_personal(session, Path(args.out))
+    print(f"wrote {args.out}")
+    for table, n in manifest["counts"].items():
+        if n:
+            print(f"  {table}: {n}")
+    print("not exported:", ", ".join(manifest["excluded"]))
+
+
+def cmd_import_personal(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from catch.sync import personal_transfer
+
+    if not settings.is_public:
+        raise SystemExit("import-personal writes to a public account; set CATCH_DEPLOYMENT=public and DATABASE_URL.")
+    try:
+        with tenant.use_owner(args.user_id), get_session() as session:
+            report = personal_transfer.import_into_account(session, Path(args.file), owner_id=args.user_id, dry_run=args.dry_run)
+    except personal_transfer.ImportRefused as exc:
+        raise SystemExit(f"refused: {exc}") from None
+    print(("dry run — nothing written" if args.dry_run else "imported") + f" as {args.user_id}")
+    for table, n in report["imported"].items():
+        print(f"  {table}: {n}")
+    if not args.dry_run:
+        print("Now run: the app recomputes recovery and strain on the next sync; or call POST /api/settings once.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="catch")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -231,6 +267,15 @@ def main() -> None:
     up.set_defaults(func=cmd_db_upgrade)
     db_sub.add_parser("check", help="Role, SSL and row-level-security probe over the runtime connection").set_defaults(func=cmd_db_check)
     db_sub.add_parser("seed", help="Seed global reference data (needs DATABASE_ADMIN_URL)").set_defaults(func=cmd_db_seed)
+
+    exp = sub.add_parser("export-personal", help="Write the personal install's data to a file for a public account (docs/personal-to-public.md)")
+    exp.add_argument("--out", required=True)
+    exp.set_defaults(func=cmd_export_personal)
+    imp = sub.add_parser("import-personal", help="Import that file into a new, empty public account (as that user)")
+    imp.add_argument("--file", required=True)
+    imp.add_argument("--user-id", required=True, help="the Supabase user id of the account (it must have signed in once)")
+    imp.add_argument("--dry-run", action="store_true")
+    imp.set_defaults(func=cmd_import_personal)
 
     args = parser.parse_args()
     args.func(args)

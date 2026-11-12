@@ -1,0 +1,17 @@
+# FastAPI Cloud uploads what .gitignore allows, refined by this file (docs: how-it-works). The built frontend is
+# gitignored (it's a build artifact), so the public deploy must be made from a workspace where it has been built:
+#   (cd web && VITE_CATCH_DEPLOYMENT=public … npm run build) && fastapi deploy
+# Whether a `!` re-include here overrides .gitignore is not documented — docs/public-setup.md says how to check.
+!catch/api/static/
+# Never ship these to the cloud app:
+.env
+.env.*
+data/
+backups-from-pi/
+deploy/
+web/node_modules/
+web/test-results/
+tests/
+docs/
+*.db
+*.db-*

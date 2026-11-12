@@ -56,6 +56,10 @@ target-version = "py312"
 select = ["E7", "E9", "F"]
 ignore = ["E741"]
 
+[tool.fastapi]
+# FastAPI Cloud (docs/public-setup.md); needs fastapi-cli >= 0.0.16
+entrypoint = "catch.main:app"
+
 [project.scripts]
 catch = "catch.cli:main"
 catch-mcp = "catch.mcp_server.__main__:main"
