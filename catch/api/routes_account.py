@@ -81,9 +81,10 @@ def admin_delete_auth_user(owner: str) -> None:
     cascades to auth.sessions and refresh tokens, so the user's access tokens fail the next session check."""
     if not settings.supabase_secret_key:
         raise HTTPException(status_code=503, detail="Account deletion is not configured on this server")
-    resp = httpx.delete(
+    resp = httpx.request(
+        "DELETE",
         f"{settings.supabase_url}/auth/v1/admin/users/{owner}",
-        headers={"apikey": settings.supabase_secret_key, "authorization": f"Bearer {settings.supabase_secret_key}"},
+        headers={"apikey": settings.supabase_secret_key},  # secret keys go in `apikey`, never `Authorization` (Supabase docs)
         json={"should_soft_delete": False},
         timeout=15.0,
     )
