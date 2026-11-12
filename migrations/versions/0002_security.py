@@ -191,5 +191,4 @@ def downgrade() -> None:
     _x("REVOKE ALL ON ALL SEQUENCES IN SCHEMA catch FROM authenticated")
     _x("REVOKE USAGE ON SCHEMA catch FROM authenticated")
     _x("REVOKE authenticated FROM catch_api")
-    _x("DROP OWNED BY catch_api")
     _x("DROP ROLE IF EXISTS catch_api")

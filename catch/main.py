@@ -125,6 +125,23 @@ async def _validation_errors(request: Request, exc: RequestValidationError):
         return JSONResponse(status_code=422, content={"detail": errors})
     return await request_validation_exception_handler(request, exc)
 
+@app.exception_handler(tenant.ParentNotFound)
+async def _parent_not_found(request: Request, exc: tenant.ParentNotFound):
+    # A foreign id is reported exactly like a missing one — never "forbidden", which would confirm it exists.
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+
+@app.exception_handler(tenant.TenantViolation)
+async def _tenant_violation(request: Request, exc: tenant.TenantViolation):
+    logging.getLogger("catch.tenant").error("tenant violation on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+
+@app.exception_handler(tenant.NoTenantContext)
+async def _no_tenant(request: Request, exc: tenant.NoTenantContext):
+    return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+
+
 app.include_router(routes_auth.router)
 app.include_router(routes_account.router)
 app.include_router(routes_internal.router)
