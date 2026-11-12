@@ -111,15 +111,16 @@ def test_provider_keys_and_settings_are_per_user(pub_client, monkeypatch):
 
 
 def test_a_users_id_in_the_request_body_or_a_tool_argument_is_ignored(pub_client, pub_engine):
-    _seed_activity(pub_engine, kit.ALICE)
+    a_id, a_canon = _seed_activity(pub_engine, kit.ALICE)
     r = pub_client.post("/api/notes", headers=B, json={"date": "2026-11-02", "text": "bob's", "owner_id": kit.ALICE, "user_id": kit.ALICE})
     assert r.status_code == 200
-    assert pub_client.get("/api/notes", headers=A, params={"date": "2026-11-02"}).json() in (None, {}) or \
-        pub_client.get("/api/notes", headers=A, params={"date": "2026-11-02"}).json()["text"] != "bob's"
-    # And through the shared tool endpoint, which the AI coach and MCP use.
-    r = pub_client.post("/api/coach/tools/get_workout", headers=B, json={"args": {"owner_id": kit.ALICE, "id": 1}})
-    assert r.status_code in (200, 400, 404, 422)
-    assert kit.ALICE not in r.text
+    assert pub_client.get("/api/notes", headers=B, params={"date": "2026-11-02"}).json()["text"] == "bob's"  # it landed on Bob...
+    assert pub_client.get("/api/notes", headers=A, params={"date": "2026-11-02"}).json() is None  # ...not on the user it named
+    # And through the shared tool endpoint, which the AI coach and MCP use: Bob names Alice's owner AND her workout id.
+    r = pub_client.post("/api/coach/tools/get_workout", headers=B, json={"args": {"owner_id": kit.ALICE, "user_id": kit.ALICE, "id": a_canon}})
+    assert kit.ALICE not in r.text and "3600" not in r.text
+    mine = pub_client.post("/api/coach/tools/get_workout", headers=A, json={"args": {"id": a_canon}})
+    assert mine.status_code == 200 and "3600" in mine.text or mine.json().get("duration_s") == 3600  # positive control: Alice can read it
 
 
 def test_the_series_cache_is_per_user(pub_client, pub_engine):
@@ -137,10 +138,60 @@ def test_device_tokens_belong_to_the_user_who_minted_them(pub_client, pub_engine
     with tenant.use_owner(kit.ALICE), Session(pub_engine) as s:
         s.add(ApiToken(name="laptop", token_hash=hash_token("alice-device-token-xxxxxxxxxxxxxxxx")))
         s.commit()
-    _seed_activity(pub_engine, kit.ALICE)
-    _seed_activity(pub_engine, kit.BOB, minutes=30)
+    _, a_canon = _seed_activity(pub_engine, kit.ALICE, minutes=60)
+    _, b_canon = _seed_activity(pub_engine, kit.BOB, minutes=30)
     r = pub_client.post("/api/coach/tools/list_workouts", headers={"authorization": "Bearer alice-device-token-xxxxxxxxxxxxxxxx"}, json={"args": {}})
     assert r.status_code == 200, r.text
-    durations = [w.get("duration_s") or w.get("duration") for w in r.json().get("workouts", r.json().get("items", []))]
-    assert 1800.0 not in durations and 30 not in durations  # only Alice's workout, never Bob's
+    ids = [w["id"] for w in r.json()["items"]]
+    assert ids == [a_canon] and b_canon not in ids  # exactly Alice's workout, never Bob's
     assert pub_client.post("/api/coach/tools/list_workouts", headers={"authorization": "Bearer not-a-token"}, json={"args": {}}).status_code == 401
+
+
+# --- scheduled work and ops channels in a public deployment ---------------------------------------------------------
+
+
+def test_the_real_tick_for_fresh_accounts_runs_clean_and_raises_no_alert(pub_client, pub_engine, monkeypatch):
+    """A new public account has connected nothing. Every tick must treat that as the normal state: no failed sync, no
+    error row, no 'sync is broken' push, no write to the shared ops topic, no shared dead-man's-switch ping."""
+    from sqlalchemy import select
+
+    from catch.core import healthchecks
+    from catch.core.models import SyncState
+    from catch.notify import ntfy, push
+
+    sent: list = []
+    monkeypatch.setattr(ntfy, "send", lambda *a, **k: sent.append(("ntfy", a)) or True)
+    monkeypatch.setattr(push, "send_to_subscription", lambda *a, **k: sent.append(("push", a)) or True)
+    monkeypatch.setattr(push, "notify", lambda *a, **k: sent.append(("notify", a)) or [])
+    monkeypatch.setattr(healthchecks, "ping_sync_ok", lambda *a, **k: sent.append(("ping", a)))
+    for headers in (A, B):
+        assert pub_client.get("/api/me", headers=headers).status_code == 200  # creates the profiles
+    tick = {"authorization": "Bearer tick-secret-for-tests"}
+    for _ in range(4):  # past the 3-failures threshold a broken source would alert on
+        for job in ("sync", "notifications"):
+            out = pub_client.post(f"/internal/tick/{job}", headers=tick).json()
+            assert out["users"] == 2 and out["failed"] == 0, (job, out)
+        # the lease rows are the only sync_state a fresh account has
+        # (each tick's lease is released, so the next one runs)
+    with Session(pub_engine) as s:
+        rows = s.execute(select(SyncState).execution_options(tenant_unscoped=True)).scalars().all()
+    assert {r.source for r in rows} <= {"job:sync", "job:notifications"}
+    assert all(r.last_error is None and r.consecutive_failures == 0 for r in rows)
+    assert sent == []
+
+
+def test_a_manual_sync_of_an_unconnected_source_is_skipped_not_failed(pub_client, pub_engine):
+    from sqlalchemy import select
+
+    from catch.core.models import SyncState
+
+    for source in ("withings", "whoop", "garmin", "concept2"):
+        out = pub_client.post(f"/api/sync/{source}", headers=A).json()
+        assert "error" not in out and "skipped" in out, (source, out)
+    with Session(pub_engine) as s:
+        assert s.execute(select(SyncState).execution_options(tenant_unscoped=True)).scalars().all() == []
+
+
+def test_server_details_are_not_readable_by_users(pub_client):
+    body = pub_client.get("/api/status", headers=A).json()
+    assert body["disk_total_bytes"] == 0 and body["uptime_seconds"] == 0 and body["backup"] is None and body["db_size_bytes"] == 0

@@ -220,7 +220,8 @@ def alert_sync_broken(session: Session, source: str, reason: str) -> bool:
         deep_link="/settings/status",
     )
     if sent:
-        ntfy.send(f"Catch: {source} sync is broken — {reason}")
+        if not tenant.is_public():  # one shared ops topic means nothing across many users
+            ntfy.send(f"Catch: {source} sync is broken — {reason}")
     return sent
 
 

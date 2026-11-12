@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from catch.api.deps import get_db, require_auth
+from catch.core import tenant
 from catch.core.config import settings
 from catch.core.models import OAuthToken, SyncState
 from catch.core.settings_store import get_settings
@@ -72,6 +73,12 @@ def status(db: Session = Depends(get_db)):
         )
 
     app_settings = get_settings(db)
+    if tenant.is_public():
+        # Disk, database size, uptime and backup state describe the shared server — not something one user may read.
+        return {
+            "sources": sources, "garmin_key_expires_on": None, "backup": None, "disk_free_bytes": 0, "disk_total_bytes": 0,
+            "db_size_bytes": 0, "uptime_seconds": 0, "build": _build_info(),
+        }
     disk = shutil.disk_usage(Path(settings.db_file).parent)
 
     return {

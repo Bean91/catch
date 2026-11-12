@@ -38,11 +38,12 @@ def run_sync(source: str, days: int = 3) -> dict:
         return {"source": source, "skipped": "already running"}
     try:
         with get_session() as session:
-            if source == "whoop":
+            if source == "whoop" or tenant.is_public():
                 from catch.core.models import OAuthToken
 
-                # Not connected is the normal state of a fresh install: no attempt, no error, no alert.
-                if session.get(OAuthToken, tenant.pk("whoop")) is None:
+                # Not connected is the normal state of a fresh install (and of every public account until it connects
+                # a source): no attempt, no error, no alert.
+                if session.get(OAuthToken, tenant.pk(source)) is None:
                     return {"source": source, "skipped": "not connected"}
             state.record_attempt(session, source)
             try:
