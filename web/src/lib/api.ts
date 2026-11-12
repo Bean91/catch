@@ -1,3 +1,4 @@
+import { UNAUTHORIZED_EVENT, authedFetch } from "./authedFetch";
 import {
   mockAiModels,
   mockAiProviders,
@@ -256,16 +257,25 @@ export class ApiError extends Error {
 // A session cookie can expire mid-visit (30-day max age, but still). AuthProvider listens
 // for this so a stale session drops the user back to the login screen instead of leaving
 // every card stuck on "Couldn't load" with a Retry button that will never succeed.
-export const UNAUTHORIZED_EVENT = "catch:unauthorized";
+export { UNAUTHORIZED_EVENT };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: "include", ...init });
+  const res = await authedFetch(path, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     throw new ApiError(res.status, body.detail ?? res.statusText);
   }
   return res.json() as Promise<T>;
+}
+
+export async function deleteAccount(): Promise<void> {
+  if (isMock) return;
+  await request<{ deleted: boolean }>("/api/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: "DELETE" }),
+  });
 }
 
 function delay<T>(value: T, ms = 300): Promise<T> {
@@ -605,7 +615,7 @@ export async function estimatePiecePhoto(canonicalId: number, photo: Blob): Prom
   if (isMock) return delay(mockPiecePhotoEstimate(), 1200);
   const form = new FormData();
   form.append("photo", photo, "pm5.jpg");
-  const res = await fetch(`/api/activities/${canonicalId}/pieces/photo-estimate`, { method: "POST", credentials: "include", body: form });
+  const res = await authedFetch(`/api/activities/${canonicalId}/pieces/photo-estimate`, { method: "POST", body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
@@ -652,7 +662,7 @@ export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ 
   if (isMock) return delay(uploadMockPiecePhoto(pieceId), 400);
   const form = new FormData();
   form.append("photo", photo, "pm5.jpg");
-  const res = await fetch(`/api/pieces/${pieceId}/photo`, { method: "POST", credentials: "include", body: form });
+  const res = await authedFetch(`/api/pieces/${pieceId}/photo`, { method: "POST", body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
@@ -778,9 +788,8 @@ export async function* streamMessage(conversationId: number, text: string): Asyn
     yield* streamMockMessage(conversationId, text);
     return;
   }
-  const res = await fetch(`/api/coach/conversations/${conversationId}/messages`, {
+  const res = await authedFetch(`/api/coach/conversations/${conversationId}/messages`, {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
@@ -1171,7 +1180,7 @@ export async function estimateMealPhoto(photo: Blob): Promise<PhotoEstimateResul
   if (isMock) return delay(mockPhotoEstimate(), 1200);
   const form = new FormData();
   form.append("photo", photo, "meal.jpg");
-  const res = await fetch("/api/nutrition/photo-estimate", { method: "POST", credentials: "include", body: form });
+  const res = await authedFetch("/api/nutrition/photo-estimate", { method: "POST", body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));

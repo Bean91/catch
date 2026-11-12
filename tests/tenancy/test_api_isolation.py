@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-import pytest
 from sqlmodel import Session
 
 from catch.core import tenant
@@ -38,8 +37,8 @@ def test_overlapping_workouts_and_wellness_stay_separate(pub_client, pub_engine)
     mine = pub_client.get("/api/activities", headers=A).json()["items"]
     his = pub_client.get("/api/activities", headers=B).json()["items"]
     assert [i["duration"] for i in mine] == [3600.0] and [i["duration"] for i in his] == [1800.0]
-    assert pub_client.get(f"/api/wellness?from=2026-11-02&to=2026-11-02", headers=A).json()[0]["resting_hr"] == 50
-    assert pub_client.get(f"/api/wellness?from=2026-11-02&to=2026-11-02", headers=B).json()[0]["resting_hr"] == 70
+    assert pub_client.get("/api/wellness?from=2026-11-02&to=2026-11-02", headers=A).json()[0]["resting_hr"] == 50
+    assert pub_client.get("/api/wellness?from=2026-11-02&to=2026-11-02", headers=B).json()[0]["resting_hr"] == 70
 
 
 def test_guessing_another_users_ids_finds_nothing(pub_client, pub_engine):

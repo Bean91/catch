@@ -70,7 +70,7 @@ export function App() {
     return <div className="min-h-screen bg-bg" />;
   }
 
-  if (status === "anon") {
+  if (status === "anon" || status === "recovery") {
     return <LoginPage />;
   }
 

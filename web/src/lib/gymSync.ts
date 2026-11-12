@@ -2,6 +2,7 @@
 // useOnlineStatus going true (never navigator.onLine — see that hook's own docstring) and
 // right after every local write, but never required for a write to "succeed": every set is
 // already durable in IndexedDB the instant it's logged, with or without a network path.
+import { authedFetch } from "./authedFetch";
 import { computeEffectiveLoad } from "./equipment";
 import * as gymDb from "./gymDb";
 import { isMock } from "./api";
@@ -111,9 +112,8 @@ export async function flushDirty(): Promise<void> {
     for (const [sessionId, sets] of bySession) {
       const active = sets.filter((s) => !s.deleted);
       const deletedIds = sets.filter((s) => s.deleted).map((s) => s.client_id);
-      const res = await fetch("/api/gym/sessions/sync", {
+      const res = await authedFetch("/api/gym/sessions/sync", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_session_id: sessionId,

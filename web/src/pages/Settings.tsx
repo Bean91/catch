@@ -15,6 +15,8 @@ import { IllnessBacktestCard } from "../components/settings/IllnessBacktestCard"
 import { NotificationsCard } from "../components/settings/NotificationsCard";
 import { RecoveryInputsCard } from "../components/settings/RecoveryInputsCard";
 import { WhoopControls } from "../components/settings/WhoopControls";
+import { AccountCard } from "../components/settings/AccountCard";
+import { isPublic } from "../lib/deployment";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
@@ -409,6 +411,8 @@ export function SettingsPage() {
           commit is almost always "-dirty" on this app's Pi deploys (deploy.sh builds from
           whatever's in the working tree, not a clean checkout), which is the honest label, not
           a bug. */}
+      {isPublic && <AccountCard />}
+
       <p className="text-center text-xs text-text-tertiary">
         Build {__BUILD_ID__} · {__COMMIT__}
       </p>

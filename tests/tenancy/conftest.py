@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session
 
 import catch.main  # noqa: F401  (import under the personal default; the SQLite engine is built at import)
 from catch.core import config, supabase_auth, tenant

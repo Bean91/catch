@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-import uuid
 from urllib.parse import urlsplit
 
-import pytest
 from sqlalchemy import text
 from sqlmodel import SQLModel
 
-from tests.pg.conftest import DB_URL, admin_url, reset_schema, run_alembic, signup, runtime_url, RUNTIME_PASSWORD
+from tests.pg.conftest import DB_URL, run_alembic, signup, runtime_url, RUNTIME_PASSWORD
 import catch.core.models  # noqa: F401
 
 

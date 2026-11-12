@@ -6,6 +6,7 @@ import { App } from "./App.tsx";
 import { UpdateToast } from "./components/shell/UpdateToast.tsx";
 import "./index.css";
 import { AuthProvider } from "./lib/auth.tsx";
+import { SESSION_ENDED_EVENT } from "./lib/session.ts";
 import { ThemeProvider } from "./lib/theme.tsx";
 
 const queryClient = new QueryClient({
@@ -14,6 +15,9 @@ const queryClient = new QueryClient({
   // worker's cached /api/today response (or ApiError) resolves it instead of spinning forever.
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, networkMode: "offlineFirst" } },
 });
+
+// Sign-out / user switch (public build): nothing the previous person loaded may stay in memory for the next one.
+window.addEventListener(SESSION_ENDED_EVENT, () => queryClient.clear());
 
 // Belt #3 (after the viewport meta and CSS touch-action) against page-level pinch-zoom: iOS
 // Safari's gesturestart/gesturechange/gestureend fire even with user-scalable=no in a plain

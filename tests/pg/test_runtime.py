@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import urllib.error
 import urllib.request
 from datetime import date
@@ -14,7 +13,7 @@ from sqlmodel import Session
 
 from catch.core import config, supabase_auth, tenant
 from tests.pg.conftest import (
-    API_URL, PUBLISHABLE, RUNTIME_PASSWORD, SECRET, jwks_fetch, runtime_url, signout_everywhere, signup,
+    API_URL, PUBLISHABLE, SECRET, jwks_fetch, runtime_url, signout_everywhere, signup,
 )
 
 pytestmark = pytest.mark.filterwarnings("ignore:Cannot correctly sort tables")
