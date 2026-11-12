@@ -6,7 +6,7 @@
 check: check-python check-frontend
 
 check-python:
-	uv sync --locked --all-groups
+	uv sync --locked --all-groups --all-extras
 	uv run ruff check .
 	uv run pytest
 

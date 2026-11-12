@@ -42,6 +42,7 @@ class InProcessBackend:
 
     async def call_tool(self, name: str, args: dict) -> dict:
         from catch.coach import tools as tools_module
+        from catch.core import tenant
         from catch.core.db import get_session
         from catch.core.principal import VIEWER, may_call_tool
 
@@ -50,5 +51,6 @@ class InProcessBackend:
         principal = current_principal.get() or VIEWER
         if not may_call_tool(principal, name):
             raise PermissionError(f"This token's role can't use '{name}'")
-        with get_session() as session:
+        # The tenant comes from the verified token, never from the call's arguments.
+        with tenant.use_owner(principal.owner_id), get_session() as session:
             return tools_module.call_tool(session, name, args, ctx={"principal": principal, "via": "mcp"})

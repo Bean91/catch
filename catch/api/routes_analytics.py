@@ -294,7 +294,7 @@ def trends(
 # `recompute_scores` (catch/sync/scoring.py) — the single choke point already run after every
 # sync, backfill, settings PUT, and note POST (see that file's docstring).
 _series_cache_lock = threading.Lock()
-_series_cache: dict[str, list[dict]] = {}
+_series_cache: dict[tuple[str, str], list[dict]] = {}  # (owner, metric): one process serves many users
 
 
 def invalidate_series_cache() -> None:
@@ -303,13 +303,14 @@ def invalidate_series_cache() -> None:
 
 
 def _cached_full_series(db: Session, metric: str) -> list[dict]:
+    key = (tenant.current_owner(), metric)
     with _series_cache_lock:
-        cached = _series_cache.get(metric)
+        cached = _series_cache.get(key)
     if cached is not None:
         return cached
     full = _metric_series(db, metric, None, None)
     with _series_cache_lock:
-        _series_cache[metric] = full
+        _series_cache[key] = full
     return full
 
 

@@ -180,7 +180,8 @@ def _migrate_columns() -> None:
         for statement in _add_column_statements(inspect(conn), _owner_columns()):
             conn.exec_driver_sql(statement)
         # `events.owner_id` predates this session as a nullable column (session 21).
-        conn.exec_driver_sql("UPDATE events SET owner_id = ? WHERE owner_id IS NULL", (tenant.PERSONAL_OWNER,))
+        if "events" in inspect(conn).get_table_names():
+            conn.exec_driver_sql("UPDATE events SET owner_id = ? WHERE owner_id IS NULL", (tenant.PERSONAL_OWNER,))
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strokes_activity_id ON strokes(activity_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_activities_canonical_id ON activities(canonical_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strength_sets_activity_id ON strength_sets(activity_id)")

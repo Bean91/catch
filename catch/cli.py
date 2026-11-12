@@ -150,6 +150,48 @@ def cmd_token_list(args: argparse.Namespace) -> None:
         print(f"{row.id}\t{row.name}\t{row.role or 'athlete'}\tcreated {row.created_at}\tlast used {row.last_used_at or 'never'}")
 
 
+def cmd_db_upgrade(args: argparse.Namespace) -> None:
+    import os
+    import subprocess
+    import sys
+
+    if not os.environ.get("DATABASE_ADMIN_URL"):
+        raise SystemExit("Set DATABASE_ADMIN_URL (an admin/migration role — never the runtime catch_api role).")
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", args.revision], check=True)
+
+
+def cmd_db_check(args: argparse.Namespace) -> None:
+    from catch.core import db_pg
+    from catch.core.db import engine
+
+    if not settings.is_public:
+        raise SystemExit("db check is for CATCH_DEPLOYMENT=public.")
+    report = {**db_pg.role_report(engine), **db_pg.rls_probe(engine), "pool_mode": settings.db_pool_mode}
+    for key, value in report.items():
+        print(f"{key}: {value}")
+    if report["superuser"] or report["bypass_rls"] or not report["sees_nothing_as_stranger"] or not report["cannot_write_for_another_user"]:
+        raise SystemExit("FAILED: this connection would not be protected by row level security")
+    print("ok")
+
+
+def cmd_db_seed(args: argparse.Namespace) -> None:
+    """Global reference rows (the exercise library, example templates) for a public database — run with the
+    admin URL, since the runtime role can't write rows with no owner."""
+    import os
+
+    from catch.core import db as db_module
+
+    if not os.environ.get("DATABASE_ADMIN_URL"):
+        raise SystemExit("Set DATABASE_ADMIN_URL.")
+    from catch.core.db_pg import build_pg_engine
+
+    db_module.engine = build_pg_engine(os.environ["DATABASE_ADMIN_URL"], rls=False)
+    with tenant.system():
+        db_module._seed_exercise_library()
+        db_module._seed_workout_examples()
+    print("seeded")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="catch")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -181,6 +223,14 @@ def main() -> None:
     token_create_parser.set_defaults(func=cmd_token_create)
     token_list_parser = token_sub.add_parser("list", help="List device tokens")
     token_list_parser.set_defaults(func=cmd_token_list)
+
+    db_parser = sub.add_parser("db", help="Public (Supabase Postgres) database operations")
+    db_sub = db_parser.add_subparsers(dest="db_command", required=True)
+    up = db_sub.add_parser("upgrade", help="Apply Alembic migrations (needs DATABASE_ADMIN_URL)")
+    up.add_argument("revision", nargs="?", default="head")
+    up.set_defaults(func=cmd_db_upgrade)
+    db_sub.add_parser("check", help="Role, SSL and row-level-security probe over the runtime connection").set_defaults(func=cmd_db_check)
+    db_sub.add_parser("seed", help="Seed global reference data (needs DATABASE_ADMIN_URL)").set_defaults(func=cmd_db_seed)
 
     args = parser.parse_args()
     args.func(args)

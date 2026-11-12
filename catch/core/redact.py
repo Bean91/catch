@@ -20,6 +20,11 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)(https?://)[^/\s:@]+:[^/\s@]*@"), r"\1[redacted]@"),
     (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "[redacted]"),
     (re.compile(r"\bAIza[0-9A-Za-z_-]{20,}"), "[redacted]"),
+    # Session 24: a Supabase access/refresh JWT (header.payload.signature, all base64url), Supabase's secret
+    # keys, and a database URL's password.
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"), "[redacted]"),
+    (re.compile(r"\bsb_secret_[A-Za-z0-9_-]{8,}"), "[redacted]"),
+    (re.compile(r"(?i)(postgres(?:ql)?(?:\+\w+)?://)[^/\s:@]+:[^/\s@]*@"), r"\1[redacted]@"),
 ]
 
 _lock = threading.Lock()

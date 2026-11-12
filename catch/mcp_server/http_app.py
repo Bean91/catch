@@ -3,14 +3,13 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from mcp.server.transport_security import TransportSecuritySettings
-from sqlmodel import select
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from catch.api.deps import hash_token
 from catch.core.config import settings
+from catch.core import device_tokens
 from catch.core.db import get_session
-from catch.core.models import ApiToken
 from catch.core.principal import Principal, principal_from_token
 from catch.mcp_server.backend import InProcessBackend, current_principal
 from catch.mcp_server.server import build_server
@@ -68,9 +67,13 @@ class _BearerAuthMiddleware:
 
     @staticmethod
     def _principal_for(raw_token: str) -> Principal | None:
+        token_hash = hash_token(raw_token)
         with get_session() as session:
-            row = session.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
-            return principal_from_token(row.token_hash, row.role, row.display_name) if row is not None else None
+            resolved = device_tokens.resolve(session, token_hash)
+            if resolved is None:
+                return None
+            device_tokens.touch(session, resolved)
+            return principal_from_token(token_hash, resolved.role, resolved.display_name, resolved.owner_id)
 
 
 def mounted_mcp_app() -> ASGIApp:

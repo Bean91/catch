@@ -33,6 +33,15 @@ dependencies = [
     "http-ece>=1.2",
 ]
 
+[project.optional-dependencies]
+# Session 24 (docs/public-architecture.md): the public Supabase/FastAPI Cloud deployment only. Not installed on the
+# Pi (`uv sync` there takes the default groups, never extras): psycopg-binary publishes no 32-bit ARM wheel.
+public = [
+    "psycopg[binary]>=3.2",
+    "pyjwt[crypto]>=2.9",
+    "alembic>=1.13",
+]
+
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.8"]
 

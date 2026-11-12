@@ -40,6 +40,9 @@ class Principal:
     role: str
     id: str
     name: str = ""
+    # Whose training record this principal acts on: the athlete's own id, or — for a coach token — the athlete
+    # who minted it. Transports set the request's tenant from this, never from anything the caller sends.
+    owner_id: str = OWNER_ID
 
     @property
     def is_athlete(self) -> bool:
@@ -47,26 +50,28 @@ class Principal:
 
 
 ATHLETE = Principal(ATHLETE_ROLE, OWNER_ID, "You")
-VIEWER = Principal(VIEWER_ROLE, "viewer", "")
+VIEWER = Principal(VIEWER_ROLE, "viewer", "", "")
 
 
 def athlete_for(owner_id: str) -> Principal:
     """The athlete principal of one owner (public: the signed-in user; personal: the constant `ATHLETE`)."""
-    return ATHLETE if owner_id == OWNER_ID else Principal(ATHLETE_ROLE, owner_id, "You")
+    return ATHLETE if owner_id == OWNER_ID else Principal(ATHLETE_ROLE, owner_id, "You", owner_id)
 
 
-def coach_principal(key: object, display_name: Optional[str]) -> Principal:
-    return Principal(COACH_ROLE, f"coach:{key}", (display_name or "").strip() or "Coach")
+def coach_principal(key: object, display_name: Optional[str], owner_id: str = OWNER_ID) -> Principal:
+    return Principal(COACH_ROLE, f"coach:{key}", (display_name or "").strip() or "Coach", owner_id)
 
 
-def principal_from_token(token_hash: str, role: Optional[str], display_name: Optional[str]) -> Principal:
+def principal_from_token(
+    token_hash: str, role: Optional[str], display_name: Optional[str], owner_id: str = OWNER_ID
+) -> Principal:
     """A coach's identity is a prefix of the token's own hash — random, unique per token and never
     reused. Keying it on `ApiToken.id` would be a bug: SQLite hands a deleted newest row's id to
     the next insert, so a freshly minted coach token would inherit a revoked coach's authorship
     (and the right to edit and delete their feedback)."""
     if role == COACH_ROLE:
-        return coach_principal(token_hash[:16], display_name)
-    return ATHLETE
+        return coach_principal(token_hash[:16], display_name, owner_id)
+    return athlete_for(owner_id)
 
 
 def principal_from(ctx: Optional[dict[str, Any]]) -> Principal:

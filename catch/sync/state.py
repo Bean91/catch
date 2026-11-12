@@ -33,9 +33,10 @@ def record_success(session: Session, source: str, cursor: str | None = None) -> 
     if cursor is not None:
         row.cursor = cursor
     session.commit()
-    from catch.core.healthchecks import ping_sync_ok
+    if not tenant.is_public():  # one shared dead-man's-switch means nothing across many users
+        from catch.core.healthchecks import ping_sync_ok
 
-    ping_sync_ok()
+        ping_sync_ok()
 
 
 def record_error(session: Session, source: str, error: str) -> None:

@@ -11,7 +11,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from catch.api import (
+    routes_account,
     routes_activities,
+    routes_internal,
     routes_ai,
     routes_analytics,
     routes_auth,
@@ -34,6 +36,7 @@ from catch.api import (
     routes_training_intelligence,
     routes_wellness,
 )
+from catch.core import tenant
 from catch.core.config import settings
 from catch.core.db import init_db
 from catch.sync.scheduler import start_scheduler, stop_scheduler
@@ -62,10 +65,26 @@ def _no_cache_headers_for(target: Path) -> dict[str, str] | None:
     return {"Cache-Control": "no-cache"} if target.name in ("sw.js", "index.html", "version.json") else None
 
 
+def _check_public_runtime() -> None:
+    """Refuse to serve a public deployment that would make the RLS claims false: a runtime role that
+    bypasses row level security (docs/public-architecture.md §6)."""
+    import os
+
+    from catch.core import db_pg
+    from catch.core.db import engine
+
+    if os.environ.get("CATCH_ALLOW_PRIVILEGED_DB") == "1":
+        logging.getLogger("catch").warning("CATCH_ALLOW_PRIVILEGED_DB=1: RLS is NOT protecting this deployment's requests")
+        return
+    db_pg.assert_unprivileged(engine)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    start_scheduler()
+    if tenant.is_public():
+        _check_public_runtime()
+    start_scheduler()  # a no-op in a public deployment
     if settings.mcp_http_enabled:
         # Mounted sub-apps don't get their own lifespan from the parent ASGI app, so the MCP
         # session manager has to be started from Catch's own lifespan instead (verified
@@ -107,6 +126,8 @@ async def _validation_errors(request: Request, exc: RequestValidationError):
     return await request_validation_exception_handler(request, exc)
 
 app.include_router(routes_auth.router)
+app.include_router(routes_account.router)
+app.include_router(routes_internal.router)
 app.include_router(routes_wellness.router)
 app.include_router(routes_activities.router)
 app.include_router(routes_body.router)

@@ -18,12 +18,22 @@ logger = logging.getLogger("catch.scheduler")
 SOURCES = ("garmin", "withings", "concept2", "whoop")
 FIT_DIR = Path(settings.db_file).parent / "fit"
 
-_locks = {source: threading.Lock() for source in SOURCES}
+_locks: dict[tuple[str, str], threading.Lock] = {}  # per (owner, source): one user's sync must not block another's
+_locks_guard = threading.Lock()
+# Garmin and Concept2 authenticate with one server-wide credential in .env; they stay personal-install only.
+PERSONAL_ONLY_SOURCES = frozenset({"garmin", "concept2"})
 _scheduler: BackgroundScheduler | None = None
 
 
+def _lock_for(owner: str, source: str) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault((owner, source), threading.Lock())
+
+
 def run_sync(source: str, days: int = 3) -> dict:
-    lock = _locks[source]
+    if tenant.is_public() and source in PERSONAL_ONLY_SOURCES:
+        return {"source": source, "skipped": "not available in the public deployment"}
+    lock = _lock_for(tenant.current_owner(), source)
     if not lock.acquire(blocking=False):
         return {"source": source, "skipped": "already running"}
     try:
@@ -124,7 +134,11 @@ def check_notifications() -> None:
                 logger.exception("notification check failed: %s", name)
 
 
-def start_scheduler() -> BackgroundScheduler:
+def start_scheduler() -> BackgroundScheduler | None:
+    if tenant.is_public():
+        # A scale-to-zero replica is not a scheduler and N replicas would run every job N times: scheduled work
+        # is an authenticated tick endpoint (catch/api/routes_internal.py), run per user.
+        return None
     global _scheduler
     if _scheduler is not None:
         return _scheduler

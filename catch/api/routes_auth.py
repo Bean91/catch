@@ -8,10 +8,19 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
+from catch.core import tenant
 from catch.core.security import SESSION_COOKIE_NAME, make_session_cookie, verify_password
 from catch.sync import withings_client
 
-router = APIRouter()
+def personal_only() -> None:
+    """Cookie login is the personal install's. In the public deployment identity is Supabase Auth, and the source
+    OAuth round-trips (a browser redirect, so no Authorization header) need a signed-state callback that isn't
+    built yet — so they say so instead of silently attaching a token to the wrong user."""
+    if tenant.is_public():
+        raise HTTPException(status_code=404, detail="Not available in the public deployment")
+
+
+router = APIRouter(dependencies=[Depends(personal_only)])
 
 WITHINGS_STATE_COOKIE = "withings_oauth_state"
 

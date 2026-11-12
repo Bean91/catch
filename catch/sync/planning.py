@@ -27,7 +27,7 @@ from catch.analytics.predict import predict_2k
 from catch.analytics.training_intelligence import _history_confidence
 from catch.analytics.zones import ZONE_ORDER
 from catch.core.models import CanonicalActivity, Event, PlannedWorkout, TrainingPhase
-from catch.core.tenant import PERSONAL_OWNER as OWNER_ID  # the personal install's owner; the public build passes the request's
+from catch.core.tenant import PERSONAL_OWNER as OWNER_ID  # noqa: F401  (the personal install's owner; tests import it)
 from catch.core.settings_store import get_settings
 from catch.sync import erg_test, rowing_predict
 from catch.sync.training_intelligence import _history_days, _overrides, _qualifying_activities

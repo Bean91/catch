@@ -69,3 +69,29 @@ def assert_unprivileged(engine: Engine) -> dict:
             "Use the dedicated catch_api role (see docs/public-setup.md)."
         )
     return report
+
+
+def rls_probe(engine: Engine) -> dict:
+    """Proves — on the real connection path — that the runtime role, once it takes a user's identity, sees only
+    that user: a stranger's id sees no profiles, and cannot write a profile for anyone else. Everything is rolled
+    back."""
+    import json
+    import uuid
+
+    stranger = str(uuid.uuid4())
+    out = {"sees_nothing_as_stranger": False, "cannot_write_for_another_user": False}
+    with engine.connect() as conn:
+        conn.exec_driver_sql("SET LOCAL ROLE authenticated")
+        conn.exec_driver_sql(
+            "SELECT set_config('request.jwt.claims', %s, true), set_config('request.jwt.claim.sub', %s, true),"
+            " set_config('search_path', 'catch, public', true)",
+            (json.dumps({"sub": stranger, "role": "authenticated"}), stranger),
+        )
+        out["sees_nothing_as_stranger"] = conn.exec_driver_sql("SELECT count(*) FROM user_profiles").scalar() == 0
+        conn.exec_driver_sql("SAVEPOINT p")
+        try:
+            conn.exec_driver_sql("INSERT INTO user_profiles (id, created_at) VALUES (%s, now())", (str(uuid.uuid4()),))
+        except Exception:  # noqa: BLE001 — the policy's WITH CHECK refusing the row is the expected outcome
+            out["cannot_write_for_another_user"] = True
+        conn.rollback()
+    return out
