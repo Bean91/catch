@@ -1,5 +1,12 @@
 # MCP server
 
+> **Session 23:** no tools were added or changed in count (still 55). AI provider keys and settings are deliberately
+> *not* reachable from here: the key routes are cookie-only, no tool name, schema or output mentions a credential
+> (`tests/test_ai_no_leak.py` plants keys and sweeps every read tool, the REST tool endpoint and the `/mcp` mount),
+> and the in-app coach's tool context carries no credentials. `get_today`'s recovery block now says which
+> provider supplied each input and reports calibration/data availability (`data_availability`, `calibration`,
+> `baseline_mixed_sources`).
+
 `catch/mcp_server/` exposes the same shared tool layer (`catch/coach/tools.py`) that the
 in-app coach uses — read-only training data (canonical activities only, session 8/12 — see
 PLAN.md: every id a tool takes or returns is a canonical id, never a raw per-source activity

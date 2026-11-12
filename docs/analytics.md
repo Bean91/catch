@@ -197,6 +197,15 @@ today`'s `checkin.niggle_flag` turns true once the same `niggle_area` has been l
 unprompted in the coach's per-turn memory block (`catch/coach/memory.py::memory_block`) so
 it can ask about it without a tool call.
 
+### 6.2 Provider-independent inputs, session 23 (full rules in §30)
+
+The formula above is **Catch's own** and is unchanged. It consumes four named inputs — overnight HRV, resting heart
+rate, sleep duration, yesterday's strain — plus the optional check-in, through `RecoveryInputs`
+(`catch/analytics/wellness_inputs.py`), and never reads a provider's own recovery score (Whoop's is stored on its
+reading for reference and nothing else). Which provider supplied each input is recorded, and the recovery payload now
+also carries `calibration` (nights of HRV vs the number required), `data_availability` (per input: present today?
+which provider? how many baseline nights? is it in the score at all?) and `baseline_mixed_sources`.
+
 ## 7. Erg technique per piece (`technique.py`)
 
 Each takes one piece's (or one interval's) stroke list — `catch/api/routes_analytics.py`
@@ -1123,3 +1132,48 @@ Full write-up in `docs/calendar.md`. The numeric rules, for reference:
 - **Review flag**: `Δ ≥ 60 min` and `Δ% > planning.review_threshold_pct` against `max(previous planned week, trailing
   4-week completed average)`; the baseline for a future week is the 4 weeks before *this* week.
 - **Projection**: `project_time` over confirmed tests (needs ≥ 3), ±1 residual SD; 2000 m also shows `predict_2k`.
+
+
+## 30. Provider-independent wellness inputs (`catch/analytics/wellness_inputs.py`, `catch/sync/wellness_readings.py`), session 23
+
+**Model.** Every provider records what it measured as `wellness_readings(date, source, signal, value, recorded_at,
+fetched_at, external_id, meta_json)`. Signals: `hrv_rmssd` (ms, overnight RMSSD), `resting_hr` (bpm), `sleep_seconds`
+(time asleep; stage seconds and wake time ride in `meta`), `sleep_respiration` (breaths/min, overnight), `skin_temp_c`,
+`spo2`. Check-ins are not readings (they have one source, you). `resolve_days` writes the winning value into the
+existing `daily_wellness` row — **the only writer of those columns** — and `field_sources_json` records the winner of
+each. Everything downstream (recovery, strain, illness, the API, the MCP tools) still reads `daily_wellness` and is
+unchanged. Garmin's non-signal fields (steps, kcal, stress, body battery, intensity minutes, floors, `sleep_score`,
+whole-day `respiration`) stay Garmin-only and are never touched by the resolver.
+
+**Deterministic conflict rules.**
+1. *One winner per signal per day; never averaged or summed.* This is the no-double-counting guarantee.
+2. *Order* is `Settings.wellness_priority[signal]`; a source not listed ranks after the listed ones, alphabetically, so
+   the order is total and never depends on row order. Default: Garmin first for everything it measures (so an existing
+   Garmin history scores exactly as before — checked on a copy of the real database: all 31 days resolve to identical
+   values), Whoop first for skin temperature (Garmin has none), Whoop's respiration below Garmin's (its unit is
+   undocumented).
+3. *Implausible values are rejected before ranking* (HRV 5–300 ms, resting HR 25–120, sleep 0.5–20 h, respiration
+   4–40, skin temperature 20–45 °C, SpO₂ 70–100 %), so a glitch from the preferred device falls through to the next.
+4. *A missing preferred value falls through* to the next provider.
+5. *Per provider, per day, one reading* (primary key). For Whoop the main sleep is the longest non-nap sleep ending on
+   the wake day; naps never feed any signal.
+6. *Which day*: Garmin's `calendarDate` is the wake day; Whoop's date is the local date of the sleep's `end` using that
+   record's `timezone_offset`, and a recovery takes its sleep's date (see docs/whoop-endpoints.md). The same night from
+   both providers therefore lands on one date.
+7. *Disagreement is flagged, not averaged*: `Resolved.conflict` is true when another provider's value differs from the
+   winner by more than a per-signal tolerance (display only).
+
+**Baselines and mixed sources.** The 7-night baseline and 60-night spread are built from the *resolved* series, so one
+night is one point however many providers measured it. HRV from different devices isn't directly comparable, so when
+the last seven nights of an input came from more than one provider the recovery and illness payloads carry
+`baseline_mixed_sources` and the UI says today's comparison is less exact. Changing `wellness_priority`
+re-resolves history (`PUT /api/settings`), which can itself create such a mix.
+
+**Calibration** is unchanged: no score until `min_hrv_nights_for_baseline` (7) nights of resolved HRV exist
+(`calibration.status`, `nights`, `required`). **Respiration, temperature and SpO₂** are defined, stored and shown but
+are not in the recovery formula (respiration still feeds the separate illness signal, §23).
+
+**Migration.** At startup, idempotently, every `source = 'garmin'` `daily_wellness` row without Garmin readings gets the
+readings it implies; resolving them reproduces the same numbers. Garmin's sync now records readings and resolves the
+days it touched instead of writing those columns directly, and `scheduler.run_sync` rescoring follows every source's
+sync.

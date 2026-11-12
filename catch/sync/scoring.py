@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from catch.analytics.checkin import checkin_badness, checkin_recovery_score
 from catch.analytics.illness import illness_score
 from catch.analytics.load import training_load
-from catch.analytics.recovery import recovery_score
+from catch.analytics.wellness_inputs import SIGNALS, RecoveryInputs, baseline_mixed, calibration_status, data_availability, recovery_from_inputs
 from catch.analytics.strain import daily_activity_strain, muscular_strain_component, session_strain, strain_band
 from catch.analytics.strength import normalize_muscle_au
 from catch.core.models import Activity, CanonicalActivity, CheckIn, DailyScore, DailyWellness, IllnessAck
@@ -258,14 +258,56 @@ def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict
     checkin = session.get(CheckIn, day)
     today_checkin_score = checkin_recovery_score(checkin.soreness, checkin.stress, checkin.mood, checkin.sleep_quality) if checkin else None
 
-    return recovery_score(
-        today_ln_hrv=today_ln_hrv,
-        hrv_history_ln=hrv_history,
-        today_resting_hr=today_rhr,
-        rhr_history=rhr_history,
-        today_sleep_seconds=today_sleep,
-        prior_day_strain=prior_day_strain,
-        today_checkin_score=today_checkin_score,
+    result = recovery_from_inputs(
+        RecoveryInputs(
+            today_ln_hrv=today_ln_hrv,
+            hrv_history_ln=hrv_history,
+            today_resting_hr=today_rhr,
+            rhr_history=rhr_history,
+            today_sleep_seconds=today_sleep,
+            prior_day_strain=prior_day_strain,
+            today_checkin_score=today_checkin_score,
+        ),
+        settings,
+    )
+    result["calibration"] = calibration_status(len(hrv_history), settings)
+    result["data_availability"] = _availability(wellness, rows, hrv_history, rhr_history, prior_day_strain, checkin, settings)
+    result["baseline_mixed_sources"] = _mixed_sources(rows, ("hrv_rmssd", "resting_hr", "sleep_seconds"))
+    return result
+
+
+def _sources_of(row: DailyWellness | None) -> dict:
+    return json.loads(row.field_sources_json) if row is not None and row.field_sources_json else {}
+
+
+def _mixed_sources(rows: list[DailyWellness], signals: tuple[str, ...]) -> list[str]:
+    """Signals whose last seven nights came from more than one provider. A row with no recorded
+    source predates provider tracking and counts as Garmin, the only source then."""
+    mixed = []
+    for signal in signals:
+        column = SIGNALS[signal][0]
+        nights = [(_sources_of(r).get(signal) or "garmin") for r in rows if getattr(r, column) is not None]
+        if baseline_mixed(nights):
+            mixed.append(signal)
+    return mixed
+
+
+def _availability(wellness, rows, hrv_history, rhr_history, prior_day_strain, checkin, settings) -> list[dict]:
+    sources = _sources_of(wellness)
+    today = {
+        signal: ((getattr(wellness, column) if wellness else None), (sources.get(signal) or ("garmin" if wellness and getattr(wellness, column) is not None else None)))
+        for signal, (column, _) in SIGNALS.items()
+    }
+    counts = {
+        "hrv_rmssd": len(hrv_history),
+        "resting_hr": len(rhr_history),
+        **{signal: sum(1 for r in rows if getattr(r, column) is not None) for signal, (column, _) in SIGNALS.items() if signal not in ("hrv_rmssd", "resting_hr")},
+    }
+    return data_availability(
+        today=today,
+        history_counts=counts,
+        prior_strain_available=prior_day_strain is not None,
+        checkin_available=checkin is not None,
         settings=settings,
     )
 
@@ -303,7 +345,7 @@ def day_illness(
     wellness = session.get(DailyWellness, day)
     checkin_today = session.get(CheckIn, day)
 
-    return illness_score(
+    result = illness_score(
         today_resting_hr=wellness.resting_hr if wellness else None,
         resting_hr_history=rhr_history,
         today_ln_hrv=_ln_hrv(wellness) if wellness else None,
@@ -316,6 +358,8 @@ def day_illness(
         acr=acr_yesterday,
         settings=settings,
     )
+    result["baseline_mixed_sources"] = _mixed_sources(history_rows, ("hrv_rmssd", "resting_hr", "sleep_respiration"))
+    return result
 
 
 def _earliest_date(session: Session) -> date | None:

@@ -82,6 +82,21 @@ _NEW_COLUMNS = {
         "sleep_respiration_avg": "REAL",
         # Session 16 (see PLAN.md Part A) — see DailyWellness.wake_time_minutes's docstring.
         "wake_time_minutes": "INTEGER",
+        # Session 23 (see PLAN.md) — see DailyWellness.skin_temp_c / field_sources_json.
+        "skin_temp_c": "REAL",
+        "field_sources_json": "TEXT",
+    },
+    "coach_settings": {
+        # Session 23 (see PLAN.md): per-owner lookup, a per-provider model map, a token ceiling.
+        "owner_id": "TEXT NOT NULL DEFAULT 'owner'",
+        "models_json": "TEXT NOT NULL DEFAULT '{}'",
+        "daily_token_cap": "INTEGER",
+    },
+    "coach_conversations": {"owner_id": "TEXT NOT NULL DEFAULT 'owner'"},
+    "ai_usage_events": {
+        "owner_id": "TEXT NOT NULL DEFAULT 'owner'",
+        "provider": "TEXT",
+        "model": "TEXT",
     },
     "events": {
         # Session 15 (see PLAN.md Part C.3).
@@ -260,6 +275,16 @@ def _seed_workout_examples() -> None:
         workout_library.seed_examples(session)
 
 
+def _seed_wellness_readings() -> None:
+    """Session 23: a Garmin-era wellness row gets the readings it implies, once (idempotent)."""
+    from sqlmodel import Session
+
+    from catch.sync import wellness_readings
+
+    with Session(engine) as session:
+        wellness_readings.seed_from_daily_wellness(session)
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
@@ -267,6 +292,7 @@ def init_db() -> None:
     _migrate_garmin_activity_fields()
     _seed_exercise_library()
     _seed_workout_examples()
+    _seed_wellness_readings()
 
 
 @contextmanager

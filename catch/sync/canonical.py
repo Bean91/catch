@@ -31,12 +31,12 @@ from catch.core.models import Activity, ActivitySamples, CanonicalActivity
 from catch.core.settings_store import get_settings
 from catch.sync.rowing_predict import rowing_watts_2k
 
-_DEFAULT_PRIORITY = ["concept2", "peloton", "garmin"]
+_DEFAULT_PRIORITY = ["concept2", "peloton", "garmin", "whoop"]
 # Session 14 (see PLAN.md Part B.2): "HR, calories, duration from Garmin [when both exist]."
 # catch_strength still has to be in this list (last) so a Catch-only session (no Garmin
 # counterpart) falls back to its own computed start/duration rather than getting None from
 # every member having an unlisted provenance.
-_STRENGTH_PRIORITY = ["garmin", "catch_strength"]
+_STRENGTH_PRIORITY = ["garmin", "whoop", "catch_strength"]
 
 # Thresholds for the erg/bike muscular-AU split below, as a fraction of threshold_watts
 # (FTP for cycling, predicted-2k watts for rowing). SPRINT catches the old ">=110%"

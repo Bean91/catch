@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import base64
 import json
+import uuid
 from typing import Any, AsyncIterator
 
 import httpx
 
 from catch.coach import tools as tools_module
+from catch.coach.providers.base import (
+    MAX_OUTPUT_TOKENS,
+    ProviderCapabilities,
+    ProviderError,
+    VisionRequest,
+    safe_error_event,
+    strip_code_fence as _base_strip_code_fence,
+    validation_result,
+)
 
 _HEALTH_TIMEOUT_S = 2.5
 
@@ -72,14 +83,17 @@ def _parse_raw_tool_call(text: str) -> dict | None:
 
 class OllamaProvider:
     name = "ollama"
+    # Vision depends on the selected model (a "vision" entry in /api/show's capabilities), so the
+    # provider-level flag is True and the per-model flag from list_models() narrows it.
+    capabilities = ProviderCapabilities(streaming=True, tools=True, vision=True)
 
     def __init__(self, base_url: str):
         self._base_url = base_url.rstrip("/")
-        self._next_call_id = 0
 
     def _synthetic_id(self) -> str:
-        self._next_call_id += 1
-        return f"ollama_call_{self._next_call_id}"
+        # Unique across turns: a per-instance counter restarts every message, so stored histories
+        # would hold several different calls under one id.
+        return f"ollama_call_{uuid.uuid4().hex[:10]}"
 
     async def health_check(self) -> bool:
         try:
@@ -93,7 +107,7 @@ class OllamaProvider:
 
     async def stream_turn(self, *, system_blocks: list[dict], messages: list[dict], model: str) -> AsyncIterator[dict]:
         if not await self.health_check():
-            yield {"type": "error", "message": "Ollama isn't reachable at the configured URL. Is the laptop awake?"}
+            yield safe_error_event(ProviderError("unavailable", "Ollama isn't reachable at the configured URL. Is the laptop awake?"))
             return
 
         system_text = "\n\n".join(b["text"] for b in system_blocks)
@@ -104,7 +118,13 @@ class OllamaProvider:
                 async with client.stream(
                     "POST",
                     "/api/chat",
-                    json={"model": model, "messages": ollama_messages, "tools": tools_module.ollama_tool_schemas(), "stream": True},
+                    json={
+                        "model": model,
+                        "messages": ollama_messages,
+                        "tools": tools_module.ollama_tool_schemas(),
+                        "stream": True,
+                        "options": {"num_predict": MAX_OUTPUT_TOKENS},
+                    },
                 ) as resp:
                     resp.raise_for_status()
                     tool_calls_seen: list[dict] = []
@@ -150,7 +170,10 @@ class OllamaProvider:
                         if chunk.get("done"):
                             final_chunk = chunk
         except httpx.HTTPError as exc:
-            yield {"type": "error", "message": f"Ollama request failed: {exc}"}
+            # Not str(exc): httpx's text carries the request URL, which can hold user:pass@ from
+            # a user-entered base URL.
+            kind = "timeout" if isinstance(exc, httpx.TimeoutException) else "unavailable"
+            yield safe_error_event(ProviderError(kind, "Ollama request failed. Is the laptop awake and the URL right?"))
             return
 
         if content_buffer:
@@ -190,12 +213,50 @@ class OllamaProvider:
                     continue
                 # Ollama reports per-model capabilities on /api/show, not /api/tags — only
                 # offer models that advertise native tool calling, per the task spec.
-                if "tools" in (show.get("capabilities") or []):
-                    out.append({"id": m["name"], "display_name": m["name"]})
+                caps = show.get("capabilities") or []
+                if "tools" in caps:
+                    out.append({"id": m["name"], "display_name": m["name"], "vision": "vision" in caps})
             return out
 
-    async def test_connection(self) -> dict:
+    async def validate(self) -> dict:
         if not await self.health_check():
-            return {"ok": False, "error": "Could not reach Ollama at the configured URL"}
+            return validation_result(False, "unavailable", "Could not reach Ollama at the configured URL")
         models = await self.list_models()
-        return {"ok": True, "model_count": len(models)}
+        return validation_result(True, None, "Connected", len(models))
+
+    async def test_connection(self) -> dict:
+        result = await self.validate()
+        return {"ok": True, "model_count": result["model_count"]} if result["ok"] else {"ok": False, "error": result["message"], "kind": result["kind"]}
+
+    async def vision_structured(self, model: str, req: VisionRequest) -> tuple[dict, dict]:
+        body = {
+            "model": model,
+            "stream": False,
+            "format": req.tool["input_schema"],
+            "options": {"num_predict": req.max_tokens},
+            "messages": [
+                {"role": "system", "content": req.system},
+                {"role": "user", "content": req.user_text, "images": [base64.standard_b64encode(req.image_bytes).decode()]},
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(base_url=self._base_url, timeout=120.0) as client:
+                resp = await client.post("/api/chat", json=body)
+        except httpx.HTTPError as exc:
+            raise ProviderError("timeout" if isinstance(exc, httpx.TimeoutException) else "unavailable") from None
+        if resp.status_code != 200:
+            raise ProviderError("bad_request", "Ollama couldn't read that image with this model.")
+        payload = resp.json()
+        try:
+            result = json.loads(_base_strip_code_fence((payload.get("message") or {}).get("content") or ""))
+        except json.JSONDecodeError:
+            raise ProviderError("bad_request", "The model didn't return a structured result.") from None
+        if not isinstance(result, dict):
+            raise ProviderError("bad_request", "The model didn't return a structured result.")
+        usage = {
+            "input_tokens": payload.get("prompt_eval_count") or 0,
+            "output_tokens": payload.get("eval_count") or 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+        return result, usage

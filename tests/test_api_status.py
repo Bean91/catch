@@ -17,7 +17,7 @@ def test_status_shape_with_a_fresh_db(client):
     assert resp.status_code == 200
     body = resp.json()
     sources = {s["source"] for s in body["sources"]}
-    assert sources == {"garmin", "withings", "concept2"}
+    assert sources == {"garmin", "withings", "concept2", "whoop"}
     for s in body["sources"]:
         assert s["last_success_at"] is None
         assert s["consecutive_failures"] == 0

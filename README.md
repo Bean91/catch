@@ -40,6 +40,8 @@ Fill in `.env`:
 - `CATCH_FERNET_KEY` — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 - `GARMIN_PERSONAL_API_KEY` — from the Garmin developer page above
 - `WITHINGS_CLIENT_ID` / `WITHINGS_CLIENT_SECRET` — from your Withings developer app
+- `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` / `WHOOP_REDIRECT_URI` — optional, from your Whoop developer app (see `docs/whoop-endpoints.md`)
+- `CATCH_SECRETS_MASTER_KEY` — optional on the Pi (falls back to `CATCH_FERNET_KEY`); protects your AI provider keys (see `docs/security.md`)
 - `CONCEPT2_ACCESS_TOKEN` — Concept2 Logbook > Edit Profile > Applications
 
 Every key is documented inline in `.env.example`.

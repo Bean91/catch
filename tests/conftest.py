@@ -26,6 +26,13 @@ TEST_PASSWORD = "correct-horse-battery-staple"
 # pass locally and fail in CI (see `_fernet_key_always_set` below) before this fixture existed.
 from catch.core.config import settings as _real_settings  # noqa: E402
 
+object.__setattr__(_real_settings, "ollama_enabled", True)
+for _field in ("secrets_master_key_previous", "whoop_client_id", "whoop_client_secret", "whoop_redirect_uri"):
+    object.__setattr__(_real_settings, _field, "")
+# A fixed, test-only master key: never the ambient .env's CATCH_FERNET_KEY, so credential tests
+# are deterministic on a laptop with a real .env and in CI without one.
+object.__setattr__(_real_settings, "secrets_master_key", "test-master-key-not-a-real-secret-0123456789")
+
 for _field in ("vapid_private_key", "vapid_public_key", "ntfy_topic", "healthchecks_sync_url", "healthchecks_backup_url"):
     object.__setattr__(_real_settings, _field, "")
 
@@ -100,6 +107,17 @@ def _fernet_key_always_set(monkeypatch):
     from catch.core import security
 
     monkeypatch.setattr(security, "_fernet", Fernet(Fernet.generate_key()))
+
+
+@pytest.fixture(autouse=True)
+def _fresh_ai_limits():
+    """The AI rate limiter is process-global in-memory state; reset it so one test's requests
+    never count against the next."""
+    from catch.coach import limits
+
+    limits.reset()
+    yield
+    limits.reset()
 
 
 @pytest.fixture(autouse=True)

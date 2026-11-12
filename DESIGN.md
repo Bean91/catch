@@ -365,6 +365,36 @@ standalone route with no nav slot of its own.
 - Wording stays neutral — no "missed", "behind", "overdue" — and cards say "Not set", "Estimated", "Exact" rather than
   grading a template.
 
+## AI providers, Whoop and recovery inputs (session 23)
+
+- **Navigation.** "AI providers" is `/settings/ai`, reached from a link on the Settings "AI coach" card (and from every
+  coach notice that needs it); no bottom-nav or sidebar slot, same pattern as Status and Memory. It has a "← Settings" link.
+- **Status is a glyph and a word, never colour alone**: ● Connected, ◐ Saved — not checked yet, ✕ Invalid key, ! Unavailable,
+  ○ Not configured, each in a pill; "Active" is a separate accent pill. Detail text explains *why* in a sentence from a
+  fixed vocabulary (never provider text) and always names the way out ("Replace it, or switch to another provider").
+- **A key is entered once and never shown again.** The key field is a password input (`autocomplete=off`,
+  `autocapitalize=none`, `spellcheck=false`) in a bottom sheet (`z-30` over the bottom nav, no autofocus, centred on
+  desktop). The card shows `Key …abcd` — only the last four characters of a long key, or just "Key saved". The sheet's
+  copy says it checks the key first, stores it encrypted, and that the user pays the provider directly.
+  A rejected key keeps the sheet open with the reason and clears the field. `ai-providers.spec.ts` asserts the full key is
+  never in the page text or HTML after saving.
+- **Destructive actions are confirmed inline** (the existing pattern — no new dialog dependency): "Remove key" opens a
+  bordered row that says conversations and coach memory stay, with "Remove key" / "Keep it". Whoop's "Disconnect" says
+  imported data stays.
+- **Honest numbers.** Usage is titled "Usage Catch has recorded" and says plainly that no provider balance is shown
+  because none offers one through an API key. A model with no entered price reads "cost unknown (no price entered)",
+  never "$0.00". Prices live behind a collapsed "Prices for <model> (optional)" row.
+- **Capabilities hide, they don't error.** The meal-photo and PM5-photo entry points are absent unless the active provider
+  is configured, has a model and can read images; a model that can't is marked "(no photos)" in its picker.
+- **Coach notices** for provider trouble sit in the existing strip above the composer: one-tap "Switch to <provider>" for
+  every other configured provider, plus an "AI providers" link. Switching never touches the conversation.
+- **Whoop** is a fourth row in "Connected sources" with Connect/Reconnect, Sync now, Test connection (counts only) and
+  Disconnect; a `?whoop=connected|denied|failed` notice appears after the OAuth round trip.
+- **Recovery details show their inputs.** The Today recovery dialog now lists "What this score used": each input with a
+  ✓ and its provider ("Garmin", "Whoop"), "— none today" when missing, "shown, not scored" for inputs the formula doesn't use,
+  `n/7 nights` for HRV, a calibration sentence, and — when the last week mixes devices — a plain note that the comparison is
+  less exact. "Recovery inputs" in Settings is a two-button radiogroup (Garmin first / Whoop first), not a table.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

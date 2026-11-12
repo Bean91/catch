@@ -3851,3 +3851,139 @@ Web: Library, Template, Editor, Feedback pages; technique-notes card on workout 
    MCP tool list should be filtered by role.
 3. The multi-user build: real accounts and coach links in place of token roles, owner filters on the legacy readers, and a
    Postgres CI job that runs `tests/test_postgres_optional.py`.
+
+
+# Session 23: Whoop, provider-independent recovery, BYOK AI providers
+
+**Numbering note.** The brief carried no session number, so this is recorded as **Session 23**. Full write-ups:
+[docs/whoop-endpoints.md](docs/whoop-endpoints.md), [docs/ai-providers.md](docs/ai-providers.md),
+[docs/security.md](docs/security.md), [docs/analytics.md §6.2 and §30](docs/analytics.md). **`.env` was not read** (names
+only, from `.env.example`); the one run against real data was a *copy* of `data/catch.db`.
+
+## Decisions (the user chose the first two; the rest are mine, flagged in the plan)
+
+- **Isolation = an `owner_id` seam plus per-owner crypto.** There is still no users table. `core/owner.py::current_owner_id`
+  is the one place an owner id comes from (`"owner"` on the Pi); credentials, coach settings, conversations, AI usage and
+  rate limits all filter by it, and tests act as a second owner by overriding that dependency. Keys are sealed with
+  AES-256-GCM under a per-owner HKDF key, bound to owner+provider (AAD), from `CATCH_SECRETS_MASTER_KEY` (the Pi falls back
+  to `CATCH_FERNET_KEY`).
+- **Wellness = a readings table plus a resolver**, not a `(date, source)` key on `daily_wellness`: every provider records
+  `wellness_readings`; `resolve_days` is the only writer of the signal columns, so recovery/strain/illness/the API/MCP are
+  untouched and there is no primary-key migration. One winner per signal per day, never averaged; Garmin first by default.
+- OpenAI and Gemini are plain `httpx` (no new dependency on the Pi; tests use `MockTransport` under the live-network guard).
+  OpenAI uses the **Responses API** (its docs recommend it for new projects and some models require it for tool calls).
+  Gemini's key is a header, never `?key=`.
+- **No provider balance is shown**: none of the three documents one for an ordinary key. The UI shows only what Catch
+  recorded, and says so.
+- A hosted model with no entered price has **unknown** cost (`None`), not $0, and a per-owner **token cap** exists beside
+  the USD cap.
+- The `mcp-builder` skill isn't installed here; MCP work was limited to a docstring, a doc note and leak tests (still 55 tools).
+- The advisor review before coding changed the design in four places: the day a Whoop night lands on (wake day via the sleep's
+  own `timezone_offset`, recoveries dated through `sleep_id`), the resolver being the *only* writer of the signal columns
+  (Garmin's sync would otherwise overwrite a Whoop winner), owner scoping reaching spend/usage/conversations (not just keys),
+  and a non-destructive Pi credential migration.
+
+## Bugs found while building (fixed, with regression tests unless noted)
+
+1. **The installed Anthropic SDK rejects `httpx.Timeout`** (it bundles its own httpx build). Found only because one test
+   used the real SDK instead of the fake module; the other Anthropic tests would have passed while production broke.
+2. The photo features **ignored the selected provider** and demanded an Anthropic key; both now go through
+   `vision_structured` on the active provider and say plainly when it can't read images.
+3. **An unpriced model's cost was silently $0**, so the daily cap under-counted. It is now `None` ("cost unknown"), with the
+   token cap covering that case.
+4. **A short key's `last4` was the whole key.** Keys under 12 characters now show nothing.
+5. **FastAPI's 422 echoes the submitted `input`** — on a key route that hands the secret back. Stripped on `/api/ai/*` and
+   `/api/coach/key`, and the field is a `SecretStr`.
+6. Provider and sync errors could carry secrets: httpx's text includes request URLs (the existing USDA client puts its key in
+   one and logged it), and Ollama's error echoed a base URL's `user:pass@`. All error paths are reduced to a fixed vocabulary
+   or scrubbed, and a log-record factory scrubs every record including tracebacks (a Filter would not have seen propagated
+   child-logger records).
+7. A Whoop that was never connected would have recorded an error every interval and fired the "sync broken" alert; a
+   not-connected Whoop is now skipped without an attempt, and disconnecting deletes its sync state.
+8. `cli.py backfill` sends any unknown source to the Concept2 `else`; Whoop has its own branch.
+9. Process-global rate-limiter state leaked between tests (an autouse reset now isolates it).
+10. **(Found by the advisor review.) Synthetic tool-call ids repeated across turns.** Ollama's and Gemini's per-instance
+    counters restart for every message (a provider object is built per message), so every stored multi-turn Ollama
+    conversation holds *different* calls sharing `ollama_call_1`. Gemini's `functionResponse` name lookup (one dict keyed by id)
+    would have given turn 1's result turn 2's function name, and Anthropic/OpenAI key results by id. My switching tests used
+    one tool call so couldn't see it. Ids are now unique (uuid suffix) **and** every adapter runs `normalize_tool_ids`, which
+    makes ids unique across the history and pairs each result positionally with the previous assistant message's calls, so
+    histories already on disk work. Test: a two-turn history with two different calls both named `ollama_call_1`, replayed
+    into Gemini, Anthropic and OpenAI.
+11. **(Found by the advisor review.) The startup seed could relabel Whoop's winning values as Garmin's.** It skipped a day only
+    if Garmin readings existed; a Garmin-created row (watch off overnight) whose HRV/sleep were won by Whoop would be copied
+    into Garmin readings on the next restart, then win under Garmin-first. It now seeds only rows the resolver has never
+    touched (`field_sources_json IS NULL`).
+12. **(Review.) A stream slot that never closes would lock the coach until restart.** Slots now carry a start time and expire
+    after the turn's wall-clock cap + 30 s; a test disconnects mid-stream through `stream_until_disconnected` and asserts the
+    slot is released, another simulates abandoned generators.
+13. **(Review.) A changed master key crashed chat with a raw error**; it is now a clear "re-enter your key" message, and
+    `.env.example` says to move the old `CATCH_FERNET_KEY` into `…_PREVIOUS`.
+14. **(Review.) Ollama's user-supplied URL is SSRF on a public server**: `CATCH_OLLAMA_ENABLED=0` removes the provider, and
+    URLs must be plain `http(s)` without credentials. (An allowlist for a self-hosted public build is not built.)
+15. **(Review.) The redaction registry grew with every token rotation** (Whoop rotates hourly) and is scanned per log record;
+    it is now an LRU of 64.
+16. A same-night Garmin + Whoop pair would have been **double-counted in the 7-night baseline** under a naive date rule;
+    covered by `test_the_baseline_never_counts_one_night_twice` and the late-evening/offset cases.
+
+## Verification
+
+- `uv run ruff check .` clean; `uv run pytest`: **1362 passed, 3 skipped** (1223 at the start; the 3 are
+  `test_postgres_optional.py`, which needs `CATCH_TEST_PG_URL` and was **not run** this session — no Postgres server here).
+  New: `test_secret_store.py` (13), `test_redact.py` (7), `test_ai_credentials.py` (25: per-owner isolation at service and API
+  level, copied-row failure, replace/delete, legacy adoption, no env fallback, 422/log leak checks), `test_ai_no_leak.py` (7: planted
+  keys swept through every read tool, the REST endpoint, the `/mcp` mount, the memory block), `coach/test_provider_openai.py`
+  and `test_provider_gemini.py` (37: valid/invalid/expired/quota/rate/5xx/timeout, streaming, usage, replay of Ollama-style ids,
+  vision), `coach/test_chat_byok.py` (13: provider switching with history intact, unavailable/invalid provider, limits, caps,
+  trimming, scrubbed tool errors), Anthropic/Ollama adapter additions, and `test_whoop_client.py` (35: OAuth state, rotation,
+  stale-row refresh, revoked token, 401/429, pagination, wake-day rules, import, same-night dedupe, priority change, mixed
+  baseline, calibration, workout merge, disconnect, scheduler, routes), and `coach/test_review_fixes.py` (18: the advisor-review
+  regressions above). The web suites were last run before the review fixes, which changed no frontend code.
+- Web: `tsc -b`, `oxlint` (only the existing `gymSync.ts` warnings), `npm test` **70** (5 new), `npm run build`, initial JS
+  **207.4 KB gzip of 250** (205.2 before; the new pages are lazy), Playwright `CI=1` **139 passed / 8 skipped** (the same
+  CDP-only skips; 23 new: 11 specs × 2 mobile projects incl. real WebKit + 1 desktop-mouse), `test:update` 4, `test:gym` 1.
+- Screenshots reviewed at 390 px and 1280 px (AI providers, key sheet). One flaw found and fixed: the usage lines were
+  title-cased and said "Openai".
+- **Migration smoke on a copy of the real `data/catch.db`**: both new tables and the new columns appear, a second `init_db` is
+  a no-op, the original's hash is unchanged, 31 wellness days seed 124 Garmin readings, and `resolve_all` reproduces every
+  existing signal column **identically** (so Garmin-only scores don't move). That database holds no AI credentials and
+  predates `sleep_respiration_avg`/`wake_time_minutes`, so the legacy-credential adoption path is covered by tests only.
+
+## Added
+
+DB: `ai_credentials`, `wellness_readings`; `daily_wellness.skin_temp_c/field_sources_json`; `coach_settings.owner_id/
+models_json/daily_token_cap`; `coach_conversations.owner_id`; `ai_usage_events.owner_id/provider/model`. Settings:
+`wellness_priority`. API: `/api/ai/providers`, `…/{id}/key` (PUT/DELETE), `…/{id}/test`, `…/{id}/models`, `/api/ai/active`,
+`/api/ai/usage`; `/auth/whoop/start|callback|disconnect`, `GET /api/whoop/test`. CLI: `catch whoop check`, `sync --source
+whoop`. Env: `WHOOP_CLIENT_ID/SECRET/REDIRECT_URI`, `CATCH_SECRETS_MASTER_KEY[_PREVIOUS]`. Web: AI providers page, Whoop controls,
+recovery-inputs card, recovery details with sources/calibration.
+
+## Not done / limitations
+
+- **Nothing was run against a live Whoop, OpenAI, Gemini or Anthropic account.** Fixtures are synthetic, shaped from the
+  docs; `docs/ai-providers.md` lists exactly what was and wasn't confirmed (OpenAI's Responses stream event names and
+  `/v1/models` shape, Gemini `alt=sse`/error statuses/per-model vision, Anthropic's image block, Whoop's token-endpoint
+  credential placement and the units of `resting_heart_rate`/`respiratory_rate`). **The first real call may falsify any of
+  these.** The Whoop manual test needs the user's own developer app.
+- Gemini and OpenAI structured-output schemas reuse the existing Anthropic tool schemas; OpenAI strict mode's schema limits
+  were not verified against a live call.
+- Rate limiting is in-process (one worker). Source OAuth tokens (incl. Whoop's) still use the single Fernet key.
+- Wellness, activity and nutrition tables are not owner-scoped; only AI keys/settings/conversations/usage are.
+- Whoop's skin temperature, SpO₂ and respiration are stored and shown but not in the recovery formula; webhooks aren't used.
+- The Whoop connect link returns JSON 409 if `WHOOP_*` isn't configured (no friendly page).
+
+## Blockers (for the public Supabase/FastAPI Cloud build, not this install)
+
+- **Garmin**: a public app needs Garmin Connect Developer Program access and approval; the personal API key doesn't carry over.
+- **Whoop**: new apps are capped at **10 members** until each tier is requested and approved.
+- Ollama's user-supplied URL: turn it off (`CATCH_OLLAMA_ENABLED=0`); an allowlist/egress policy is needed to offer it publicly.
+- Real user accounts; owner filters on every remaining table; per-user source tokens; a shared rate-limit store; KMS-wrapped
+  per-user data keys; the Postgres engine switch (and the optional PG test in CI).
+
+## Next steps
+
+1. Create a Whoop developer app, set `WHOOP_*`, run `uv run catch whoop check`, then Connect in Settings and look at Today →
+   Recovery details. If the token step fails, try HTTP Basic client credentials (see docs/whoop-endpoints.md).
+2. Add one real key per provider in Settings → AI Providers and send a message, a meal photo and a PM5 photo through each.
+3. After `./deploy.sh`, confirm on the Pi that the Anthropic key still works (it is adopted into `ai_credentials` on first read
+   and the old row is kept until you replace or remove the key).

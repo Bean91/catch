@@ -5,6 +5,7 @@ import asyncio
 from sqlmodel import select
 
 from catch.coach import chat
+from catch.coach.providers.base import ProviderError
 from catch.core.models import CoachConversation, CoachMessage
 
 
@@ -52,8 +53,8 @@ def test_run_turn_executes_tool_call_then_returns_text(session, monkeypatch):
         ]
     )
 
-    async def fake_resolve(session_arg):
-        return provider, "claude-sonnet-5", prices
+    async def fake_resolve(session_arg, owner_id="owner"):
+        return provider, "claude-sonnet-5", prices, "anthropic"
 
     monkeypatch.setattr(chat, "_resolve_provider", fake_resolve)
 
@@ -93,7 +94,7 @@ def test_run_turn_blocks_when_daily_cap_already_reached(session, monkeypatch):
 
     called = False
 
-    async def fake_resolve(session_arg):
+    async def fake_resolve(session_arg, owner_id="owner"):
         nonlocal called
         called = True
         raise AssertionError("provider should never be resolved once the cap is hit")
@@ -101,7 +102,7 @@ def test_run_turn_blocks_when_daily_cap_already_reached(session, monkeypatch):
     monkeypatch.setattr(chat, "_resolve_provider", fake_resolve)
 
     events = asyncio.run(_collect(chat.run_turn(session, conv_id, "hi")))
-    assert events == [{"type": "cap_reached", "daily_spend_usd": 5.0, "daily_cap_usd": 1.0}]
+    assert events == [{"type": "cap_reached", "reason": "usd", "daily_spend_usd": 5.0, "daily_cap_usd": 1.0}]
     assert called is False
 
 
@@ -122,8 +123,8 @@ def test_run_turn_checks_cap_between_tool_iterations(session, monkeypatch):
         ]
     )
 
-    async def fake_resolve(session_arg):
-        return provider, "claude-sonnet-5", {"input": 1.0, "output": 1.0, "cache_write": 1.0, "cache_read": 1.0}
+    async def fake_resolve(session_arg, owner_id="owner"):
+        return provider, "claude-sonnet-5", {"input": 1.0, "output": 1.0, "cache_write": 1.0, "cache_read": 1.0}, "anthropic"
 
     monkeypatch.setattr(chat, "_resolve_provider", fake_resolve)
 
@@ -135,13 +136,13 @@ def test_run_turn_checks_cap_between_tool_iterations(session, monkeypatch):
 def test_run_turn_surfaces_provider_resolution_errors(session, monkeypatch):
     conv_id = _new_conversation(session)
 
-    async def fake_resolve(session_arg):
-        raise ValueError("No Anthropic API key configured — add one in Settings.")
+    async def fake_resolve(session_arg, owner_id="owner"):
+        raise ProviderError("bad_request", "No Anthropic model is selected. Pick one in Settings → AI Providers.")
 
     monkeypatch.setattr(chat, "_resolve_provider", fake_resolve)
 
     events = asyncio.run(_collect(chat.run_turn(session, conv_id, "hi")))
-    assert events == [{"type": "error", "message": "No Anthropic API key configured — add one in Settings."}]
+    assert events == [{"type": "error", "kind": "bad_request", "message": "No Anthropic model is selected. Pick one in Settings → AI Providers.", "switch_to": []}]
 
 
 def test_run_turn_stops_after_max_tool_iterations(session, monkeypatch):
@@ -153,8 +154,8 @@ def test_run_turn_stops_after_max_tool_iterations(session, monkeypatch):
     ]
     provider = FakeProvider([list(looping_turn) for _ in range(chat._MAX_TOOL_ITERATIONS)])
 
-    async def fake_resolve(session_arg):
-        return provider, "claude-sonnet-5", {}
+    async def fake_resolve(session_arg, owner_id="owner"):
+        return provider, "claude-sonnet-5", {}, "anthropic"
 
     monkeypatch.setattr(chat, "_resolve_provider", fake_resolve)
 

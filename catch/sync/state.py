@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from catch.core.models import SyncState
+from catch.core.redact import redact
 
 
 def record_attempt(session: Session, source: str) -> None:
@@ -41,6 +42,7 @@ def record_error(session: Session, source: str, error: str) -> None:
     if row is None:
         row = SyncState(source=source)
         session.add(row)
+    error = redact(error)  # httpx errors carry the request URL, which can hold a key
     row.last_error = error
     row.consecutive_failures = (row.consecutive_failures or 0) + 1
     session.commit()

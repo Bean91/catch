@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 
@@ -33,7 +34,7 @@ def _install_fake_anthropic(monkeypatch, *, tool_input=None, no_tool_call=False,
         pass
 
     class FakeMessages:
-        def create(self, **kwargs):
+        async def create(self, **kwargs):
             capture.append(kwargs)
             if raise_api_error:
                 raise APIError("boom")
@@ -61,11 +62,13 @@ def _install_fake_anthropic(monkeypatch, *, tool_input=None, no_tool_call=False,
             return types.SimpleNamespace(content=content, usage=usage)
 
     class FakeClient:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, **kwargs):
             self.messages = FakeMessages()
 
-    fake_module.Anthropic = FakeClient
+    fake_module.AsyncAnthropic = FakeClient
     fake_module.APIError = APIError
+    fake_module.AuthenticationError = type('AuthenticationError', (APIError,), {})
+    fake_module.APIConnectionError = type('APIConnectionError', (APIError,), {})
     monkeypatch.setitem(sys.modules, "anthropic", fake_module)
     return capture
 
@@ -74,7 +77,7 @@ def test_estimate_piece_photo_parses_time_strings_server_side(session, monkeypat
     _seed_key_and_model(session, prices={"input": 4.0, "output": 20.0})
     capture = _install_fake_anthropic(monkeypatch)
 
-    result = estimate_piece_photo(session, image_bytes=b"fake-jpeg-bytes", media_type="image/jpeg")
+    result = asyncio.run(estimate_piece_photo(session, image_bytes=b"fake-jpeg-bytes", media_type="image/jpeg"))
 
     assert result["duration_s"] == pytest.approx(392.4)
     assert result["distance_m"] == 2000
@@ -107,7 +110,7 @@ def test_estimate_piece_photo_cumulates_a_per_split_distance_column(session, mon
     }
     _install_fake_anthropic(monkeypatch, tool_input=repeated)
 
-    result = estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    result = asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
     assert [s["distance_m"] for s in result["splits"]] == [500.0, 1000.0, 1500.0, 2000.0]
     assert result["validation"]["ok"]
 
@@ -134,7 +137,7 @@ def test_estimate_piece_photo_differences_a_cumulative_time_column(session, monk
     }
     _install_fake_anthropic(monkeypatch, tool_input=cumulative)
 
-    result = estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    result = asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
     assert [s["split_s"] for s in result["splits"]] == pytest.approx([96.8, 98.9, 99.0, 97.7])
     assert result["validation"]["ok"]
 
@@ -153,7 +156,7 @@ def test_estimate_piece_photo_flags_issues_in_the_validation_field(session, monk
     }
     _install_fake_anthropic(monkeypatch, tool_input=bad)
 
-    result = estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    result = asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
     assert not result["validation"]["ok"]
     assert any(i["field"] == "rate" for i in result["validation"]["issues"])
 
@@ -172,7 +175,7 @@ def test_estimate_piece_photo_flags_an_unparseable_time_instead_of_guessing(sess
     }
     _install_fake_anthropic(monkeypatch, tool_input=bad)
 
-    result = estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    result = asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
     assert result["duration_s"] is None
     assert "total time" in result["notes"]
 
@@ -183,7 +186,7 @@ def test_estimate_piece_photo_records_cost_against_the_shared_daily_cap(session,
     _seed_key_and_model(session, prices={"input": 4.0, "output": 20.0})
     _install_fake_anthropic(monkeypatch)
 
-    estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
     assert cost_module.today_spend_usd(session) > 0
 
@@ -196,28 +199,28 @@ def test_estimate_piece_photo_raises_when_cap_already_reached(session, monkeypat
     _install_fake_anthropic(monkeypatch)
 
     with pytest.raises(PieceVisionError, match="cap"):
-        estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+        asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_piece_photo_raises_without_a_configured_key(session, monkeypatch):
     coach_settings_module.update_coach_settings(session, {"anthropic_model": "claude-opus-5-5"})
     _install_fake_anthropic(monkeypatch)
 
-    with pytest.raises(PieceVisionError, match="API key"):
-        estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(PieceVisionError, match="Anthropic key"):
+        asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_piece_photo_raises_when_model_never_calls_the_tool(session, monkeypatch):
     _seed_key_and_model(session)
     _install_fake_anthropic(monkeypatch, no_tool_call=True)
 
-    with pytest.raises(PieceVisionError, match="structured reading"):
-        estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(PieceVisionError, match="structured result"):
+        asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_piece_photo_wraps_api_errors(session, monkeypatch):
     _seed_key_and_model(session)
     _install_fake_anthropic(monkeypatch, raise_api_error=True)
 
-    with pytest.raises(PieceVisionError, match="Anthropic API error"):
-        estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(PieceVisionError, match="rejected|unavailable|couldn.t process"):
+        asyncio.run(estimate_piece_photo(session, image_bytes=b"x", media_type="image/jpeg"))

@@ -400,7 +400,7 @@ def test_photo_estimate_without_a_configured_key_returns_422(client):
         files={"photo": ("meal.jpg", b"fake-bytes", "image/jpeg")},
     )
     assert resp.status_code == 422
-    assert "API key" in resp.json()["detail"]
+    assert "Anthropic key" in resp.json()["detail"]
 
 
 def test_photo_estimate_rejects_unsupported_content_type(client):

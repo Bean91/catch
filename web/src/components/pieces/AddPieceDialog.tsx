@@ -1,7 +1,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { ApiError, createPiece, estimatePiecePhoto, fetchCoachSettings, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
+import { useVisionAvailable } from "../../lib/useVisionAvailable";
+import { ApiError, createPiece, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
 import { parseSplitsPaste, validateSplits } from "../../lib/pieceSplits";
 import { ERG_TEST_TYPES, type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
@@ -35,8 +36,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
   const [intervalRows, setIntervalRows] = useState<PieceInterval[]>([]);
   const [intervalIssues, setIntervalIssues] = useState<IntervalValidationIssue[]>([]);
 
-  const coachSettings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings, enabled: open });
-  const photoAvailable = coachSettings.data?.anthropic_key.configured ?? false;
+  const photoAvailable = useVisionAvailable(open);
   const activitiesQuery = useQuery({ queryKey: ["workouts", "piece-picker"], queryFn: () => fetchWorkouts({}), enabled: open && step === "pick-activity" });
 
   const reset = () => {

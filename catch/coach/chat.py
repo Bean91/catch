@@ -7,13 +7,17 @@ from typing import AsyncIterator
 
 from sqlmodel import Session, select
 
-from catch.coach import cost, memory
+import time
+
+from catch.coach import cost, limits, memory
 from catch.coach import settings as coach_settings_module
 from catch.coach import tools as tools_module
-from catch.coach.providers.anthropic_provider import AnthropicProvider, pick_default_sonnet
-from catch.coach.providers.ollama_provider import OllamaProvider
+from catch.coach.providers import registry
+from catch.coach.providers.anthropic_provider import pick_default_sonnet
+from catch.coach.providers.base import ProviderError, safe_error_event
 from catch.core.models import CoachConversation, CoachMessage
-from catch.core.principal import ATHLETE
+from catch.core.principal import ATHLETE, OWNER_ID
+from catch.core.redact import redact
 
 _SYSTEM_PROMPT_PATH = Path(__file__).parent / "system_prompt.md"
 # Caps one user turn's tool-calling back-and-forth — a runaway loop (a tool the model keeps
@@ -121,49 +125,95 @@ def _tool_label(name: str, args: dict) -> str:
     return labels.get(name, name)
 
 
-async def _resolve_provider(session: Session) -> tuple[AnthropicProvider | OllamaProvider, str, dict]:
-    prefs = coach_settings_module.get_coach_settings(session)
-    if prefs["provider"] == "ollama":
-        if not prefs["ollama_base_url"]:
-            raise ValueError("No Ollama URL configured — set one in Settings.")
-        model = prefs["ollama_model"]
-        if not model:
-            raise ValueError("No Ollama model selected — pick one in Settings.")
-        return OllamaProvider(prefs["ollama_base_url"]), model, {}  # local -> always $0
-
-    api_key = coach_settings_module.get_decrypted_credential(session, "anthropic")
-    if not api_key:
-        raise ValueError("No Anthropic API key configured — add one in Settings.")
-    provider = AnthropicProvider(api_key)
-    model = prefs["anthropic_model"]
+async def _resolve_provider(session: Session, owner_id: str = OWNER_ID):
+    """(provider, model, prices, provider_id). Raises ProviderError (NotConfigured when the owner
+    hasn't supplied a key). `prices` is None for a hosted model the user hasn't priced — its cost is
+    unknown, which is different from free."""
+    prefs = coach_settings_module.get_coach_settings(session, owner_id)
+    provider_id = prefs["provider"]
+    provider = registry.build_provider(session, owner_id, provider_id)
+    model = prefs["models"].get(provider_id)
+    if not model and provider_id == "anthropic":
+        model = pick_default_sonnet(await provider.list_models())
+        if model:
+            coach_settings_module.update_coach_settings(session, {"anthropic_model": model}, owner_id)
     if not model:
-        models = await provider.list_models()
-        model = pick_default_sonnet(models)
-        if not model:
-            raise ValueError("Couldn't find a Sonnet model on this account — pick one manually in Settings.")
-        coach_settings_module.update_coach_settings(session, {"anthropic_model": model})
-    prices = prefs["prices"].get(model, {})
-    return provider, model, prices
+        label = registry.SPECS[provider_id].label
+        raise ProviderError("bad_request", f"No {label} model is selected. Pick one in Settings → AI Providers.")
+    prices = {} if provider_id == "ollama" else prefs["prices"].get(model)  # local -> always $0
+    return provider, model, prices, provider_id
 
 
-async def run_turn(session: Session, conversation_id: int, user_text: str) -> AsyncIterator[dict]:
-    prefs = coach_settings_module.get_coach_settings(session)
+def _switch_options(session: Session, owner_id: str, current: str) -> list[str]:
+    return [p for p in registry.configured(session, owner_id) if p != current]
+
+
+def _remember_status(session: Session, provider_id: str, owner_id: str, kind: str | None) -> None:
+    if provider_id not in registry.KEY_PROVIDERS:
+        return
+    if kind is None:
+        coach_settings_module.set_status(session, provider_id, "valid", None, owner_id)
+    elif kind == "invalid_key":
+        coach_settings_module.set_status(session, provider_id, "invalid", "rejected_by_provider", owner_id)
+    elif kind in ("unavailable", "timeout"):
+        coach_settings_module.set_status(session, provider_id, "unavailable", "timed_out" if kind == "timeout" else "provider_unreachable", owner_id)
+    elif kind == "quota":
+        coach_settings_module.set_status(session, provider_id, "unavailable", "quota_exceeded", owner_id)
+    elif kind == "rate_limited":
+        coach_settings_module.set_status(session, provider_id, "unavailable", "rate_limited", owner_id)
+
+
+async def run_turn(session: Session, conversation_id: int, user_text: str, owner_id: str = OWNER_ID) -> AsyncIterator[dict]:
+    conv = session.get(CoachConversation, conversation_id)
+    if conv is None or conv.owner_id != owner_id:
+        yield {"type": "error", "message": "Conversation not found."}
+        return
+    try:
+        limits.check_message(user_text)
+        limits.check_rate(owner_id, "chat")
+        slot = limits.stream_slot(owner_id)
+        slot.__enter__()
+    except limits.LimitExceeded as exc:
+        yield {"type": "rate_limited", "message": exc.message, "retry_after_s": exc.retry_after_s}
+        return
+    try:
+        async for event in _run_turn(session, conversation_id, user_text, owner_id):
+            yield event
+    finally:
+        slot.__exit__(None, None, None)
+
+
+async def _run_turn(session: Session, conversation_id: int, user_text: str, owner_id: str) -> AsyncIterator[dict]:
+    prefs = coach_settings_module.get_coach_settings(session, owner_id)
     cap = prefs["daily_cap_usd"]
-    if cap is not None and cost.today_spend_usd(session) >= cap:
-        yield {"type": "cap_reached", "daily_spend_usd": cost.today_spend_usd(session), "daily_cap_usd": cap}
+    token_cap = prefs["daily_token_cap"]
+
+    def over_cap() -> dict | None:
+        if cap is not None and cost.today_spend_usd(session, owner_id=owner_id) >= cap:
+            return {"type": "cap_reached", "reason": "usd", "daily_spend_usd": cost.today_spend_usd(session, owner_id=owner_id), "daily_cap_usd": cap}
+        if token_cap is not None and cost.today_tokens(session, owner_id=owner_id) >= token_cap:
+            return {"type": "cap_reached", "reason": "tokens", "daily_tokens": cost.today_tokens(session, owner_id=owner_id), "daily_token_cap": token_cap}
+        return None
+
+    if (event := over_cap()) is not None:
+        yield event
         return
 
     try:
-        provider, model, prices = await _resolve_provider(session)
-    except ValueError as exc:
-        yield {"type": "error", "message": str(exc)}
+        provider, model, prices, provider_id = await _resolve_provider(session, owner_id)
+    except registry.NotConfigured as exc:
+        yield {"type": "ai_not_configured", "message": exc.user_message, "provider": exc.provider, "switch_to": _switch_options(session, owner_id, exc.provider)}
+        return
+    except ProviderError as exc:
+        _remember_status(session, prefs["provider"], owner_id, exc.kind)
+        yield {**safe_error_event(exc), "switch_to": _switch_options(session, owner_id, prefs["provider"])}
         return
 
     if provider.name == "ollama" and not await provider.health_check():
         yield {
             "type": "provider_unavailable",
             "message": "Ollama isn't reachable at the configured URL — the laptop may be asleep.",
-            "can_switch_to": "anthropic",
+            "can_switch_to": _switch_options(session, owner_id, "ollama"),
         }
         return
 
@@ -177,16 +227,20 @@ async def run_turn(session: Session, conversation_id: int, user_text: str) -> As
         {"text": memory.memory_block(session), "cache": False},
     ]
 
+    deadline = time.monotonic() + limits.TURN_WALL_CLOCK_S
     for _ in range(_MAX_TOOL_ITERATIONS):
-        if cap is not None and cost.today_spend_usd(session) >= cap:
-            yield {"type": "cap_reached", "daily_spend_usd": cost.today_spend_usd(session), "daily_cap_usd": cap}
+        if (event := over_cap()) is not None:
+            yield event
             return
 
         text_parts: list[str] = []
         tool_calls: list[dict] = []
         usage: dict | None = None
         stop_reason: str | None = None
-        async for event in provider.stream_turn(system_blocks=system_blocks, messages=history, model=model):
+        async for event in provider.stream_turn(system_blocks=system_blocks, messages=limits.trim_history(history), model=model):
+            if time.monotonic() > deadline:
+                yield safe_error_event(ProviderError("timeout", "This reply took too long and was stopped."))
+                return
             if event["type"] == "text_delta":
                 text_parts.append(event["text"])
                 yield {"type": "text", "text": event["text"]}
@@ -197,7 +251,8 @@ async def run_turn(session: Session, conversation_id: int, user_text: str) -> As
             elif event["type"] == "stop":
                 stop_reason = event["stop_reason"]
             elif event["type"] == "error":
-                yield event
+                _remember_status(session, provider_id, owner_id, event.get("kind"))
+                yield {**event, "message": redact(event["message"]), "switch_to": _switch_options(session, owner_id, provider_id)}
                 return
 
         assistant_blocks: list[dict] = []
@@ -205,20 +260,25 @@ async def run_turn(session: Session, conversation_id: int, user_text: str) -> As
         if full_text:
             assistant_blocks.append({"type": "text", "text": full_text})
         for call in tool_calls:
-            assistant_blocks.append({"type": "tool_call", "id": call["id"], "name": call["name"], "input": call["input"]})
+            block = {"type": "tool_call", "id": call["id"], "name": call["name"], "input": call["input"]}
+            if call.get("provider_meta"):
+                block["provider_meta"] = call["provider_meta"]
+            assistant_blocks.append(block)
 
         turn_cost = cost.estimate_cost_usd(prices, usage) if usage else None
         _save_message(
             session, conversation_id, "assistant", assistant_blocks, provider=provider.name, model=model, usage=usage, cost_usd=turn_cost
         )
         history.append({"role": "assistant", "blocks": assistant_blocks})
+        _remember_status(session, provider_id, owner_id, None)
 
         if usage:
             yield {
                 "type": "usage",
                 "usage": usage,
                 "cost_usd": turn_cost,
-                "daily_spend_usd": cost.today_spend_usd(session),
+                "cost_known": turn_cost is not None,
+                "daily_spend_usd": cost.today_spend_usd(session, owner_id=owner_id),
                 "daily_cap_usd": cap,
             }
 
@@ -239,7 +299,7 @@ async def run_turn(session: Session, conversation_id: int, user_text: str) -> As
                 output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": ATHLETE, "via": "ai_coach"})
                 is_error = False
             except Exception as exc:  # noqa: BLE001 — surfaced to the model as a tool error, not raised
-                output = {"error": str(exc)}
+                output = {"error": redact(str(exc))}
                 is_error = True
             yield {"type": "tool_result", "id": call["id"], "output": output, "is_error": is_error}
             tool_result_blocks.append({"type": "tool_result", "id": call["id"], "output": output, "is_error": is_error})

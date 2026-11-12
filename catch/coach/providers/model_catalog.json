@@ -1,0 +1,10 @@
+{
+  "reviewed_on": "2026-11-12",
+  "note": "Patterns only, never exact ids as truth. Used to label a live model listing. Vision flags here are hints; Anthropic and Ollama report vision per model themselves, OpenAI and Gemini do not.",
+  "providers": {
+    "anthropic": {"vision_patterns": ["claude-"]},
+    "openai": {"vision_patterns": ["gpt-", "o3", "o4", "chatgpt"]},
+    "gemini": {"vision_patterns": ["gemini-"]},
+    "ollama": {"vision_patterns": []}
+  }
+}

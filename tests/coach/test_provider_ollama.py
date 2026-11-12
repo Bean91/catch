@@ -232,4 +232,4 @@ def test_list_models_filters_by_tool_capability(monkeypatch):
 
     provider = OllamaProvider("http://laptop.tailnet:11434")
     models = asyncio.run(provider.list_models())
-    assert models == [{"id": "llama3.1", "display_name": "llama3.1"}]
+    assert models == [{"id": "llama3.1", "display_name": "llama3.1", "vision": False}]

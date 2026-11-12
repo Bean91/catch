@@ -93,6 +93,10 @@ def sport_family(source: str | None, type_: str | None) -> str:
         return _GARMIN_FAMILY.get(type_ or "", "other")
     if source == "concept2":
         return _CONCEPT2_FAMILY.get(type_ or "", "other")
+    if source == "whoop":
+        from catch.analytics.whoop import sport_family as _whoop_family
+
+        return _whoop_family(type_)
     return "other"
 
 
@@ -118,6 +122,10 @@ def is_indoor(source: str | None, type_: str | None) -> Optional[bool]:
         return _GARMIN_INDOOR.get(type_ or "")
     if source == "concept2":
         return _CONCEPT2_INDOOR.get(type_ or "")
+    if source == "whoop":
+        from catch.analytics.whoop import is_indoor as _whoop_indoor
+
+        return _whoop_indoor(type_)
     return None
 
 

@@ -20,7 +20,7 @@ def test_update_rejects_unknown_key(session):
 
 def test_update_rejects_bad_provider(session):
     try:
-        coach_settings.update_coach_settings(session, {"provider": "openai"})
+        coach_settings.update_coach_settings(session, {"provider": "bogus"})
         assert False, "should have raised"
     except ValueError:
         pass
@@ -44,13 +44,14 @@ def test_update_rejects_unknown_price_field(session):
 
 def test_set_and_mask_credential(session):
     info = coach_settings.set_credential(session, "anthropic", "sk-ant-1234567890abcd")
-    assert info == {"configured": True, "last4": "abcd"}
-    assert coach_settings.masked_credential_info(session, "anthropic") == {"configured": True, "last4": "abcd"}
+    assert info["configured"] is True and info["last4"] == "abcd"
+    assert coach_settings.masked_credential_info(session, "anthropic")["last4"] == "abcd"
     assert coach_settings.get_decrypted_credential(session, "anthropic") == "sk-ant-1234567890abcd"
 
 
 def test_masked_credential_info_when_unset(session):
-    assert coach_settings.masked_credential_info(session, "anthropic") == {"configured": False, "last4": None}
+    info = coach_settings.masked_credential_info(session, "anthropic")
+    assert info["configured"] is False and info["last4"] is None and info["status"] == "not_configured"
     assert coach_settings.get_decrypted_credential(session, "anthropic") is None
 
 

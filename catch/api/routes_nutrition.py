@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
+from catch.core.owner import current_owner_id
 from catch.coach.nutrition_vision import NutritionVisionError, estimate_meal_photo
 from catch.sync import nutrition
 
@@ -241,12 +242,12 @@ def get_week_summary(from_: date = Query(..., alias="from"), to: date = Query(..
 
 
 @router.post("/api/nutrition/photo-estimate")
-async def post_photo_estimate(photo: UploadFile = File(...), db: Session = Depends(get_db)):
+async def post_photo_estimate(photo: UploadFile = File(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     if photo.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
     image_bytes = await photo.read()
     try:
-        result = estimate_meal_photo(db, image_bytes, photo.content_type)
+        result = await estimate_meal_photo(db, image_bytes, photo.content_type, owner_id)
     except NutritionVisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result

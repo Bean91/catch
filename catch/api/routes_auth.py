@@ -57,3 +57,60 @@ def withings_callback(code: str, state: str, request: Request, response: Respons
     withings_client.exchange_code(db, code)
     response.delete_cookie(WITHINGS_STATE_COOKIE)
     return {"ok": True, "message": "Withings connected"}
+
+
+WHOOP_STATE_COOKIE = "whoop_oauth_state"
+
+
+@router.get("/auth/whoop/start", dependencies=[Depends(require_auth)])
+def whoop_start():
+    from catch.sync import whoop_client
+
+    if not whoop_client.configured():
+        raise HTTPException(status_code=409, detail="Whoop isn't configured on this server (see .env.example).")
+    state = whoop_client.new_state()
+    redirect = RedirectResponse(whoop_client.authorize_url(state))
+    redirect.set_cookie(WHOOP_STATE_COOKIE, state, httponly=True, samesite="lax", max_age=600)
+    return redirect
+
+
+@router.get("/auth/whoop/callback", dependencies=[Depends(require_auth)])
+def whoop_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None, db: Session = Depends(get_db)):
+    """Unlike Withings' JSON reply, this lands the browser back on Settings."""
+    from catch.sync import whoop_client
+
+    expected = request.cookies.get(WHOOP_STATE_COOKIE)
+    if not expected or not state or not secrets.compare_digest(expected, state):
+        raise HTTPException(status_code=400, detail="Invalid or missing OAuth state")
+    if error or not code:
+        redirect = RedirectResponse("/settings?whoop=denied", status_code=303)
+    else:
+        try:
+            whoop_client.exchange_code(db, code)
+            redirect = RedirectResponse("/settings?whoop=connected", status_code=303)
+        except whoop_client.WhoopError:
+            redirect = RedirectResponse("/settings?whoop=failed", status_code=303)
+    redirect.delete_cookie(WHOOP_STATE_COOKIE)
+    return redirect
+
+
+@router.post("/auth/whoop/disconnect", dependencies=[Depends(require_auth)])
+def whoop_disconnect(db: Session = Depends(get_db)):
+    from catch.sync import whoop_client
+
+    return whoop_client.disconnect(db)
+
+
+@router.get("/api/whoop/test", dependencies=[Depends(require_auth)])
+def whoop_test(db: Session = Depends(get_db)):
+    """The in-app manual connection test: counts only, never tokens or personal details."""
+    from catch.sync import whoop_client
+
+    if not whoop_client.configured():
+        return {"connected": False, "error": "Whoop isn't configured on this server."}
+    try:
+        return whoop_client.check(db)
+    except whoop_client.WhoopReconnectNeeded as exc:
+        return {"connected": False, "reconnect": True, "error": str(exc)}
+    except whoop_client.WhoopError as exc:
+        return {"connected": False, "error": str(exc)}

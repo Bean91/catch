@@ -47,6 +47,7 @@ class _FakeModelsPager:
 
 def _install_fake_anthropic(monkeypatch, *, events, final_message=None, models=(), list_models_error=None):
     capture: list[dict] = []
+    client_kwargs: list[dict] = []
     fake_module = types.ModuleType("anthropic")
 
     class APIError(Exception):
@@ -76,7 +77,8 @@ def _install_fake_anthropic(monkeypatch, *, events, final_message=None, models=(
             return _FakeModelsPager(models)
 
     class FakeClient:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, **kwargs):
+            client_kwargs.append({"api_key": api_key, **kwargs})
             self.messages = FakeMessages()
             self.models = FakeModels()
 
@@ -86,6 +88,7 @@ def _install_fake_anthropic(monkeypatch, *, events, final_message=None, models=(
     fake_module.APIConnectionError = APIConnectionError
     fake_module.APIStatusError = APIStatusError
     monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+    fake_module.client_kwargs = client_kwargs
     return capture, fake_module
 
 
@@ -176,4 +179,59 @@ def test_test_connection_reports_invalid_key(monkeypatch):
 
     provider._client = RaisingClient()
     result = asyncio.run(provider.test_connection())
-    assert result == {"ok": False, "error": "Invalid API key"}
+    assert result["ok"] is False and result["kind"] == "invalid_key"
+
+
+def test_real_sdk_accepts_the_timeout_and_never_reads_the_environment_key(monkeypatch):
+    """Not the fake module: the installed SDK has its own httpx build and rejects httpx.Timeout."""
+    import importlib
+
+    monkeypatch.undo()
+    sys.modules.pop("anthropic", None)
+    importlib.import_module("anthropic")
+    from catch.coach.providers.anthropic_provider import AnthropicProvider
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-ENV-KEY-MUST-NOT-BE-USED-000000")
+    provider = AnthropicProvider("sk-ant-explicit-key-0123456789abcdef")
+    assert provider._client.api_key == "sk-ant-explicit-key-0123456789abcdef"
+
+
+def test_error_classification_for_invalid_expired_rate_limited_and_billing(monkeypatch):
+    from catch.coach.providers.anthropic_provider import AnthropicProvider
+
+    _, module = _install_fake_anthropic(monkeypatch, events=[])
+    provider = AnthropicProvider("sk-test")
+    api_status = module.APIStatusError
+    assert provider._classify(module.AuthenticationError("bad")).kind == "invalid_key"
+    assert provider._classify(api_status("forbidden", status_code=403)).kind == "invalid_key"
+    assert provider._classify(api_status("billing", status_code=402)).kind == "quota"
+    assert provider._classify(api_status("slow down", status_code=429)).kind == "rate_limited"
+    assert provider._classify(api_status("overloaded", status_code=529)).kind == "unavailable"
+    assert provider._classify(module.APIConnectionError("net")).kind == "unavailable"
+    assert provider._classify(module.APIError("???")).kind == "bad_request"
+
+
+def test_stream_error_event_carries_no_provider_text(monkeypatch):
+    from catch.coach.providers.anthropic_provider import AnthropicProvider
+
+    _, module = _install_fake_anthropic(monkeypatch, events=[])
+    provider = AnthropicProvider("sk-test")
+
+    class Boom:
+        def stream(self, **kwargs):
+            raise module.AuthenticationError("invalid x-api-key sk-ant-LEAKED-KEY-0123456789")
+
+    provider._client.messages = Boom()
+    events = asyncio.run(_collect(provider.stream_turn(system_blocks=[{"text": "s"}], messages=[{"role": "user", "blocks": [{"type": "text", "text": "hi"}]}], model="m")))
+    assert events[0]["kind"] == "invalid_key" and "LEAKED" not in str(events)
+
+
+def test_list_models_reports_per_model_image_support(monkeypatch):
+    from catch.coach.providers.anthropic_provider import AnthropicProvider
+
+    caps = types.SimpleNamespace(image_input=types.SimpleNamespace(supported=True))
+    models = [types.SimpleNamespace(id="claude-a", display_name="A", created_at="2026-01-01", capabilities=caps), types.SimpleNamespace(id="claude-b", display_name="B", created_at="2026-01-02")]
+    _install_fake_anthropic(monkeypatch, events=[], models=models)
+    provider = AnthropicProvider("sk-test")
+    listed = asyncio.run(provider.list_models())
+    assert [m["vision"] for m in listed] == [True, None]

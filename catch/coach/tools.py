@@ -842,7 +842,9 @@ TOOLS: dict[str, dict[str, Any]] = {
         "write": False,
         "description": (
             "Today's recovery, strain, sleep, HRV/resting-HR trend, latest erg piece, predicted 2k, and the "
-            "next A-priority race with days-to-go and a taper flag (<=14 days out). Call this first for "
+            "next A-priority race with days-to-go and a taper flag (<=14 days out). The recovery block "
+            "says which device supplied each input and how calibrated the baseline is (if it's still "
+            "calibrating, say so rather than reading anything into the number). Call this first for "
             "'how should I train today'-type questions."
         ),
         "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},

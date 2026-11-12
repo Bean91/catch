@@ -58,6 +58,12 @@ class Settings:
     healthchecks_sync_url: str
     healthchecks_backup_url: str
     ntfy_topic: str
+    ollama_enabled: bool
+    secrets_master_key: str
+    secrets_master_key_previous: str
+    whoop_client_id: str
+    whoop_client_secret: str
+    whoop_redirect_uri: str
 
     @property
     def db_file(self) -> Path:
@@ -94,6 +100,14 @@ def load_settings() -> Settings:
         healthchecks_sync_url=_get("HEALTHCHECKS_SYNC_URL"),
         healthchecks_backup_url=_get("HEALTHCHECKS_BACKUP_URL"),
         ntfy_topic=_get("NTFY_TOPIC"),
+        # On for the personal Pi (Ollama runs on your own laptop); a public deployment must turn it off,
+        # since the base URL is user-supplied and the server would fetch whatever it points at.
+        ollama_enabled=_get("CATCH_OLLAMA_ENABLED", "1") == "1",
+        secrets_master_key=_get("CATCH_SECRETS_MASTER_KEY"),
+        secrets_master_key_previous=_get("CATCH_SECRETS_MASTER_KEY_PREVIOUS"),
+        whoop_client_id=_get("WHOOP_CLIENT_ID"),
+        whoop_client_secret=_get("WHOOP_CLIENT_SECRET"),
+        whoop_redirect_uri=_get("WHOOP_REDIRECT_URI"),
     )
 
 

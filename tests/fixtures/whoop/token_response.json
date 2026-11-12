@@ -1,0 +1,7 @@
+{
+ "access_token": "WHOOP-ACCESS-TOKEN-AAAAAAAAAAAA",
+ "expires_in": 3600,
+ "refresh_token": "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB",
+ "scope": "offline read:recovery",
+ "token_type": "bearer"
+}

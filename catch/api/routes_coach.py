@@ -6,7 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from sqlmodel import Session, select
 
 from catch.api.deps import get_db, hash_token, require_auth, require_tool_auth_allow_coach
@@ -16,9 +16,10 @@ from catch.coach import cost as cost_module
 from catch.coach import memory
 from catch.coach import settings as coach_settings_module
 from catch.coach import tools as tools_module
-from catch.coach.providers.anthropic_provider import AnthropicProvider
-from catch.coach.providers.ollama_provider import OllamaProvider
+from catch.coach.providers import registry
+from catch.coach.providers.base import ProviderError
 from catch.core.db import get_session
+from catch.core.owner import current_owner_id
 from catch.core.models import ApiToken, CoachConversation, CoachMessage
 from catch.core.principal import ATHLETE_ROLE, COACH_ROLE, Principal, may_call_tool
 
@@ -29,16 +30,11 @@ tool_router = APIRouter()
 coach_router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-def _resolve_test_provider(db: Session):
-    prefs = coach_settings_module.get_coach_settings(db)
-    if prefs["provider"] == "ollama":
-        if not prefs["ollama_base_url"]:
-            raise HTTPException(status_code=400, detail="No Ollama URL configured")
-        return OllamaProvider(prefs["ollama_base_url"])
-    api_key = coach_settings_module.get_decrypted_credential(db, "anthropic")
-    if not api_key:
-        raise HTTPException(status_code=400, detail="No Anthropic API key configured")
-    return AnthropicProvider(api_key)
+def _build_or_400(db: Session, owner_id: str, provider_id: str):
+    try:
+        return registry.build_provider(db, owner_id, provider_id)
+    except ProviderError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from None
 
 
 # --- Shared tool surface (cookie OR device bearer token) --------------------------------
@@ -76,8 +72,8 @@ def call_tool_endpoint(
 
 
 @coach_router.get("/api/coach/conversations")
-def list_conversations(db: Session = Depends(get_db)):
-    rows = db.exec(select(CoachConversation).order_by(CoachConversation.updated_at.desc())).all()
+def list_conversations(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    rows = db.exec(select(CoachConversation).where(CoachConversation.owner_id == owner_id).order_by(CoachConversation.updated_at.desc())).all()
     return [
         {
             "id": c.id,
@@ -91,8 +87,8 @@ def list_conversations(db: Session = Depends(get_db)):
 
 
 @coach_router.post("/api/coach/conversations")
-def create_conversation(db: Session = Depends(get_db)):
-    conv = CoachConversation()
+def create_conversation(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    conv = CoachConversation(owner_id=owner_id)
     db.add(conv)
     db.commit()
     db.refresh(conv)
@@ -113,9 +109,9 @@ def _message_dict(row: CoachMessage) -> dict:
 
 
 @coach_router.get("/api/coach/conversations/{conversation_id}")
-def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
+def get_conversation(conversation_id: int, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     conv = db.get(CoachConversation, conversation_id)
-    if conv is None:
+    if conv is None or conv.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     rows = db.exec(select(CoachMessage).where(CoachMessage.conversation_id == conversation_id).order_by(CoachMessage.id)).all()
     return {
@@ -129,9 +125,9 @@ def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
 
 
 @coach_router.delete("/api/coach/conversations/{conversation_id}")
-def delete_conversation(conversation_id: int, db: Session = Depends(get_db)):
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     conv = db.get(CoachConversation, conversation_id)
-    if conv is None:
+    if conv is None or conv.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     for row in db.exec(select(CoachMessage).where(CoachMessage.conversation_id == conversation_id)).all():
         db.delete(row)
@@ -145,9 +141,9 @@ class MessageRequest(BaseModel):
 
 
 @coach_router.post("/api/coach/conversations/{conversation_id}/messages")
-def post_message(conversation_id: int, body: MessageRequest, request: Request, db: Session = Depends(get_db)):
+def post_message(conversation_id: int, body: MessageRequest, request: Request, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     conv = db.get(CoachConversation, conversation_id)
-    if conv is None:
+    if conv is None or conv.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if conv.title is None:
         conv.title = body.text[:60]
@@ -157,7 +153,7 @@ def post_message(conversation_id: int, body: MessageRequest, request: Request, d
         # A fresh Session, not the request's Depends(get_db) one — its lifecycle relative to
         # a streamed response body isn't reliable (it may close before the generator is done).
         with get_session() as stream_session:
-            turn = chat.run_turn(stream_session, conversation_id, body.text)
+            turn = chat.run_turn(stream_session, conversation_id, body.text, owner_id)
             # A closed client connection doesn't otherwise stop this turn — confirmed live:
             # killing the client mid-stream against a slow local model left the provider call,
             # the tool execution, and the DB writes all running to completion regardless.
@@ -174,63 +170,67 @@ def post_message(conversation_id: int, body: MessageRequest, request: Request, d
 
 
 @coach_router.get("/api/coach/models")
-async def list_models(provider: str | None = Query(None), db: Session = Depends(get_db)):
-    prefs = coach_settings_module.get_coach_settings(db)
+async def list_models(provider: str | None = Query(None), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    prefs = coach_settings_module.get_coach_settings(db, owner_id)
     chosen = provider or prefs["provider"]
-    if chosen == "ollama":
-        if not prefs["ollama_base_url"]:
-            raise HTTPException(status_code=400, detail="No Ollama URL configured")
-        p = OllamaProvider(prefs["ollama_base_url"])
-    else:
-        api_key = coach_settings_module.get_decrypted_credential(db, "anthropic")
-        if not api_key:
-            raise HTTPException(status_code=400, detail="No Anthropic API key configured")
-        p = AnthropicProvider(api_key)
-    return await p.list_models()
+    p = _build_or_400(db, owner_id, chosen)
+    try:
+        return await p.list_models()
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.user_message) from None
+
+
+def _compat_key_info(db: Session, owner_id: str) -> dict:
+    info = coach_settings_module.masked_credential_info(db, "anthropic", owner_id)
+    return {"configured": info["configured"], "last4": info["last4"]}
 
 
 @coach_router.get("/api/coach/settings")
-def get_coach_settings_endpoint(db: Session = Depends(get_db)):
-    prefs = coach_settings_module.get_coach_settings(db)
-    prefs["anthropic_key"] = coach_settings_module.masked_credential_info(db, "anthropic")
+def get_coach_settings_endpoint(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    prefs = coach_settings_module.get_coach_settings(db, owner_id)
+    prefs["anthropic_key"] = _compat_key_info(db, owner_id)  # kept for older clients; see /api/ai/providers
     return prefs
 
 
 @coach_router.put("/api/coach/settings")
-def put_coach_settings_endpoint(patch: dict = Body(...), db: Session = Depends(get_db)):
+def put_coach_settings_endpoint(patch: dict = Body(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     try:
-        return coach_settings_module.update_coach_settings(db, patch)
+        return coach_settings_module.update_coach_settings(db, patch, owner_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
 class ApiKeyRequest(BaseModel):
-    api_key: str
+    api_key: SecretStr
 
 
 @coach_router.post("/api/coach/key")
-def set_anthropic_key(body: ApiKeyRequest, db: Session = Depends(get_db)):
-    if not body.api_key.strip():
+def set_anthropic_key(body: ApiKeyRequest, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    """Legacy Anthropic-only alias of PUT /api/ai/providers/anthropic/key (without validation)."""
+    key = body.api_key.get_secret_value().strip()
+    if not key:
         raise HTTPException(status_code=422, detail="api_key must not be empty")
-    return coach_settings_module.set_credential(db, "anthropic", body.api_key.strip())
+    coach_settings_module.set_credential(db, "anthropic", key, owner_id)
+    return _compat_key_info(db, owner_id)
 
 
 @coach_router.delete("/api/coach/key")
-def delete_anthropic_key(db: Session = Depends(get_db)):
-    coach_settings_module.delete_credential(db, "anthropic")
+def delete_anthropic_key(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    coach_settings_module.delete_credential(db, "anthropic", owner_id)
     return {"ok": True}
 
 
 @coach_router.post("/api/coach/test-connection")
-async def test_connection(db: Session = Depends(get_db)):
-    provider = _resolve_test_provider(db)
+async def test_connection(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    prefs = coach_settings_module.get_coach_settings(db, owner_id)
+    provider = _build_or_400(db, owner_id, prefs["provider"])
     return await provider.test_connection()
 
 
 @coach_router.get("/api/coach/usage/daily")
-def daily_usage(db: Session = Depends(get_db)):
-    prefs = coach_settings_module.get_coach_settings(db)
-    return {"spend_usd": cost_module.today_spend_usd(db), "cap_usd": prefs["daily_cap_usd"]}
+def daily_usage(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    prefs = coach_settings_module.get_coach_settings(db, owner_id)
+    return {"spend_usd": cost_module.today_spend_usd(db, owner_id=owner_id), "cap_usd": prefs["daily_cap_usd"]}
 
 
 # --- Device tokens (for the MCP server) ----------------------------------------------------

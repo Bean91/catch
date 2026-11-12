@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import base64
-
 from sqlmodel import Session
 
-from catch.coach import cost as cost_module
-from catch.coach import settings as coach_settings_module
+from catch.coach.providers.base import VisionRequest
+from catch.coach.vision import VisionError, run_vision
+from catch.core.principal import OWNER_ID
 
 _MAX_TOKENS = 2048
 
@@ -59,66 +58,27 @@ class NutritionVisionError(RuntimeError):
     pass
 
 
-def estimate_meal_photo(session: Session, image_bytes: bytes, media_type: str) -> dict:
-    """Task Part B.4. One-shot vision call against the athlete's own configured Anthropic
-    key/model — never a hardcoded model, since this app is bring-your-own-key and the
-    photo-estimate should cost (and behave) like the model the athlete actually chose.
-    Raises `NutritionVisionError` for every failure mode (no key, cap reached, API error, the
-    model not calling the tool) so the route layer turns each into a clear 4xx rather than a
-    500 a photo-taking UI can't do anything useful with. The photo itself is never written to
-    disk or logged — only its bytes pass through this call."""
-    prefs = coach_settings_module.get_coach_settings(session)
-    api_key = coach_settings_module.get_decrypted_credential(session, "anthropic")
-    if not api_key:
-        raise NutritionVisionError("No Anthropic API key configured — add one in Settings to use photo estimates.")
-    model = prefs["anthropic_model"]
-    if not model:
-        raise NutritionVisionError("No Anthropic model selected — pick one in Settings.")
-
-    cap = prefs["daily_cap_usd"]
-    if cap is not None and cost_module.today_spend_usd(session) >= cap:
-        raise NutritionVisionError("Today's coach spend cap has been reached — photo estimates share the same cap.")
-
-    # Lazy import: the Pi pays the anthropic SDK's import cost only when the coach (or this
-    # feature) is actually used, not on every process start (CLAUDE.md's Pi-memory rule).
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
-    image_b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-
+async def estimate_meal_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str = OWNER_ID) -> dict:
+    """Task Part B.4. One-shot vision call through the athlete's own active provider and model —
+    never a hardcoded one, since this app is bring-your-own-key and the photo-estimate should cost
+    (and behave) like the model the athlete actually chose. Raises `NutritionVisionError` for every
+    failure mode (no key, no vision support, cap reached, API error, no structured result) so the
+    route layer turns each into a clear 4xx. The photo itself is never written to disk or logged."""
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            tools=[_TOOL],
-            tool_choice={"type": "auto"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
-                        {"type": "text", "text": "Estimate the macros for this meal."},
-                    ],
-                }
-            ],
+        result, turn_cost = await run_vision(
+            session,
+            "nutrition_photo_estimate",
+            VisionRequest(
+                system=_SYSTEM_PROMPT,
+                user_text="Estimate the macros for this meal.",
+                image_bytes=image_bytes,
+                media_type=media_type,
+                tool={"name": _TOOL["name"], "description": _TOOL["description"], "input_schema": _TOOL["input_schema"]},
+                max_tokens=_MAX_TOKENS,
+            ),
+            owner_id,
         )
-    except anthropic.APIError as exc:
-        raise NutritionVisionError(f"Anthropic API error: {exc}") from exc
+    except VisionError as exc:
+        raise NutritionVisionError(str(exc)) from None
 
-    usage = {
-        "input_tokens": response.usage.input_tokens or 0,
-        "output_tokens": response.usage.output_tokens or 0,
-        "cache_creation_input_tokens": getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
-        "cache_read_input_tokens": getattr(response.usage, "cache_read_input_tokens", 0) or 0,
-    }
-    prices = prefs["prices"].get(model, {})
-    turn_cost = cost_module.estimate_cost_usd(prices, usage)
-    cost_module.record_usage_event(session, "nutrition_photo_estimate", usage, turn_cost)
-
-    tool_block = next((b for b in response.content if b.type == "tool_use" and b.name == "record_meal_estimate"), None)
-    if tool_block is None:
-        raise NutritionVisionError("The model didn't return a structured estimate — try again or enter the meal manually.")
-
-    result = tool_block.input
     return {"items": result.get("items", []), "notes": result.get("notes", ""), "cost_usd": turn_cost}

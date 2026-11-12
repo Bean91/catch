@@ -82,6 +82,16 @@ DEFAULT_SETTINGS: dict = {
         "fat_pct": ["withings", "garmin"],
         "muscle_kg": ["withings", "garmin"],
     },
+    # Session 23 (docs/analytics.md §30): which provider's value wins for each recovery input when
+    # more than one has one. Garmin first so a Garmin-only history scores exactly as before.
+    "wellness_priority": {
+        "hrv_rmssd": ["garmin", "whoop"],
+        "resting_hr": ["garmin", "whoop"],
+        "sleep_seconds": ["garmin", "whoop"],
+        "sleep_respiration": ["garmin", "whoop"],
+        "skin_temp_c": ["whoop", "garmin"],
+        "spo2": ["garmin", "whoop"],
+    },
     # Part E.4 — a zone needs at least this many minutes *or* this fraction of moving time
     # (whichever floor is lower) to lead the session label.
     "min_zone_minutes": 3.0,

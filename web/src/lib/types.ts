@@ -11,11 +11,32 @@ export interface ScoreComponent {
   [key: string]: unknown;
 }
 
+export interface RecoveryAvailability {
+  signal: string;
+  label: string;
+  available: boolean;
+  source: string | null;
+  baseline_nights: number | null;
+  baseline_needed: number | null;
+  in_score: boolean;
+}
+
+export interface RecoveryCalibration {
+  status: "calibrated" | "calibrating";
+  nights: number;
+  required: number;
+  nights_remaining: number;
+}
+
 export interface Recovery {
   value: number | null;
   band: Band;
   components: ScoreComponent[];
   explanation: string;
+  // Session 23: which provider supplied each input and how calibrated the baseline is.
+  data_availability?: RecoveryAvailability[];
+  calibration?: RecoveryCalibration;
+  baseline_mixed_sources?: string[];
 }
 
 export interface Strain {
@@ -825,6 +846,7 @@ export interface Settings {
   acr_bands: { undertraining: number; optimal_high: number; caution_high: number };
   max_hr: number | null;
   recovery_weights: Record<string, number>;
+  wellness_priority?: Record<string, string[]>;
   recovery_green: number;
   recovery_yellow: number;
   sleep_need_seconds: number;
@@ -964,11 +986,15 @@ export type CoachEvent =
   | { type: "tool_result"; id: string; output: unknown; is_error: boolean }
   | { type: "usage"; usage: UsageTokens; cost_usd: number | null; daily_spend_usd: number; daily_cap_usd: number | null }
   | { type: "done"; stop_reason: string | null }
-  | { type: "error"; message: string }
-  | { type: "provider_unavailable"; message: string; can_switch_to: string }
-  | { type: "cap_reached"; daily_spend_usd: number; daily_cap_usd: number };
+  | { type: "error"; message: string; kind?: AiErrorKind; switch_to?: CoachProviderName[] }
+  | { type: "ai_not_configured"; message: string; provider: CoachProviderName; switch_to: CoachProviderName[] }
+  | { type: "rate_limited"; message: string; retry_after_s: number }
+  | { type: "provider_unavailable"; message: string; can_switch_to: CoachProviderName[] }
+  | { type: "cap_reached"; reason?: "usd" | "tokens"; daily_spend_usd?: number; daily_cap_usd?: number; daily_tokens?: number; daily_token_cap?: number };
 
-export type CoachProviderName = "anthropic" | "ollama";
+export type AiErrorKind = "invalid_key" | "rate_limited" | "quota" | "unavailable" | "timeout" | "unsupported" | "bad_request";
+
+export type CoachProviderName = "anthropic" | "openai" | "gemini" | "ollama";
 
 export interface ModelPrice {
   input?: number;
@@ -982,9 +1008,75 @@ export interface CoachSettings {
   anthropic_model: string | null;
   ollama_base_url: string | null;
   ollama_model: string | null;
+  models?: Partial<Record<CoachProviderName, string>>;
   daily_cap_usd: number | null;
+  daily_token_cap?: number | null;
   prices: Record<string, ModelPrice>;
   anthropic_key: { configured: boolean; last4: string | null };
+}
+
+// --- AI providers (session 23) --------------------------------------------------------------
+
+export type AiProviderStatus = "configured" | "valid" | "invalid" | "unavailable" | "not_configured";
+
+export interface AiProviderCard {
+  id: CoachProviderName;
+  label: string;
+  needs_key: boolean;
+  key_hint: string;
+  docs_url: string;
+  capabilities: { streaming: boolean; tools: boolean; vision: boolean; list_models: boolean; validate_key: boolean; reports_balance: boolean };
+  configured: boolean;
+  last4: string | null; // never the key: at most the last four characters of a long one
+  status: AiProviderStatus;
+  status_detail: string | null;
+  status_checked_at: string | null;
+  model: string | null;
+  base_url: string | null;
+  active: boolean;
+}
+
+export interface AiProvidersResponse {
+  active: CoachProviderName | null;
+  providers: AiProviderCard[];
+  vision: { available: boolean; provider: CoachProviderName; reason: "not_configured" | "no_model" | "unsupported" | null };
+}
+
+export interface AiModel {
+  id: string;
+  display_name: string;
+  vision: boolean | null;
+}
+
+export interface AiModelsResponse {
+  models: AiModel[];
+  error: string | null;
+  kind: AiErrorKind | null;
+}
+
+export interface AiTestResult {
+  ok: boolean;
+  kind: AiErrorKind | null;
+  message: string;
+  model_count: number | null;
+}
+
+export interface AiUsage {
+  days: number;
+  by_provider: Record<string, { tokens: number; cost_usd: number; turns: number; unpriced_turns: number }>;
+  today: { spend_usd: number; tokens: number; cap_usd: number | null; token_cap: number | null };
+  provider_balance: null;
+  source: "recorded_by_catch";
+}
+
+export interface WhoopTestResult {
+  connected: boolean;
+  reconnect?: boolean;
+  error?: string;
+  recovery?: { ok: boolean; has_records: boolean };
+  sleep?: { ok: boolean; has_records: boolean };
+  workout?: { ok: boolean; has_records: boolean };
+  token_expires_at?: string | null;
 }
 
 export interface CoachModel {

@@ -138,7 +138,7 @@ def test_post_message_streams_sse_events(client, session, engine, monkeypatch):
     _login(client)
     conv = client.post("/api/coach/conversations").json()
 
-    async def fake_run_turn(stream_session, conversation_id, user_text):
+    async def fake_run_turn(stream_session, conversation_id, user_text, owner_id="owner"):
         yield {"type": "text", "text": "hello"}
         yield {"type": "done", "stop_reason": "end_turn"}
 

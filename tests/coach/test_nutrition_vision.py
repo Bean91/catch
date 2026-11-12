@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 
@@ -25,7 +26,7 @@ def _install_fake_anthropic(monkeypatch, *, tool_input=None, no_tool_call=False,
         pass
 
     class FakeMessages:
-        def create(self, **kwargs):
+        async def create(self, **kwargs):
             capture.append(kwargs)
             if raise_api_error:
                 raise APIError("boom")
@@ -49,11 +50,13 @@ def _install_fake_anthropic(monkeypatch, *, tool_input=None, no_tool_call=False,
             return types.SimpleNamespace(content=content, usage=usage)
 
     class FakeClient:
-        def __init__(self, api_key=None):
+        def __init__(self, api_key=None, **kwargs):
             self.messages = FakeMessages()
 
-    fake_module.Anthropic = FakeClient
+    fake_module.AsyncAnthropic = FakeClient
     fake_module.APIError = APIError
+    fake_module.AuthenticationError = type('AuthenticationError', (APIError,), {})
+    fake_module.APIConnectionError = type('APIConnectionError', (APIError,), {})
     monkeypatch.setitem(sys.modules, "anthropic", fake_module)
     return capture
 
@@ -62,7 +65,7 @@ def test_estimate_meal_photo_returns_items_and_notes(session, monkeypatch):
     _seed_key_and_model(session, prices={"input": 4.0, "output": 20.0})
     capture = _install_fake_anthropic(monkeypatch)
 
-    result = estimate_meal_photo(session, image_bytes=b"fake-jpeg-bytes", media_type="image/jpeg")
+    result = asyncio.run(estimate_meal_photo(session, image_bytes=b"fake-jpeg-bytes", media_type="image/jpeg"))
 
     assert result["items"][0]["name"] == "Grilled chicken breast"
     assert result["notes"] == "Estimate — sauce/oil not visible."
@@ -83,7 +86,7 @@ def test_estimate_meal_photo_records_cost_against_the_shared_daily_cap(session, 
     _seed_key_and_model(session, prices={"input": 4.0, "output": 20.0})
     _install_fake_anthropic(monkeypatch)
 
-    estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    asyncio.run(estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
     assert cost_module.today_spend_usd(session) > 0
 
@@ -96,28 +99,28 @@ def test_estimate_meal_photo_raises_when_cap_already_reached(session, monkeypatc
     _install_fake_anthropic(monkeypatch)
 
     with pytest.raises(NutritionVisionError, match="cap"):
-        estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg")
+        asyncio.run(estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_meal_photo_raises_without_a_configured_key(session, monkeypatch):
     coach_settings_module.update_coach_settings(session, {"anthropic_model": "claude-opus-5-5"})
     _install_fake_anthropic(monkeypatch)
 
-    with pytest.raises(NutritionVisionError, match="API key"):
-        estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(NutritionVisionError, match="Anthropic key"):
+        asyncio.run(estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_meal_photo_raises_when_model_never_calls_the_tool(session, monkeypatch):
     _seed_key_and_model(session)
     _install_fake_anthropic(monkeypatch, no_tool_call=True)
 
-    with pytest.raises(NutritionVisionError, match="structured estimate"):
-        estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(NutritionVisionError, match="structured result"):
+        asyncio.run(estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg"))
 
 
 def test_estimate_meal_photo_wraps_api_errors(session, monkeypatch):
     _seed_key_and_model(session)
     _install_fake_anthropic(monkeypatch, raise_api_error=True)
 
-    with pytest.raises(NutritionVisionError, match="Anthropic API error"):
-        estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg")
+    with pytest.raises(NutritionVisionError, match="rejected|unavailable|couldn.t process"):
+        asyncio.run(estimate_meal_photo(session, image_bytes=b"x", media_type="image/jpeg"))

@@ -22,7 +22,10 @@ const METRIC_LABEL: Record<string, string> = {
   resting_hr: "Resting heart rate",
   sleep: "Sleep vs need",
   prior_strain: "Yesterday's strain",
+  checkin: "Morning check-in",
 };
+
+const SOURCE_LABEL: Record<string, string> = { garmin: "Garmin", whoop: "Whoop", catch: "Catch", you: "You" };
 
 const SIZE = 180;
 const STROKE = 14;
@@ -87,7 +90,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85vh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
           <Dialog.Title className="text-base font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             {recovery?.explanation ?? "Need at least 7 nights of HRV history before a baseline exists."}
@@ -106,6 +109,42 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
               <EmptyState message="No components scored yet." />
             )}
           </div>
+          {recovery?.calibration && (
+            <p data-testid="recovery-calibration" className="mt-3 text-sm text-text-secondary">
+              {recovery.calibration.status === "calibrated"
+                ? `Baseline ready — ${recovery.calibration.nights} nights of HRV.`
+                : `Calibrating — ${recovery.calibration.nights} of ${recovery.calibration.required} nights of HRV so far.`}
+            </p>
+          )}
+          {recovery?.data_availability && (
+            <div className="mt-3" data-testid="recovery-availability">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-text-tertiary">What this score used</h3>
+              <ul className="mt-1.5 flex flex-col gap-1.5">
+                {recovery.data_availability.map((a) => (
+                  <li key={a.signal} className="flex items-start justify-between gap-3 text-sm">
+                    <span className="text-text-secondary">
+                      {a.label}
+                      {!a.in_score && <span className="text-text-tertiary"> · shown, not scored</span>}
+                    </span>
+                    <span className="text-right text-text-primary">
+                      {a.available ? `✓ ${a.source ? (SOURCE_LABEL[a.source] ?? a.source) : "today"}` : "— none today"}
+                      {a.baseline_nights != null && a.baseline_needed != null && (
+                        <span className="block text-xs text-text-tertiary">
+                          {a.baseline_nights}/{a.baseline_needed} nights
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {recovery?.baseline_mixed_sources && recovery.baseline_mixed_sources.length > 0 && (
+            <p data-testid="recovery-mixed" className="mt-3 rounded-md bg-surface-2 px-3 py-2 text-xs text-text-secondary">
+              The last week of this baseline mixes devices (Garmin and Whoop measure HRV differently), so today's comparison is less exact until a
+              week of one source builds up.
+            </p>
+          )}
           <Dialog.Close asChild>
             <button
               type="button"

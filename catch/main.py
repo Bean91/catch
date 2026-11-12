@@ -4,12 +4,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from catch.api import (
     routes_activities,
+    routes_ai,
     routes_analytics,
     routes_auth,
     routes_body,
@@ -84,8 +87,24 @@ async def lifespan(app: FastAPI):
 # extra INFO lines/day straight onto the Pi's SD card the moment anything upstream (a future
 # dependency, a debugging session) ever does call basicConfig() and raises the root level.
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
+from catch.core.redact import install_log_filter  # noqa: E402
+
+install_log_filter()
 
 app = FastAPI(title="Catch", lifespan=lifespan)
+
+_KEY_ROUTES = ("/api/ai/", "/api/coach/key")
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_errors(request: Request, exc: RequestValidationError):
+    """FastAPI's default 422 echoes each offending `input`. On the routes that carry a provider
+    API key that would hand the submitted secret back in an error body (and into any log or proxy
+    that records it), so those responses drop `input` and `ctx`."""
+    if request.url.path.startswith(_KEY_ROUTES):
+        errors = [{"type": e.get("type"), "loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
+        return JSONResponse(status_code=422, content={"detail": errors})
+    return await request_validation_exception_handler(request, exc)
 
 app.include_router(routes_auth.router)
 app.include_router(routes_wellness.router)
@@ -96,6 +115,7 @@ app.include_router(routes_analytics.router)
 app.include_router(routes_notes.router)
 app.include_router(routes_coach.tool_router)
 app.include_router(routes_coach.coach_router)
+app.include_router(routes_ai.router)
 app.include_router(routes_nutrition.router)
 app.include_router(routes_gym.router)
 app.include_router(routes_checkins.router)

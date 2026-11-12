@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { fetchSettings, fetchSyncStatus, saveSettings, triggerSync } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { daysUntilGarminKeyExpires, GARMIN_KEY_PAGE_URL } from "../lib/garminKey";
@@ -13,15 +13,22 @@ import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 import { NutritionTargetsCard } from "../components/nutrition/NutritionTargetsCard";
 import { IllnessBacktestCard } from "../components/settings/IllnessBacktestCard";
 import { NotificationsCard } from "../components/settings/NotificationsCard";
+import { RecoveryInputsCard } from "../components/settings/RecoveryInputsCard";
+import { WhoopControls } from "../components/settings/WhoopControls";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
-const SOURCES = ["garmin", "withings", "concept2"] as const;
+const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { theme, toggle } = useTheme();
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
   const statusQuery = useQuery({ queryKey: ["sync-status"], queryFn: fetchSyncStatus });
+
+  const [searchParams] = useSearchParams();
+  const whoopNotice = { connected: "Whoop connected.", denied: "Whoop access wasn't granted.", failed: "Couldn't finish connecting Whoop. Try again." }[
+    searchParams.get("whoop") ?? ""
+  ];
 
   const [form, setForm] = useState<Settings | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -71,6 +78,11 @@ export function SettingsPage() {
           </Link>
         }
       >
+        {whoopNotice && (
+          <p role="status" data-testid="whoop-notice" className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
+            {whoopNotice}
+          </p>
+        )}
         <div className="flex flex-col gap-3">
           {SOURCES.map((source) => {
             const status = statusQuery.data?.find((s) => s.source === source);
@@ -87,7 +99,9 @@ export function SettingsPage() {
                     {status?.token_expires_at && <> · token valid until {new Date(status.token_expires_at).toLocaleString()}</>}
                   </div>
                 </div>
-                {source === "withings" ? (
+                {source === "whoop" ? (
+                  <WhoopControls status={status} onSync={() => sync.mutate("whoop")} syncing={sync.isPending} />
+                ) : source === "withings" ? (
                   <a
                     href="/auth/withings/start"
                     className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent"
@@ -134,6 +148,8 @@ export function SettingsPage() {
           )}
         </div>
       </Card>
+
+      <RecoveryInputsCard settings={form} />
 
       <Card title="Zones">
         <div className="mb-3 flex gap-2">

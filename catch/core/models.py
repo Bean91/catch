@@ -56,6 +56,13 @@ class DailyWellness(SQLModel, table=True):
     vigorous_intensity_minutes: Optional[int] = None
     floors_climbed: Optional[int] = None
     floors_descended: Optional[int] = None
+    # Session 23 (see PLAN.md, docs/analytics.md §30): overnight skin-temperature reading from a
+    # provider that exposes one (Whoop 4.0+; Garmin's Personal API has none). Stored and shown,
+    # not part of the recovery formula.
+    skin_temp_c: Optional[float] = None
+    # {signal: source} for the signals catch.sync.wellness_readings.resolve_days resolved, so the
+    # UI and the coach can say which provider a number came from. NULL on rows predating it.
+    field_sources_json: Optional[str] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -388,6 +395,43 @@ class CoachCredential(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
+class AiCredential(SQLModel, table=True):
+    """A user's own AI provider key (BYOK), sealed per owner and provider by
+    catch.core.secret_store. The plaintext never leaves the server: only `last4` (blank for a
+    short key) and `status` are ever returned by an API. `status_detail` is a fixed vocabulary,
+    never provider-supplied text."""
+
+    __tablename__ = "ai_credentials"
+
+    owner_id: str = Field(primary_key=True)
+    provider: str = Field(primary_key=True)
+    key_enc: str
+    key_id: str
+    last4: str = ""
+    status: str = "configured"  # configured | valid | invalid | unavailable
+    status_detail: Optional[str] = None
+    status_checked_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class WellnessReading(SQLModel, table=True):
+    """One provider's measurement of one signal for one (wake-day) date. Many sources can hold a
+    reading for the same date; catch.sync.wellness_readings.resolve_days picks exactly one winner
+    per signal and writes it to daily_wellness. Never summed or averaged across sources."""
+
+    __tablename__ = "wellness_readings"
+
+    date: date_ = Field(primary_key=True)
+    source: str = Field(primary_key=True)
+    signal: str = Field(primary_key=True)
+    value: float
+    recorded_at: Optional[datetime] = None  # when the provider measured it (sleep end)
+    fetched_at: datetime = Field(default_factory=_utcnow)
+    external_id: Optional[str] = None
+    meta_json: Optional[str] = None  # e.g. {"nap": false, "timezone_offset": "-05:00"}
+
+
 class CoachSettings(SQLModel, table=True):
     """Coach-only preferences, deliberately a separate table from `settings`: a per-model
     price dict would trip settings_store's unknown-nested-key validation, and PUT /api/
@@ -395,8 +439,10 @@ class CoachSettings(SQLModel, table=True):
 
     __tablename__ = "coach_settings"
 
-    id: int = Field(default=1, primary_key=True)
-    provider: str = Field(default="anthropic")  # "anthropic" | "ollama"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # Session 23: looked up by owner_id, not by id == 1. The Pi has exactly one owner ("owner").
+    owner_id: str = Field(default="owner", index=True)
+    provider: str = Field(default="anthropic")  # anthropic | openai | gemini | ollama; see coach/providers/registry.py
     anthropic_model: Optional[str] = None  # None -> default to the newest "sonnet" model
     ollama_base_url: Optional[str] = None
     ollama_model: Optional[str] = None
@@ -404,6 +450,11 @@ class CoachSettings(SQLModel, table=True):
     # {model_id: {"input": $/1M, "output": $/1M, "cache_write": $/1M, "cache_read": $/1M}} —
     # prices are set here by the user, never hardcoded (Anthropic repricing, Ollama = $0).
     prices_json: str = "{}"
+    # Session 23: {provider: model_id}. anthropic_model/ollama_model above are read through it.
+    models_json: str = "{}"
+    # Optional per-owner daily token ceiling, for when a model has no user-entered price (so the
+    # USD cap can't apply).
+    daily_token_cap: Optional[int] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -411,6 +462,7 @@ class CoachConversation(SQLModel, table=True):
     __tablename__ = "coach_conversations"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = Field(default="owner", index=True)
     title: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
@@ -600,6 +652,9 @@ class AiUsageEvent(SQLModel, table=True):
     __tablename__ = "ai_usage_events"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = Field(default="owner", index=True)
+    provider: Optional[str] = None
+    model: Optional[str] = None
     kind: str  # "nutrition_photo_estimate"
     usage_json: Optional[str] = None
     cost_usd: Optional[float] = None

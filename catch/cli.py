@@ -34,6 +34,15 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
                     n = withings_sync(session, days=days)
                     print(f"withings backfill ({days}d): {n} body_comp rows")
+                elif source == "whoop":
+                    from catch.core.models import OAuthToken
+
+                    if session.get(OAuthToken, "whoop") is None:
+                        print("whoop: not connected, skipped")
+                        continue
+                    from catch.sync.whoop_client import sync as whoop_sync
+
+                    print(f"whoop backfill ({days}d): {whoop_sync(session, days=days)} records")
                 else:
                     from catch.sync.concept2_client import sync as concept2_sync
 
@@ -47,6 +56,23 @@ def cmd_backfill(args: argparse.Namespace) -> None:
 
         n = recompute_scores(session)
         print(f"recomputed {n} daily_scores rows")
+
+
+def cmd_whoop_check(args: argparse.Namespace) -> None:
+    """The manual Whoop connection test: one request per scope, counts only (no tokens, names or
+    e-mail addresses are printed)."""
+    init_db()
+    from catch.sync import whoop_client
+
+    if not whoop_client.configured():
+        raise SystemExit("WHOOP_CLIENT_ID / WHOOP_CLIENT_SECRET / WHOOP_REDIRECT_URI aren't set (names only — see .env.example).")
+    with get_session() as session:
+        try:
+            report = whoop_client.check(session)
+        except whoop_client.WhoopError as exc:
+            raise SystemExit(f"whoop check failed: {exc}")
+    for key, value in report.items():
+        print(f"{key}: {value}")
 
 
 def cmd_backfill_gps(args: argparse.Namespace) -> None:
@@ -128,13 +154,17 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sync_parser = sub.add_parser("sync", help="Sync one source")
-    sync_parser.add_argument("--source", required=True, choices=["garmin", "withings", "concept2"])
+    sync_parser.add_argument("--source", required=True, choices=["garmin", "withings", "concept2", "whoop"])
     sync_parser.add_argument("--days", type=int, default=3)
     sync_parser.set_defaults(func=cmd_sync)
 
     backfill_parser = sub.add_parser("backfill", help="Backfill all sources")
     backfill_parser.add_argument("--days", type=int, default=None)
     backfill_parser.set_defaults(func=cmd_backfill)
+
+    whoop_parser = sub.add_parser("whoop", help="Whoop utilities")
+    whoop_sub = whoop_parser.add_subparsers(dest="whoop_command", required=True)
+    whoop_sub.add_parser("check", help="Manual connection test (counts only, no secrets printed)").set_defaults(func=cmd_whoop_check)
 
     gps_parser = sub.add_parser("backfill-gps", help="Parse GPS tracks from stored FIT files (and weather)")
     gps_parser.add_argument("--weather", action="store_true", help="also fetch weather for each track")

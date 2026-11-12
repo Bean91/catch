@@ -33,7 +33,7 @@ def test_sync_status_lists_both_sources(client):
     resp = client.get("/api/sync/status")
     assert resp.status_code == 200
     sources = {row["source"] for row in resp.json()}
-    assert sources == {"garmin", "withings", "concept2"}
+    assert sources == {"garmin", "withings", "concept2", "whoop"}
 
 
 def test_activities_from_to_accepts_naive_dates(client):

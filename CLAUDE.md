@@ -9,7 +9,7 @@ PiAware.
 
 Python 3.12 via `uv`, FastAPI + uvicorn, SQLModel on SQLite (WAL mode), httpx, APScheduler
 3.x, pytest, `cryptography` (Fernet), `argon2-cffi` (verify the password hash already in
-`.env`), `anthropic` (official SDK, lazy-imported), `mcp` (official Python SDK, lazy-imported
+`.env`), `anthropic` (official SDK, lazy-imported; the OpenAI and Gemini adapters are plain `httpx`, no SDK — session 23), `mcp` (official Python SDK, lazy-imported
 for the optional HTTP transport). Frontend: React + Vite + TS, Tailwind v4 (CSS-first config,
 tokens as CSS vars), Radix primitives, Framer Motion, TanStack Query, React Router,
 `leaflet` (session 20: the route map — OpenStreetMap tiles, lazy-loaded in its own chunk;
@@ -144,12 +144,12 @@ catch/
                 duplicated), chat.py (provider-neutral orchestration loop: tool-calling,
                 SSE events, cost/cap accounting), memory.py (events/goals/athlete_facts
                 CRUD + recall + the compact system-prompt memory block), settings.py
-                (coach prefs + Fernet-encrypted API key — a separate table from `settings`,
-                see the Gotchas section), cost.py (usage -> $ from user-entered prices,
+                (coach prefs + per-owner AI provider keys — session 23: `ai_credentials`, sealed by
+                catch/core/secret_store.py; a separate table from `settings`), cost.py (usage -> $ from user-entered prices,
                 incl. session 13's AiUsageEvent rows so photo-estimate spend counts against
                 the same daily cap as chat), system_prompt.md (editable coach persona),
-                providers/ (anthropic_provider.py, ollama_provider.py — both yield the same
-                normalized event stream), nutrition_vision.py (session 13: one-shot Anthropic
+                providers/ (anthropic/openai/gemini/ollama adapters behind one interface — all yield the same
+                normalized event stream; see the session 23 paragraph), nutrition_vision.py (session 13: one-shot Anthropic
                 vision call for an itemised meal-photo macro estimate; lazy-imported, hidden
                 when no Anthropic key is configured, photos never stored after the estimate);
                 session 14: tools.py gained log_strength (free-text or structured, always
@@ -510,6 +510,35 @@ TechniqueNotesCard on WorkoutDetail, FeedbackEntryCard, sheets), `lib/duration.t
 new services were run against a real PostgreSQL 18 via `tests/test_postgres_optional.py` (skipped unless
 `CATCH_TEST_PG_URL`).
 
+Session 23 (Whoop, provider-independent recovery, BYOK AI providers — see PLAN.md, docs/whoop-endpoints.md,
+docs/ai-providers.md, docs/security.md, docs/analytics.md §6.2/§30, DESIGN.md "AI providers, Whoop and recovery inputs"; the
+brief carried no number). **Whoop**: `sync/whoop_client.py` (OAuth with *rotating* refresh tokens behind a lock, `records`/
+`next_token` pagination, 429 handling, revoke on disconnect), `analytics/whoop.py` (pure: offsets, the wake-day rule, sport
+families), routes in `routes_auth.py` (`/auth/whoop/start|callback|disconnect`, `GET /api/whoop/test`), `catch whoop check`,
+source registered in `scheduler.SOURCES` (a not-connected Whoop is skipped silently — no attempt, no alert) and explicit
+`cli.py` branches. Only `SCORED` records import; Whoop's own recovery/strain are reference, never inputs. **Recovery inputs**:
+every provider records `wellness_readings(date, source, signal)`; `sync/wellness_readings.py::resolve_days` is the *only*
+writer of the signal columns of `daily_wellness` (hrv, resting HR, sleep + stages + wake time, sleep respiration, skin temp,
+SpO₂), one winner per signal per day, never averaged, order from `Settings.wellness_priority` (Garmin first by default);
+`analytics/wellness_inputs.py` holds the pure rules, `RecoveryInputs`, `recovery_from_inputs` (the formula in `recovery.py` is
+unchanged) and the availability/calibration report; Garmin's `sync_health` records readings and resolves the days it touched;
+`daily_wellness` gained `skin_temp_c`/`field_sources_json`; recovery/illness payloads gained `calibration`,
+`data_availability`, `baseline_mixed_sources`. **BYOK**: `core/secret_store.py` (AES-256-GCM, per-owner HKDF key, AAD =
+owner|provider; master = `CATCH_SECRETS_MASTER_KEY`, Pi falls back to `CATCH_FERNET_KEY`), `core/redact.py` (applied to provider
+errors, stored tool errors, sync errors and every log record), `core/owner.py::current_owner_id` (the ONE owner dependency —
+credentials, coach settings, conversations, AI usage, rate limits all filter by it; `"owner"` on the Pi). `coach/providers/`:
+`base.py` (capabilities, `ProviderError` with a fixed `kind` vocabulary, `VisionRequest`), `anthropic_provider.py`,
+`openai_provider.py` (Responses API), `gemini_provider.py` (key in a header), `ollama_provider.py` (off on a public deployment: `CATCH_OLLAMA_ENABLED=0`), `registry.py`
+(`build_provider` is the only place a key is decrypted; no env fallback; `normalize_tool_ids` in `base.py` makes stored synthetic call ids unique before any provider sees them), `model_catalog.json` (patterns only). `coach/limits.py`
+(per-owner rate/concurrency/length/history-trim/wall-clock), `coach/vision.py` (the shared photo path; `nutrition_vision.py` and
+`piece_vision.py` are now async and provider-neutral). A hosted model with no entered price has *unknown* cost (`None`), not
+$0; a per-owner daily token cap exists beside the USD cap. API: `routes_ai.py` (`/api/ai/providers|…/key|…/test|…/models|active|
+usage`, cookie-only); the old `/api/coach/key` stays as an alias. Tools/MCP: still 55, none touch credentials. Web:
+`pages/AiProviders.tsx` (`/settings/ai`), `components/settings/ProviderCard|ProviderKeySheet|WhoopControls|RecoveryInputsCard`,
+`lib/aiProviders.ts`, `lib/mockAi.ts`, `lib/useVisionAvailable.ts`; `RecoveryRing`'s dialog lists each input's provider.
+Playwright: `web/tests/touch/ai-providers.spec.ts` (both mobile projects) and `ai-providers-desktop.spec.ts`. Adapters and the
+Whoop flow are verified against *synthetic* fixtures only (`tests/fixtures/ai`, `tests/fixtures/whoop`) — never run live.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -518,6 +547,7 @@ new services were run against a real PostgreSQL 18 via `tests/test_postgres_opti
 - `uv run catch backfill-gps [--weather] [--force]` — parse GPS tracks from FIT files already on disk
   (the sync loop only reaches its window), group rowing tracks into routes, and with `--weather` look
   up weather (sends 0.1°-rounded coordinates to Open-Meteo)
+- `uv run catch whoop check` — manual Whoop connection test (counts only; needs `WHOOP_*` in `.env`)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)

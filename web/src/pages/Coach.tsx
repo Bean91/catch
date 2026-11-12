@@ -1,25 +1,28 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   createConversation,
   deleteConversation,
   fetchConversation,
   fetchConversations,
   fetchDailyUsage,
-  saveCoachSettings,
+  setActiveAi,
   streamMessage,
 } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { buildTimeline, type TimelineEntry } from "../lib/timeline";
-import type { CoachConversation } from "../lib/types";
+import type { CoachConversation, CoachProviderName } from "../lib/types";
 import { SuggestedPrompts } from "../components/coach/SuggestedPrompts";
 import { Timeline } from "../components/coach/Timeline";
 
 const MORNING_BRIEF_PROMPT =
   "Give me my morning brief — how's recovery and strain looking today, and what should today's training look like?";
 
-type Notice = { kind: "error" | "cap" | "provider"; message: string };
+type Notice = { kind: "error" | "cap" | "provider" | "setup"; message: string; switchTo?: CoachProviderName[] };
+
+const PROVIDER_LABEL: Record<CoachProviderName, string> = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini", ollama: "Ollama" };
 
 function ConversationRow({
   conversation,
@@ -129,13 +132,25 @@ export function CoachPage() {
           flushText();
         } else if (event.type === "error") {
           flushText();
-          setNotice({ kind: "error", message: event.message });
+          setNotice({ kind: "error", message: event.message, switchTo: event.switch_to });
+        } else if (event.type === "ai_not_configured") {
+          flushText();
+          setNotice({ kind: "setup", message: event.message, switchTo: event.switch_to });
+        } else if (event.type === "rate_limited") {
+          flushText();
+          setNotice({ kind: "cap", message: event.message });
         } else if (event.type === "provider_unavailable") {
           flushText();
-          setNotice({ kind: "provider", message: event.message });
+          setNotice({ kind: "provider", message: event.message, switchTo: event.can_switch_to });
         } else if (event.type === "cap_reached") {
           flushText();
-          setNotice({ kind: "cap", message: `Daily spend cap reached ($${event.daily_cap_usd.toFixed(2)}) — raise it in Settings to keep going today.` });
+          setNotice({
+            kind: "cap",
+            message:
+              event.reason === "tokens"
+                ? "Daily token cap reached — raise it in Settings to keep going today."
+                : `Daily spend cap reached ($${(event.daily_cap_usd ?? 0).toFixed(2)}) — raise it in Settings to keep going today.`,
+          });
         }
       }
     } catch {
@@ -150,8 +165,10 @@ export function CoachPage() {
     }
   }
 
-  async function switchToAnthropic() {
-    await saveCoachSettings({ provider: "anthropic" });
+  async function switchTo(provider: CoachProviderName) {
+    // Switching provider never touches the conversation: history and memory are provider-neutral.
+    await setActiveAi(provider);
+    queryClient.invalidateQueries({ queryKey: ["ai-providers"] });
     setNotice(null);
   }
 
@@ -207,12 +224,19 @@ export function CoachPage() {
             notice.kind === "error" ? "border-band-red/30 bg-band-red/10 text-band-red-text" : "border-border bg-surface-2 text-text-secondary"
           }`}
         >
-          <span>{notice.message}</span>
-          {notice.kind === "provider" && (
-            <button type="button" onClick={switchToAnthropic} className="shrink-0 font-medium text-accent hover:underline">
-              Switch to Anthropic
-            </button>
-          )}
+          <span data-testid="coach-notice">{notice.message}</span>
+          <span className="flex shrink-0 flex-wrap justify-end gap-x-3">
+            {(notice.switchTo ?? []).map((p) => (
+              <button key={p} type="button" onClick={() => switchTo(p)} className="min-h-9 font-medium text-accent hover:underline">
+                Switch to {PROVIDER_LABEL[p]}
+              </button>
+            ))}
+            {(notice.kind === "setup" || notice.kind === "error" || notice.kind === "provider") && (
+              <Link to="/settings/ai" className="inline-flex min-h-9 items-center font-medium text-accent hover:underline">
+                AI providers
+              </Link>
+            )}
+          </span>
         </div>
       )}
 

@@ -5,7 +5,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from catch.core.models import AiUsageEvent, CoachMessage
+from catch.core.models import AiUsageEvent, CoachConversation, CoachMessage
+from catch.core.principal import OWNER_ID
 
 _RATE_KEYS = ("input", "output", "cache_write", "cache_read")
 _USAGE_TO_RATE = {
@@ -39,22 +40,50 @@ def _local_day_utc_range(day: date) -> tuple[datetime, datetime]:
     return start_utc, end_utc
 
 
-def today_spend_usd(session: Session, today: date | None = None) -> float:
-    """Session 13 (see PLAN.md Part B): also sums `AiUsageEvent` — Anthropic spend outside
-    the coach chat loop (the nutrition photo-estimate call) — so the daily cap covers every
-    Anthropic call this app makes, not just conversation turns."""
+def _todays_rows(session: Session, owner_id: str, today: date | None):
     start, end = _local_day_utc_range(today or date.today())
     coach_rows = session.exec(
-        select(CoachMessage.cost_usd).where(CoachMessage.created_at >= start, CoachMessage.created_at < end)
+        select(CoachMessage.cost_usd, CoachMessage.usage_json)
+        .join(CoachConversation, CoachConversation.id == CoachMessage.conversation_id)
+        .where(CoachConversation.owner_id == owner_id, CoachMessage.created_at >= start, CoachMessage.created_at < end)
     ).all()
     other_rows = session.exec(
-        select(AiUsageEvent.cost_usd).where(AiUsageEvent.created_at >= start, AiUsageEvent.created_at < end)
+        select(AiUsageEvent.cost_usd, AiUsageEvent.usage_json).where(
+            AiUsageEvent.owner_id == owner_id, AiUsageEvent.created_at >= start, AiUsageEvent.created_at < end
+        )
     ).all()
-    return sum(c for c in (*coach_rows, *other_rows) if c)
+    return [*coach_rows, *other_rows]
 
 
-def record_usage_event(session: Session, kind: str, usage: dict | None, cost_usd: float | None) -> AiUsageEvent:
-    row = AiUsageEvent(kind=kind, usage_json=json.dumps(usage) if usage else None, cost_usd=cost_usd)
+def today_spend_usd(session: Session, today: date | None = None, owner_id: str = OWNER_ID) -> float:
+    """Session 13 (see PLAN.md Part B): also sums `AiUsageEvent` — AI spend outside the coach chat
+    loop (the photo-estimate calls) — so the daily cap covers every AI call this app makes, not just
+    conversation turns. Session 23: scoped to one owner; a turn on an unpriced model contributes
+    nothing here (its cost is unknown, not $0 — see today_tokens for the cap that still applies)."""
+    return sum(c for c, _ in _todays_rows(session, owner_id, today) if c)
+
+
+def today_tokens(session: Session, today: date | None = None, owner_id: str = OWNER_ID) -> int:
+    total = 0
+    for _, usage_json in _todays_rows(session, owner_id, today):
+        if usage_json:
+            usage = json.loads(usage_json)
+            total += sum(usage.get(k) or 0 for k in _USAGE_TO_RATE)
+    return total
+
+
+def record_usage_event(
+    session: Session,
+    kind: str,
+    usage: dict | None,
+    cost_usd: float | None,
+    owner_id: str = OWNER_ID,
+    provider: str | None = None,
+    model: str | None = None,
+) -> AiUsageEvent:
+    row = AiUsageEvent(
+        kind=kind, usage_json=json.dumps(usage) if usage else None, cost_usd=cost_usd, owner_id=owner_id, provider=provider, model=model
+    )
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -73,3 +102,35 @@ def conversation_usage(session: Session, conversation_id: int) -> dict:
         if row.cost_usd:
             cost += row.cost_usd
     return {**totals, "cost_usd": cost}
+
+
+def usage_summary(session: Session, owner_id: str = OWNER_ID, days: int = 30) -> dict:
+    """What Catch itself recorded, per provider — not a provider-reported balance (none of the
+    providers expose one through an ordinary key). A turn on a model with no entered price counts
+    its tokens but contributes no cost, and is reported as `unpriced_turns` rather than as $0."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    by_provider: dict[str, dict] = {}
+
+    def bucket(provider: str | None) -> dict:
+        return by_provider.setdefault(provider or "unknown", {"tokens": 0, "cost_usd": 0.0, "turns": 0, "unpriced_turns": 0})
+
+    chat_rows = session.exec(
+        select(CoachMessage.provider, CoachMessage.usage_json, CoachMessage.cost_usd)
+        .join(CoachConversation, CoachConversation.id == CoachMessage.conversation_id)
+        .where(CoachConversation.owner_id == owner_id, CoachMessage.created_at >= since, CoachMessage.usage_json.is_not(None))
+    ).all()
+    event_rows = session.exec(
+        select(AiUsageEvent.provider, AiUsageEvent.usage_json, AiUsageEvent.cost_usd).where(
+            AiUsageEvent.owner_id == owner_id, AiUsageEvent.created_at >= since, AiUsageEvent.usage_json.is_not(None)
+        )
+    ).all()
+    for provider, usage_json, cost_usd in [*chat_rows, *event_rows]:
+        b = bucket(provider)
+        usage = json.loads(usage_json)
+        b["tokens"] += sum(usage.get(k) or 0 for k in _USAGE_TO_RATE)
+        b["turns"] += 1
+        if cost_usd is None:
+            b["unpriced_turns"] += 1
+        else:
+            b["cost_usd"] += cost_usd
+    return {"days": days, "by_provider": by_provider}

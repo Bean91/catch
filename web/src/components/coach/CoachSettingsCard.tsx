@@ -1,19 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  createToken,
-  deleteAnthropicKey,
-  deleteToken,
-  fetchCoachModels,
-  fetchCoachSettings,
-  fetchTokens,
-  saveCoachSettings,
-  setAnthropicKey,
-  testCoachConnection,
-} from "../../lib/api";
+import { createToken, deleteToken, fetchAiProviders, fetchCoachSettings, fetchTokens, saveCoachSettings } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
-import type { CoachProviderName } from "../../lib/types";
 import { Card } from "../ui/Card";
 
 const inputCls = "min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
@@ -22,42 +11,16 @@ export function CoachSettingsCard() {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings });
   const tokensQuery = useQuery({ queryKey: ["coach-tokens"], queryFn: fetchTokens });
+  const providersQuery = useQuery({ queryKey: ["ai-providers"], queryFn: fetchAiProviders });
 
-  const [keyInput, setKeyInput] = useState("");
-  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; model_count?: number } | null>(null);
   const [newTokenName, setNewTokenName] = useState("");
   const [mintedToken, setMintedToken] = useState<string | null>(null);
   const [coachToken, setCoachToken] = useState(false);
   const [coachName, setCoachName] = useState("");
 
-  const provider = settingsQuery.data?.provider ?? "anthropic";
-  const modelsQuery = useQuery({
-    queryKey: ["coach-models", provider],
-    queryFn: () => fetchCoachModels(provider),
-    enabled: !!settingsQuery.data && (provider === "ollama" ? !!settingsQuery.data.ollama_base_url : settingsQuery.data.anthropic_key.configured),
-  });
-
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => saveCoachSettings(patch),
     onSuccess: (data) => queryClient.setQueryData(["coach-settings"], data),
-  });
-
-  const saveKey = useMutation({
-    mutationFn: () => setAnthropicKey(keyInput),
-    onSuccess: (anthropic_key) => {
-      setKeyInput("");
-      queryClient.setQueryData(["coach-settings"], (prev: typeof settingsQuery.data) => (prev ? { ...prev, anthropic_key } : prev));
-    },
-  });
-
-  const removeKey = useMutation({
-    mutationFn: () => deleteAnthropicKey(),
-    onSuccess: () => queryClient.setQueryData(["coach-settings"], (prev: typeof settingsQuery.data) => (prev ? { ...prev, anthropic_key: { configured: false, last4: null } } : prev)),
-  });
-
-  const testConnection = useMutation({
-    mutationFn: () => testCoachConnection(),
-    onSuccess: setTestResult,
   });
 
   const createDeviceToken = useMutation({
@@ -85,119 +48,19 @@ export function CoachSettingsCard() {
   return (
     <Card title="AI coach">
       <div className="flex flex-col gap-4">
-        <div className="flex gap-2">
-          {(["anthropic", "ollama"] as CoachProviderName[]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => save.mutate({ provider: p })}
-              className={`min-h-11 rounded-md border px-4 text-sm font-medium transition-colors ${
-                provider === p ? "border-accent text-accent" : "border-border text-text-tertiary"
-              }`}
-            >
-              {p === "anthropic" ? "Anthropic (bring your own key)" : "Ollama (local, on your laptop)"}
-            </button>
-          ))}
-        </div>
-
-        {provider === "anthropic" ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-text-secondary">
-                {s.anthropic_key.configured ? `Key configured, ending …${s.anthropic_key.last4}` : "No key configured"}
-              </span>
-              {s.anthropic_key.configured && (
-                <button type="button" onClick={() => removeKey.mutate()} className="text-xs font-medium text-band-red-text hover:underline">
-                  Remove
-                </button>
-              )}
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (keyInput.trim()) saveKey.mutate();
-              }}
-              className="flex flex-wrap gap-2"
-            >
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="sk-ant-…"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                className={`${inputCls} min-w-[220px] flex-1`}
-              />
-              <button
-                type="submit"
-                disabled={!keyInput.trim() || saveKey.isPending}
-                className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50"
-              >
-                {saveKey.isPending ? "Saving…" : "Save key"}
-              </button>
-            </form>
-
-            <label className="flex flex-col gap-1.5 text-sm text-text-secondary sm:flex-row sm:items-center sm:gap-3">
-              Model
-              <select
-                value={s.anthropic_model ?? ""}
-                onChange={(e) => save.mutate({ anthropic_model: e.target.value })}
-                className={inputCls}
-              >
-                <option value="">Default (newest Sonnet)</option>
-                {modelsQuery.data?.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.display_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5 text-sm text-text-secondary">
-              Ollama URL (reachable over Tailscale)
-              <input
-                placeholder="http://laptop.tailnet:11434"
-                defaultValue={s.ollama_base_url ?? ""}
-                onBlur={(e) => save.mutate({ ollama_base_url: e.target.value || null })}
-                className={inputCls}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm text-text-secondary">
-              Model (only tool-capable models are listed)
-              <select value={s.ollama_model ?? ""} onChange={(e) => save.mutate({ ollama_model: e.target.value || null })} className={inputCls}>
-                <option value="">Choose a model…</option>
-                {modelsQuery.data?.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.display_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {modelsQuery.data?.length === 0 && (
-              <p className="text-xs text-text-tertiary">No tool-capable models found — is the laptop awake and reachable?</p>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={() => testConnection.mutate()}
-            disabled={testConnection.isPending}
-            className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50"
-          >
-            {testConnection.isPending ? "Testing…" : "Test connection"}
-          </button>
-          {testResult && (
-            <span className={`text-sm ${testResult.ok ? "text-band-green" : "text-band-red-text"}`}>
-              {testResult.ok ? `Connected (${testResult.model_count} models)` : testResult.error}
-            </span>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-2" data-testid="ai-provider-summary">
+          <p className="text-sm text-text-secondary">
+            {providersQuery.data?.active
+              ? `Active provider: ${providersQuery.data.providers.find((p) => p.id === providersQuery.data!.active)?.label}`
+              : "No AI provider is set up — AI features are off until you add your own key."}
+          </p>
+          <Link to="/settings/ai" className="min-h-11 content-center text-sm font-medium text-accent hover:underline">
+            AI providers →
+          </Link>
         </div>
 
         <label className="flex items-center gap-3 border-t border-border pt-3 text-sm text-text-secondary">
-          Daily spend cap (USD, blocks new coach requests once hit — leave blank for no cap)
+          Daily spend cap (USD, blocks new AI requests once hit — leave blank for no cap)
           <input
             type="number"
             min={0}
@@ -206,6 +69,19 @@ export function CoachSettingsCard() {
             defaultValue={s.daily_cap_usd ?? ""}
             onBlur={(e) => save.mutate({ daily_cap_usd: e.target.value ? Number(e.target.value) : null })}
             className={`${inputCls} w-24`}
+          />
+        </label>
+
+        <label className="flex items-center gap-3 border-t border-border pt-3 text-sm text-text-secondary">
+          Daily token cap (also applies to models you haven't priced)
+          <input
+            type="number"
+            min={0}
+            step={10000}
+            placeholder="none"
+            defaultValue={s.daily_token_cap ?? ""}
+            onBlur={(e) => save.mutate({ daily_token_cap: e.target.value ? Number(e.target.value) : null })}
+            className={`${inputCls} w-28`}
           />
         </label>
 

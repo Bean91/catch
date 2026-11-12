@@ -628,6 +628,11 @@ def put_settings(patch: dict = Body(...), background_tasks: BackgroundTasks = No
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
+    if before.get("wellness_priority") != result.get("wellness_priority"):
+        from catch.sync.wellness_readings import resolve_all
+
+        resolve_all(db)  # a different provider order changes which reading wins; re-decide before rescoring
+
     # Session 8/12: a changed max_hr/ftp_watts/field_priority/min_zone_*/auto_trim_* affects
     # every *already-resolved* canonical's cached zones/strain/label/title, none of which
     # run_matching's own resolve calls touch (those only cover orphaned, blank, or

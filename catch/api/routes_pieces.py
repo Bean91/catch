@@ -13,6 +13,7 @@ from sqlmodel import Session
 
 from catch.analytics.piece import PIECE_TYPES, default_splits, parse_splits_paste
 from catch.api.deps import get_db, require_auth
+from catch.core.owner import current_owner_id
 from catch.coach.piece_vision import PieceVisionError, estimate_piece_photo
 from catch.core.models import CanonicalActivity
 from catch.analytics.piece_intervals import MAX_INTERVALS, expand_repeat
@@ -157,7 +158,7 @@ def create_piece(canonical_id: int, body: CreatePieceRequest, db: Session = Depe
 
 
 @router.post("/api/activities/{canonical_id}/pieces/photo-estimate")
-async def photo_estimate(canonical_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db)):
+async def photo_estimate(canonical_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     """Vision draft only — nothing is saved (task Part B.4's same "never silently corrects"
     principle: the athlete reviews/edits before anything is written). The photo itself is
     re-sent by the client to POST .../pieces/{id}/photo after the piece is created, rather
@@ -167,7 +168,7 @@ async def photo_estimate(canonical_id: int, photo: UploadFile = File(...), db: S
         raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
     image_bytes = await photo.read()
     try:
-        return estimate_piece_photo(db, image_bytes, photo.content_type)
+        return await estimate_piece_photo(db, image_bytes, photo.content_type, owner_id)
     except PieceVisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

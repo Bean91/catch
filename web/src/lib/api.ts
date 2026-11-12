@@ -1,4 +1,13 @@
 import {
+  mockAiModels,
+  mockAiProviders,
+  mockAiUsage,
+  mockDeleteAiKey,
+  mockPutAiKey,
+  mockSetActive,
+  mockTestAiProvider,
+} from "./mockAi";
+import {
   copyMockDayLogs,
   createMockConversation,
   createMockEvent,
@@ -227,6 +236,7 @@ import type {
   TemplateScope,
   WorkoutTemplate,
 } from "./types";
+import type { AiModelsResponse, AiProviderCard, AiProvidersResponse, AiTestResult, AiUsage, CoachProviderName, WhoopTestResult } from "./types";
 import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
 import * as mockCal from "./mockCalendar";
 import * as mockCoach from "./mockCoaching";
@@ -839,6 +849,63 @@ export async function fetchCoachModels(provider?: "anthropic" | "ollama"): Promi
 export async function fetchDailyUsage(): Promise<{ spend_usd: number; cap_usd: number | null }> {
   if (isMock) return delay(mockDailyUsage());
   return request("/api/coach/usage/daily");
+}
+
+// --- AI providers (session 23) -----------------------------------------------
+
+export async function fetchAiProviders(): Promise<AiProvidersResponse> {
+  if (isMock) return delay(mockAiProviders());
+  return request<AiProvidersResponse>("/api/ai/providers");
+}
+
+export async function putAiKey(provider: CoachProviderName, apiKey: string): Promise<AiProviderCard & { validated: boolean }> {
+  if (isMock) return delay({ ...mockPutAiKey(provider, apiKey), validated: true }, 500);
+  return request(`/api/ai/providers/${provider}/key`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
+export async function deleteAiKey(provider: CoachProviderName): Promise<AiProvidersResponse> {
+  if (isMock) return delay(mockDeleteAiKey(provider), 150);
+  return request(`/api/ai/providers/${provider}/key`, { method: "DELETE" });
+}
+
+export async function testAiProvider(provider: CoachProviderName): Promise<AiTestResult> {
+  if (isMock) return delay(mockTestAiProvider(provider), 500);
+  return request(`/api/ai/providers/${provider}/test`, { method: "POST" });
+}
+
+export async function fetchAiModels(provider: CoachProviderName): Promise<AiModelsResponse> {
+  if (isMock) return delay(mockAiModels(provider), 150);
+  return request(`/api/ai/providers/${provider}/models`);
+}
+
+export async function setActiveAi(provider: CoachProviderName, model?: string): Promise<AiProvidersResponse> {
+  if (isMock) return delay(mockSetActive(provider, model), 150);
+  return request("/api/ai/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, model: model ?? null }),
+  });
+}
+
+export async function fetchAiUsage(): Promise<AiUsage> {
+  if (isMock) return delay(mockAiUsage());
+  return request<AiUsage>("/api/ai/usage");
+}
+
+// --- Whoop (session 23) --------------------------------------------------------
+
+export async function disconnectWhoop(): Promise<{ revoked: boolean; was_connected: boolean }> {
+  if (isMock) return delay({ revoked: true, was_connected: true }, 200);
+  return request("/auth/whoop/disconnect", { method: "POST" });
+}
+
+export async function testWhoop(): Promise<WhoopTestResult> {
+  if (isMock) return delay({ connected: true, recovery: { ok: true, has_records: true }, sleep: { ok: true, has_records: true }, workout: { ok: true, has_records: true }, token_expires_at: null }, 600);
+  return request("/api/whoop/test");
 }
 
 // --- Coach: device tokens -----------------------------------------------------

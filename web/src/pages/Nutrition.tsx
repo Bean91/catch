@@ -7,9 +7,11 @@ import { WeekView } from "../components/nutrition/WeekView";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
-import { copyDayLogs, fetchCoachSettings, fetchDaySummary, fetchWeekSummary } from "../lib/api";
+import { copyDayLogs, fetchDaySummary, fetchWeekSummary } from "../lib/api";
 import { localDateString } from "../lib/format";
 import { MEALS, type Meal } from "../lib/types";
+
+import { useVisionAvailable } from "../lib/useVisionAvailable";
 
 const PhotoEstimateDialog = lazy(() => import("../components/nutrition/PhotoEstimateDialog").then((m) => ({ default: m.PhotoEstimateDialog })));
 
@@ -42,10 +44,9 @@ export function NutritionPage() {
     queryKey: ["nutrition-week", shiftLocalDate(date, -6), date],
     queryFn: () => fetchWeekSummary(shiftLocalDate(date, -6), date),
   });
-  // Hidden rather than merely erroring on tap — the task requires the photo-estimate entry
-  // point itself to be absent when no Anthropic key is configured, not just the backend 422.
-  const coachSettings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings });
-  const photoEstimateAvailable = coachSettings.data?.anthropic_key.configured ?? false;
+  // Hidden rather than merely erroring on tap — the photo-estimate entry point itself is absent
+  // unless the active AI provider is set up and can read images, not just a backend 422.
+  const photoEstimateAvailable = useVisionAvailable();
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["nutrition-day"] });

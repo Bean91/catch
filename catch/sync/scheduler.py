@@ -14,7 +14,7 @@ from catch.sync import state
 
 logger = logging.getLogger("catch.scheduler")
 
-SOURCES = ("garmin", "withings", "concept2")
+SOURCES = ("garmin", "withings", "concept2", "whoop")
 FIT_DIR = Path(settings.db_file).parent / "fit"
 
 _locks = {source: threading.Lock() for source in SOURCES}
@@ -27,6 +27,12 @@ def run_sync(source: str, days: int = 3) -> dict:
         return {"source": source, "skipped": "already running"}
     try:
         with get_session() as session:
+            if source == "whoop":
+                from catch.core.models import OAuthToken
+
+                # Not connected is the normal state of a fresh install: no attempt, no error, no alert.
+                if session.get(OAuthToken, "whoop") is None:
+                    return {"source": source, "skipped": "not connected"}
             state.record_attempt(session, source)
             try:
                 if source == "garmin":
@@ -59,6 +65,10 @@ def run_sync(source: str, days: int = 3) -> dict:
                         datetime.fromtimestamp(int(row.cursor), tz=timezone.utc) if row and row.cursor else None
                     )
                     result = concept2_sync(session, updated_after=updated_after, days=days)
+                elif source == "whoop":
+                    from catch.sync.whoop_client import sync as whoop_sync
+
+                    result = {"records": whoop_sync(session, days=days)}
                 else:
                     raise ValueError(f"unknown source: {source}")
                 state.record_success(session, source, cursor=str(int(datetime.now(timezone.utc).timestamp())))

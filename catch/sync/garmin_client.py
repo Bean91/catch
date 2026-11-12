@@ -18,6 +18,7 @@ from catch.core.models import OAuthToken
 from catch.sync.canonical import resolve_canonical
 from catch.sync.fit_parse import parse_fit
 from catch.sync.samples import store_samples_from_fit
+from catch.sync import wellness_readings
 from catch.sync.upsert import upsert_activity, upsert_body_comp, upsert_daily_wellness
 
 logger = logging.getLogger("catch.garmin")
@@ -35,6 +36,7 @@ class GarminClient:
     def __init__(self, session: Session, http: httpx.Client | None = None):
         self.db = session
         self.http = http or httpx.Client(base_url=BASE_URL, timeout=30.0)
+        self._touched_days: set[date_] = set()
 
     # -- auth -----------------------------------------------------------
 
@@ -238,10 +240,15 @@ class GarminClient:
     # -- health -------------------------------------------------------------
 
     def sync_health(self, start_date: date_, end_date: date_) -> int:
+        # Session 23: the sleep/HRV/resting-HR/respiration/SpO2 values are recorded as Garmin
+        # *readings* and then resolved (catch/sync/wellness_readings.py), so a second provider can
+        # hold a different value for the same night without either overwriting the other.
+        self._touched_days = set()
         count = 0
         count += self._sync_sleep(start_date, end_date)
         count += self._sync_hrv(start_date, end_date)
         count += self._sync_usersummary(start_date, end_date)
+        wellness_readings.resolve_days(self.db, self._touched_days)
         return count
 
     def _sync_sleep(self, start_date: date_, end_date: date_) -> int:
@@ -261,22 +268,25 @@ class GarminClient:
                 overall = sleep_scores.get("overall")
                 if isinstance(overall, dict):
                     sleep_score = overall.get("value")
-            upsert_daily_wellness(
+            upsert_daily_wellness(self.db, day, sleep_score=sleep_score)
+            sleep_meta = {
+                "deep_sleep_seconds": item.get("deepSleepSeconds"),
+                "light_sleep_seconds": item.get("lightSleepSeconds"),
+                "rem_sleep_seconds": item.get("remSleepSeconds"),
+                "awake_sleep_seconds": item.get("awakeSleepSeconds"),
+                "wake_time_minutes": _local_minutes_of_day(item.get("sleepEndTimestampLocal")),
+            }
+            wellness_readings.record_garmin(
                 self.db,
                 day,
                 sleep_seconds=item.get("sleepTimeSeconds"),
-                deep_sleep_seconds=item.get("deepSleepSeconds"),
-                light_sleep_seconds=item.get("lightSleepSeconds"),
-                rem_sleep_seconds=item.get("remSleepSeconds"),
-                awake_sleep_seconds=item.get("awakeSleepSeconds"),
-                sleep_score=sleep_score,
-                # Session 15 (see PLAN.md Part B): sleep-period respiration, distinct from
-                # the whole-day `respiration` column (already filled from a different
-                # endpoint, see _sync_usersummary) — the illness early-warning signal wants
-                # the overnight value specifically.
-                sleep_respiration_avg=item.get("averageRespirationValue"),
-                wake_time_minutes=_local_minutes_of_day(item.get("sleepEndTimestampLocal")),
+                sleep_meta={k: v for k, v in sleep_meta.items() if v is not None},
+                # Session 15 (see PLAN.md Part B): sleep-period respiration, distinct from the
+                # whole-day `respiration` column (filled from a different endpoint, see
+                # _sync_usersummary) — the illness early-warning signal wants the overnight value.
+                sleep_respiration=item.get("averageRespirationValue"),
             )
+            self._touched_days.add(day)
             n += 1
         return n
 
@@ -291,7 +301,8 @@ class GarminClient:
             day = _parse_date(item.get("calendarDate"))
             if day is None:
                 continue
-            upsert_daily_wellness(self.db, day, hrv_rmssd=item.get("lastNightAvg"))
+            wellness_readings.record_garmin(self.db, day, hrv_rmssd=item.get("lastNightAvg"))
+            self._touched_days.add(day)
             n += 1
         return n
 
@@ -329,10 +340,8 @@ class GarminClient:
             upsert_daily_wellness(
                 self.db,
                 day,
-                resting_hr=heart_rate.get("restingValue"),
                 stress=stress.get("avgLevel"),
                 body_battery=body_battery.get("latestValue"),
-                spo2=pulse_ox.get("avgValue"),
                 respiration=respiration.get("avgValue"),
                 steps=steps.get("value"),
                 active_kcal=calories.get("burnedActive"),
@@ -343,6 +352,8 @@ class GarminClient:
                 floors_climbed=floors_up.get("value"),
                 floors_descended=floors_down.get("value"),
             )
+            wellness_readings.record_garmin(self.db, day, resting_hr=heart_rate.get("restingValue"), spo2=pulse_ox.get("avgValue"))
+            self._touched_days.add(day)
             n += 1
         return n
 
