@@ -131,19 +131,23 @@ test("a planned session can be moved a day with the Later button", async ({ page
   await expect(page.getByRole("button", { name: /Pyramid/ })).toBeVisible();
 });
 
-test("a repeating plan creates a series and can be removed from a point on", async ({ page }) => {
+test("a repeating plan with several weekdays covers four weeks, not four sessions", async ({ page }) => {
   await page.goto(`/calendar?mock=1&view=month&date=${W3}`);
   await page.getByRole("button", { name: "+ Plan", exact: true }).tap();
   const sheet = page.getByTestId("planned-sheet");
   await sheet.getByLabel("Title (optional)").fill("Series row");
   await sheet.getByLabel("Duration (min)").fill("30");
   await sheet.getByLabel("Repeat weekly").check();
+  for (const d of ["Mon", "Wed", "Fri"]) await sheet.getByRole("button", { name: d, exact: true }).tap();
   await sheet.getByRole("button", { name: "Add to plan" }).tap();
   await expect(sheet).toHaveCount(0);
   await page.getByRole("tab", { name: "Week" }).tap();
-  await expect(page.getByText("Series row")).toHaveCount(1);
-  await page.getByRole("button", { name: "Next" }).tap();
-  await expect(page.getByText("Series row")).toHaveCount(1); // one per week, four weeks by default
+  // W3 is a Monday; four weeks of Mon/Wed/Fri = three sessions in each of the four weeks, none in a fifth.
+  for (let week = 0; week < 4; week++) {
+    await expect(page.getByText("Series row")).toHaveCount(3);
+    await page.getByRole("button", { name: "Next" }).tap();
+  }
+  await expect(page.getByText("Series row")).toHaveCount(0);
 });
 
 test("month view: dot grid with labels; tapping a day opens it", async ({ page }) => {

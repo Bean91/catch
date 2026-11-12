@@ -175,7 +175,46 @@ def create_planned(session: Session, owner_id: str, fields: dict, repeat: dict |
 
 
 def get_planned(session: Session, owner_id: str, planned_id: int) -> PlannedWorkout:
-    return _own(session, PlannedWorkout, owner_id, planned_id)
+    row = _own(session, PlannedWorkout, owner_id, planned_id)
+    _heal_links(session, [row])
+    return row
+
+
+def relink_after_merge(session: Session, keep_id: int, drop_id: int) -> None:
+    """The matching engine merged two canonicals and is about to delete `drop`: a plan linked to
+    it follows the survivor. If the survivor is already linked to another plan, the dropped
+    side's plan becomes unlinked (one workout, one plan). Splits need nothing: the original
+    canonical still exists and keeps the link."""
+    rows = session.exec(select(PlannedWorkout).where(PlannedWorkout.linked_canonical_id == drop_id)).all()
+    if not rows:
+        return
+    taken = session.exec(select(PlannedWorkout).where(PlannedWorkout.linked_canonical_id == keep_id)).first() is not None
+    for row in rows:
+        if taken:
+            row.linked_canonical_id = None
+            row.linked_at = None
+        else:
+            row.linked_canonical_id = keep_id
+            taken = True
+        session.add(row)
+
+
+def _heal_links(session: Session, rows: list[PlannedWorkout]) -> None:
+    """Belt and braces for any other way a canonical could vanish (a hand edit, a restore): a
+    link to a missing canonical reads as unlinked rather than as "Done" pointing at a 404."""
+    ids = {r.linked_canonical_id for r in rows if r.linked_canonical_id is not None}
+    if not ids:
+        return
+    present = set(session.exec(select(CanonicalActivity.id).where(CanonicalActivity.id.in_(ids))).all())
+    dirty = False
+    for r in rows:
+        if r.linked_canonical_id is not None and r.linked_canonical_id not in present:
+            r.linked_canonical_id = None
+            r.linked_at = None
+            session.add(r)
+            dirty = True
+    if dirty:
+        session.commit()
 
 
 def _series_following(session: Session, owner_id: str, row: PlannedWorkout) -> list[PlannedWorkout]:
@@ -300,13 +339,15 @@ def decline_suggestion(session: Session, owner_id: str, planned_id: int, canonic
 
 
 def list_planned(session: Session, owner_id: str, start: date, end: date) -> list[PlannedWorkout]:
-    return list(
+    rows = list(
         session.exec(
             select(PlannedWorkout)
             .where(PlannedWorkout.owner_id == owner_id, PlannedWorkout.date >= start, PlannedWorkout.date <= end)
             .order_by(PlannedWorkout.date, PlannedWorkout.start_time, PlannedWorkout.id)
         ).all()
     )
+    _heal_links(session, rows)
+    return rows
 
 
 # --- Events ---------------------------------------------------------------------------------

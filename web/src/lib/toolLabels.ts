@@ -34,8 +34,24 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return `Remember a ${input.category} fact`;
     case "add_event":
       return `Add event: ${input.name}`;
+    case "create_event":
+      return input.confirm ? `Add event: ${input.name}` : `Preview adding event: ${input.name}`;
     case "update_event":
-      return `Update event #${input.id}`;
+      return input.confirm ? `Update event #${input.id}` : `Preview updating event #${input.id}`;
+    case "get_calendar":
+      return `Read calendar (${input.from} to ${input.to})`;
+    case "get_upcoming_events":
+      return "Read upcoming events";
+    case "get_event":
+      return `Read event #${input.id}`;
+    case "get_training_phase":
+      return "Read training phase";
+    case "create_planned_workout":
+      return input.confirm ? "Add planned session" : "Preview adding a planned session";
+    case "update_planned_workout":
+      return input.confirm ? `Update planned session #${input.id}` : `Preview changing planned session #${input.id}`;
+    case "delete_planned_workout":
+      return input.confirm ? `Delete planned session #${input.id}` : `Preview deleting planned session #${input.id}`;
     case "forget":
       return `Forget ${input.ref}`;
     case "rename_activity":

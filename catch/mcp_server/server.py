@@ -477,7 +477,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
     @mcp.tool()
     async def get_recommendations(
         status: Optional[Literal["active", "dismissed", "all"]] = None,
-        type: Optional[Literal["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning"]] = None,
+        type: Optional[Literal["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning", "plan_review"]] = None,
     ) -> dict:
         """Training/recovery/data-quality/overload recommendations, with reasoning and
         evidence. Never prescribes aggressive training or tells the athlete to ignore

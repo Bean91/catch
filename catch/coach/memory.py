@@ -282,7 +282,7 @@ def memory_block(session: Session) -> str:
 
     active = list_recommendations(session, status="active")
     if active:
-        _SEVERITY = {"overload_warning": 0, "recovery_suggestion": 1, "data_quality_warning": 2, "training_suggestion": 3}
+        _SEVERITY = {"overload_warning": 0, "recovery_suggestion": 1, "plan_review": 2, "data_quality_warning": 3, "training_suggestion": 4}
         top = min(active, key=lambda r: _SEVERITY.get(r["type"], 99))
         lines.append(f"Active recommendation ({top['type']}, {top['confidence']} confidence): {top['body']}")
 

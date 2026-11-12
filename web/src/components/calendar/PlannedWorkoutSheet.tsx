@@ -118,7 +118,9 @@ export function PlannedWorkoutSheet({
         return updatePlanned(existing.id, { ...patch, structure: blocks }, scope);
       }
       const payload = body();
-      if (repeat) payload.repeat = { weekdays: weekdays.length ? weekdays : undefined, until: until || null, count: until ? null : 4 };
+      if (repeat) // Blank "until" means four weeks from the start date (not four sessions: with Mon/Wed/Fri ticked
+      // that would be barely over a week).
+      payload.repeat = { weekdays: weekdays.length ? weekdays : undefined, until: until || addDays(date, 27), count: null };
       return createPlanned(payload);
     },
     onSuccess: () => {

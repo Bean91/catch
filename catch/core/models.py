@@ -944,7 +944,7 @@ class Recommendation(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
     date: date_ = Field(index=True)  # local date first generated
-    type: str  # training_suggestion | recovery_suggestion | data_quality_warning | overload_warning
+    type: str  # training_suggestion | recovery_suggestion | data_quality_warning | overload_warning | plan_review
     rule_key: str = Field(index=True)  # stable id, e.g. "overload:acr_sustained"
     confidence: str  # insufficient_data | low | medium | high
     title: str
@@ -1082,10 +1082,10 @@ class PlannedWorkout(SQLModel, table=True):
     description: Optional[str] = None
     structure_json: Optional[str] = None
     status: str = "planned"  # planned | skipped (a link is `linked_canonical_id`, not a status)
-    linked_canonical_id: Optional[int] = Field(default=None, foreign_key="canonical_activities.id")
+    linked_canonical_id: Optional[int] = Field(default=None, foreign_key="canonical_activities.id", ondelete="SET NULL")
     linked_at: Optional[datetime] = None
     series_id: Optional[str] = Field(default=None, index=True)
-    event_id: Optional[int] = Field(default=None, foreign_key="events.id")
+    event_id: Optional[int] = Field(default=None, foreign_key="events.id", ondelete="SET NULL")
     declined_json: Optional[str] = None  # canonical ids the athlete said "not this one" to
     notes: Optional[str] = None
     coach_feedback: Optional[str] = None
@@ -1113,7 +1113,7 @@ class TrainingPhase(SQLModel, table=True):
     target_sessions_per_week: Optional[float] = None
     target_strength_sessions_per_week: Optional[float] = None
     target_zone_pct_json: Optional[str] = None  # {"UT2": {"min": 70}, "AN": {"max": 5}}
-    event_id: Optional[int] = Field(default=None, foreign_key="events.id")
+    event_id: Optional[int] = Field(default=None, foreign_key="events.id", ondelete="SET NULL")
     coach_approved_at: Optional[datetime] = None
     coach_approved_by: Optional[str] = None
     coach_approved_note: Optional[str] = None

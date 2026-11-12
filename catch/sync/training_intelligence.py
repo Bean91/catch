@@ -579,7 +579,7 @@ def generate_recommendations(session: Session, settings: dict, today: date) -> l
     evaluators = (
         ("data_quality_warning", evaluate_data_quality_warning),
         ("overload_warning", evaluate_overload_warning),
-        ("overload_warning", evaluate_planned_load_change),
+        ("plan_review", evaluate_planned_load_change),
         ("recovery_suggestion", evaluate_recovery_suggestion),
         ("training_suggestion", evaluate_training_suggestion),
     )
@@ -590,7 +590,7 @@ def generate_recommendations(session: Session, settings: dict, today: date) -> l
     fired_this_run: set[str] = set()
     created = []
     for type_name, fn in evaluators:
-        if type_name == "training_suggestion" and fired_this_run & {"recovery_suggestion", "overload_warning"}:
+        if type_name == "training_suggestion" and fired_this_run & {"recovery_suggestion", "overload_warning", "plan_review"}:
             continue
         result = fn(context, settings)
         if result is None:

@@ -634,7 +634,7 @@ def test_a_big_planned_jump_surfaces_as_one_deduped_review_recommendation(sessio
     recompute_scores(session)  # idempotent: re-confirms the same row
     rows = [r for r in session.exec(select(Recommendation)).all() if r.rule_key == "plan:load_change"]
     assert len(rows) == 1
-    assert "nothing has been changed" in rows[0].body and rows[0].type == "overload_warning"
+    assert "nothing has been changed" in rows[0].body and rows[0].type == "plan_review"
     assert not any(r.type == "training_suggestion" for r in session.exec(select(Recommendation)).all())
     # The plan itself was not touched by generating the recommendation.
     assert all(p.duration_min == 150 for p in session.exec(select(PlannedWorkout)).all())
@@ -647,3 +647,101 @@ def test_no_plan_means_no_review_recommendation(session):
     _seed_history(session)
     recompute_scores(session)
     assert [r for r in session.exec(select(Recommendation)).all() if r.rule_key == "plan:load_change"] == []
+
+
+# --- the matching engine merging/splitting canonicals under a linked plan --------------------
+
+
+def _two_activities(session):
+    from catch.core.models import Activity
+
+    t0 = datetime(2026, 6, 1, 7, 0, tzinfo=timezone.utc)
+    out = []
+    for i, (src, offset) in enumerate((("garmin", 0), ("concept2", 0))):
+        canon = CanonicalActivity(start=t0 + timedelta(minutes=offset), duration=3600.0, sport_family="rowing", category="erg")
+        session.add(canon)
+        session.flush()
+        act = Activity(
+            source=src, external_id=f"m{i}", type="indoor_rowing", start=t0, duration=3600.0, canonical_id=canon.id, sport_family="rowing"
+        )
+        session.add(act)
+        session.commit()
+        out.append((act, canon))
+    return out
+
+
+def test_merging_workouts_moves_a_plan_link_to_the_survivor(session):
+    from catch.sync.matching import manual_merge
+
+    (a, ca), (b, cb) = _two_activities(session)
+    plan = _plan(session, date(2026, 6, 1))
+    sp.link_planned(session, OWNER, plan.id, cb.id)
+    keep = manual_merge(session, a.id, b.id)
+    session.expire_all()
+    assert session.get(CanonicalActivity, cb.id) is None or keep.id == cb.id
+    linked = session.get(PlannedWorkout, plan.id).linked_canonical_id
+    assert linked == keep.id and session.get(CanonicalActivity, linked) is not None
+
+
+def test_merge_with_both_sides_linked_unlinks_the_dropped_sides_plan(session):
+    from catch.sync.matching import manual_merge
+
+    (a, ca), (b, cb) = _two_activities(session)
+    p1, p2 = _plan(session, date(2026, 6, 1)), _plan(session, date(2026, 6, 1))
+    sp.link_planned(session, OWNER, p1.id, ca.id)
+    sp.link_planned(session, OWNER, p2.id, cb.id)
+    keep = manual_merge(session, a.id, b.id)
+    session.expire_all()
+    links = sorted((session.get(PlannedWorkout, p.id).linked_canonical_id or 0) for p in (p1, p2))
+    assert links == [0, keep.id]  # exactly one plan keeps the workout; the other is simply unlinked
+
+
+def test_splitting_leaves_the_plan_on_the_original_canonical(session):
+    from catch.sync.matching import manual_merge, split_activity
+
+    (a, ca), (b, cb) = _two_activities(session)
+    keep = manual_merge(session, a.id, b.id)
+    plan = _plan(session, date(2026, 6, 1))
+    sp.link_planned(session, OWNER, plan.id, keep.id)
+    split_activity(session, b.id)
+    session.expire_all()
+    assert session.get(PlannedWorkout, plan.id).linked_canonical_id == keep.id
+    assert session.get(CanonicalActivity, keep.id) is not None
+
+
+def test_a_link_to_a_vanished_canonical_heals_on_read_instead_of_dangling(session):
+    plan = _plan(session, date(2026, 6, 1))
+    canon = _canonical(session, date(2026, 6, 1))
+    sp.link_planned(session, OWNER, plan.id, canon.id)
+    session.delete(canon)  # any path that removes a canonical other than the matching engine
+    session.commit()
+    row = sp.list_planned(session, OWNER, date(2026, 6, 1), date(2026, 6, 1))[0]
+    assert row.linked_canonical_id is None and sp.planned_dict(row, date(2026, 7, 1))["display_status"] == "not_logged"
+
+
+def test_the_link_foreign_keys_declare_on_delete_set_null():
+    for table in (PlannedWorkout.__table__, TrainingPhase.__table__):
+        for fk in table.foreign_keys:
+            assert fk.ondelete == "SET NULL", (table.name, fk.parent.name)
+
+
+def test_an_absorbed_piece_canonical_is_in_neither_the_day_rows_nor_the_week_totals(session):
+    # Absorbed canonicals also carry exclude_from_totals (catch/sync/piece.py), so the calendar's day
+    # rows and the week summary agree about how many sessions the week holds.
+    _canonical(session, MON, duration=3600.0)
+    _canonical(
+        session, MON, duration=360.0, absorbed_into_piece_id=1,
+        overrides_json=json.dumps({"exclude_from_totals": True}),
+    )
+    summary = sp.build_week_summary(session, OWNER, MON)
+    cal = sp.build_calendar(session, OWNER, MON, MON + timedelta(days=6))
+    assert summary["completed"]["sessions"] == 1
+    assert sum(len(d["completed"]) for d in cal["days"]) == 1
+
+
+def test_an_excluded_workout_shows_on_the_calendar_but_not_in_totals(session):
+    _canonical(session, MON, overrides_json=json.dumps({"exclude_from_totals": True}))
+    cal = sp.build_calendar(session, OWNER, MON, MON + timedelta(days=6))
+    shown = [c for d in cal["days"] for c in d["completed"]]
+    assert len(shown) == 1 and shown[0]["excluded_from_totals"] is True
+    assert sp.build_week_summary(session, OWNER, MON)["completed"]["sessions"] == 0

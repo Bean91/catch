@@ -1208,7 +1208,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "status": {"type": "string", "enum": ["active", "dismissed", "all"], "description": "Default 'active'."},
-                "type": {"type": "string", "enum": ["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning"]},
+                "type": {"type": "string", "enum": ["training_suggestion", "recovery_suggestion", "data_quality_warning", "overload_warning", "plan_review"]},
             },
             "additionalProperties": False,
         },

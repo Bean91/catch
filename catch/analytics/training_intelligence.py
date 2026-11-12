@@ -522,7 +522,8 @@ def evaluate_overload_warning(context: dict, settings: dict) -> dict | None:
 
 
 def evaluate_planned_load_change(context: dict, settings: dict) -> dict | None:
-    """Session 21 (see PLAN.md, docs/calendar.md): a caution-direction recommendation, so like
+    """Session 21 (see PLAN.md, docs/calendar.md): a caution-direction recommendation (type `plan_review`, deliberately not
+    `overload_warning`: it says nothing about completed load), so like
     evaluate_overload_warning it is not suppressed by recovery/illness state — those make a
     big planned jump *more* worth a look. It only asks the athlete to review; the body text is
     already built (and hedged, or deferring to a coach on an approved phase) by

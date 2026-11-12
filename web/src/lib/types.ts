@@ -1307,7 +1307,7 @@ export interface MuscleReadiness {
 
 // --- Session 18: training intelligence & recommendations ---------------------------------
 
-export type RecommendationType = "training_suggestion" | "recovery_suggestion" | "data_quality_warning" | "overload_warning";
+export type RecommendationType = "training_suggestion" | "recovery_suggestion" | "data_quality_warning" | "overload_warning" | "plan_review";
 export type ConfidenceLevel = "insufficient_data" | "low" | "medium" | "high";
 export type RecommendationRating = "useful" | "not_useful";
 export type RecommendationStatus = "active" | "dismissed" | "all";

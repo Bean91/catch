@@ -10,6 +10,7 @@ const TYPE_LABELS: Record<string, string> = {
   recovery_suggestion: "Recovery suggestion",
   data_quality_warning: "Data-quality warning",
   overload_warning: "Overload warning",
+  plan_review: "Plan review",
 };
 
 const TYPE_BAND: Record<string, string> = {
@@ -17,6 +18,8 @@ const TYPE_BAND: Record<string, string> = {
   recovery_suggestion: "yellow",
   data_quality_warning: "calibrating",
   overload_warning: "red",
+  // A prompt to look at the plan, not a verdict on the athlete: neutral, never red.
+  plan_review: "calibrating",
 };
 
 function RecommendationRow({ rec }: { rec: Recommendation }) {

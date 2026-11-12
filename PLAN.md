@@ -3646,8 +3646,9 @@ the repo was at Session 20, so this is recorded as **Session 21**; the stale ref
 - **Calendar replaces the "Log" bottom-nav slot**, and the tab is labelled **"Plan"** (calendar icon): "Calendar"
   clipped at 11px on 375 px and 360 px phones (measured with a width sweep), the same constraint that made the others
   "Fuel"/"Gym". Page, sidebar and URL are "Calendar"; the tab also reads active on `/workouts*`.
-- **Owner seam on the new tables** (`owner_id`, constant `"owner"`): every service function filters on it and a
-  foreign row is "not found". The app is still single-user; the Supabase build inherits the seam.
+- **Owner seam on the new tables** (`owner_id`, constant `"owner"`): every function in the new service filters on it and a
+  foreign row is "not found". The legacy event readers (`memory.recall`/`list_all`/`memory_block`/`next_a_race`,
+  `next_relevant_event`, `_find_plan_for`) are *not* owner-filtered; the multi-user build must add that.
 - **`add_event` → confirm-gated `create_event`.** `update_event` and `forget("event:N")` are gated the same way.
 - **No `timezone` setting** (advisor catch): completed workouts are bucketed by host-local time everywhere, so a
   second zone would make the calendar and the load numbers disagree. Pure helpers take an explicit `tz` instead.
@@ -3676,11 +3677,17 @@ the repo was at Session 20, so this is recorded as **Session 21**; the stale ref
 6. Sheets auto-focused the date field (iOS would open its picker) — `onOpenAutoFocus` prevented.
 7. The mock matcher assigned greedily in list order and stole a workout from its own-day plan (the Playwright test
    caught it); it now sorts by day gap like the real one.
-8. `_migrate_columns` called `PRAGMA table_info`; it now uses `sqlalchemy.inspect()` and skips tables that don't exist.
+8. **A plan's link could dangle when the matching engine merged canonicals** (advisor catch): `_merge_canonicals` is the only
+   deletion site, and the first version only claimed the link would "read as unlinked". Links now follow the survivor, the FK is
+   `ON DELETE SET NULL`, and reads self-heal; tested through the real `manual_merge`/`split_activity`.
+9. The plan-review recommendation reused the `overload_warning` type, which the UI paints red and the coach's memory block ranks
+   first — now its own neutral `plan_review` type, ranked below overload and recovery.
+10. The repeat sheet said "blank = 4 weeks" but sent `count: 4` (barely over a week with Mon/Wed/Fri); it now sends `until`.
+11. `_migrate_columns` called `PRAGMA table_info`; it now uses `sqlalchemy.inspect()` and skips tables that don't exist.
 
 ## Verification
 
-- `uv run pytest`: **1032 passed** (913 at the start). New: `tests/analytics/test_planning.py` (41: time zones incl.
+- `uv run pytest`: **1039 passed** (913 at the start). New: `tests/analytics/test_planning.py` (41: time zones incl.
   Sydney/New York/DST/23:30-local, recurrence, matching incl. AM/PM doubles, totals, flags, validation),
   `tests/test_planning_sync.py` (service: ownership across every operation, one-to-one linking + the DB constraint,
   planned-never-counts snapshots of volume/distribution/consistency/strain/DailyScore rows, calendar assembly, week
@@ -3721,6 +3728,8 @@ pages, Today "Coming up" card, `lib/dates.ts`.
 - No drag-and-drop move (taps/buttons instead), no ICS/Google import-export, no automatic plan generation by design.
 - "Edited since approval" can't see a *deleted* planned session. Completed-training zone splits exist for the last 52
   weeks only. Review flags compare minutes, not intensity.
+- A preview of a planned-session write doesn't yet show the review flag the change *would* raise (it would need a dry-run
+  inside a rolled-back transaction); the flag appears after the write.
 - The existing `test_reminder` still only covers 2k tests and A races; B/C races and a 7-day heads-up are not notified.
 - The per-user time zone, a real `owner_id` source and per-user phases are for the multi-user build.
 

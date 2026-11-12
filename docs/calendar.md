@@ -36,7 +36,11 @@ on-water agreement, duration ratio and distance similarity; below 0.6 nothing is
 and a specific sport must agree. `suggest_matches` assigns greedily one-to-one by score, so an AM/PM double yields
 one workout per slot. Suggestions are **computed when the calendar is read, never stored, never applied**; the
 athlete links ("Link them") or declines ("Not this one", remembered in `declined_json`). Both records are left
-untouched either way. If a linked canonical later disappears (merge/split) the plan simply reads as unlinked again.
+untouched either way. **Merges and splits:** `matching._merge_canonicals` is the only place a canonical is deleted; it calls
+`planning.relink_after_merge`, so a plan follows the surviving canonical (if both sides were linked, the dropped side's
+plan becomes unlinked — one workout, one plan). A split keeps the link on the original canonical. The link's foreign key
+is `ON DELETE SET NULL` (matters on PostgreSQL, where a dangling FK would make the merge itself fail), and reads self-heal
+any other dangling link to "unlinked".
 
 ## Time zones and dates
 
@@ -69,8 +73,9 @@ side by side — no verdict field) and review flags. Zone splits for completed t
 completed average. Drops are flagged except in recovery / pre-competition / competition phases. A flag **only asks
 for review**; it never edits the plan. Wording: hedged by history confidence (`_apply_hedge`); on a
 **coach-approved** phase it defers ("worth confirming with your coach") and doesn't hedge. The same function
-feeds one `overload_warning`-type recommendation (`rule_key plan:load_change`, normal cooldown), which also
-suppresses the "room for another session" suggestion that run. No plan is ever generated automatically.
+feeds one recommendation of its own type, `plan_review` (`rule_key plan:load_change`, normal cooldown; a neutral badge in
+the UI — deliberately not `overload_warning`, which says completed load is high, and ranked below overload/recovery in
+the coach's memory block), which also suppresses the "room for another session" suggestion that run. No plan is ever generated automatically.
 There is no athlete age in the schema, so no age-specific threshold exists; the conservative defaults apply to everyone.
 
 ### Coach approval
@@ -89,8 +94,10 @@ distance, fewer than 3 results). Erg only: wind, current and race-day conditions
 
 ## Ownership (single-user, with a seam)
 
-New tables carry `owner_id` (constant `OWNER_ID = "owner"`); every service function takes it and filters on it, and
-another owner's row is reported as **not found**. Tests cover read/update/move/delete/link/skip/decline for planned
+The **new** tables (and the new service in `catch/sync/planning.py`) carry `owner_id` (constant `OWNER_ID = "owner"`); every
+function there takes it and filters on it, and another owner's row is reported as **not found**. The *legacy* event readers
+(`memory.recall`/`list_all`/`memory_block`/`next_a_race`, `erg_test.next_relevant_event`, `routes_tests._find_plan_for`) are not
+owner-filtered — by design of the "new tables only" choice — and the multi-user build must add that. Tests cover read/update/move/delete/link/skip/decline for planned
 rows, events, phases, projection, and a cross-owner `event_id`. The app is still single-user; this makes the
 Supabase build's job a column and a session lookup, not an audit.
 
