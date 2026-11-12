@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlmodel import select
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from catch.api.deps import hash_token
+from catch.core.config import settings
 from catch.core.db import get_session
 from catch.core.models import ApiToken
 from catch.mcp_server.backend import InProcessBackend
@@ -14,7 +18,23 @@ from catch.mcp_server.server import build_server
 # (verified against the installed mcp SDK — it errors if accessed before this call), so it
 # must be built exactly once and shared between the lifespan hook and the mount below.
 mcp_server = build_server(InProcessBackend())
-_mcp_asgi_app = mcp_server.streamable_http_app(streamable_http_path="/")
+
+
+def _transport_security() -> TransportSecuritySettings:
+    # The SDK only allows loopback Host headers by default and answers anything else with
+    # "421 Invalid Host header" — which is what a request arriving via the public hostname
+    # (Cloudflare tunnel / tailscale serve) looks like. The bearer check below is the real gate;
+    # this keeps DNS-rebinding protection on for every host except the configured base URL's.
+    host = urlsplit(settings.base_url).netloc
+    hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    origins = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+    if host:
+        hosts.append(host)
+        origins += [f"https://{host}", f"http://{host}"]
+    return TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=hosts, allowed_origins=origins)
+
+
+_mcp_asgi_app = mcp_server.streamable_http_app(streamable_http_path="/", transport_security=_transport_security())
 
 
 class _BearerAuthMiddleware:
