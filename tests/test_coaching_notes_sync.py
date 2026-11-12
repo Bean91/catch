@@ -382,3 +382,41 @@ def test_reloaded_naive_datetimes_compare_safely(session):
     h = cn.feedback_history(session, OWNER, ATHLETE, fb.id)
     assert h[0]["edited_at"].tzinfo is not None
     assert session.get(CoachFeedback, fb.id).athlete_response_at is not None
+
+
+# --- a revoked coach's authorship must not pass to the next token ---------------------------------------
+
+
+def test_a_new_coach_token_never_inherits_a_revoked_coachs_entries(client, session):
+    """SQLite reuses the rowid of a deleted newest row, so a principal keyed on `ApiToken.id` would hand
+    Coach A's authorship to the next coach token minted after A's was revoked."""
+    from conftest import TEST_PASSWORD
+
+    client.post("/api/login", json={"password": TEST_PASSWORD})
+    a = client.post("/api/coach/tokens", json={"name": "a", "role": "coach", "display_name": "Coach A"}).json()
+    h_a = {"Authorization": f"Bearer {a['token']}"}
+    client.cookies.clear()  # a login cookie outranks a bearer token, so act as the coach with the token alone
+    saved = client.post("/api/coach/tools/add_coach_feedback", json={"args": {"text": "A's advice", "confirm": True}}, headers=h_a).json()
+    fb_id = saved["feedback"]["id"]
+    client.post("/api/login", json={"password": TEST_PASSWORD})
+    assert client.delete(f"/api/coach/tokens/{a['id']}").status_code == 200
+    b = client.post("/api/coach/tokens", json={"name": "b", "role": "coach", "display_name": "Coach B"}).json()
+    h_b = {"Authorization": f"Bearer {b['token']}"}
+    assert b["id"] == a["id"]  # SQLite handed the freed rowid to the next token — the premise of this test
+    client.cookies.clear()
+
+    listing = client.post("/api/coach/tools/get_coach_feedback", json={"args": {}}, headers=h_b).json()["feedback"]
+    entry = next(f for f in listing if f["id"] == fb_id)
+    assert entry["author"]["name"] == "Coach A" and entry["can_edit"] is False  # B reads it, can't own it
+    row = session.get(CoachFeedback, fb_id)
+    from catch.core.principal import principal_from_token
+    from catch.core.models import ApiToken
+
+    b_row = session.exec(select(ApiToken).where(ApiToken.name == "b")).one()
+    b_principal = principal_from_token(b_row.token_hash, b_row.role, b_row.display_name)
+    assert b_principal.id != row.author_id and row.author_id.startswith("coach:") and len(row.author_id) > 12
+    with pytest.raises(cn.Forbidden):
+        cn.update_feedback(session, OWNER, b_principal, fb_id, {"text": "tampered"})
+    with pytest.raises(cn.Forbidden):
+        cn.delete_feedback(session, OWNER, b_principal, fb_id)
+    assert session.get(CoachFeedback, fb_id).text == "A's advice"

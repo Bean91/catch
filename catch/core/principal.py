@@ -50,13 +50,17 @@ ATHLETE = Principal(ATHLETE_ROLE, OWNER_ID, "You")
 VIEWER = Principal(VIEWER_ROLE, "viewer", "")
 
 
-def coach_principal(token_id: int, display_name: Optional[str]) -> Principal:
-    return Principal(COACH_ROLE, f"coach:{token_id}", (display_name or "").strip() or "Coach")
+def coach_principal(key: object, display_name: Optional[str]) -> Principal:
+    return Principal(COACH_ROLE, f"coach:{key}", (display_name or "").strip() or "Coach")
 
 
-def principal_from_token(token_id: int, role: Optional[str], display_name: Optional[str]) -> Principal:
+def principal_from_token(token_hash: str, role: Optional[str], display_name: Optional[str]) -> Principal:
+    """A coach's identity is a prefix of the token's own hash — random, unique per token and never
+    reused. Keying it on `ApiToken.id` would be a bug: SQLite hands a deleted newest row's id to
+    the next insert, so a freshly minted coach token would inherit a revoked coach's authorship
+    (and the right to edit and delete their feedback)."""
     if role == COACH_ROLE:
-        return coach_principal(token_id, display_name)
+        return coach_principal(token_hash[:16], display_name)
     return ATHLETE
 
 

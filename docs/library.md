@@ -74,7 +74,7 @@ There is no user table. A *principal* is derived per request (`catch/core/princi
 | Caller | Principal |
 |---|---|
 | login cookie, role-less device token | **athlete** |
-| device token created with `--role coach` | **coach** (`coach:<token id>`, display name from the token) |
+| device token created with `--role coach` | **coach** (`coach:<prefix of the token's hash>`, display name from the token) |
 | anything that didn't say who it is | **viewer** — sees nothing |
 
 Rules (one code path: `principal.py`, table-driven in `tests/test_coaching_notes_sync.py`):
@@ -95,6 +95,10 @@ Rules (one code path: `principal.py`, table-driven in `tests/test_coaching_notes
   routes are cookie-only: **there is no coach web UI**; a coach uses a coach token against the tool endpoint or MCP.
 - The athlete principal (login, the in-app AI coach, athlete device tokens) *does* see private notes — it is the
   athlete's own assistant — so private text reaches the LLM provider the athlete configured. The tool descriptions say so.
+
+A coach's identity is the *token*, keyed on a prefix of its hash — never its database id, which SQLite reuses after the
+newest row is deleted (that would let a freshly minted coach edit a revoked coach's entries; tested). So a coach whose token
+is revoked and re-issued is a new author, and cannot edit their earlier entries.
 
 Mint a coach token: `uv run catch token create --name "sam" --role coach --display-name "Coach Sam"`.
 

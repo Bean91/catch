@@ -95,8 +95,14 @@ def _require_canonical(session: Session, canonical_id: Any) -> int:
 def resolve_workout_on(session: Session, day: date) -> int:
     """For callers (a coach) who know a date but no id. Exactly one workout that local day, or a
     clear error naming how many — never a guess."""
-    rows = session.exec(select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))).all()
-    matches = [c for c in rows if c.start and local_date(c.start) == day and c.absorbed_into_piece_id is None]
+    from catch.sync import planning
+
+    # Bounded in SQL by the local day's UTC range (the same bucketing the calendar uses) — never
+    # a scan of every workout, which the Pi's memory budget can't afford.
+    lo, hi = planning.pl.local_day_utc_range(day, planning._tz())
+    matches = session.exec(
+        select(CanonicalActivity).where(CanonicalActivity.start >= lo, CanonicalActivity.start < hi, CanonicalActivity.absorbed_into_piece_id.is_(None))
+    ).all()
     if not matches:
         raise CoachingError(f"No workout on {day.isoformat()}")
     if len(matches) > 1:

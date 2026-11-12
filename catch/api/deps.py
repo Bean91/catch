@@ -55,7 +55,7 @@ def _tool_principal(request: Request, db: Session) -> Principal:
             if row is not None:
                 row.last_used_at = datetime.now(timezone.utc)
                 db.commit()
-                return principal_from_token(row.id, row.role, row.display_name)
+                return principal_from_token(row.token_hash, row.role, row.display_name)
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 

@@ -70,7 +70,7 @@ class _BearerAuthMiddleware:
     def _principal_for(raw_token: str) -> Principal | None:
         with get_session() as session:
             row = session.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
-            return principal_from_token(row.id, row.role, row.display_name) if row is not None else None
+            return principal_from_token(row.token_hash, row.role, row.display_name) if row is not None else None
 
 
 def mounted_mcp_app() -> ASGIApp:

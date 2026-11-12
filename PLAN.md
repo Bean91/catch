@@ -3764,7 +3764,7 @@ Session 17 (pieces) and the calendar is Session 21, so this is recorded as **Ses
   system prompt and the UI.
 - Seven generic **examples**, read-only, badged "Example — not prescribed training", hidden from the coach's default search.
 
-## Bugs found while building (all fixed, all with regression tests)
+## Bugs found while building (fixed, with regression tests unless noted)
 
 1. **The card grid overflowed at 390px on the Examples tab**: an example's long ladder signature (`1x240s/r60+…`) had no
    break point and a grid item won't shrink below its content. Caught by the spec's own overflow assertion; cards now
@@ -3775,21 +3775,32 @@ Session 17 (pieces) and the calendar is Session 21, so this is recorded as **Ses
 3. `require_tool_auth` was a *router-level* dependency whose return value no handler could read, so a coach token would have
    passed as "authenticated" everywhere it was attached. It is now per-endpoint, the bare dependency refuses coach tokens
    (403), only two routes opt in, and a test walks every route to prove it.
-4. The mounted `/mcp` app's principal had to survive the SDK's per-session tasks: a contextvar set in the middleware reaches
-   the handler per *request* (tested interleaving athlete and coach tokens on one instance, and a coach token riding an
-   athlete's MCP session id), and is reset in `finally`.
+4. *(A check, not a bug.)* The mounted `/mcp` app's principal had to survive the SDK's per-session tasks. It does: a
+   contextvar set in the middleware reaches the handler per *request* (tested interleaving athlete and coach tokens on one
+   instance, and a coach token riding an athlete's MCP session id) and is reset in `finally`.
 5. MCP tool type aliases defined *inside* `build_server` can't be resolved under `from __future__ import annotations`
    (`InvalidSignature`); moved to module level.
 6. **Dangling references** (SQLite doesn't enforce FKs): merges, `delete_event`, `delete_planned` (incl. series scope) and
    `delete_piece` each now clean up notes/feedback links, one test per path.
-7. A name collision: `fetchTemplates` already meant the gym's strength templates; the library's fetchers are `…LibraryTemplate…`.
+7. A name collision: `fetchTemplates` already meant the gym's strength templates (a compile error, so no test); the library's
+   fetchers are `…LibraryTemplate…`.
 8. The new bottom-sheet specs polled a button's hit-test once, but a web font finishing after the sheet opens re-wraps its text
    and strands the scroll position; the check now re-scrolls on every poll (it failed ~1 run in 5 under full-suite load, now
-   0 in 8). A separate, pre-existing `intervals.spec.ts` webkit flake showed up once in a loaded run and not in 20 isolated repeats.
+   0 in 8). An `intervals.spec.ts` webkit failure also showed up twice in slow, loaded full runs and not in 23 isolated repeats; that spec opens
+   `/workouts/6`, which now carries the new notes card, and a stash comparison was invalid (it reused a build that already had
+   this session's changes), so it is **unexplained, possibly related**, and not seen in the 17 other full runs.
+9. **(Found by the advisor review.) A new coach token could inherit a revoked coach's authorship**: the coach principal was keyed
+   on `ApiToken.id`, which SQLite reuses after the newest row is deleted — so revoking Coach A and minting Coach B gave B the
+   right to edit and delete A's feedback (Postgres would not reuse the id, so the two databases would have differed). The id is
+   now a prefix of the token's own hash; the regression test reproduces the reuse (asserting the ids collide) and then checks
+   B can neither edit nor delete A's entry. A consequence, documented: a coach whose token is re-issued is a *new* author.
+10. `add_coach_feedback`'s date-to-workout lookup loaded every `CanonicalActivity` (with its JSON blobs) and filtered in Python,
+    against the Pi's memory rule; it now filters in SQL with the same local-day range the calendar uses.
 
 ## Verification
 
-- `uv run pytest`: **1200 passed, 3 skipped** (the 3 are `test_postgres_optional.py`, which needs `CATCH_TEST_PG_URL`) (1039 at the end of session 21): the new files are `tests/analytics/test_workout_library.py`
+- `uv run pytest`: **1201 passed, 3 skipped** (the 3 are `test_postgres_optional.py`, which needs `CATCH_TEST_PG_URL`; with a
+  real server, **1204 passed, 0 skipped**) (1039 at the end of session 21): the new files are `tests/analytics/test_workout_library.py`
   (62), `test_workout_library_sync.py` (22), `test_coaching_notes_sync.py` (28), `test_api_library.py`/`test_api_coaching.py`
   (14), `tests/coach/test_library_tools.py` (22), `tests/test_mcp_principal.py` (5, the real mount), and migration/PG-compile
   additions to `test_db_migrations.py`. Private-text sentinel tests cover the REST tool endpoint, the `/mcp` mount, search,
@@ -3804,7 +3815,7 @@ Session 17 (pieces) and the calendar is Session 21, so this is recorded as **Ses
   `npm run build`, bundle **205.2 KB gzip of 250** (200.4 before; the pages are lazy chunks, the growth is the API/mock
   layer), Playwright `CI=1` **116 passed / 8 skipped** (the same CDP-only skips) incl. 13 new specs × 2 mobile projects
   (real WebKit) + 4 desktop-mouse, `test:gym` 1 (boots the real backend — runs the new seed), `test:update` 4.
-- Screenshots reviewed at 390px (library, template, editor, workout detail, feedback, schedule sheet).
+- Screenshots reviewed at 390px **and 1280px** (library, template, editor, workout detail, feedback, schedule sheet).
 
 ## Added
 
