@@ -126,8 +126,8 @@ Consequences (**design rules, because these are unknowns**):
 3. **No `create_all`/`ALTER TABLE` at startup.** The schema is changed only by Alembic, run by a human/CI with an admin
    URL — never by the app and never with the runtime role.
 4. **No assumption of IPv6 egress.** The runtime connects through the **shared pooler**, which is IPv4 [docs].
-5. **No transaction held across an LLM stream.** Coach turns open short transactions; a long SSE response does not pin a
-   pooled backend.
+5. **No transaction held across an LLM stream.** The chat loop commits (ending its read transaction) immediately before each provider stream; a test stalls a stream mid-way and asserts via
+   `pg_stat_activity` that no `catch_api` session is `idle in transaction` (it failed before the fix — the memory-block read had left one open for the whole stream).
 6. **Rotating Whoop refresh tokens** need `SELECT … FOR UPDATE` on the token row in public mode (the in-process lock is
    per-replica); until then Whoop is documented as single-replica-safe only.
 7. Rate limits / AI concurrency are in-process (`coach/limits.py`); with several replicas the real ceiling is N× — a

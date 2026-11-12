@@ -15,6 +15,7 @@
     "test:update": "playwright test -c playwright.update.config.ts",
     "test:gym": "playwright test -c playwright.gym.config.ts",
     "test:public": "playwright test -c playwright.public.config.ts",
+    "test:live": "playwright test -c playwright.live.config.ts",
     "check:bundle-size": "node scripts/check-bundle-size.mjs"
   },
   "dependencies": {

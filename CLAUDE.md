@@ -578,6 +578,7 @@ ARM wheel): `uv sync --extra public` (CI/Makefile use `--all-extras --all-groups
 - `uv run catch whoop check` — manual Whoop connection test (counts only; needs `WHOOP_*` in `.env`)
 - `uv run catch db upgrade` / `db check` / `db seed` — public deployment only (`DATABASE_ADMIN_URL` for upgrade/seed; `check` over the runtime
   connection); `uv run catch export-personal --out f.jsonl.gz` (on the Pi) and `import-personal --file f --user-id <uuid> [--dry-run]` — docs/personal-to-public.md
+- `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)

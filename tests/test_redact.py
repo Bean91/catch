@@ -55,3 +55,19 @@ def test_log_records_including_tracebacks_are_scrubbed(caplog):
     assert "TOPSECRETKEY" not in text
     assert "abcdefgh12345678" not in text
     assert ":pw@" not in text
+
+
+def test_a_scrubbed_access_log_record_keeps_its_five_arguments():
+    """uvicorn's AccessFormatter unpacks (client, method, path, http_version, status); collapsing them into a string broke every
+    request whose URL carried an OAuth-style `code=` (found by the first real browser run against the public build)."""
+    import logging
+
+    from catch.core.redact import _scrub_record
+
+    rec = logging.LogRecord("uvicorn.access", logging.INFO, "x", 1, '%s - "%s %s HTTP/%s" %d', ("127.0.0.1:1", "GET", "/?code=abc123XYZ789&x=1", "1.1", 200), None)
+    _scrub_record(rec)
+    assert len(rec.args) == 5 and rec.args[2] == "/?code=[redacted]&x=1"
+    assert "abc123XYZ789" not in rec.getMessage()
+    plain = logging.LogRecord("c", logging.INFO, "x", 1, "token sk-proj-abcdefghijklmnopqrstu leaked", (), None)
+    _scrub_record(plain)
+    assert "sk-proj" not in plain.getMessage()

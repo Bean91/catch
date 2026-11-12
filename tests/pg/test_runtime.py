@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.request
 from datetime import date
@@ -230,3 +231,71 @@ def test_the_database_connection_requires_ssl_for_remote_hosts():
     assert "sslmode" not in normalize_url("postgresql://u:p@127.0.0.1:54322/postgres")
     assert "sslmode=verify-full" in normalize_url("postgresql://u:p@db.abc.supabase.co:5432/postgres?sslmode=verify-full")
     assert normalize_url("postgresql://u:p@h/db").startswith("postgresql+psycopg://")
+
+
+def test_a_coach_turn_runs_for_two_real_users_and_holds_no_transaction_while_the_model_streams(app, admin):
+    """The whole turn on the real runtime path (SSE, tool loop, memory block, stored messages) — and, while the provider is stalled
+    mid-stream, no database session of the app is 'idle in transaction'."""
+    import threading
+
+    from catch.coach.providers import registry
+
+    entered, release = threading.Event(), threading.Event()
+
+    class Slow:
+        name = "openai"
+
+        async def health_check(self):
+            return True
+
+        async def stream_turn(self, *, system_blocks, messages, model):
+            last = messages[-1]["blocks"]
+            if any(b["type"] == "tool_result" for b in last):
+                output = next(b["output"] for b in last if b["type"] == "tool_result")
+                yield {"type": "text_delta", "text": "I see: " + json.dumps(output, default=str)}
+                yield {"type": "usage", "usage": {"input_tokens": 10, "output_tokens": 2, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}
+                yield {"type": "stop", "stop_reason": "end_turn"}
+            else:
+                entered.set()
+                while not release.is_set():  # stalled mid-stream
+                    import asyncio
+
+                    await asyncio.sleep(0.05)
+                yield {"type": "tool_call", "id": "c1", "name": "recall", "input": {"query": ""}}
+                yield {"type": "stop", "stop_reason": "tool_use"}
+
+    real_build = registry.build_provider
+    registry.build_provider = lambda s, o, p: Slow()
+    try:
+        from catch.coach.providers import anthropic_provider, gemini_provider, openai_provider
+
+        async def valid(self):
+            return {"ok": True, "kind": None, "message": "Connected", "model_count": 1}
+
+        for cls in (openai_provider.OpenAIProvider, gemini_provider.GeminiProvider, anthropic_provider.AnthropicProvider):
+            cls.validate = valid
+        a, b = signup("coach-a"), signup("coach-b")
+        for u, fact in ((a, "ALICE-FACT"), (b, "BOB-FACT")):
+            app.put("/api/ai/providers/openai/key", headers=u.headers, json={"api_key": "sk-proj-" + "k" * 30})
+            app.put("/api/ai/active", headers=u.headers, json={"provider": "openai", "model": "gpt-x"})
+            assert app.post("/api/coach/tools/remember", headers=u.headers, json={"args": {"category": "preference", "text": fact, "confirm": True}}).status_code == 200
+        conv = app.post("/api/coach/conversations", headers=a.headers).json()
+        out: dict = {}
+
+        def run():
+            with app.stream("POST", f"/api/coach/conversations/{conv['id']}/messages", headers=a.headers, json={"text": "hi"}) as resp:
+                out["body"] = "".join(resp.iter_text())
+
+        t = threading.Thread(target=run)
+        t.start()
+        assert entered.wait(15), "the provider was never reached"
+        with admin.connect() as conn:
+            states = conn.execute(text("SELECT state FROM pg_stat_activity WHERE usename = 'catch_api'")).scalars().all()
+            conn.rollback()
+        assert "idle in transaction" not in states, states  # nothing pinned while the model "thinks"
+        release.set()
+        t.join(30)
+        assert "ALICE-FACT" in out["body"] and "BOB-FACT" not in out["body"]
+        assert app.get(f"/api/coach/conversations/{conv['id']}", headers=b.headers).status_code == 404
+    finally:
+        registry.build_provider = real_build

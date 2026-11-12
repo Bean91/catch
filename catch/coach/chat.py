@@ -240,6 +240,9 @@ async def _run_turn(session: Session, conversation_id: int, user_text: str, owne
         tool_calls: list[dict] = []
         usage: dict | None = None
         stop_reason: str | None = None
+        # End the read transaction the memory block / cap check just opened. A model stream can take a minute or more, and an
+        # open transaction would pin a pooled database connection (and, behind a pooler, a backend) for all of it.
+        session.commit()
         async for event in provider.stream_turn(system_blocks=system_blocks, messages=limits.trim_history(history), model=model):
             if time.monotonic() > deadline:
                 yield safe_error_event(ProviderError("timeout", "This reply took too long and was stopped."))

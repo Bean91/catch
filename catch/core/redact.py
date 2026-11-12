@@ -68,8 +68,20 @@ def _scrub_record(record: logging.LogRecord) -> None:
         return
     scrubbed = redact(message)
     if scrubbed != message:
-        record.msg = scrubbed
-        record.args = ()
+        # Keep the record's args as args when we can: uvicorn's access formatter unpacks exactly five of them, and
+        # flattening them to a bare string made it raise on every request whose URL carried a `code=` parameter.
+        if isinstance(record.args, tuple) and record.args and isinstance(record.msg, str):
+            args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
+            try:
+                rebuilt = record.msg % args
+            except Exception:
+                rebuilt = None
+            if rebuilt == scrubbed:
+                record.args = args
+                scrubbed = None
+        if scrubbed is not None:
+            record.msg = scrubbed
+            record.args = ()
     if record.exc_info and record.exc_info[1] is not None:
         import traceback
 

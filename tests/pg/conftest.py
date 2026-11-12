@@ -142,9 +142,18 @@ class User:
 
 
 def signup(name: str = "u") -> User:
+    """Registers a user and returns a signed-in session. A stack with email confirmation on (as the live browser test needs) issues no
+    session at sign-up; the test confirms the address directly in the database and signs in, which is what clicking the link does."""
     password = "correct-horse-battery-staple"
     email = f"{name}-{uuid.uuid4().hex[:10]}@example.com"
-    return User(_post("/auth/v1/signup", {"email": email, "password": password}), password)
+    data = _post("/auth/v1/signup", {"email": email, "password": password})
+    if "access_token" not in data:
+        import psycopg
+
+        with psycopg.connect(DB_URL, autocommit=True) as conn:
+            conn.execute("UPDATE auth.users SET email_confirmed_at = now() WHERE email = %s", (email,))
+        data = _post("/auth/v1/token?grant_type=password", {"email": email, "password": password})
+    return User(data, password)
 
 
 def signout_everywhere(user: User) -> None:

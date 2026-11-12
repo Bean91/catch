@@ -112,4 +112,5 @@ export CATCH_TEST_SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322
 uv run pytest tests/pg                        # migrations, RLS, Storage, GoTrue, the app on the real runtime path
 CATCH_TEST_PG_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgres uv run pytest   # the whole suite on PostgreSQL
 ```
+Browser end to end (a real browser, the real CSP, real confirmation and recovery emails): set `site_url`/`additional_redirect_urls` to `http://127.0.0.1:8799`, `enable_confirmations = true`, `[auth.rate_limit] email_sent` high, mailpit on; build the web app with the public flags pointing at the local stack; then `cd web && npm run test:live` (see `web/playwright.live.config.ts`).
 For the pooler test, enable `[db.pooler]` in `supabase/config.toml` and set `CATCH_TEST_SUPABASE_POOLER_URL=postgresql://postgres.pooler-dev:postgres@127.0.0.1:54329/postgres`.
