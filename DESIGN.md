@@ -395,6 +395,24 @@ standalone route with no nav slot of its own.
   `n/7 nights` for HRV, a calibration sentence, and — when the last week mixes devices — a plain note that the comparison is
   less exact. "Recovery inputs" in Settings is a two-button radiogroup (Garmin first / Whoop first), not a table.
 
+## Accounts on the public build (session 24)
+
+Only the public build (`VITE_CATCH_DEPLOYMENT=public`) shows any of this; the personal build is the one-field password screen it always was.
+
+- **One frame, the existing tokens.** Sign in, create account, reset password and "choose a new password" are the same centred 384 px card as the
+  password screen, with the same inputs, the same accent button and the same `text-band-red` error line — no new component, no logo treatment.
+  Switching view is two quiet text links under the card ("New here? Create an account", "Forgot your password?") with 44 px hit areas.
+- **Messages never reveal who has an account.** A wrong password and an unknown address are the same sentence; "Reset password" always answers
+  "If that address has an account, a reset link is on its way."; a taken address says "If you already have one, sign in or reset your password."
+  Specific wording is kept only where it helps and leaks nothing: "Confirm your email first", "Too many attempts. Wait a minute", "Use at least 8 characters".
+- **Confirmation is a state, not a toast.** After sign-up the card is replaced by a `role="status"` sentence ("Check your email — we sent a link…") and a
+  single "Back to sign in" button; it doesn't disappear on a timer.
+- **Account card (Settings, public only).** Shows the signed-in address, "Sign out of all devices" and "Delete account…". Delete opens an inline
+  `role="alertdialog"` with a red hairline border listing what is removed and a typed-`DELETE` field; the destructive button stays disabled until the word matches. The one place red
+  is a fill rather than text.
+- **Signing out is a clean break.** It clears the query cache, the service worker's `/api` cache, the offline gym queue and every `catch:*` local key — never just the token — and
+  the same wipe runs when a *different* person signs in on the same browser.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

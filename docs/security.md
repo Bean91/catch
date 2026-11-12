@@ -64,6 +64,16 @@ Setting `CATCH_SECRETS_MASTER_KEY` on an install whose AI keys were sealed under
 unreadable unless the old value is moved to `CATCH_SECRETS_MASTER_KEY_PREVIOUS`. If that happens the app doesn't crash:
 chat and the photo features say "Your stored key can't be read any more … Re-enter it in Settings → AI Providers".
 
+## Public deployment (session 24)
+
+The threat the multi-user build adds is one user reaching another's data. Three independent layers (docs/public-architecture.md §6): the request's owner comes only from a
+verified Supabase JWT (or a device token resolved to its minting user), never from a body, query or tool argument; the ORM adds `owner_id = :owner` to every query, stamps/verifies it
+on every write and resolves every cross-row id for that owner; and Postgres row level security, evaluated on the same connection, with a runtime role that has no privileges of its own,
+cannot become any role but `authenticated`, and is checked at startup not to bypass RLS. Foreign-key checks bypass RLS, hence the composite tenant keys. The Data API never sees the tables
+(non-exposed schema). JWTs: ES256/RS256 only, fixed issuer/audience, `session_id` checked against `auth.sessions` (an access token can't otherwise be revoked). The browser keeps its Supabase
+session in localStorage — an SPA with a separate API has no httpOnly option — so a strict CSP (scripts by hash) is the defence, and sign-out wipes every local trace. `redact.py` scrubs JWTs, `sb_secret_`
+keys and database URLs. The secret key exists for one call (deleting a user's sign-in account); AI keys are sealed per user (`secret_store.py`) under a master key that is a platform secret, never a row.
+
 ## Known gaps
 
 - The USDA client still sends its key as a query parameter (`usda_client.py`); the log filter now scrubs it from
@@ -71,3 +81,7 @@ chat and the photo features say "Your stored key can't be read any more … Re-e
 - Source OAuth tokens (including Whoop's rotating refresh token) still use the single Fernet key. A multi-user build
   must give each user their own token row, sealed like AI keys.
 - Rate limiting is in-process (and a stream slot abandoned without its generator being closed expires after the turn's wall-clock cap + 30 s instead of locking the owner out).
+- (Session 24) In-process rate limits (`coach/limits.py`) are per replica; with N replicas the ceiling is N× (the DB-backed daily USD/token caps still hold).
+- (Session 24) Push subscriptions are per `(owner, endpoint)`: two accounts used on one browser can both receive pushes there until the first signs out (sign-out should unsubscribe — not yet wired).
+- (Session 24) Whoop's rotating refresh token is guarded by an in-process lock; with several replicas it needs `SELECT … FOR UPDATE` before Whoop is offered publicly.
+

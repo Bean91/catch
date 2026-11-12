@@ -539,6 +539,34 @@ usage`, cookie-only); the old `/api/coach/key` stays as an alias. Tools/MCP: sti
 Playwright: `web/tests/touch/ai-providers.spec.ts` (both mobile projects) and `ai-providers-desktop.spec.ts`. Adapters and the
 Whoop flow are verified against *synthetic* fixtures only (`tests/fixtures/ai`, `tests/fixtures/whoop`) — never run live.
 
+Session 24 (public deployment: Supabase + FastAPI Cloud, multi-user accounts — see PLAN.md, docs/public-architecture.md,
+public-setup.md, public-storage.md, personal-to-public.md, DESIGN.md "Accounts on the public build"; the brief called itself "session
+19"). **Two deployments from one codebase, sharing nothing**: `CATCH_DEPLOYMENT=personal` (default — the Pi, SQLite, one owner `"owner"`,
+cookie login, APScheduler) and `public` (Supabase Postgres + Supabase Auth, many users, no in-process scheduler, no local files).
+**Every user-owned table has `owner_id`** (TEXT, FK → `user_profiles.id` ON DELETE CASCADE; 49 owned + 3 shared-reference tables + `weather_cells`/`user_profiles`
+global). `catch/core/tenant.py` is the one owner mechanism: a request-scoped ContextVar (personal default `"owner"`; **public default none — touching an owned
+table raises**), the `OwnedStrict`/`OwnedOrShared` markers, `owner_field()`, `tenant.pk(...)` for `session.get` on tables keyed `(owner_id, …)`. `core/tenant_hooks.py`
+(installed on SQLAlchemy's `Session` by importing `core/models.py`): `do_orm_execute` adds `owner_id = :owner` to every ORM SELECT/UPDATE/DELETE (incl.
+`session.get`), `before_flush` stamps/verifies the owner and — public only — resolves every cross-row reference *for this owner* (404 not 403), `after_begin` runs
+`SET LOCAL ROLE authenticated` + `set_config('request.jwt.claims'/'request.jwt.claim.sub', …, true)` + `search_path` **per transaction** on the engine flagged
+`catch_rls`. Raw SQL is banned outside the reviewed modules (a test enforces it). **Public auth**: `core/supabase_auth.py` (PyJWT, lazy: ES256/RS256 only, JWKS cache
+≤ 5 min, iss/aud/exp/role/sub/session_id required, then `catch_private.session_is_live` against `auth.sessions` so logout/deletion revoke an unexpired token within
+`CATCH_SESSION_CHECK_TTL`); `api/deps.py::require_auth` is now **async** and sets the tenant in the request's own task (a sync dependency runs in a thread copy of
+the context and would lose it); `core/device_tokens.py` resolves MCP/coach tokens to their minting user through a SECURITY DEFINER function; `Principal.owner_id`.
+**Database**: `migrations/` (Alembic, public only — the Pi keeps `core/db.py`'s `_NEW_COLUMNS`): `0001` frozen DDL snapshot (`scripts/gen_pg_baseline.py`), `0002` roles
+(`catch_api`: NOBYPASSRLS, only `SET ROLE authenticated`), forced RLS + 4 policies per table, composite tenant FKs, `catch_private` functions, `auth.users` triggers,
+`0003` the private `piece-photos` bucket; Catch's tables are in a non-exposed `catch` schema. `core/db_pg.py` (psycopg3, `sslmode=require`, session or transaction pooler
+mode, startup refusal of a role that bypasses RLS). `catch db upgrade|check|seed`, `catch export-personal`/`import-personal` (`sync/personal_transfer.py`).
+`api/routes_account.py` (`GET /api/me`, `DELETE /api/account`: Storage purge → GoTrue admin delete with the secret key → cascade), `api/routes_internal.py` (`/internal/tick/{sync,
+notifications}` with a per-user lease, `/internal/db-check`), `api/security_headers.py` (CSP by hash, HSTS…). Public mode: cookie login and the source OAuth redirects answer 404,
+Garmin/Concept2 (one server-wide credential) are skipped. **Web**: `lib/deployment.ts` (build-time flag; a personal build contains no auth-js — the check is inline in `lib/supabase.ts` so the
+bundler can drop it), `lib/supabase.ts` (`@supabase/auth-js`, PKCE, localStorage session — see the comment for the tradeoff), `lib/authedFetch.ts` (bearer, one refresh+retry on 401),
+`lib/session.ts` (sign-out/user-switch wipe), `pages/Login.tsx` variants, `components/settings/AccountCard.tsx`; Playwright: `npm run test:public`. **Tests**: `tests/tenancy/` (SQLite, public
+mode patched: generic isolation for every owned table, JWT attacks, API isolation, structure, transfer, CSP), `tests/pg/` (needs a throwaway local `supabase start` + `CATCH_TEST_SUPABASE_*`:
+migrations, RLS with separate identities, Storage, GoTrue, the app on the real runtime path, a Supavisor transaction pooler), `CATCH_TEST_PG_URL=… uv run pytest` runs the **whole** suite on PostgreSQL
+(foreign keys dropped there — the suite uses placeholder ids; `sqlite_engine` fixture for tests that reshape the schema). Public deps are the optional `public` extra (psycopg-binary has no 32-bit
+ARM wheel): `uv sync --extra public` (CI/Makefile use `--all-extras --all-groups`); the Pi's `uv sync` never installs them.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -548,6 +576,9 @@ Whoop flow are verified against *synthetic* fixtures only (`tests/fixtures/ai`, 
   (the sync loop only reaches its window), group rowing tracks into routes, and with `--weather` look
   up weather (sends 0.1°-rounded coordinates to Open-Meteo)
 - `uv run catch whoop check` — manual Whoop connection test (counts only; needs `WHOOP_*` in `.env`)
+- `uv run catch db upgrade` / `db check` / `db seed` — public deployment only (`DATABASE_ADMIN_URL` for upgrade/seed; `check` over the runtime
+  connection); `uv run catch export-personal --out f.jsonl.gz` (on the Pi) and `import-personal --file f --user-id <uuid> [--dry-run]` — docs/personal-to-public.md
+- `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)
@@ -598,6 +629,7 @@ Whoop flow are verified against *synthetic* fixtures only (`tests/fixtures/ai`, 
 
 ## Secrets
 
-Everything sensitive lives in `.env` (gitignored). `.env.example` documents every key with
+Everything sensitive lives in `.env` (gitignored) — on the public deployment, in FastAPI Cloud's secrets (never `DATABASE_ADMIN_URL`, never in the frontend; only the publishable key
+is public). `.env.example` documents every key with
 no real values. Never commit `.env`, the SQLite DB, or downloaded FIT files. Never print env
 values to logs or chat — key *names* only when debugging.
