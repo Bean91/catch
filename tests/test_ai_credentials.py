@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 import logging
 
@@ -11,6 +12,7 @@ from catch.coach.providers import registry
 from catch.core import security
 from catch.core.models import AiCredential, CoachCredential
 from catch.core.owner import current_owner_id
+from catch.core.tenant import set_owner, use_owner
 from tests.conftest import TEST_PASSWORD
 
 KEY_A = "sk-proj-ALICE-secret-key-aaaaaaaaaaaaaaaa1111"
@@ -22,31 +24,38 @@ def _login(client):
 
 
 def test_stored_blob_is_not_plaintext_and_is_per_owner_and_provider(session):
-    cs.set_credential(session, "openai", KEY_A, owner_id="alice")
-    row = session.get(AiCredential, ("alice", "openai"))
-    assert KEY_A not in row.key_enc and row.last4 == "1111"
-    assert cs.get_decrypted_credential(session, "openai", owner_id="alice") == KEY_A
+    with use_owner("alice"):
+        cs.set_credential(session, "openai", KEY_A, owner_id="alice")
+        row = session.get(AiCredential, ("alice", "openai"))
+        assert KEY_A not in row.key_enc and row.last4 == "1111"
+        assert cs.get_decrypted_credential(session, "openai", owner_id="alice") == KEY_A
 
 
 def test_one_owner_cannot_read_replace_or_delete_anothers_key(session):
-    cs.set_credential(session, "openai", KEY_A, owner_id="alice")
-    assert cs.get_decrypted_credential(session, "openai", owner_id="bob") is None
-    assert cs.masked_credential_info(session, "openai", owner_id="bob")["configured"] is False
-    assert cs.delete_credential(session, "openai", owner_id="bob") is False
-    cs.set_credential(session, "openai", KEY_B, owner_id="bob")
-    assert cs.get_decrypted_credential(session, "openai", owner_id="alice") == KEY_A
-    assert cs.get_decrypted_credential(session, "openai", owner_id="bob") == KEY_B
+    with use_owner("alice"):
+        cs.set_credential(session, "openai", KEY_A, owner_id="alice")
+    with use_owner("bob"):
+        assert cs.get_decrypted_credential(session, "openai", owner_id="bob") is None
+        assert cs.masked_credential_info(session, "openai", owner_id="bob")["configured"] is False
+        assert cs.delete_credential(session, "openai", owner_id="bob") is False
+        cs.set_credential(session, "openai", KEY_B, owner_id="bob")
+        assert cs.get_decrypted_credential(session, "openai", owner_id="bob") == KEY_B
+    with use_owner("alice"):
+        assert cs.get_decrypted_credential(session, "openai", owner_id="alice") == KEY_A
 
 
 def test_a_row_copied_between_owners_cannot_be_decrypted(session):
-    cs.set_credential(session, "openai", KEY_A, owner_id="alice")
-    stolen = session.get(AiCredential, ("alice", "openai"))
-    session.add(AiCredential(owner_id="mallory", provider="openai", key_enc=stolen.key_enc, key_id=stolen.key_id))
-    session.commit()
-    from catch.core.secret_store import SecretStoreError
+    with use_owner("alice"):
+        cs.set_credential(session, "openai", KEY_A, owner_id="alice")
+        stolen = session.get(AiCredential, ("alice", "openai"))
+        blob, key_id = stolen.key_enc, stolen.key_id
+    with use_owner("mallory"):
+        session.add(AiCredential(owner_id="mallory", provider="openai", key_enc=blob, key_id=key_id))
+        session.commit()
+        from catch.core.secret_store import SecretStoreError
 
-    with pytest.raises(SecretStoreError):
-        cs.get_decrypted_credential(session, "openai", owner_id="mallory")
+        with pytest.raises(SecretStoreError):
+            cs.get_decrypted_credential(session, "openai", owner_id="mallory")
 
 
 def test_replace_overwrites_and_resets_status(session):
@@ -95,7 +104,7 @@ def test_legacy_key_is_adopted_without_destroying_the_old_row(session):
     session.commit()
     assert cs.get_decrypted_credential(session, "anthropic") == KEY_A
     assert session.get(AiCredential, ("owner", "anthropic")) is not None
-    assert session.get(CoachCredential, "anthropic") is not None  # rollback-safe
+    assert session.get(CoachCredential, tenant.pk("anthropic")) is not None  # rollback-safe
 
 
 def test_replace_and_remove_also_remove_the_legacy_row(session):
@@ -103,7 +112,7 @@ def test_replace_and_remove_also_remove_the_legacy_row(session):
     session.commit()
     cs.get_decrypted_credential(session, "anthropic")
     cs.set_credential(session, "anthropic", KEY_B)
-    assert session.get(CoachCredential, "anthropic") is None
+    assert session.get(CoachCredential, tenant.pk("anthropic")) is None
 
     session.add(CoachCredential(provider="openai", api_key_enc=security.encrypt(KEY_A), last4="1111"))
     session.commit()
@@ -122,9 +131,12 @@ def test_legacy_rows_are_not_handed_to_other_owners(session):
 
 
 def test_coach_settings_are_per_owner(session):
-    cs.update_coach_settings(session, {"provider": "openai", "models": {"openai": "gpt-x"}, "daily_cap_usd": 3.0}, owner_id="alice")
-    cs.update_coach_settings(session, {"provider": "gemini"}, owner_id="bob")
-    alice, bob = cs.get_coach_settings(session, "alice"), cs.get_coach_settings(session, "bob")
+    with use_owner("alice"):
+        cs.update_coach_settings(session, {"provider": "openai", "models": {"openai": "gpt-x"}, "daily_cap_usd": 3.0}, owner_id="alice")
+        alice = cs.get_coach_settings(session, "alice")
+    with use_owner("bob"):
+        cs.update_coach_settings(session, {"provider": "gemini"}, owner_id="bob")
+        bob = cs.get_coach_settings(session, "bob")
     assert (alice["provider"], alice["models"], alice["daily_cap_usd"]) == ("openai", {"openai": "gpt-x"}, 3.0)
     assert (bob["provider"], bob["models"], bob["daily_cap_usd"]) == ("gemini", {}, None)
     assert cs.get_coach_settings(session)["provider"] == "anthropic"  # the Pi's own owner is untouched
@@ -140,7 +152,11 @@ def test_models_roundtrip_with_legacy_columns(session):
 
 
 def _as(client, owner):
-    client.app.dependency_overrides[current_owner_id] = lambda: owner
+    async def _owner():
+        set_owner(owner)  # an async dependency runs in the request's own task, so the context reaches the endpoint
+        return owner
+
+    client.app.dependency_overrides[current_owner_id] = _owner
 
 
 @pytest.fixture(autouse=True)

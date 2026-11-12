@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import dataclasses
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -94,7 +95,7 @@ def test_exchange_code_stores_tokens_encrypted(session):
     fake_response = load("token_response.json")
     transport = httpx.MockTransport(lambda r: httpx.Response(200, json=fake_response))
     wc.exchange_code(session, "the-code", transport)
-    row = session.get(OAuthToken, "whoop")
+    row = session.get(OAuthToken, tenant.pk("whoop"))
     assert "WHOOP-ACCESS-TOKEN" not in row.access_token_enc and "WHOOP-REFRESH-TOKEN" not in row.refresh_token_enc
     assert security.decrypt(row.refresh_token_enc) == "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB"
     assert row.expires_at is not None
@@ -126,13 +127,13 @@ def test_expired_token_refreshes_and_the_rotated_refresh_token_is_committed(sess
     body = fake.requests[0].content.decode()
     assert "grant_type=refresh_token" in body and "scope=offline" in body and "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB" in body
     session.expire_all()
-    assert security.decrypt(session.get(OAuthToken, "whoop").refresh_token_enc) == "NEW-REFRESH-1-YYYYYYYY"
+    assert security.decrypt(session.get(OAuthToken, tenant.pk("whoop")).refresh_token_enc) == "NEW-REFRESH-1-YYYYYYYY"
 
 
 def test_a_second_caller_with_a_stale_row_does_not_refresh_again(engine):
     with Session(engine) as a:
         connect(a, expires_in=60)
-        stale = a.get(OAuthToken, "whoop")
+        stale = a.get(OAuthToken, tenant.pk("whoop"))
         assert stale.access_token_enc
         fake = FakeWhoop()
         with Session(engine) as b:
@@ -253,7 +254,7 @@ def test_sync_imports_only_scored_main_sleep_recovery_and_workouts(session):
     assert n == 2  # one wake day + one workout
 
     day = date(2026, 11, 10)
-    row = session.get(DailyWellness, day)
+    row = session.get(DailyWellness, tenant.pk(day))
     assert row.source == "whoop"
     assert row.hrv_rmssd == pytest.approx(78.4) and row.resting_hr == 52 and row.spo2 == pytest.approx(96.5) and row.skin_temp_c == pytest.approx(33.4)
     assert row.sleep_seconds == 27000  # light + slow-wave + REM; the nap and the pending sleep are excluded
@@ -261,7 +262,7 @@ def test_sync_imports_only_scored_main_sleep_recovery_and_workouts(session):
     assert row.wake_time_minutes == 110  # 01:50 local
     assert row.sleep_respiration_avg == pytest.approx(14.6)
     assert json.loads(row.field_sources_json)["hrv_rmssd"] == "whoop"
-    assert session.get(DailyWellness, date(2026, 11, 11)) is None  # PENDING_SCORE never lands
+    assert session.get(DailyWellness, tenant.pk(date(2026, 11, 11))) is None  # PENDING_SCORE never lands
 
     workouts = session.exec(select(Activity).where(Activity.source == "whoop")).all()
     assert len(workouts) == 1  # the UNSCORABLE run is skipped
@@ -274,7 +275,7 @@ def test_sync_imports_only_scored_main_sleep_recovery_and_workouts(session):
 def test_whoops_own_recovery_score_is_reference_only(session):
     connect(session)
     wc.sync(session, days=3, transport=FakeWhoop(pages()).transport(), now=NOW)
-    reading = session.get(WellnessReading, (date(2026, 11, 10), "whoop", "hrv_rmssd"))
+    reading = session.get(WellnessReading, tenant.pk(date(2026, 11, 10), "whoop", "hrv_rmssd"))
     assert json.loads(reading.meta_json)["whoop_recovery_score"] == 68.0
     from catch.core.models import DailyScore
 
@@ -315,12 +316,12 @@ def test_priority_change_re_decides_and_a_later_garmin_sync_cannot_overwrite_it(
     wc.sync(session, days=3, transport=FakeWhoop(pages()).transport(), now=NOW)
     update_settings(session, {"wellness_priority": {"hrv_rmssd": ["whoop", "garmin"], "resting_hr": ["whoop", "garmin"], "sleep_seconds": ["whoop", "garmin"]}})
     wellness_readings.resolve_all(session)
-    row = session.get(DailyWellness, date(2026, 11, 10))
+    row = session.get(DailyWellness, tenant.pk(date(2026, 11, 10)))
     assert (row.hrv_rmssd, row.resting_hr, row.sleep_seconds) == (pytest.approx(78.4), 52, 27000)
 
     seed_garmin_night(session, hrv=90.0, rhr=45, sleep=30000)  # Garmin syncs again with new numbers
     session.expire_all()
-    row = session.get(DailyWellness, date(2026, 11, 10))
+    row = session.get(DailyWellness, tenant.pk(date(2026, 11, 10)))
     assert (row.hrv_rmssd, row.resting_hr, row.sleep_seconds) == (pytest.approx(78.4), 52, 27000)
     assert row.deep_sleep_seconds == 6600  # stage columns follow the winning sleep record
 
@@ -329,7 +330,7 @@ def test_implausible_values_are_rejected_before_ranking(session):
     wellness_readings.record_garmin(session, date(2026, 11, 10), hrv_rmssd=9999.0)
     wellness_readings.record_reading(session, date(2026, 11, 10), "whoop", "hrv_rmssd", 70.0)
     wellness_readings.resolve_days(session, [date(2026, 11, 10)])
-    assert session.get(DailyWellness, date(2026, 11, 10)).hrv_rmssd == 70.0
+    assert session.get(DailyWellness, tenant.pk(date(2026, 11, 10))).hrv_rmssd == 70.0
 
 
 def test_the_baseline_never_counts_one_night_twice(session):
@@ -399,8 +400,8 @@ def test_disconnect_revokes_forgets_tokens_and_keeps_imported_data(session):
     result = wc.disconnect(session, fake.transport())
     assert result == {"revoked": True, "was_connected": True}
     assert any(r.method == "DELETE" and r.url.path == "/developer/v2/user/access" for r in fake.requests)
-    assert session.get(OAuthToken, "whoop") is None and session.get(SyncState, "whoop") is None
-    assert session.get(DailyWellness, date(2026, 11, 10)) is not None
+    assert session.get(OAuthToken, tenant.pk("whoop")) is None and session.get(SyncState, tenant.pk("whoop")) is None
+    assert session.get(DailyWellness, tenant.pk(date(2026, 11, 10))) is not None
     assert len(session.exec(select(Activity).where(Activity.source == "whoop")).all()) == 1
     assert wc.disconnect(session, fake.transport()) == {"revoked": False, "was_connected": False}
 
@@ -408,7 +409,7 @@ def test_disconnect_revokes_forgets_tokens_and_keeps_imported_data(session):
 def test_disconnect_still_forgets_tokens_when_whoop_is_unreachable(session):
     connect(session)
     result = wc.disconnect(session, httpx.MockTransport(lambda r: httpx.Response(500)))
-    assert result["revoked"] is False and session.get(OAuthToken, "whoop") is None
+    assert result["revoked"] is False and session.get(OAuthToken, tenant.pk("whoop")) is None
 
 
 def test_check_reports_counts_only(session):
@@ -430,7 +431,7 @@ def test_scheduler_skips_whoop_when_not_connected_and_raises_no_alert(session, e
 
     monkeypatch.setattr(scheduler, "get_session", fake_session)
     assert scheduler.run_sync("whoop") == {"source": "whoop", "skipped": "not connected"}
-    assert session.get(SyncState, "whoop") is None
+    assert session.get(SyncState, tenant.pk("whoop")) is None
 
 
 def test_scheduler_runs_whoop_when_connected(session, monkeypatch):
@@ -447,7 +448,7 @@ def test_scheduler_runs_whoop_when_connected(session, monkeypatch):
     monkeypatch.setattr(wc, "sync", lambda s, days=3, **k: 4)
     result = scheduler.run_sync("whoop", days=2)
     assert result == {"source": "whoop", "records": 4}
-    assert session.get(SyncState, "whoop").last_success_at is not None
+    assert session.get(SyncState, tenant.pk("whoop")).last_success_at is not None
 
 
 def _login(client):

@@ -6,6 +6,7 @@ records (Part A.3's field priority) and, where samples exist, its zones/strain/s
 (Trends, Workouts, PBs, coach, MCP) sees. Called after every sync's matching pass and after
 any manual merge/split/edit so the cache in `canonical_activities` never goes stale."""
 
+from catch.core import tenant
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -238,7 +239,7 @@ def _resting_hr_for(session: Session, when: Optional[datetime]) -> Optional[floa
         return None
     from catch.core.models import DailyWellness
 
-    row = session.get(DailyWellness, when.astimezone().date())
+    row = session.get(DailyWellness, tenant.pk(when.astimezone().date()))
     return row.resting_hr if row else None
 
 

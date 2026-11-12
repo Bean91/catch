@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from catch.core import tenant
 import asyncio
 import dataclasses
 import json
@@ -82,11 +83,11 @@ def test_seed_never_relabels_another_providers_winning_values_as_garmin(session)
     wellness_readings.record_reading(session, day, "whoop", "hrv_rmssd", 70.0)
     wellness_readings.record_reading(session, day, "whoop", "sleep_seconds", 27000)
     wellness_readings.resolve_days(session, [day])
-    assert session.get(DailyWellness, day).hrv_rmssd == 70.0
+    assert session.get(DailyWellness, tenant.pk(day)).hrv_rmssd == 70.0
     for _ in range(2):
         assert wellness_readings.seed_from_daily_wellness(session) == 0
     assert session.exec(__import__("sqlmodel").select(WellnessReading).where(WellnessReading.source == "garmin")).all() == []
-    assert json.loads(session.get(DailyWellness, day).field_sources_json)["hrv_rmssd"] == "whoop"
+    assert json.loads(session.get(DailyWellness, tenant.pk(day)).field_sources_json)["hrv_rmssd"] == "whoop"
 
 
 def test_seed_still_covers_genuinely_legacy_rows(session):

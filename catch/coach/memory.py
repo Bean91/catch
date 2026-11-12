@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
+from catch.core import tenant
 import json
 from datetime import date, timedelta
 from typing import Any
@@ -43,7 +45,7 @@ def add_event(session: Session, name: str, date_: date, type: str, **fields: Any
     from catch.sync import planning
 
     try:
-        return planning.create_event(session, planning.OWNER_ID, {"name": name, "date": date_, "type": type, **fields})
+        return planning.create_event(session, current_owner(), {"name": name, "date": date_, "type": type, **fields})
     except planning.PlanningError as exc:
         raise ValueError(str(exc)) from exc
 
@@ -52,7 +54,7 @@ def update_event(session: Session, event_id: int, **fields: Any) -> Event:
     from catch.sync import planning
 
     try:
-        return planning.update_event(session, planning.OWNER_ID, event_id, fields)
+        return planning.update_event(session, current_owner(), event_id, fields)
     except planning.PlanningError as exc:
         raise ValueError(str(exc)) from exc
 
@@ -86,7 +88,7 @@ def forget(session: Session, ref: str) -> bool:
         from catch.sync import planning
 
         try:
-            planning.delete_event(session, planning.OWNER_ID, row_id)
+            planning.delete_event(session, current_owner(), row_id)
         except planning.NotFound:
             return False
         return True
@@ -247,7 +249,7 @@ def memory_block(session: Session) -> str:
     # think to call get_today first — the system prompt still tells it to call get_today for
     # the numbers behind recovery/strain, this is just the always-visible headline.
     settings = get_settings(session)
-    today_checkin = session.get(CheckIn, today)
+    today_checkin = session.get(CheckIn, tenant.pk(today))
     if today_checkin is not None:
         bits = [f"soreness {today_checkin.soreness}/5" if today_checkin.soreness else None]
         bits += [f"stress {today_checkin.stress}/5" if today_checkin.stress else None]
@@ -260,7 +262,7 @@ def memory_block(session: Session) -> str:
     niggle_streak = 0
     day = today
     while True:
-        row = session.get(CheckIn, day)
+        row = session.get(CheckIn, tenant.pk(day))
         if row is None or not row.niggle_area:
             break
         niggle_streak += 1
@@ -269,7 +271,7 @@ def memory_block(session: Session) -> str:
         area = today_checkin.niggle_area if today_checkin else None
         lines.append(f"Niggle flag: {area or 'a niggle'} has been logged for {niggle_streak} days running — ask about it.")
 
-    score_row = session.get(DailyScore, today)
+    score_row = session.get(DailyScore, tenant.pk(today))
     illness = json.loads(score_row.illness_json) if score_row and score_row.illness_json else None
     if illness and illness["level"] != "none":
         lines.append(f"Illness early-warning: {illness['level']} — {illness['explanation']}")

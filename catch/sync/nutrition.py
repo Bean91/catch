@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from datetime import date as date_, datetime, timedelta, timezone
 
@@ -381,7 +382,7 @@ def food_log_dict(session: Session, row: FoodLog) -> dict:
 
 
 def get_targets_settings(session: Session) -> NutritionTarget:
-    row = session.get(NutritionTarget, 1)
+    row = session.get(NutritionTarget, tenant.pk(1))
     if row is None:
         row = NutritionTarget(id=1)
         session.add(row)
@@ -469,7 +470,7 @@ def _day_totals(session: Session, day: date_) -> dict:
 def daily_summary(session: Session, day: date_) -> dict:
     totals = _day_totals(session, day)
     targets = compute_targets(session, day)
-    wellness = session.get(DailyWellness, day)
+    wellness = session.get(DailyWellness, tenant.pk(day))
     expenditure = wellness.total_kcal if wellness else None
     return {
         "date": day,
@@ -485,7 +486,7 @@ def week_summary(session: Session, from_: date_, to: date_) -> dict:
     cursor = from_
     while cursor <= to:
         totals = _day_totals(session, cursor)
-        wellness = session.get(DailyWellness, cursor)
+        wellness = session.get(DailyWellness, tenant.pk(cursor))
         expenditure = wellness.total_kcal if wellness else None
         days.append(
             {

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 from sqlmodel import Session
 
 from catch.coach.providers.base import VisionRequest
 from catch.coach.vision import VisionError, run_vision
-from catch.core.principal import OWNER_ID
 
 _MAX_TOKENS = 2048
 
@@ -58,12 +58,13 @@ class NutritionVisionError(RuntimeError):
     pass
 
 
-async def estimate_meal_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str = OWNER_ID) -> dict:
+async def estimate_meal_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str | None = None) -> dict:
     """Task Part B.4. One-shot vision call through the athlete's own active provider and model —
     never a hardcoded one, since this app is bring-your-own-key and the photo-estimate should cost
     (and behave) like the model the athlete actually chose. Raises `NutritionVisionError` for every
     failure mode (no key, no vision support, cap reached, API error, no structured result) so the
     route layer turns each into a clear 4xx. The photo itself is never written to disk or logged."""
+    owner_id = owner_id or current_owner()
     try:
         result, turn_cost = await run_vision(
             session,

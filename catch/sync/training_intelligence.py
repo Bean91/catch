@@ -12,6 +12,7 @@ duplicating CanonicalActivity.zones_json aggregation. All of these DB-facing imp
 set by catch.sync.scoring.recompute_scores importing routes_analytics.invalidate_series_cache
 the same way, to avoid a module-level import cycle between sync and api."""
 
+from catch.core import tenant
 import json
 import logging
 from collections import defaultdict
@@ -353,7 +354,7 @@ def _nutrition_context(session: Session, today: date) -> dict:
 
 
 def _daily_activity_context(session: Session, today: date) -> dict:
-    wellness = session.get(DailyWellness, today)
+    wellness = session.get(DailyWellness, tenant.pk(today))
     if wellness is None or wellness.steps is None:
         return {"logged": False}
     return {"logged": True, "steps": wellness.steps, "active_kcal": wellness.active_kcal}
@@ -370,7 +371,7 @@ def _recent_note(session: Session, today: date) -> str | None:
 
 def gather_training_profile(session: Session, settings: dict) -> dict:
     today = date.today()
-    score_row = session.get(DailyScore, today)
+    score_row = session.get(DailyScore, tenant.pk(today))
     load = json.loads(score_row.load_json) if score_row and score_row.load_json else {"value": None, "band": "insufficient_data"}
     recovery = json.loads(score_row.recovery_json) if score_row and score_row.recovery_json else {"value": None, "band": "calibrating"}
     illness = json.loads(score_row.illness_json) if score_row and score_row.illness_json else {"level": "none", "explanation": ""}
@@ -532,9 +533,10 @@ def _planned_load_context(session: Session, settings: dict) -> dict:
     module that reads planned rows) and handed in as plain data. Its own try/except: a bug in
     the newer planning code mustn't stop the older recommendations from being generated."""
     try:
-        from catch.sync.planning import OWNER_ID, planned_load_context
+        from catch.core.tenant import current_owner
+        from catch.sync.planning import planned_load_context
 
-        return planned_load_context(session, OWNER_ID, settings)
+        return planned_load_context(session, current_owner(), settings)
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).exception("planned-load review flags failed")
         return {"flags": []}
@@ -547,7 +549,7 @@ def generate_recommendations(session: Session, settings: dict, today: date) -> l
     DailyScore, a bounded recent-activity count for the data-quality check, today's niggle
     streak, this week's session count, and the next event."""
     ti = settings["training_intelligence"]
-    score_row = session.get(DailyScore, today)
+    score_row = session.get(DailyScore, tenant.pk(today))
     load = json.loads(score_row.load_json) if score_row and score_row.load_json else {"value": None, "band": "insufficient_data"}
     recovery = json.loads(score_row.recovery_json) if score_row and score_row.recovery_json else {"value": None, "band": "calibrating"}
     illness = json.loads(score_row.illness_json) if score_row and score_row.illness_json else {"level": "none", "explanation": ""}

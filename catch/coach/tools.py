@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 import json
 import re
 import uuid
@@ -58,7 +59,7 @@ def _parse_datetime(value: Any) -> datetime | None:
 def _get_today(session: Session, args: dict, ctx: dict) -> dict:
     # Upcoming events are added here (coach/MCP only); the web Today page reads them from its own
     # /api/events/upcoming query instead, so GET /api/today's shape stays as it was.
-    return {**routes_analytics.today(db=session), "upcoming_events": planning.upcoming_events(session, planning.OWNER_ID, 5)}
+    return {**routes_analytics.today(db=session), "upcoming_events": planning.upcoming_events(session, current_owner(), 5)}
 
 
 def _get_wellness(session: Session, args: dict, ctx: dict) -> dict:
@@ -723,23 +724,23 @@ def _get_calendar(session: Session, args: dict, ctx: dict) -> dict:
     start, end = _parse_date(args.get("from")), _parse_date(args.get("to"))
     if start is None or end is None:
         raise ValueError("from and to are both required (ISO dates)")
-    return planning.compact_calendar(planning.build_calendar(session, planning.OWNER_ID, start, end))
+    return planning.compact_calendar(planning.build_calendar(session, current_owner(), start, end))
 
 
 def _get_upcoming_events(session: Session, args: dict, ctx: dict) -> dict:
     limit = max(1, min(int(args.get("limit") or 5), 20))
-    return {"events": planning.upcoming_events(session, planning.OWNER_ID, limit)}
+    return {"events": planning.upcoming_events(session, current_owner(), limit)}
 
 
 def _get_event(session: Session, args: dict, ctx: dict) -> dict:
     event_id = int(args["id"])
-    return {**planning.event_overview(session, planning.OWNER_ID, event_id), "projection": planning.event_projection(session, planning.OWNER_ID, event_id)}
+    return {**planning.event_overview(session, current_owner(), event_id), "projection": planning.event_projection(session, current_owner(), event_id)}
 
 
 def _get_training_phase(session: Session, args: dict, ctx: dict) -> dict:
     day = _parse_date(args.get("date")) or planning.today()
-    phase = planning.phase_on(session, planning.OWNER_ID, day)
-    summary = planning.build_week_summary(session, planning.OWNER_ID, day)
+    phase = planning.phase_on(session, current_owner(), day)
+    summary = planning.build_week_summary(session, current_owner(), day)
     return {
         "date": day,
         "phase": planning.phase_dict(phase, session) if phase else None,
@@ -753,11 +754,11 @@ def _get_training_phase(session: Session, args: dict, ctx: dict) -> dict:
 def _create_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
     fields = {**_pick(args, _PLANNED_FIELDS), "date": _parse_date(args.get("date"))}
     repeat = _repeat_arg(args)
-    preview = planning.preview_create_planned(session, planning.OWNER_ID, fields, repeat)
+    preview = planning.preview_create_planned(session, current_owner(), fields, repeat)
     held = _gate(args, preview, "adding this to the plan")
     if held:
         return held
-    rows = planning.create_planned(session, planning.OWNER_ID, fields, repeat)
+    rows = planning.create_planned(session, current_owner(), fields, repeat)
     return {"saved": True, "planned": [planning.planned_dict(r) for r in rows]}
 
 
@@ -766,21 +767,21 @@ def _update_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
     fields = _pick(args, _PLANNED_FIELDS)
     if "date" in fields:
         fields["date"] = _parse_date(fields["date"])
-    preview = planning.preview_update_planned(session, planning.OWNER_ID, planned_id, fields, scope)
+    preview = planning.preview_update_planned(session, current_owner(), planned_id, fields, scope)
     held = _gate(args, preview, "this change to the plan")
     if held:
         return held
-    rows = planning.update_planned(session, planning.OWNER_ID, planned_id, fields, scope)
+    rows = planning.update_planned(session, current_owner(), planned_id, fields, scope)
     return {"saved": True, "planned": [planning.planned_dict(r) for r in rows]}
 
 
 def _delete_planned_workout(session: Session, args: dict, ctx: dict) -> dict:
     planned_id, scope = int(args["id"]), args.get("scope") or "this"
-    preview = planning.preview_delete_planned(session, planning.OWNER_ID, planned_id, scope)
+    preview = planning.preview_delete_planned(session, current_owner(), planned_id, scope)
     held = _gate(args, preview, "removing these planned sessions")
     if held:
         return held
-    return {"saved": True, "deleted": planning.delete_planned(session, planning.OWNER_ID, planned_id, scope)}
+    return {"saved": True, "deleted": planning.delete_planned(session, current_owner(), planned_id, scope)}
 
 
 def _create_event(session: Session, args: dict, ctx: dict) -> dict:
@@ -789,17 +790,17 @@ def _create_event(session: Session, args: dict, ctx: dict) -> dict:
     held = _gate(args, preview, "adding this event")
     if held:
         return held
-    return {"saved": True, "event": planning.event_dict(planning.create_event(session, planning.OWNER_ID, fields))}
+    return {"saved": True, "event": planning.event_dict(planning.create_event(session, current_owner(), fields))}
 
 
 def _update_event(session: Session, args: dict, ctx: dict) -> dict:
     event_id = int(args["id"])
     fields = _pick(args, _EVENT_WRITE_FIELDS)
-    preview = planning.preview_update_event(session, planning.OWNER_ID, event_id, fields)
+    preview = planning.preview_update_event(session, current_owner(), event_id, fields)
     held = _gate(args, preview, "this change to the event")
     if held:
         return held
-    return {"saved": True, "event": planning.event_dict(planning.update_event(session, planning.OWNER_ID, event_id, fields))}
+    return {"saved": True, "event": planning.event_dict(planning.update_event(session, current_owner(), event_id, fields))}
 
 
 def _set_goal(session: Session, args: dict, ctx: dict) -> dict:
@@ -818,7 +819,7 @@ def _forget(session: Session, args: dict, ctx: dict) -> dict:
     if ref.startswith("event:") and ref[6:].isdigit():
         # Deleting an event also detaches the plan entries and phases that point at it, so it
         # gets the same preview-then-confirm step as every other calendar write.
-        preview = planning.preview_delete_event(session, planning.OWNER_ID, int(ref[6:]))
+        preview = planning.preview_delete_event(session, current_owner(), int(ref[6:]))
         held = _gate(args, preview, "deleting this event")
         if held:
             return held

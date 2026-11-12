@@ -13,19 +13,22 @@ from catch.coach.providers import registry
 from catch.coach.providers.gemini_provider import GeminiProvider
 from catch.coach.providers.openai_provider import OpenAIProvider
 from catch.core.models import CoachConversation, CoachMessage
+from catch.core.tenant import use_owner
 from tests.coach.provider_testkit import SECRET, Recorder, collect, sse
 
 
 def _conv(session, owner="owner") -> int:
-    conv = CoachConversation(owner_id=owner)
-    session.add(conv)
-    session.commit()
-    session.refresh(conv)
-    return conv.id
+    with use_owner(owner):
+        conv = CoachConversation(owner_id=owner)
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+        return conv.id
 
 
 def _run(session, conv_id, text="hi", owner="owner"):
-    return asyncio.run(collect(chat.run_turn(session, conv_id, text, owner)))
+    with use_owner(owner):
+        return asyncio.run(collect(chat.run_turn(session, conv_id, text, owner)))
 
 
 def test_no_key_explains_that_ai_needs_a_provider_and_calls_nothing(session):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import datetime, timezone
 
 from sqlmodel import Session
@@ -9,7 +10,7 @@ from catch.core.redact import redact
 
 
 def record_attempt(session: Session, source: str) -> None:
-    row = session.get(SyncState, source)
+    row = session.get(SyncState, tenant.pk(source))
     if row is None:
         row = SyncState(source=source)
         session.add(row)
@@ -21,7 +22,7 @@ _CONSECUTIVE_FAILURE_ALERT_THRESHOLD = 3
 
 
 def record_success(session: Session, source: str, cursor: str | None = None) -> None:
-    row = session.get(SyncState, source)
+    row = session.get(SyncState, tenant.pk(source))
     if row is None:
         row = SyncState(source=source)
         session.add(row)
@@ -38,7 +39,7 @@ def record_success(session: Session, source: str, cursor: str | None = None) -> 
 
 
 def record_error(session: Session, source: str, error: str) -> None:
-    row = session.get(SyncState, source)
+    row = session.get(SyncState, tenant.pk(source))
     if row is None:
         row = SyncState(source=source)
         session.add(row)

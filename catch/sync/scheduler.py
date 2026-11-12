@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import logging
 import threading
 from datetime import date, datetime, timezone
@@ -31,7 +32,7 @@ def run_sync(source: str, days: int = 3) -> dict:
                 from catch.core.models import OAuthToken
 
                 # Not connected is the normal state of a fresh install: no attempt, no error, no alert.
-                if session.get(OAuthToken, "whoop") is None:
+                if session.get(OAuthToken, tenant.pk("whoop")) is None:
                     return {"source": source, "skipped": "not connected"}
             state.record_attempt(session, source)
             try:
@@ -51,7 +52,7 @@ def run_sync(source: str, days: int = 3) -> dict:
 
                     from catch.core.models import SyncState
 
-                    row = session.get(SyncState, "withings")
+                    row = session.get(SyncState, tenant.pk("withings"))
                     cursor = int(row.cursor) if row and row.cursor else None
                     n = withings_sync(session, lastupdate=cursor)
                     result = {"measures": n}
@@ -60,7 +61,7 @@ def run_sync(source: str, days: int = 3) -> dict:
 
                     from catch.core.models import SyncState
 
-                    row = session.get(SyncState, "concept2")
+                    row = session.get(SyncState, tenant.pk("concept2"))
                     updated_after = (
                         datetime.fromtimestamp(int(row.cursor), tz=timezone.utc) if row and row.cursor else None
                     )

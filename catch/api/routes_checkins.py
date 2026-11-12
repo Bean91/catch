@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import date, datetime, timedelta, timezone
 from datetime import date as date_
 
@@ -44,7 +45,7 @@ def _validate(body: CheckInRequest) -> None:
 
 @router.get("/api/checkins/today")
 def get_today_checkin(db: Session = Depends(get_db)):
-    row = db.get(CheckIn, date.today())
+    row = db.get(CheckIn, tenant.pk(date.today()))
     return {"date": date.today(), "completed": row is not None, "checkin": row}
 
 
@@ -66,7 +67,7 @@ def list_checkins(
 def post_checkin(body: CheckInRequest = Body(...), db: Session = Depends(get_db)):
     _validate(body)
     day = body.date or date.today()
-    row = db.get(CheckIn, day)
+    row = db.get(CheckIn, tenant.pk(day))
     if row is None:
         row = CheckIn(date=day)
         db.add(row)
@@ -88,7 +89,7 @@ def post_checkin(body: CheckInRequest = Body(...), db: Session = Depends(get_db)
     # expires every attribute on `row` — returning it unrefreshed can serialize as `{}` (see
     # the identical bug/fix in routes_illness.py's dismiss_illness_flag). db.get() forces a
     # fresh read instead of trusting whatever's still cached in-memory.
-    return db.get(CheckIn, day)
+    return db.get(CheckIn, tenant.pk(day))
 
 
 def niggle_streak_days(db: Session, through: date) -> int:
@@ -98,7 +99,7 @@ def niggle_streak_days(db: Session, through: date) -> int:
     streak = 0
     day = through
     while True:
-        row = db.get(CheckIn, day)
+        row = db.get(CheckIn, tenant.pk(day))
         if row is None or not row.niggle_area:
             break
         streak += 1

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +17,7 @@ from catch.coach.providers import registry
 from catch.coach.providers.anthropic_provider import pick_default_sonnet
 from catch.coach.providers.base import ProviderError, safe_error_event
 from catch.core.models import CoachConversation, CoachMessage
-from catch.core.principal import ATHLETE, OWNER_ID
+from catch.core.principal import athlete_for
 from catch.core.redact import redact
 
 _SYSTEM_PROMPT_PATH = Path(__file__).parent / "system_prompt.md"
@@ -125,10 +126,11 @@ def _tool_label(name: str, args: dict) -> str:
     return labels.get(name, name)
 
 
-async def _resolve_provider(session: Session, owner_id: str = OWNER_ID):
+async def _resolve_provider(session: Session, owner_id: str | None = None):
     """(provider, model, prices, provider_id). Raises ProviderError (NotConfigured when the owner
     hasn't supplied a key). `prices` is None for a hosted model the user hasn't priced — its cost is
     unknown, which is different from free."""
+    owner_id = owner_id or current_owner()
     prefs = coach_settings_module.get_coach_settings(session, owner_id)
     provider_id = prefs["provider"]
     provider = registry.build_provider(session, owner_id, provider_id)
@@ -163,7 +165,8 @@ def _remember_status(session: Session, provider_id: str, owner_id: str, kind: st
         coach_settings_module.set_status(session, provider_id, "unavailable", "rate_limited", owner_id)
 
 
-async def run_turn(session: Session, conversation_id: int, user_text: str, owner_id: str = OWNER_ID) -> AsyncIterator[dict]:
+async def run_turn(session: Session, conversation_id: int, user_text: str, owner_id: str | None = None) -> AsyncIterator[dict]:
+    owner_id = owner_id or current_owner()
     conv = session.get(CoachConversation, conversation_id)
     if conv is None or conv.owner_id != owner_id:
         yield {"type": "error", "message": "Conversation not found."}
@@ -296,7 +299,7 @@ async def _run_turn(session: Session, conversation_id: int, user_text: str, owne
                 "label": _tool_label(call["name"], call["input"]),
             }
             try:
-                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": ATHLETE, "via": "ai_coach"})
+                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": athlete_for(owner_id), "via": "ai_coach"})
                 is_error = False
             except Exception as exc:  # noqa: BLE001 — surfaced to the model as a tool error, not raised
                 output = {"error": redact(str(exc))}

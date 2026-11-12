@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from datetime import date, datetime
 
@@ -63,7 +64,7 @@ def _activity_strain(db: Session, canonical: CanonicalActivity, strain_by_date: 
     if strain_by_date is not None:
         day_strain = strain_by_date.get(local_date)
     else:
-        row = db.get(DailyScore, local_date)
+        row = db.get(DailyScore, tenant.pk(local_date))
         day_strain = json.loads(row.strain_json) if (row and row.strain_json) else None
     if not day_strain:
         return None

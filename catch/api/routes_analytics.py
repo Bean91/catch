@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 import math
 import threading
@@ -133,15 +134,15 @@ def _latest_erg(db: Session) -> dict | None:
 @router.get("/api/today")
 def today(db: Session = Depends(get_db)):
     today_date = date.today()
-    score_row = db.get(DailyScore, today_date)
-    wellness = db.get(DailyWellness, today_date)
+    score_row = db.get(DailyScore, tenant.pk(today_date))
+    wellness = db.get(DailyWellness, tenant.pk(today_date))
     recovery = _score_dict(score_row.recovery_json) if score_row else None
     strain = _score_dict(score_row.strain_json) if score_row else None
     load = _score_dict(score_row.load_json) if score_row else None
     rowing_load = _score_dict(score_row.rowing_load_json) if score_row else None
     illness = _score_dict(score_row.illness_json) if score_row else None
     settings = get_settings(db)
-    checkin_today = db.get(CheckIn, today_date)
+    checkin_today = db.get(CheckIn, tenant.pk(today_date))
     niggle_days = niggle_streak_days(db, today_date)
 
     components = recovery.get("components") if recovery else None

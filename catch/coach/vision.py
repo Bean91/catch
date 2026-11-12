@@ -4,6 +4,7 @@ owner's active provider, check it can read images, enforce the same caps as chat
 
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 from sqlmodel import Session
 
 from catch.coach import cost as cost_module
@@ -11,15 +12,15 @@ from catch.coach import limits
 from catch.coach import settings as coach_settings_module
 from catch.coach.providers import registry
 from catch.coach.providers.base import ProviderError, VisionRequest
-from catch.core.principal import OWNER_ID
 
 
 class VisionError(RuntimeError):
     """str(exc) is always safe to show the user."""
 
 
-async def vision_available(session: Session, owner_id: str = OWNER_ID) -> dict:
+async def vision_available(session: Session, owner_id: str | None = None) -> dict:
     """What the UI needs to decide whether to offer a photo button: no provider call is made."""
+    owner_id = owner_id or current_owner()
     prefs = coach_settings_module.get_coach_settings(session, owner_id)
     provider_id = prefs["provider"]
     configured = provider_id in registry.configured(session, owner_id)
@@ -36,7 +37,8 @@ async def vision_available(session: Session, owner_id: str = OWNER_ID) -> dict:
     return {"available": available, "provider": provider_id, "reason": reason}
 
 
-async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: str = OWNER_ID) -> tuple[dict, float | None]:
+async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: str | None = None) -> tuple[dict, float | None]:
+    owner_id = owner_id or current_owner()
     try:
         limits.check_rate(owner_id, "vision")
     except limits.LimitExceeded as exc:

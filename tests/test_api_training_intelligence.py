@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import date, datetime, timedelta, timezone
 
 from conftest import TEST_PASSWORD
@@ -159,7 +160,7 @@ def test_failure_in_one_evaluator_does_not_break_recompute_scores(session, monke
 
     from catch.core.models import DailyScore
 
-    assert session.get(DailyScore, today) is not None
+    assert session.get(DailyScore, tenant.pk(today)) is not None
 
 
 def test_recompute_scores_runs_exactly_once(session, monkeypatch):
@@ -400,7 +401,7 @@ def test_training_profile_surfaces_logged_nutrition_and_activity_context(client,
     today = date.today()
     _seed_wellness(session, today)
     _seed_activity(session, datetime.now(timezone.utc))
-    wellness_today = session.get(_DailyWellness, today)
+    wellness_today = session.get(_DailyWellness, tenant.pk(today))
     wellness_today.steps = 8000
     wellness_today.active_kcal = 450
     session.add(wellness_today)

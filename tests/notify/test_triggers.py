@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import dataclasses
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -113,7 +114,7 @@ def test_illness_notifies_once_and_sets_notified_at(session, monkeypatch):
     triggers.check_illness(session)
 
 
-    ack = session.get(IllnessAck, today)
+    ack = session.get(IllnessAck, tenant.pk(today))
     assert ack.notified_at is not None
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "illness"]
     assert len(logs) == 1
@@ -135,7 +136,7 @@ def test_illness_does_not_notify_about_an_old_historical_flag(session, monkeypat
 
     triggers.check_illness(session)
 
-    ack = session.get(IllnessAck, old_day)
+    ack = session.get(IllnessAck, tenant.pk(old_day))
     assert ack.notified_at is not None  # marked handled...
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "illness"]
     assert len(logs) == 0  # ...but nothing was actually sent
@@ -152,7 +153,7 @@ def test_illness_skips_when_a_later_recompute_downgraded_the_level(session, monk
 
     triggers.check_illness(session)
 
-    assert session.get(IllnessAck, today).notified_at is not None
+    assert session.get(IllnessAck, tenant.pk(today)).notified_at is not None
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "illness"]
     assert len(logs) == 0
 
@@ -167,7 +168,7 @@ def test_illness_skips_a_dismissed_flag(session, monkeypatch):
     triggers.check_illness(session)
 
 
-    assert session.get(IllnessAck, today).notified_at is None
+    assert session.get(IllnessAck, tenant.pk(today)).notified_at is None
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "illness"]
     assert len(logs) == 0
 
@@ -211,7 +212,7 @@ def test_check_sync_stale_alerts_once_when_no_success_in_36h(session, monkeypatc
 
     logs = [n for n in session.exec(select(NotificationLog)).all() if n.type == "sync_broken"]
     assert len(logs) == 1  # only garmin is stale — withings/concept2 synced an hour ago
-    row = session.get(SyncState, "garmin")
+    row = session.get(SyncState, tenant.pk("garmin"))
     assert row.alert_sent_at is not None
 
     triggers.check_sync_stale(session)  # a second tick must not re-alert the same episode

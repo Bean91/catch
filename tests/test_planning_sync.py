@@ -722,6 +722,8 @@ def test_a_link_to_a_vanished_canonical_heals_on_read_instead_of_dangling(sessio
 def test_the_link_foreign_keys_declare_on_delete_set_null():
     for table in (PlannedWorkout.__table__, TrainingPhase.__table__):
         for fk in table.foreign_keys:
+            if fk.parent.name == "owner_id":
+                continue  # the tenant key cascades with the user profile (session 24)
             assert fk.ondelete == "SET NULL", (table.name, fk.parent.name)
 
 

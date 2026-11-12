@@ -10,6 +10,7 @@ battery, intensity minutes, floors, Garmin's sleep_score, whole-day respiration)
 
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from datetime import date, datetime, timezone
 from typing import Iterable
@@ -35,7 +36,7 @@ def record_reading(
 ) -> None:
     if value is None or signal not in SIGNALS:
         return
-    row = session.get(WellnessReading, (day, source, signal))
+    row = session.get(WellnessReading, tenant.pk(day, source, signal))
     if row is None:
         row = WellnessReading(date=day, source=source, signal=signal, value=float(value))
         session.add(row)
@@ -96,7 +97,7 @@ def resolve_days(session: Session, days: Iterable[date]) -> int:
                 resolved[signal] = winner
         if not resolved:
             continue
-        row = session.get(DailyWellness, day)
+        row = session.get(DailyWellness, tenant.pk(day))
         if row is None:
             row = DailyWellness(date=day, source=next(iter(resolved.values())).source)
             session.add(row)

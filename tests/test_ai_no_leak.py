@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from catch.core import tenant
 import asyncio
 import json
 
@@ -127,4 +128,4 @@ def test_sync_errors_with_keys_in_urls_are_scrubbed_before_storage_and_display(s
     state.record_error(session, "garmin", f"Client error 403 for url 'https://api.example.test/v1?api_key={KEY}&x=1'")
     from catch.core.models import SyncState
 
-    assert KEY not in session.get(SyncState, "garmin").last_error
+    assert KEY not in session.get(SyncState, tenant.pk("garmin")).last_error

@@ -27,11 +27,11 @@ from catch.analytics.predict import predict_2k
 from catch.analytics.training_intelligence import _history_confidence
 from catch.analytics.zones import ZONE_ORDER
 from catch.core.models import CanonicalActivity, Event, PlannedWorkout, TrainingPhase
+from catch.core.tenant import PERSONAL_OWNER as OWNER_ID  # the personal install's owner; the public build passes the request's
 from catch.core.settings_store import get_settings
 from catch.sync import erg_test, rowing_predict
 from catch.sync.training_intelligence import _history_days, _overrides, _qualifying_activities
 
-OWNER_ID = "owner"
 
 MAX_CALENDAR_DAYS = 100
 
@@ -361,7 +361,7 @@ _EVENT_FIELDS = ("name", "date", "type", "distance", "distance_m", "boat_class",
 
 def _event_visible(event: Event, owner_id: str) -> bool:
     # Rows that predate the owner column are NULL: they belong to the install's one owner.
-    return (event.owner_id or OWNER_ID) == owner_id
+    return event.owner_id == owner_id
 
 
 def _own_event(session: Session, owner_id: str, event_id: int) -> Event:

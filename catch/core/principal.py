@@ -17,7 +17,7 @@ ATHLETE_ROLE = "athlete"
 COACH_ROLE = "coach"
 VIEWER_ROLE = "viewer"
 
-OWNER_ID = "owner"
+OWNER_ID = "owner"  # the personal install's only owner; a public deployment never uses this constant
 
 NOTE_VISIBILITIES = ("private", "coach")
 FEEDBACK_VISIBILITIES = ("private", "shared")
@@ -48,6 +48,11 @@ class Principal:
 
 ATHLETE = Principal(ATHLETE_ROLE, OWNER_ID, "You")
 VIEWER = Principal(VIEWER_ROLE, "viewer", "")
+
+
+def athlete_for(owner_id: str) -> Principal:
+    """The athlete principal of one owner (public: the signed-in user; personal: the constant `ATHLETE`)."""
+    return ATHLETE if owner_id == OWNER_ID else Principal(ATHLETE_ROLE, owner_id, "You")
 
 
 def coach_principal(key: object, display_name: Optional[str]) -> Principal:

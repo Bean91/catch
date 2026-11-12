@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import base64
 import json
 import logging
@@ -41,7 +42,7 @@ class GarminClient:
     # -- auth -----------------------------------------------------------
 
     def _cached_token(self) -> OAuthToken | None:
-        return self.db.get(OAuthToken, SOURCE)
+        return self.db.get(OAuthToken, tenant.pk(SOURCE))
 
     def _exchange_token(self) -> str:
         if not settings.garmin_api_key:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import argparse
 import secrets
 
@@ -37,7 +38,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
                 elif source == "whoop":
                     from catch.core.models import OAuthToken
 
-                    if session.get(OAuthToken, "whoop") is None:
+                    if session.get(OAuthToken, tenant.pk("whoop")) is None:
                         print("whoop: not connected, skipped")
                         continue
                     from catch.sync.whoop_client import sync as whoop_sync

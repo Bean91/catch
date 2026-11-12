@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import hashlib
 import hmac
 import time
@@ -94,7 +95,7 @@ def _request_token(session: Session, *, grant_type: str, code: str | None = None
     _check_status(data, "requesttoken")
     body = data["body"]
 
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     if row is None:
         row = OAuthToken(source=SOURCE, access_token_enc="")
         session.add(row)
@@ -111,7 +112,7 @@ def exchange_code(session: Session, code: str) -> str:
 
 
 def get_access_token(session: Session) -> str:
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     if row is None:
         raise WithingsError("No Withings tokens stored — visit /auth/withings/start first")
     if row.expires_at and row.expires_at > datetime.now(timezone.utc) + timedelta(minutes=5):

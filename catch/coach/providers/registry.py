@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,6 @@ from sqlmodel import Session
 from catch.coach import settings as coach_settings
 from catch.coach.providers.base import KEY_PROVIDERS, PROVIDER_IDS, ProviderCapabilities, ProviderError
 from catch.core.config import settings
-from catch.core.principal import OWNER_ID
 from catch.core.secret_store import SecretStoreError
 
 _CATALOG = json.loads((Path(__file__).parent / "model_catalog.json").read_text())
@@ -93,7 +93,8 @@ def looks_vision_capable(provider_id: str, model_id: str) -> bool | None:
     return True if any(model_id.lower().startswith(p) or p in model_id.lower() for p in patterns) else None
 
 
-def configured(session: Session, owner_id: str = OWNER_ID) -> list[str]:
+def configured(session: Session, owner_id: str | None = None) -> list[str]:
+    owner_id = owner_id or current_owner()
     out = coach_settings.configured_providers(session, owner_id)
     if settings.ollama_enabled and coach_settings.get_coach_settings(session, owner_id)["ollama_base_url"]:
         out.append("ollama")

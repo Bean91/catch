@@ -5,14 +5,31 @@ from typing import Optional
 
 from sqlmodel import Field, Index, SQLModel, UniqueConstraint
 
+from catch.core.tenant import OwnedOrShared, OwnedStrict, owner_field
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class DailyWellness(SQLModel, table=True):
+class UserProfile(SQLModel, table=True):
+    """One row per person who can sign in (docs/public-architecture.md §4). `id` is the tenant key every
+    owned table's `owner_id` points at: the Supabase Auth user id on a public deployment, the constant
+    "owner" on the Pi. Everything a user owns is removed by ON DELETE CASCADE from this row, and (on
+    Supabase) this row is removed by a trigger when the auth user is deleted."""
+
+    __tablename__ = "user_profiles"
+
+    id: str = Field(primary_key=True)
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class DailyWellness(OwnedStrict, SQLModel, table=True):
     __tablename__ = "daily_wellness"
 
+    owner_id: str = owner_field(primary_key=True)
     date: date_ = Field(primary_key=True)
     source: str = Field(default="garmin")
     resting_hr: Optional[int] = None
@@ -66,7 +83,7 @@ class DailyWellness(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class Activity(SQLModel, table=True):
+class Activity(OwnedStrict, SQLModel, table=True):
     """A single source record (one sync, one external id). Session 8/12 (see PLAN.md)
     generalised the old Garmin<->Concept2-only `linked_activity_id` dedup into the matching
     engine in `catch/analytics/matching.py`: every source record now belongs to exactly one
@@ -77,8 +94,9 @@ class Activity(SQLModel, table=True):
     no code after that migration reads it."""
 
     __tablename__ = "activities"
-    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_activity_source_external_id"),)
+    __table_args__ = (UniqueConstraint("owner_id", "source", "external_id", name="uq_activity_source_external_id"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     source: str
     external_id: str
@@ -135,7 +153,7 @@ class Activity(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class CanonicalActivity(SQLModel, table=True):
+class CanonicalActivity(OwnedStrict, SQLModel, table=True):
     """The one thing Trends/Today/PBs/volume/coach/MCP ever read for "an activity" — owns
     1..n `Activity` source records (`Activity.canonical_id`). Resolved fields are cached here
     by `catch/sync/canonical.py`'s `resolve_canonical` (field-priority merge across sources,
@@ -145,6 +163,7 @@ class CanonicalActivity(SQLModel, table=True):
 
     __tablename__ = "canonical_activities"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     sport_family: Optional[str] = None
     start: Optional[datetime] = None
@@ -209,7 +228,7 @@ class CanonicalActivity(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class MatchDecision(SQLModel, table=True):
+class MatchDecision(OwnedStrict, SQLModel, table=True):
     """Keyed on the natural (source, external_id) pair, not row ids, so a manual "not a
     duplicate" or a split survives a resync untouched (ids never change on upsert, but a
     row-id key would still be fragile if a DB were ever rebuilt from source). The pair is
@@ -219,10 +238,11 @@ class MatchDecision(SQLModel, table=True):
     __tablename__ = "match_decisions"
     __table_args__ = (
         UniqueConstraint(
-            "source_a", "external_id_a", "source_b", "external_id_b", name="uq_match_decision_pair"
+            "owner_id", "source_a", "external_id_a", "source_b", "external_id_b", name="uq_match_decision_pair"
         ),
     )
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     source_a: str
     external_id_a: str
@@ -232,12 +252,13 @@ class MatchDecision(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class MergeLog(SQLModel, table=True):
+class MergeLog(OwnedStrict, SQLModel, table=True):
     """One row per merge (auto or manual) and per split, for the backfill report and a
     future audit screen — "log every auto-merge" (task Part A.4)."""
 
     __tablename__ = "merge_log"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     canonical_id: int
     source: str
@@ -248,7 +269,7 @@ class MergeLog(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class ActivitySamples(SQLModel, table=True):
+class ActivitySamples(OwnedStrict, SQLModel, table=True):
     """Part E: per-second (post-downsample) HR/power/cadence arrays for one *source* record
     (keyed on activity_id, not canonical — merging activities never touches sample bytes).
     One row per activity, not one row per second — a 90-minute session at 1 Hz is ~5.4K
@@ -258,6 +279,7 @@ class ActivitySamples(SQLModel, table=True):
 
     __tablename__ = "activity_samples"
 
+    owner_id: str = owner_field()
     activity_id: int = Field(foreign_key="activities.id", primary_key=True)
     start: datetime
     n_samples: int
@@ -267,9 +289,10 @@ class ActivitySamples(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class Stroke(SQLModel, table=True):
+class Stroke(OwnedStrict, SQLModel, table=True):
     __tablename__ = "strokes"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     activity_id: int = Field(foreign_key="activities.id")
     seq: int = 0
@@ -284,17 +307,19 @@ class Stroke(SQLModel, table=True):
     hr: Optional[float] = None
 
 
-class AppSettings(SQLModel, table=True):
+class AppSettings(OwnedStrict, SQLModel, table=True):
     __tablename__ = "settings"
 
+    owner_id: str = owner_field(primary_key=True)
     id: int = Field(default=1, primary_key=True)
     data_json: str = "{}"
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class DailyScore(SQLModel, table=True):
+class DailyScore(OwnedStrict, SQLModel, table=True):
     __tablename__ = "daily_scores"
 
+    owner_id: str = owner_field(primary_key=True)
     date: date_ = Field(primary_key=True)
     recovery_json: Optional[str] = None
     strain_json: Optional[str] = None
@@ -308,10 +333,11 @@ class DailyScore(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class BodyComp(SQLModel, table=True):
+class BodyComp(OwnedStrict, SQLModel, table=True):
     __tablename__ = "body_comp"
-    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_bodycomp_source_external_id"),)
+    __table_args__ = (UniqueConstraint("owner_id", "source", "external_id", name="uq_bodycomp_source_external_id"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     source: str = Field(default="withings")
     external_id: str
@@ -324,9 +350,10 @@ class BodyComp(SQLModel, table=True):
     hydration_kg: Optional[float] = None
 
 
-class SyncState(SQLModel, table=True):
+class SyncState(OwnedStrict, SQLModel, table=True):
     __tablename__ = "sync_state"
 
+    owner_id: str = owner_field(primary_key=True)
     source: str = Field(primary_key=True)
     cursor: Optional[str] = None
     last_attempt_at: Optional[datetime] = None
@@ -344,9 +371,10 @@ class SyncState(SQLModel, table=True):
     alert_sent_at: Optional[datetime] = None
 
 
-class OAuthToken(SQLModel, table=True):
+class OAuthToken(OwnedStrict, SQLModel, table=True):
     __tablename__ = "oauth_tokens"
 
+    owner_id: str = owner_field(primary_key=True)
     source: str = Field(primary_key=True)
     access_token_enc: str
     refresh_token_enc: Optional[str] = None
@@ -354,9 +382,10 @@ class OAuthToken(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class Note(SQLModel, table=True):
+class Note(OwnedStrict, SQLModel, table=True):
     __tablename__ = "notes"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     date: date_
     text: str
@@ -364,16 +393,17 @@ class Note(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class ApiToken(SQLModel, table=True):
+class ApiToken(OwnedStrict, SQLModel, table=True):
     """Per-device bearer tokens (catch/cli.py's `token create`) so the MCP server can run on
     a laptop/elsewhere while Catch runs on the Pi. Only the sha256 hash is stored — the raw
     token is shown exactly once, at creation, matching `.env`'s secrets ever being printed."""
 
     __tablename__ = "api_tokens"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    token_hash: str
+    token_hash: str = Field(index=True)
     created_at: datetime = Field(default_factory=_utcnow)
     last_used_at: Optional[datetime] = None
     # Session 22 (see PLAN.md): NULL / "athlete" = the athlete's own device; "coach" = a coach's
@@ -382,20 +412,21 @@ class ApiToken(SQLModel, table=True):
     display_name: Optional[str] = None
 
 
-class CoachCredential(SQLModel, table=True):
+class CoachCredential(OwnedStrict, SQLModel, table=True):
     """Fernet-encrypted provider API keys, mirroring OAuthToken's pattern — kept out of the
     plain-JSON `settings` table on purpose (a key must never round-trip through GET /api/
     settings or a PUT patch diff)."""
 
     __tablename__ = "coach_credentials"
 
+    owner_id: str = owner_field(primary_key=True)
     provider: str = Field(primary_key=True)
     api_key_enc: str
     last4: str
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class AiCredential(SQLModel, table=True):
+class AiCredential(OwnedStrict, SQLModel, table=True):
     """A user's own AI provider key (BYOK), sealed per owner and provider by
     catch.core.secret_store. The plaintext never leaves the server: only `last4` (blank for a
     short key) and `status` are ever returned by an API. `status_detail` is a fixed vocabulary,
@@ -403,7 +434,7 @@ class AiCredential(SQLModel, table=True):
 
     __tablename__ = "ai_credentials"
 
-    owner_id: str = Field(primary_key=True)
+    owner_id: str = owner_field(primary_key=True)
     provider: str = Field(primary_key=True)
     key_enc: str
     key_id: str
@@ -415,13 +446,14 @@ class AiCredential(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class WellnessReading(SQLModel, table=True):
+class WellnessReading(OwnedStrict, SQLModel, table=True):
     """One provider's measurement of one signal for one (wake-day) date. Many sources can hold a
     reading for the same date; catch.sync.wellness_readings.resolve_days picks exactly one winner
     per signal and writes it to daily_wellness. Never summed or averaged across sources."""
 
     __tablename__ = "wellness_readings"
 
+    owner_id: str = owner_field(primary_key=True)
     date: date_ = Field(primary_key=True)
     source: str = Field(primary_key=True)
     signal: str = Field(primary_key=True)
@@ -432,16 +464,15 @@ class WellnessReading(SQLModel, table=True):
     meta_json: Optional[str] = None  # e.g. {"nap": false, "timezone_offset": "-05:00"}
 
 
-class CoachSettings(SQLModel, table=True):
+class CoachSettings(OwnedStrict, SQLModel, table=True):
     """Coach-only preferences, deliberately a separate table from `settings`: a per-model
     price dict would trip settings_store's unknown-nested-key validation, and PUT /api/
     settings triggers a full recompute_scores that has nothing to do with the coach."""
 
     __tablename__ = "coach_settings"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    # Session 23: looked up by owner_id, not by id == 1. The Pi has exactly one owner ("owner").
-    owner_id: str = Field(default="owner", index=True)
     provider: str = Field(default="anthropic")  # anthropic | openai | gemini | ollama; see coach/providers/registry.py
     anthropic_model: Optional[str] = None  # None -> default to the newest "sonnet" model
     ollama_base_url: Optional[str] = None
@@ -458,17 +489,17 @@ class CoachSettings(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class CoachConversation(SQLModel, table=True):
+class CoachConversation(OwnedStrict, SQLModel, table=True):
     __tablename__ = "coach_conversations"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = Field(default="owner", index=True)
     title: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class CoachMessage(SQLModel, table=True):
+class CoachMessage(OwnedStrict, SQLModel, table=True):
     """`blocks_json` is a provider-neutral list of {type: text|tool_call|tool_result, ...}
     dicts (see catch/coach/chat.py), not either provider's own wire format — needed so a
     conversation can switch providers mid-stream (Ollama laptop asleep -> Anthropic) without
@@ -476,6 +507,7 @@ class CoachMessage(SQLModel, table=True):
 
     __tablename__ = "coach_messages"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     conversation_id: int = Field(foreign_key="coach_conversations.id")
     role: str  # "user" | "assistant"
@@ -487,9 +519,10 @@ class CoachMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class Event(SQLModel, table=True):
+class Event(OwnedStrict, SQLModel, table=True):
     __tablename__ = "events"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     date: date_
@@ -505,19 +538,19 @@ class Event(SQLModel, table=True):
     # only make_pacing_plan writes it, to keep that tool's surface a plain time/style request.
     plan_json: Optional[str] = None
     # Session 21 (see PLAN.md): free-text race-planning fields, plus `distance_m` for a numeric
-    # distance (the older `distance` string stays the display label). `owner_id` is NULL on rows
-    # that predate it — the service layer treats NULL as the install's single owner.
+    # distance (the older `distance` string stays the display label). Rows that
+    # predate `owner_id` are backfilled to the install's single owner on startup (core/db.py).
     location: Optional[str] = None
     goals: Optional[str] = None
     notes: Optional[str] = None
     distance_m: Optional[float] = None
-    owner_id: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class Goal(SQLModel, table=True):
+class Goal(OwnedStrict, SQLModel, table=True):
     __tablename__ = "goals"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     text: str
     target_date: Optional[date_] = None
@@ -525,9 +558,10 @@ class Goal(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class AthleteFact(SQLModel, table=True):
+class AthleteFact(OwnedStrict, SQLModel, table=True):
     __tablename__ = "athlete_facts"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     category: str  # injury | schedule | equipment | preference | other
     text: str
@@ -539,7 +573,7 @@ class AthleteFact(SQLModel, table=True):
 # --- Session 13 (see PLAN.md Part B): nutrition ------------------------------------------
 
 
-class Food(SQLModel, table=True):
+class Food(OwnedOrShared, SQLModel, table=True):
     """Every macro field is per 100g, regardless of `source` — the single canonical basis a
     `FoodLog` scales from, so quantity math never has to branch on where a food came from.
     `source="off"`/`"usda"` rows are a local cache of an external lookup (re-fetched only
@@ -550,6 +584,7 @@ class Food(SQLModel, table=True):
 
     __tablename__ = "foods"
 
+    owner_id: Optional[str] = owner_field(shared=True)
     id: Optional[int] = Field(default=None, primary_key=True)
     source: str  # "off" | "usda" | "manual"
     barcode: Optional[str] = Field(default=None, index=True)
@@ -569,7 +604,7 @@ class Food(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class FoodLog(SQLModel, table=True):
+class FoodLog(OwnedStrict, SQLModel, table=True):
     """Macros are computed and stored at log time (`quantity`/`unit` against the food's
     per-100g basis at that moment), not re-derived from the live `Food` row on every read —
     a later correction to a food's data (or a re-verified OFF value) must never silently
@@ -577,6 +612,7 @@ class FoodLog(SQLModel, table=True):
 
     __tablename__ = "food_logs"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     ts: datetime
     meal: str  # breakfast | lunch | dinner | snack | pre_workout | post_workout
@@ -596,23 +632,25 @@ class FoodLog(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class MyFood(SQLModel, table=True):
+class MyFood(OwnedStrict, SQLModel, table=True):
     """A starred quick-access shortcut to a `Food` row — distinct from the `foods` cache
     itself, which holds every food ever looked up/logged, most of which the athlete will
     never want to see again in a "my foods" quick-add list."""
 
     __tablename__ = "my_foods"
-    __table_args__ = (UniqueConstraint("food_id", name="uq_my_foods_food_id"),)
+    __table_args__ = (UniqueConstraint("owner_id", "food_id", name="uq_my_foods_food_id"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     food_id: int = Field(foreign_key="foods.id")
     label: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class SavedMeal(SQLModel, table=True):
+class SavedMeal(OwnedStrict, SQLModel, table=True):
     __tablename__ = "saved_meals"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     # [{"food_id", "quantity", "unit"}, ...] — same shape as a FoodLog's own quantity/unit,
@@ -622,7 +660,7 @@ class SavedMeal(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class NutritionTarget(SQLModel, table=True):
+class NutritionTarget(OwnedStrict, SQLModel, table=True):
     """Singleton (id=1), same pattern as `AppSettings`/`CoachSettings` — kept out of the
     shared `settings` JSON blob deliberately: every `PUT /api/settings` triggers a full
     `recompute_scores`, which has nothing to do with nutrition targets (session 5's
@@ -631,6 +669,7 @@ class NutritionTarget(SQLModel, table=True):
 
     __tablename__ = "nutrition_targets"
 
+    owner_id: str = owner_field(primary_key=True)
     id: int = Field(default=1, primary_key=True)
     protein_g_per_kg: float = 1.6
     carb_g_per_kg_rest: float = 3.0
@@ -642,7 +681,7 @@ class NutritionTarget(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class AiUsageEvent(SQLModel, table=True):
+class AiUsageEvent(OwnedStrict, SQLModel, table=True):
     """Anthropic spend that isn't a coach chat turn (so far: the nutrition photo-estimate
     vision call) — `CoachMessage.cost_usd` only covers conversation turns, but the daily
     spend cap (`coach_settings.daily_cap_usd`) must cover *every* Anthropic call this app
@@ -651,8 +690,8 @@ class AiUsageEvent(SQLModel, table=True):
 
     __tablename__ = "ai_usage_events"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = Field(default="owner", index=True)
     provider: Optional[str] = None
     model: Optional[str] = None
     kind: str  # "nutrition_photo_estimate"
@@ -664,7 +703,7 @@ class AiUsageEvent(SQLModel, table=True):
 # --- Session 14 (see PLAN.md): gym logger, Garmin-strength merge, cardio/muscular strain ----
 
 
-class Exercise(SQLModel, table=True):
+class Exercise(OwnedOrShared, SQLModel, table=True):
     """Seeded from `catch/seed/exercises.json` (yuhonas/free-exercise-db, Unlicense/
     public domain — vendored JSON only, no images, at build time) plus any user-added custom
     exercise (`custom=True`, `external_id=None`). `movement_pattern`/`unilateral` are a
@@ -674,6 +713,7 @@ class Exercise(SQLModel, table=True):
 
     __tablename__ = "exercises"
 
+    owner_id: Optional[str] = owner_field(shared=True)
     id: Optional[int] = Field(default=None, primary_key=True)
     external_id: Optional[str] = Field(default=None, index=True)  # free-exercise-db's own id; None for custom.
     name: str
@@ -686,15 +726,16 @@ class Exercise(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class Gym(SQLModel, table=True):
+class Gym(OwnedStrict, SQLModel, table=True):
     __tablename__ = "gyms"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class GymStation(SQLModel, table=True):
+class GymStation(OwnedStrict, SQLModel, table=True):
     """A saved per-gym equipment setup (task Part A.3's "save stations per gym ... one tap
     next time") — e.g. "Uni gym cable 2: dual stack, 2:1". `config_json` holds whichever of
     `bar_weight_kg`/`base_weight_kg`/`stack_kg_per_increment`/`pulley_multiplier`/
@@ -704,6 +745,7 @@ class GymStation(SQLModel, table=True):
 
     __tablename__ = "gym_stations"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     gym_id: int = Field(foreign_key="gyms.id")
     name: str
@@ -712,7 +754,7 @@ class GymStation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-class StrengthSet(SQLModel, table=True):
+class StrengthSet(OwnedStrict, SQLModel, table=True):
     """One logged set. `client_id` (a UUID the phone generates offline) is the idempotent
     upsert key — matching CLAUDE.md's "(source, external_id)" convention, generalized to a
     child row: a dropped-response retry from a flaky gym signal must never duplicate a set.
@@ -727,9 +769,11 @@ class StrengthSet(SQLModel, table=True):
     numbers."""
 
     __tablename__ = "strength_sets"
+    __table_args__ = (UniqueConstraint("owner_id", "client_id", name="uq_strength_sets_owner_client"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    client_id: str = Field(index=True, unique=True)
+    client_id: str = Field(index=True)
     activity_id: int = Field(foreign_key="activities.id")
     # Nullable only for an unmatched "garmin_draft" import (task Part B.2) — the raw Garmin
     # exercise-category enum has no reliable mapping onto this app's exercise library, so an
@@ -768,13 +812,14 @@ class StrengthSet(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class StrengthTemplate(SQLModel, table=True):
+class StrengthTemplate(OwnedStrict, SQLModel, table=True):
     """A reusable routine (task Part A.5) — `items_json` is
     `[{"exercise_id", "target_sets", "target_reps", "gym_station_id"}, ...]`, same
     read/written-whole pattern as `SavedMeal.items_json`."""
 
     __tablename__ = "strength_templates"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     items_json: str = "[]"
@@ -785,7 +830,7 @@ class StrengthTemplate(SQLModel, table=True):
 # --- Session 15 (see PLAN.md): morning check-in, illness early warning, erg test center ----
 
 
-class CheckIn(SQLModel, table=True):
+class CheckIn(OwnedStrict, SQLModel, table=True):
     """One per day (date is the primary key — editable later the same day, per the task's
     "editable later that day", by just POSTing again). Sliders are 1-5; 1 = none/low/poor for
     soreness/stress/sleep_quality, 1 = low for mood — see catch/analytics/checkin.py for the
@@ -795,6 +840,7 @@ class CheckIn(SQLModel, table=True):
 
     __tablename__ = "checkins"
 
+    owner_id: str = owner_field(primary_key=True)
     date: date_ = Field(primary_key=True)
     soreness: Optional[int] = None
     stress: Optional[int] = None
@@ -807,7 +853,7 @@ class CheckIn(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class IllnessAck(SQLModel, table=True):
+class IllnessAck(OwnedStrict, SQLModel, table=True):
     """User-owned state for a flagged day, kept out of `daily_scores.illness_json` on purpose
     — that column is fully rewritten by every `recompute_scores` run (see catch/sync/
     scoring.py's docstring), so anything that must survive a recompute (a dismissal, its
@@ -819,6 +865,7 @@ class IllnessAck(SQLModel, table=True):
 
     __tablename__ = "illness_acks"
 
+    owner_id: str = owner_field(primary_key=True)
     date: date_ = Field(primary_key=True)
     first_flagged_at: Optional[datetime] = None
     dismissed: bool = False
@@ -834,7 +881,7 @@ class IllnessAck(SQLModel, table=True):
     notified_at: Optional[datetime] = None
 
 
-class PushSubscription(SQLModel, table=True):
+class PushSubscription(OwnedStrict, SQLModel, table=True):
     """One row per browser/device that's called `PushManager.subscribe()` (task Part A.1/A.2
     — "Subscriptions per device"). `endpoint` is the natural external id (a device re-
     subscribing, e.g. after clearing site data, always gets a new one from the browser) —
@@ -843,9 +890,11 @@ class PushSubscription(SQLModel, table=True):
     subscription), never on any other error (a transient 5xx isn't the device's fault)."""
 
     __tablename__ = "push_subscriptions"
+    __table_args__ = (UniqueConstraint("owner_id", "endpoint", name="uq_push_owner_endpoint"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    endpoint: str = Field(unique=True, index=True)
+    endpoint: str = Field(index=True)
     p256dh: str
     auth: str
     # User-entered at "Enable notifications" time (Settings), e.g. "iPhone" — the endpoint URL
@@ -858,7 +907,7 @@ class PushSubscription(SQLModel, table=True):
     last_seen_at: datetime = Field(default_factory=_utcnow)
 
 
-class NotificationLog(SQLModel, table=True):
+class NotificationLog(OwnedStrict, SQLModel, table=True):
     """Task Part A.4: "Store a notification log." Also what the once-per-type-per-day dedup
     (non-alert types) and the alert episode/quiet-hours bookkeeping read back — see
     catch/notify/triggers.py. `type` is one of the five task-defined notification types plus
@@ -866,6 +915,7 @@ class NotificationLog(SQLModel, table=True):
 
     __tablename__ = "notification_log"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     type: str
     title: str
@@ -880,7 +930,7 @@ class NotificationLog(SQLModel, table=True):
 # precedent as sessions 8/12) --------------------------------------------------------------
 
 
-class Piece(SQLModel, table=True):
+class Piece(OwnedStrict, SQLModel, table=True):
     """A segment of a `CanonicalActivity` — a 2k inside a longer steady-state row, a 30r20,
     etc (task Part A.1). Deliberately its own table rather than another `overrides_json` tag
     (erg_test.py's "test" pattern): a piece has a real splits table, a window into the
@@ -894,6 +944,7 @@ class Piece(SQLModel, table=True):
 
     __tablename__ = "pieces"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     canonical_id: int = Field(foreign_key="canonical_activities.id", index=True)
     piece_type: str  # one of catch/analytics/piece.py's PIECE_TYPES
@@ -934,7 +985,7 @@ class Piece(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class PieceInterval(SQLModel, table=True):
+class PieceInterval(OwnedStrict, SQLModel, table=True):
     """Session 19 (see PLAN.md): one work interval inside a piece (4x500m, 8x1:00/1:00, a
     custom ladder), with the rest that follows it. Real columns, not JSON, so interval metrics
     stay queryable and comparable across workouts. `target_type` records which side was
@@ -944,6 +995,7 @@ class PieceInterval(SQLModel, table=True):
 
     __tablename__ = "piece_intervals"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     piece_id: int = Field(foreign_key="pieces.id", index=True)
     position: int
@@ -963,7 +1015,7 @@ class PieceInterval(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class PiecePhoto(SQLModel, table=True):
+class PiecePhoto(OwnedStrict, SQLModel, table=True):
     """The PM5 photo a piece was read from (task Part B.4 — "keep the photo attached ... so I
     can check it later; delete option"), kept in its own table (1:1 on `piece_id`) so every
     ordinary `Piece` read never has to pull image bytes along with it — see `Piece`'s own
@@ -972,6 +1024,7 @@ class PiecePhoto(SQLModel, table=True):
 
     __tablename__ = "piece_photos"
 
+    owner_id: str = owner_field()
     piece_id: int = Field(foreign_key="pieces.id", primary_key=True)
     content_type: str
     image: bytes
@@ -981,7 +1034,7 @@ class PiecePhoto(SQLModel, table=True):
 # --- Session 18 (see PLAN.md): training intelligence & recommendations --------------------
 
 
-class Recommendation(SQLModel, table=True):
+class Recommendation(OwnedStrict, SQLModel, table=True):
     """A generated training/recovery/data-quality/overload recommendation. Unlike
     `IllnessAck`'s date-PK insert-only shape, this is a plain autoincrement-PK table: the same
     `rule_key` legitimately recurs over time (an overload warning today isn't "the same row"
@@ -1000,6 +1053,7 @@ class Recommendation(SQLModel, table=True):
     __tablename__ = "recommendations"
     __table_args__ = (Index("ix_reco_rule_created", "rule_key", "created_at"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=_utcnow)
     date: date_ = Field(index=True)  # local date first generated
@@ -1018,7 +1072,7 @@ class Recommendation(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class ActivityTrack(SQLModel, table=True):
+class ActivityTrack(OwnedStrict, SQLModel, table=True):
     """Session 20 (see PLAN.md, docs/analytics.md §28): the GPS track of one *source* Activity
     (keyed like ActivitySamples, so merging canonicals never touches track bytes). Positions are
     the raw FIT fixes, struct-packed + zlib'd (catch/analytics/samples_codec.py): lat/lon as
@@ -1033,6 +1087,7 @@ class ActivityTrack(SQLModel, table=True):
 
     __tablename__ = "activity_tracks"
 
+    owner_id: str = owner_field()
     activity_id: int = Field(foreign_key="activities.id", primary_key=True)
     start: datetime
     n_points: int = 0
@@ -1055,13 +1110,14 @@ class ActivityTrack(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class Route(SQLModel, table=True):
+class Route(OwnedStrict, SQLModel, table=True):
     """A repeated course, formed only once a second session aligns with the first (a single
     session is never promoted to a route). `name`/`tags_json` are the athlete's own; `auto_label`
     is a derived fallback (Garmin's locationName + length) and is never shown as if it were a name."""
 
     __tablename__ = "routes"
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     name: Optional[str] = None
     tags_json: str = "[]"
@@ -1098,12 +1154,13 @@ class WeatherCell(SQLModel, table=True):
     fetched_at: datetime = Field(default_factory=_utcnow)
 
 
-class ActivityWeather(SQLModel, table=True):
+class ActivityWeather(OwnedStrict, SQLModel, table=True):
     """The weather matched to one activity's time window and location — observed provider data
     (reanalysis, not a station at the water), never a performance correction."""
 
     __tablename__ = "activity_weather"
 
+    owner_id: str = owner_field()
     activity_id: int = Field(foreign_key="activities.id", primary_key=True)
     status: str  # ok | partial | unavailable
     provider: str
@@ -1114,7 +1171,7 @@ class ActivityWeather(SQLModel, table=True):
     fetched_at: datetime = Field(default_factory=_utcnow)
 
 
-class PlannedWorkout(SQLModel, table=True):
+class PlannedWorkout(OwnedStrict, SQLModel, table=True):
     """Session 21 (see PLAN.md): a *plan*, never a completed workout. Deliberately its own
     table — no Activity/CanonicalActivity row is ever created from it, so no existing
     completed-training reader (volume, strain, load, distribution) can see it. Linking to a
@@ -1127,8 +1184,8 @@ class PlannedWorkout(SQLModel, table=True):
         Index("ix_planned_workouts_owner_date", "owner_id", "date"),
     )
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = "owner"
     date: date_
     start_time: Optional[str] = None  # "HH:MM", athlete-local; display only
     session_type: str  # erg | on_water | run | bike | strength | cross | test | rest | other
@@ -1153,7 +1210,7 @@ class PlannedWorkout(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class TrainingPhase(SQLModel, table=True):
+class TrainingPhase(OwnedStrict, SQLModel, table=True):
     """Session 21 (see PLAN.md): a periodization block. Phases never overlap (service-enforced
     so the rule is one code path on every database). `coach_approved_*` is athlete-entered; a
     plan edited after approval is shown as "edited since approval" by comparing timestamps,
@@ -1162,8 +1219,8 @@ class TrainingPhase(SQLModel, table=True):
     __tablename__ = "training_phases"
     __table_args__ = (Index("ix_training_phases_owner_start", "owner_id", "start_date"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = "owner"
     kind: str  # general_prep | specific_prep | pre_competition | competition | recovery
     name: str
     start_date: date_
@@ -1184,7 +1241,7 @@ class TrainingPhase(SQLModel, table=True):
 # --- Session 22 (see PLAN.md, docs/library.md): workout library, technique notes, feedback ---
 
 
-class WorkoutTemplate(SQLModel, table=True):
+class WorkoutTemplate(OwnedOrShared, SQLModel, table=True):
     """A reusable workout definition. Never a workout: no Activity/Canonical row is created from
     it, and scheduling copies it into a `PlannedWorkout` snapshot (editing the template later
     doesn't touch sessions already scheduled). `structure_json` is
@@ -1197,8 +1254,8 @@ class WorkoutTemplate(SQLModel, table=True):
         Index("ix_workout_templates_owner_archived", "owner_id", "archived_at"),
     )
 
+    owner_id: Optional[str] = owner_field(shared=True)
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = "owner"
     external_id: Optional[str] = None  # seeded examples only
     name: str
     description: Optional[str] = None
@@ -1217,7 +1274,7 @@ class WorkoutTemplate(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class TechniqueNote(SQLModel, table=True):
+class TechniqueNote(OwnedStrict, SQLModel, table=True):
     """The athlete's own written observation about technique. Deliberately has no rating, score or
     quality column: nothing in Catch's data measures technique quality, so nothing here claims to.
     (Distinct from analytics/technique.py, which is stroke-data erg metrics.)"""
@@ -1228,8 +1285,8 @@ class TechniqueNote(SQLModel, table=True):
         Index("ix_technique_notes_owner_date", "owner_id", "note_date"),
     )
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = "owner"
     category: str
     text: str
     canonical_id: Optional[int] = None
@@ -1241,15 +1298,15 @@ class TechniqueNote(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class CoachFeedback(SQLModel, table=True):
+class CoachFeedback(OwnedStrict, SQLModel, table=True):
     """One feedback entry. `owner_id` is whose training record it is (the athlete); `author_*` is
     who wrote it. Only the author edits text; only the athlete writes `athlete_response`."""
 
     __tablename__ = "coach_feedback"
     __table_args__ = (Index("ix_coach_feedback_owner_date", "owner_id", "entry_date"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
-    owner_id: str = "owner"
     author_role: str  # coach | athlete
     author_id: str
     author_name: str
@@ -1269,7 +1326,7 @@ class CoachFeedback(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
-class CoachFeedbackRevision(SQLModel, table=True):
+class CoachFeedbackRevision(OwnedStrict, SQLModel, table=True):
     """The state of an entry *before* an edit/response/delete. Each revision carries the
     visibility the entry had then, so history is filtered per revision (text that was private
     never surfaces to a coach just because the entry was shared later)."""
@@ -1277,6 +1334,7 @@ class CoachFeedbackRevision(SQLModel, table=True):
     __tablename__ = "coach_feedback_revisions"
     __table_args__ = (Index("ix_coach_feedback_revisions_fb", "feedback_id", "revision_no"),)
 
+    owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
     feedback_id: int
     revision_no: int
@@ -1288,3 +1346,8 @@ class CoachFeedbackRevision(SQLModel, table=True):
     edited_by_id: str
     edited_by_name: str
     edited_at: datetime = Field(default_factory=_utcnow)
+
+
+from catch.core import tenant_hooks as _tenant_hooks  # noqa: E402
+
+_tenant_hooks.install()

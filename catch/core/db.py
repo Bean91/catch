@@ -6,19 +6,31 @@ from pathlib import Path
 from sqlalchemy import event, inspect
 from sqlmodel import Session, SQLModel, create_engine
 
+from catch.core import tenant
 from catch.core.config import settings
 
-Path(settings.db_file).parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_engine(f"sqlite:///{settings.db_file}", connect_args={"check_same_thread": False})
+def _build_engine():
+    if settings.is_public:
+        # Public deployment: Supabase Postgres through the pooler. Imported lazily — the Pi never
+        # installs psycopg (it has no 32-bit ARM wheel) and never reaches this branch.
+        from catch.core.db_pg import build_pg_engine
+
+        return build_pg_engine(settings.database_url, pool_mode=settings.db_pool_mode, pool_size=settings.db_pool_size)
+    Path(settings.db_file).parent.mkdir(parents=True, exist_ok=True)
+    return create_engine(f"sqlite:///{settings.db_file}", connect_args={"check_same_thread": False})
 
 
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, _):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
-    cursor.close()
+engine = _build_engine()
+
+if engine.dialect.name == "sqlite":
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, _):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 
 # create_all() only creates missing tables, not missing columns on existing ones — session 1
@@ -128,6 +140,24 @@ _NEW_COLUMNS = {
 }
 
 
+def _owner_columns() -> dict[str, dict[str, str]]:
+    """Session 24: `owner_id` on every owned table of an already-existing SQLite file. Strict tables
+    backfill to the install's single owner through the column default; shared reference tables
+    (exercises, foods, workout_templates) stay NULL = global. The physical primary/unique keys of
+    tables created before this session stay narrower than the models' (a rebuild of daily_wellness
+    et al. buys nothing for a one-owner file) — harmless, and a fresh file gets the full keys."""
+    from catch.core.tenant import OwnedOrShared, OwnedStrict
+
+    out: dict[str, dict[str, str]] = {}
+    for mapper in SQLModel._sa_registry.mappers:
+        cls = mapper.class_
+        if issubclass(cls, OwnedOrShared):
+            out[cls.__tablename__] = {"owner_id": "TEXT"}
+        elif issubclass(cls, OwnedStrict):
+            out[cls.__tablename__] = {"owner_id": f"TEXT NOT NULL DEFAULT '{tenant.PERSONAL_OWNER}'"}
+    return out
+
+
 def _add_column_statements(inspector, new_columns: dict[str, dict[str, str]]) -> list[str]:
     """Dialect-neutral (SQLAlchemy `inspect`, not SQLite's PRAGMA) so the same list drives a
     PostgreSQL move; the DDL strings themselves are plain `ALTER TABLE ... ADD COLUMN`."""
@@ -147,6 +177,10 @@ def _migrate_columns() -> None:
     with engine.connect() as conn:
         for statement in _add_column_statements(inspect(conn), _NEW_COLUMNS):
             conn.exec_driver_sql(statement)
+        for statement in _add_column_statements(inspect(conn), _owner_columns()):
+            conn.exec_driver_sql(statement)
+        # `events.owner_id` predates this session as a nullable column (session 21).
+        conn.exec_driver_sql("UPDATE events SET owner_id = ? WHERE owner_id IS NULL", (tenant.PERSONAL_OWNER,))
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strokes_activity_id ON strokes(activity_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_activities_canonical_id ON activities(canonical_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strength_sets_activity_id ON strength_sets(activity_id)")
@@ -285,13 +319,30 @@ def _seed_wellness_readings() -> None:
         wellness_readings.seed_from_daily_wellness(session)
 
 
+def _ensure_personal_profile() -> None:
+    from sqlmodel import Session, select
+
+    from catch.core.models import UserProfile
+
+    with Session(engine) as session:
+        if session.exec(select(UserProfile).where(UserProfile.id == tenant.PERSONAL_OWNER)).first() is None:
+            session.add(UserProfile(id=tenant.PERSONAL_OWNER, display_name="You"))
+            session.commit()
+
+
 def init_db() -> None:
+    if settings.is_public:
+        # The public schema is changed only by Alembic, run by an operator with the admin URL —
+        # never by the app, and never with the runtime role (docs/public-architecture.md §5).
+        return
     SQLModel.metadata.create_all(engine)
     _migrate_columns()
+    _ensure_personal_profile()
     _migrate_linked_activities_to_canonical()
     _migrate_garmin_activity_fields()
-    _seed_exercise_library()
-    _seed_workout_examples()
+    with tenant.system():
+        _seed_exercise_library()
+        _seed_workout_examples()
     _seed_wellness_readings()
 
 

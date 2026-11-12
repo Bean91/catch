@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import date as date_, datetime, timezone
 from typing import Any
 
@@ -12,7 +13,7 @@ from catch.core.models import Activity, BodyComp, CanonicalActivity, DailyWellne
 def upsert_daily_wellness(session: Session, day: date_, **fields: Any) -> DailyWellness:
     """Merge-upsert: only overwrites columns explicitly passed (not None), since several
     Garmin calls each fill different columns of the same day."""
-    row = session.get(DailyWellness, day)
+    row = session.get(DailyWellness, tenant.pk(day))
     if row is None:
         row = DailyWellness(date=day)
         session.add(row)

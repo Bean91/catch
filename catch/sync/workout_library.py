@@ -16,9 +16,10 @@ from sqlmodel import Session, select
 
 from catch.analytics import workout_library as wl
 from catch.core.models import Exercise, PlannedWorkout, WorkoutTemplate
-from catch.core.principal import OWNER_ID
+from catch.core import tenant
 from catch.sync import planning
 
+OWNER_ID = tenant.PERSONAL_OWNER  # the personal install's owner; a public build passes the request's
 SEED_PATH = Path(__file__).resolve().parent.parent / "seed" / "workout_templates.json"
 EXAMPLE_LABEL = "Example — not prescribed training"
 MAX_LIST = 200
@@ -306,18 +307,27 @@ def schedule_template(session: Session, owner_id: str, template_id: int, day: da
 
 def seed_examples(session: Session) -> int:
     """Idempotent: inserts any example whose `external_id` isn't present, never rewrites one that
-    is (an archived example stays archived across restarts)."""
+    is (an archived example stays archived across restarts). Personal install: the examples belong to
+    its one owner (archivable, as before). Public: global, read-only rows (owner NULL) — a user
+    duplicates one to change it."""
     if not SEED_PATH.exists():
         return 0
-    existing = set(session.exec(select(WorkoutTemplate.external_id).where(WorkoutTemplate.external_id.is_not(None))).all())
     added = 0
-    for e in json.loads(SEED_PATH.read_text()):
-        if e["external_id"] in existing:
-            continue
-        clean = _clean({k: e[k] for k in _WRITABLE if k in e})
-        row = WorkoutTemplate(owner_id=OWNER_ID, external_id=e["external_id"], is_example=True, **_row_fields(clean))
-        session.add(row)
-        added += 1
-    if added:
-        session.commit()
+    with tenant.system():
+        existing = set(session.exec(select(WorkoutTemplate.external_id).where(WorkoutTemplate.external_id.is_not(None))).all())
+        for e in json.loads(SEED_PATH.read_text()):
+            if e["external_id"] in existing:
+                continue
+            clean = _clean({k: e[k] for k in _WRITABLE if k in e})
+            session.add(
+                WorkoutTemplate(
+                    owner_id=None if tenant.is_public() else tenant.PERSONAL_OWNER,
+                    external_id=e["external_id"],
+                    is_example=True,
+                    **_row_fields(clean),
+                )
+            )
+            added += 1
+        if added:
+            session.commit()
     return added

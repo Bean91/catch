@@ -10,6 +10,7 @@ before returning.
 
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 import threading
 import time
@@ -83,7 +84,7 @@ def _http(transport: httpx.BaseTransport | None = None) -> httpx.Client:
 
 
 def _store_tokens(session: Session, body: dict) -> str:
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     if row is None:
         row = OAuthToken(source=SOURCE, access_token_enc="")
         session.add(row)
@@ -126,7 +127,7 @@ def exchange_code(session: Session, code: str, transport: httpx.BaseTransport | 
 
 
 def get_access_token(session: Session, transport: httpx.BaseTransport | None = None, *, force: bool = False) -> str:
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     if row is None or not row.refresh_token_enc:
         raise WhoopReconnectNeeded("Whoop isn't connected. Connect it in Settings.")
     if not force and row.expires_at and aware_utc(row.expires_at) > datetime.now(timezone.utc) + _REFRESH_SKEW:
@@ -322,7 +323,7 @@ def sync(session: Session, days: int = 3, transport: httpx.BaseTransport | None 
 
 def disconnect(session: Session, transport: httpx.BaseTransport | None = None) -> dict:
     """Revokes Catch's access at Whoop (best effort) and forgets the tokens. Imported data stays."""
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     if row is None:
         return {"revoked": False, "was_connected": False}
     revoked = False
@@ -330,10 +331,10 @@ def disconnect(session: Session, transport: httpx.BaseTransport | None = None) -
         revoked = WhoopApi(session, transport).revoke()
     except WhoopError:
         pass
-    session.delete(session.get(OAuthToken, SOURCE))
+    session.delete(session.get(OAuthToken, tenant.pk(SOURCE)))
     from catch.core.models import SyncState
 
-    state_row = session.get(SyncState, SOURCE)
+    state_row = session.get(SyncState, tenant.pk(SOURCE))
     if state_row is not None:
         session.delete(state_row)  # a disconnected source must not be reported as a stale sync
     session.commit()
@@ -349,6 +350,6 @@ def check(session: Session, transport: httpx.BaseTransport | None = None) -> dic
     for label, path in (("recovery", "/v2/recovery"), ("sleep", "/v2/activity/sleep"), ("workout", "/v2/activity/workout"), ("cycle", "/v2/cycle")):
         page = api.get(path, {"limit": 1})
         out[label] = {"ok": True, "has_records": bool(page.get("records"))}
-    row = session.get(OAuthToken, SOURCE)
+    row = session.get(OAuthToken, tenant.pk(SOURCE))
     out["token_expires_at"] = aware_utc(row.expires_at).isoformat() if row and row.expires_at else None
     return out

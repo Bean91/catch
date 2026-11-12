@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 from datetime import date as date_
 from typing import Any
 
@@ -8,14 +9,12 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
-from catch.core.principal import OWNER_ID
 from catch.sync import planning as sp
 from catch.sync import workout_library as lib
 
 # Cookie-only: a device token (including a coach's) never reaches these routes.
 router = APIRouter(dependencies=[Depends(require_auth)])
 
-OWNER = OWNER_ID
 
 
 def _guard(fn):
@@ -38,7 +37,7 @@ def list_templates(
     db: Session = Depends(get_db),
 ):
     rows = lib.search_templates(
-        db, OWNER, q=q, workout_type=workout_type, difficulty=difficulty, tags=[tag] if tag else None,
+        db, current_owner(), q=q, workout_type=workout_type, difficulty=difficulty, tags=[tag] if tag else None,
         include_examples=scope in ("examples", "all"), only_examples=scope == "examples",
         include_archived=scope == "archived", limit=limit,
     )
@@ -54,17 +53,17 @@ def preview_template(body: dict[str, Any] = Body(...), db: Session = Depends(get
 
 @router.post("/api/library/templates")
 def create_template(body: dict[str, Any] = Body(...), db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.create_template(db, OWNER, body)))
+    return lib.template_dict(_guard(lambda: lib.create_template(db, current_owner(), body)))
 
 
 @router.get("/api/library/templates/{template_id}")
 def get_template(template_id: int, db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.get_template(db, OWNER, template_id)))
+    return lib.template_dict(_guard(lambda: lib.get_template(db, current_owner(), template_id)))
 
 
 @router.patch("/api/library/templates/{template_id}")
 def update_template(template_id: int, body: dict[str, Any] = Body(...), db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.update_template(db, OWNER, template_id, body)))
+    return lib.template_dict(_guard(lambda: lib.update_template(db, current_owner(), template_id, body)))
 
 
 class DuplicateRequest(BaseModel):
@@ -73,17 +72,17 @@ class DuplicateRequest(BaseModel):
 
 @router.post("/api/library/templates/{template_id}/duplicate")
 def duplicate_template(template_id: int, body: DuplicateRequest = Body(default=DuplicateRequest()), db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.duplicate_template(db, OWNER, template_id, body.name)))
+    return lib.template_dict(_guard(lambda: lib.duplicate_template(db, current_owner(), template_id, body.name)))
 
 
 @router.post("/api/library/templates/{template_id}/archive")
 def archive_template(template_id: int, db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.set_archived(db, OWNER, template_id, True)))
+    return lib.template_dict(_guard(lambda: lib.set_archived(db, current_owner(), template_id, True)))
 
 
 @router.post("/api/library/templates/{template_id}/unarchive")
 def unarchive_template(template_id: int, db: Session = Depends(get_db)):
-    return lib.template_dict(_guard(lambda: lib.set_archived(db, OWNER, template_id, False)))
+    return lib.template_dict(_guard(lambda: lib.set_archived(db, current_owner(), template_id, False)))
 
 
 class RepeatRequest(BaseModel):
@@ -104,5 +103,5 @@ class ScheduleRequest(BaseModel):
 @router.post("/api/library/templates/{template_id}/schedule")
 def schedule_template(template_id: int, body: ScheduleRequest, db: Session = Depends(get_db)):
     repeat = body.repeat.model_dump(exclude_none=True) if body.repeat else None
-    rows = _guard(lambda: lib.schedule_template(db, OWNER, template_id, body.date, start_time=body.start_time, repeat=repeat, event_id=body.event_id))
+    rows = _guard(lambda: lib.schedule_template(db, current_owner(), template_id, body.date, start_time=body.start_time, repeat=repeat, event_id=body.event_id))
     return {"planned": [sp.planned_dict(r) for r in rows]}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import date, datetime, timezone
 
 from sqlmodel import select
@@ -12,13 +13,13 @@ def test_daily_wellness_merges_without_clobbering(session):
     day = date(2026, 1, 1)
     upsert_daily_wellness(session, day, resting_hr=50)
     upsert_daily_wellness(session, day, stress=20)
-    row = session.get(DailyWellness, day)
+    row = session.get(DailyWellness, tenant.pk(day))
     assert row.resting_hr == 50
     assert row.stress == 20
 
     # Passing None for a field already set must not null it out.
     upsert_daily_wellness(session, day, resting_hr=None, sleep_score=90)
-    row = session.get(DailyWellness, day)
+    row = session.get(DailyWellness, tenant.pk(day))
     assert row.resting_hr == 50
     assert row.sleep_score == 90
 

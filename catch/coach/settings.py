@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
+from catch.core import tenant
 import json
 from datetime import datetime, timezone
 
@@ -11,7 +13,6 @@ from urllib.parse import urlparse
 from catch.core import redact, secret_store, security
 from catch.core.config import settings as app_config
 from catch.core.models import AiCredential, CoachCredential, CoachSettings
-from catch.core.principal import OWNER_ID
 
 _PRICE_FIELDS = {"input", "output", "cache_write", "cache_read"}
 STATUSES = ("configured", "valid", "invalid", "unavailable")
@@ -33,7 +34,8 @@ def _models(row: CoachSettings | None) -> dict:
     return {k: v for k, v in models.items() if v}
 
 
-def get_coach_settings(session: Session, owner_id: str = OWNER_ID) -> dict:
+def get_coach_settings(session: Session, owner_id: str | None = None) -> dict:
+    owner_id = owner_id or current_owner()
     row = _row(session, owner_id)
     if row is None:
         return {
@@ -64,7 +66,8 @@ _PATCHABLE = {
 }
 
 
-def update_coach_settings(session: Session, patch: dict, owner_id: str = OWNER_ID) -> dict:
+def update_coach_settings(session: Session, patch: dict, owner_id: str | None = None) -> dict:
+    owner_id = owner_id or current_owner()
     unknown = set(patch) - _PATCHABLE
     if unknown:
         raise ValueError(f"Unknown coach setting(s): {sorted(unknown)}")
@@ -123,9 +126,9 @@ def _adopt_legacy(session: Session, provider: str, owner_id: str) -> AiCredentia
     into the per-owner store on first read, leaving the legacy row in place so rolling back to the
     old code still works. Replace and Remove (below) delete it, so a superseded or removed key
     can't come back."""
-    if owner_id != OWNER_ID:
+    if owner_id != tenant.PERSONAL_OWNER:
         return None
-    legacy = session.get(CoachCredential, provider)
+    legacy = session.get(CoachCredential, tenant.pk(provider))
     if legacy is None:
         return None
     try:
@@ -147,7 +150,8 @@ def _credential(session: Session, provider: str, owner_id: str) -> AiCredential 
     return row or _adopt_legacy(session, provider, owner_id)
 
 
-def masked_credential_info(session: Session, provider: str, owner_id: str = OWNER_ID) -> dict:
+def masked_credential_info(session: Session, provider: str, owner_id: str | None = None) -> dict:
+    owner_id = owner_id or current_owner()
     row = _credential(session, provider, owner_id) if provider in KEY_PROVIDERS else None
     return {
         "configured": row is not None,
@@ -158,7 +162,8 @@ def masked_credential_info(session: Session, provider: str, owner_id: str = OWNE
     }
 
 
-def set_credential(session: Session, provider: str, raw_key: str, owner_id: str = OWNER_ID) -> dict:
+def set_credential(session: Session, provider: str, raw_key: str, owner_id: str | None = None) -> dict:
+    owner_id = owner_id or current_owner()
     _require_key_provider(provider)
     raw_key = raw_key.strip()
     if not raw_key:
@@ -172,15 +177,16 @@ def set_credential(session: Session, provider: str, raw_key: str, owner_id: str 
         session.add(row)
     row.key_enc, row.key_id, row.last4 = blob, key_id, secret_store.mask(raw_key)
     row.status, row.status_detail, row.status_checked_at, row.updated_at = "configured", None, None, now
-    legacy = session.get(CoachCredential, provider) if owner_id == OWNER_ID else None
+    legacy = session.get(CoachCredential, tenant.pk(provider)) if owner_id == tenant.PERSONAL_OWNER else None
     if legacy is not None:
         session.delete(legacy)
     session.commit()
     return masked_credential_info(session, provider, owner_id)
 
 
-def get_decrypted_credential(session: Session, provider: str, owner_id: str = OWNER_ID) -> str | None:
+def get_decrypted_credential(session: Session, provider: str, owner_id: str | None = None) -> str | None:
     """Server-side only — never return this value from an API response, a tool or an error."""
+    owner_id = owner_id or current_owner()
     if provider not in KEY_PROVIDERS:
         return None
     row = _credential(session, provider, owner_id)
@@ -191,7 +197,8 @@ def get_decrypted_credential(session: Session, provider: str, owner_id: str = OW
     return key
 
 
-def delete_credential(session: Session, provider: str, owner_id: str = OWNER_ID) -> bool:
+def delete_credential(session: Session, provider: str, owner_id: str | None = None) -> bool:
+    owner_id = owner_id or current_owner()
     if provider not in KEY_PROVIDERS:
         return False
     removed = False
@@ -199,7 +206,7 @@ def delete_credential(session: Session, provider: str, owner_id: str = OWNER_ID)
     if row is not None:
         session.delete(row)
         removed = True
-    legacy = session.get(CoachCredential, provider) if owner_id == OWNER_ID else None
+    legacy = session.get(CoachCredential, tenant.pk(provider)) if owner_id == tenant.PERSONAL_OWNER else None
     if legacy is not None:
         session.delete(legacy)
         removed = True
@@ -207,7 +214,8 @@ def delete_credential(session: Session, provider: str, owner_id: str = OWNER_ID)
     return removed
 
 
-def set_status(session: Session, provider: str, status: str, detail: str | None, owner_id: str = OWNER_ID) -> None:
+def set_status(session: Session, provider: str, status: str, detail: str | None, owner_id: str | None = None) -> None:
+    owner_id = owner_id or current_owner()
     if status not in STATUSES:
         raise ValueError("unknown status")
     if detail is not None and detail not in STATUS_DETAILS:
@@ -220,5 +228,6 @@ def set_status(session: Session, provider: str, status: str, detail: str | None,
     session.commit()
 
 
-def configured_providers(session: Session, owner_id: str = OWNER_ID) -> list[str]:
+def configured_providers(session: Session, owner_id: str | None = None) -> list[str]:
+    owner_id = owner_id or current_owner()
     return [p for p in KEY_PROVIDERS if _credential(session, p, owner_id) is not None]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 import logging
 import math
@@ -78,7 +79,7 @@ def _daily_activity_component(session: Session, day: date, settings: dict) -> di
     """Task Part A: non-exercise steps/active-kcal, added to strain's 0-21 `value` only
     (never `trimp_like`, so load/acute:chronic stay workout-only — see
     `catch.analytics.strain.daily_activity_strain`)."""
-    wellness = session.get(DailyWellness, day)
+    wellness = session.get(DailyWellness, tenant.pk(day))
     if wellness is None or wellness.steps is None:
         return daily_activity_strain(None, None, settings)
     exercise_steps, exercise_kcal = _day_garmin_activity_totals(session, day)
@@ -164,7 +165,7 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
 
     day_rpe = _note_rpe(session, day)
     max_hr = settings.get("max_hr")
-    wellness = session.get(DailyWellness, day)
+    wellness = session.get(DailyWellness, tenant.pk(day))
     resting_hr = wellness.resting_hr if wellness else None
 
     scores = []
@@ -242,7 +243,7 @@ def day_strain(session: Session, day: date, settings: dict) -> dict:
 
 
 def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict[date, float | None]) -> dict:
-    wellness = session.get(DailyWellness, day)
+    wellness = session.get(DailyWellness, tenant.pk(day))
     today_ln_hrv = _ln_hrv(wellness) if wellness else None
     today_rhr = wellness.resting_hr if wellness else None
     today_sleep = wellness.sleep_seconds if wellness else None
@@ -255,7 +256,7 @@ def day_recovery(session: Session, day: date, settings: dict, strain_cache: dict
     rhr_history = [r.resting_hr for r in rows if r.resting_hr is not None]
 
     prior_day_strain = strain_cache.get(day - timedelta(days=1))
-    checkin = session.get(CheckIn, day)
+    checkin = session.get(CheckIn, tenant.pk(day))
     today_checkin_score = checkin_recovery_score(checkin.soreness, checkin.stress, checkin.mood, checkin.sleep_quality) if checkin else None
 
     result = recovery_from_inputs(
@@ -342,8 +343,8 @@ def day_illness(
         v for v in (checkin_badness(r.soreness, r.mood) for r in checkin_rows if r.date not in exclude_dates) if v is not None
     ]
 
-    wellness = session.get(DailyWellness, day)
-    checkin_today = session.get(CheckIn, day)
+    wellness = session.get(DailyWellness, tenant.pk(day))
+    checkin_today = session.get(CheckIn, tenant.pk(day))
 
     result = illness_score(
         today_resting_hr=wellness.resting_hr if wellness else None,
@@ -434,7 +435,7 @@ def recompute_scores(session: Session) -> int:
             prev_illness_count = illness["deviated_count"]
             prev_acr = load.get("value")
 
-            row = session.get(DailyScore, day)
+            row = session.get(DailyScore, tenant.pk(day))
             if row is None:
                 row = DailyScore(date=day)
                 session.add(row)
@@ -446,7 +447,7 @@ def recompute_scores(session: Session) -> int:
             row.updated_at = datetime.now(timezone.utc)
             count += 1
 
-            if illness["level"] == "likely" and day not in confound_dates and session.get(IllnessAck, day) is None:
+            if illness["level"] == "likely" and day not in confound_dates and session.get(IllnessAck, tenant.pk(day)) is None:
                 # Insert-only (task Part B.3/B.4): a dismissal, its reason, or a backtest
                 # mark must never be overwritten by a later recompute — see IllnessAck's
                 # docstring in catch/core/models.py.

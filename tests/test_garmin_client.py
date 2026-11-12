@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import base64
 import dataclasses
 import io
@@ -45,7 +46,7 @@ def test_token_exchange_parses_raw_jwt_body(monkeypatch, session):
     token = client._exchange_token()
     assert token == jwt
 
-    row = session.get(OAuthToken, "garmin")
+    row = session.get(OAuthToken, tenant.pk("garmin"))
     assert row is not None
     assert row.expires_at > datetime.now(timezone.utc) + timedelta(hours=23)
 
@@ -110,7 +111,7 @@ def test_sync_health_merges_fields_from_multiple_endpoints(session):
     n = client.sync_health(start, end)
     assert n > 0
 
-    row = session.get(DailyWellness, date(2026, 10, 17))
+    row = session.get(DailyWellness, tenant.pk(date(2026, 10, 17)))
     assert row is not None
     assert row.sleep_seconds is not None
     assert row.hrv_rmssd is not None

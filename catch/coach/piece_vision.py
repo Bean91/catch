@@ -9,13 +9,13 @@ Python, rather than trusting the model to do time arithmetic — a model mis-add
 values would otherwise silently corrupt a number this app then validates as if it were exact.
 """
 
+from catch.core.tenant import current_owner
 import re
 
 from sqlmodel import Session
 
 from catch.coach.providers.base import VisionRequest
 from catch.coach.vision import VisionError, run_vision
-from catch.core.principal import OWNER_ID
 
 _MAX_TOKENS = 2048
 
@@ -133,13 +133,14 @@ def _normalize_splits(rows: list[dict], total_duration_s: float | None) -> list[
     return rows
 
 
-async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str = OWNER_ID) -> dict:
+async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str | None = None) -> dict:
     """Returns a piece draft: {splits, distance_m, duration_s, avg_rate, avg_watts,
     drag_factor, notes, validation, cost_usd} — never saved here (task Part B.2/B.4's "ending
     in the same editable review table" as typed entry; the photo itself is attached only
     after the athlete confirms, via catch/sync/piece.py's attach_photo). `validation` is
     computed here too (task Part B.3's "validate before showing" — the review table highlights
     issues immediately on the first render, not only after a later edit)."""
+    owner_id = owner_id or current_owner()
     try:
         result, turn_cost = await run_vision(
             session,

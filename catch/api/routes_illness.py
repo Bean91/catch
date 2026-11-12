@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from datetime import date, datetime, timezone
 
@@ -24,7 +25,7 @@ class MarkRequest(BaseModel):
 
 
 def _get_or_create_ack(db: Session, day: date) -> IllnessAck:
-    ack = db.get(IllnessAck, day)
+    ack = db.get(IllnessAck, tenant.pk(day))
     if ack is None:
         ack = IllnessAck(date=day)
         db.add(ack)
@@ -54,7 +55,7 @@ def dismiss_illness_flag(day: date, body: DismissRequest = Body(...), db: Sessio
     # expires every attribute on `ack` — returning it unrefreshed serializes as `{}`, a real
     # bug this test suite caught. db.get() forces a fresh read rather than trusting stale
     # in-memory state.
-    return db.get(IllnessAck, day)
+    return db.get(IllnessAck, tenant.pk(day))
 
 
 @router.post("/api/illness/{day}/mark")

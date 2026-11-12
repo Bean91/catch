@@ -3,6 +3,7 @@
 # since completing real OAuth needs a browser. No live network calls in this file.
 from __future__ import annotations
 
+from catch.core import tenant
 import dataclasses
 import hashlib
 import hmac as hmac_lib
@@ -79,7 +80,7 @@ def test_exchange_code_stores_encrypted_tokens(monkeypatch, session):
     token = withings_client.exchange_code(session, "auth-code-123")
     assert token == "access-1"
 
-    row = session.get(OAuthToken, "withings")
+    row = session.get(OAuthToken, tenant.pk("withings"))
     assert security.decrypt(row.access_token_enc) == "access-1"
     assert security.decrypt(row.refresh_token_enc) == "refresh-1"
     assert row.expires_at > datetime.now(timezone.utc) + timedelta(hours=2)
@@ -107,7 +108,7 @@ def test_refresh_rotates_refresh_token(monkeypatch, session):
     token = withings_client.get_access_token(session)
     assert token == "new-access"
 
-    refreshed = session.get(OAuthToken, "withings")
+    refreshed = session.get(OAuthToken, tenant.pk("withings"))
     assert security.decrypt(refreshed.refresh_token_enc) == "new-refresh"
     assert security.decrypt(refreshed.access_token_enc) == "new-access"
 

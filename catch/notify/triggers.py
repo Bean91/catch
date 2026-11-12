@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
+from catch.core import tenant
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -148,7 +150,7 @@ def check_illness(session: Session) -> None:
         # touching this insert-only ack row.
         from catch.core.models import DailyScore
 
-        score_row = session.get(DailyScore, ack.date)
+        score_row = session.get(DailyScore, tenant.pk(ack.date))
         level = None
         explanation = "An early-warning signal flagged this morning's numbers."
         if score_row and score_row.illness_json:
@@ -235,7 +237,7 @@ def check_sync_stale(session: Session) -> None:
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=_SYNC_STALE_HOURS)
     for source in SOURCES:
-        row = session.get(SyncState, source)
+        row = session.get(SyncState, tenant.pk(source))
         if row is None or row.alert_sent_at is not None:
             continue
         if row.last_success_at is not None and row.last_success_at >= cutoff:
@@ -263,7 +265,7 @@ def check_test_reminder(session: Session) -> None:
     tomorrow = planning.today() + timedelta(days=1)
     events = [
         e
-        for e in planning.list_events(session, planning.OWNER_ID, start=tomorrow, end=tomorrow)
+        for e in planning.list_events(session, current_owner(), start=tomorrow, end=tomorrow)
         if e.result is None and (e.type == "2k_test" or (e.type == "race" and e.priority == "A"))
     ]
     if not events:

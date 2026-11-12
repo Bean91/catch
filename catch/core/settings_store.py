@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from copy import deepcopy
 from datetime import date, datetime, timezone
@@ -25,7 +26,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def get_settings(session: Session) -> dict:
-    row = session.get(AppSettings, SETTINGS_ID)
+    row = session.get(AppSettings, tenant.pk(SETTINGS_ID))
     overrides = json.loads(row.data_json) if row and row.data_json else {}
     return _deep_merge(DEFAULT_SETTINGS, overrides)
 
@@ -52,7 +53,7 @@ def _validate_patch(patch: dict) -> None:
 
 def update_settings(session: Session, patch: dict) -> dict:
     _validate_patch(patch)
-    row = session.get(AppSettings, SETTINGS_ID)
+    row = session.get(AppSettings, tenant.pk(SETTINGS_ID))
     if row is None:
         row = AppSettings(id=SETTINGS_ID, data_json="{}")
         session.add(row)

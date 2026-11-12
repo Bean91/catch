@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from catch.core.models import SyncState
 from catch.sync import concept2_client, scheduler
 
@@ -24,7 +25,7 @@ def test_an_auth_error_during_sync_is_recorded_as_a_failure_not_silently_swallow
     result = scheduler.run_sync("concept2")
 
     assert "error" in result
-    row = session.get(SyncState, "concept2")
+    row = session.get(SyncState, tenant.pk("concept2"))
     assert row.consecutive_failures == 1
     assert "invalid or expired" in row.last_error
 

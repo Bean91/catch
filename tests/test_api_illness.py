@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 from datetime import date, timedelta
 
 import pytest
@@ -99,7 +100,7 @@ def test_dismissal_excludes_that_day_from_future_baselines(client, session):
     client.post(f"/api/illness/{spike_day.isoformat()}/dismiss", json={"reason": "alcohol"})
     recompute_scores(session)
 
-    row = session.get(DailyScore, today)
+    row = session.get(DailyScore, tenant.pk(today))
     illness = json_module.loads(row.illness_json)
     # Without the exclusion, the spike would pull today's resting-HR baseline above 50.0.
     assert illness["signals"]["resting_hr"]["baseline"] == pytest.approx(NORMAL_RHR)
@@ -118,7 +119,7 @@ def test_recompute_never_overwrites_an_existing_ack(client, session):
     client.post(f"/api/illness/{today.isoformat()}/mark", json={"correct": True})
     recompute_scores(session)  # a later sync must not clobber the backtest mark
 
-    ack = session.get(IllnessAck, today)
+    ack = session.get(IllnessAck, tenant.pk(today))
     assert ack.backtest_mark == "correct"
 
 

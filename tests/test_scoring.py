@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core import tenant
 import json
 from datetime import date, datetime, timedelta, timezone
 
@@ -71,12 +72,12 @@ def test_recompute_scores_writes_a_row_per_day_and_calibrates_early(session):
     expected_days = (date.today() - START).days + 1
     assert count == expected_days
 
-    day1_score = session.get(DailyScore, START)
+    day1_score = session.get(DailyScore, tenant.pk(START))
     recovery_day1 = json.loads(day1_score.recovery_json)
     assert recovery_day1["band"] == "calibrating"
 
     day10 = START + timedelta(days=9)
-    day10_score = session.get(DailyScore, day10)
+    day10_score = session.get(DailyScore, tenant.pk(day10))
     strain_day10 = json.loads(day10_score.strain_json)
     # Only the concept2 side of the linked pair should have been scored.
     assert len(strain_day10["components"]) == 1
@@ -137,7 +138,7 @@ def test_recompute_relinks_when_concept2_synced_before_garmin(session):
     # Garmin watch (task Part A.3's HR priority), without mutating either source row.
     assert canonical.avg_hr == 158
 
-    day10_score = session.get(DailyScore, day10)
+    day10_score = session.get(DailyScore, tenant.pk(day10))
     strain_day10 = json.loads(day10_score.strain_json)
     assert len(strain_day10["components"]) == 1  # not double-counted
 

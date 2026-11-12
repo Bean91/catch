@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 import json
 from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
 from catch.core.models import AiUsageEvent, CoachConversation, CoachMessage
-from catch.core.principal import OWNER_ID
 
 _RATE_KEYS = ("input", "output", "cache_write", "cache_read")
 _USAGE_TO_RATE = {
@@ -55,15 +55,17 @@ def _todays_rows(session: Session, owner_id: str, today: date | None):
     return [*coach_rows, *other_rows]
 
 
-def today_spend_usd(session: Session, today: date | None = None, owner_id: str = OWNER_ID) -> float:
+def today_spend_usd(session: Session, today: date | None = None, owner_id: str | None = None) -> float:
     """Session 13 (see PLAN.md Part B): also sums `AiUsageEvent` — AI spend outside the coach chat
     loop (the photo-estimate calls) — so the daily cap covers every AI call this app makes, not just
     conversation turns. Session 23: scoped to one owner; a turn on an unpriced model contributes
     nothing here (its cost is unknown, not $0 — see today_tokens for the cap that still applies)."""
+    owner_id = owner_id or current_owner()
     return sum(c for c, _ in _todays_rows(session, owner_id, today) if c)
 
 
-def today_tokens(session: Session, today: date | None = None, owner_id: str = OWNER_ID) -> int:
+def today_tokens(session: Session, today: date | None = None, owner_id: str | None = None) -> int:
+    owner_id = owner_id or current_owner()
     total = 0
     for _, usage_json in _todays_rows(session, owner_id, today):
         if usage_json:
@@ -77,10 +79,11 @@ def record_usage_event(
     kind: str,
     usage: dict | None,
     cost_usd: float | None,
-    owner_id: str = OWNER_ID,
+    owner_id: str | None = None,
     provider: str | None = None,
     model: str | None = None,
 ) -> AiUsageEvent:
+    owner_id = owner_id or current_owner()
     row = AiUsageEvent(
         kind=kind, usage_json=json.dumps(usage) if usage else None, cost_usd=cost_usd, owner_id=owner_id, provider=provider, model=model
     )
@@ -104,10 +107,11 @@ def conversation_usage(session: Session, conversation_id: int) -> dict:
     return {**totals, "cost_usd": cost}
 
 
-def usage_summary(session: Session, owner_id: str = OWNER_ID, days: int = 30) -> dict:
+def usage_summary(session: Session, owner_id: str | None = None, days: int = 30) -> dict:
     """What Catch itself recorded, per provider — not a provider-reported balance (none of the
     providers expose one through an ordinary key). A turn on a model with no entered price counts
     its tokens but contributes no cost, and is reported as `unpriced_turns` rather than as $0."""
+    owner_id = owner_id or current_owner()
     since = datetime.now(timezone.utc) - timedelta(days=days)
     by_provider: dict[str, dict] = {}
 

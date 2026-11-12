@@ -64,6 +64,23 @@ class Settings:
     whoop_client_id: str
     whoop_client_secret: str
     whoop_redirect_uri: str
+    # Session 24 (docs/public-architecture.md): "personal" = the Pi (SQLite, one owner, cookie login);
+    # "public" = Supabase Postgres + Supabase Auth on FastAPI Cloud. Everything below is public-only.
+    deployment: str
+    database_url: str
+    database_admin_url: str
+    db_pool_mode: str
+    db_pool_size: int
+    supabase_url: str
+    supabase_publishable_key: str
+    supabase_secret_key: str
+    supabase_jwt_audience: str
+    supabase_session_check_ttl: float
+    tick_secret: str
+
+    @property
+    def is_public(self) -> bool:
+        return self.deployment == "public"
 
     @property
     def db_file(self) -> Path:
@@ -108,7 +125,21 @@ def load_settings() -> Settings:
         whoop_client_id=_get("WHOOP_CLIENT_ID"),
         whoop_client_secret=_get("WHOOP_CLIENT_SECRET"),
         whoop_redirect_uri=_get("WHOOP_REDIRECT_URI"),
+        deployment=_get("CATCH_DEPLOYMENT", "personal").strip().lower(),
+        database_url=_get("DATABASE_URL"),
+        database_admin_url=_get("DATABASE_ADMIN_URL"),
+        db_pool_mode=_get("CATCH_DB_POOL_MODE", "session").strip().lower(),
+        db_pool_size=int(_get("CATCH_DB_POOL_SIZE", "1")),
+        supabase_url=_get("SUPABASE_URL").rstrip("/"),
+        supabase_publishable_key=_get("SUPABASE_PUBLISHABLE_KEY"),
+        supabase_secret_key=_get("SUPABASE_SECRET_KEY"),
+        supabase_jwt_audience=_get("SUPABASE_JWT_AUDIENCE", "authenticated"),
+        supabase_session_check_ttl=float(_get("CATCH_SESSION_CHECK_TTL", "15")),
+        tick_secret=_get("CATCH_TICK_SECRET"),
     )
 
 
 settings = load_settings()
+
+if settings.deployment not in ("personal", "public"):
+    raise RuntimeError("CATCH_DEPLOYMENT must be 'personal' or 'public'")

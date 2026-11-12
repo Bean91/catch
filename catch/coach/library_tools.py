@@ -8,6 +8,7 @@ Every handler reads the caller via `principal_from(ctx)`, which is the fail-clos
 transport forgot to set one. Reads are filtered by the same visibility functions the web routes
 use; writes preview first and only save with `confirm is True`."""
 
+from catch.core.tenant import current_owner
 from datetime import date
 from typing import Any
 
@@ -16,7 +17,7 @@ from sqlmodel import Session
 from catch.analytics.workout_library import DIFFICULTIES, WORKOUT_TYPES
 from catch.analytics.zones import ZONE_ORDER
 from catch.core import principal as pr
-from catch.core.principal import OWNER_ID, Principal, principal_from
+from catch.core.principal import Principal, principal_from
 from catch.sync import coaching_notes as cn
 from catch.sync import workout_library as lib
 
@@ -76,7 +77,7 @@ def _search_workout_library(session: Session, args: dict, ctx: dict) -> dict:
     p = _caller(ctx)
     athlete = p.is_athlete
     rows = lib.search_templates(
-        session, OWNER_ID,
+        session, current_owner(),
         q=args.get("query"), workout_type=args.get("workout_type"), session_type=args.get("session_type"),
         difficulty=args.get("difficulty"), tags=args.get("tags"),
         include_examples=bool(args.get("include_examples", False)),
@@ -91,7 +92,7 @@ def _search_workout_library(session: Session, args: dict, ctx: dict) -> dict:
 
 def _get_workout_template(session: Session, args: dict, ctx: dict) -> dict:
     p = _caller(ctx)
-    row = lib.get_template(session, OWNER_ID, int(args["id"]))
+    row = lib.get_template(session, current_owner(), int(args["id"]))
     if row.archived_at is not None and not p.is_athlete:
         raise lib.NotFound(f"No workout template with id {args['id']}")
     return lib.template_dict(row)
@@ -100,10 +101,10 @@ def _get_workout_template(session: Session, args: dict, ctx: dict) -> dict:
 def _create_workout_template(session: Session, args: dict, ctx: dict) -> dict:
     _athlete(ctx, "create workout templates")
     fields = _template_fields(args)
-    held = _gate(args, lib.preview_create_template(session, OWNER_ID, fields), "creating this template")
+    held = _gate(args, lib.preview_create_template(session, current_owner(), fields), "creating this template")
     if held:
         return held
-    row = lib.create_template(session, OWNER_ID, fields)
+    row = lib.create_template(session, current_owner(), fields)
     return {"saved": True, "template": lib.template_dict(row)}
 
 
@@ -115,20 +116,20 @@ def _update_workout_template(session: Session, args: dict, ctx: dict) -> dict:
     if not fields and archived is None:
         raise ValueError("Give at least one field to change, or archived")
     if archived is not None and not fields:
-        row = lib.get_template(session, OWNER_ID, template_id)
+        row = lib.get_template(session, current_owner(), template_id)
         preview = {"id": row.id, "name": row.name, "changes": {"archived": {"from": row.archived_at is not None, "to": bool(archived)}}}
     else:
-        preview = lib.preview_update_template(session, OWNER_ID, template_id, fields)
+        preview = lib.preview_update_template(session, current_owner(), template_id, fields)
         if archived is not None:
-            preview["changes"]["archived"] = {"from": lib.get_template(session, OWNER_ID, template_id).archived_at is not None, "to": bool(archived)}
+            preview["changes"]["archived"] = {"from": lib.get_template(session, current_owner(), template_id).archived_at is not None, "to": bool(archived)}
     held = _gate(args, preview, "this template change")
     if held:
         return held
     if fields:
-        lib.update_template(session, OWNER_ID, template_id, fields)
+        lib.update_template(session, current_owner(), template_id, fields)
     if archived is not None:
-        lib.set_archived(session, OWNER_ID, template_id, bool(archived))
-    return {"saved": True, "template": lib.template_dict(lib.get_template(session, OWNER_ID, template_id))}
+        lib.set_archived(session, current_owner(), template_id, bool(archived))
+    return {"saved": True, "template": lib.template_dict(lib.get_template(session, current_owner(), template_id))}
 
 
 # --- Technique notes ---------------------------------------------------------------------------------
@@ -137,7 +138,7 @@ def _update_workout_template(session: Session, args: dict, ctx: dict) -> dict:
 def _get_technique_notes(session: Session, args: dict, ctx: dict) -> dict:
     p = _caller(ctx)
     rows = cn.list_technique_notes(
-        session, OWNER_ID, p,
+        session, current_owner(), p,
         canonical_id=args.get("workout_id"), piece_id=args.get("piece_id"), note_date=_parse_date(args.get("date")),
         category=args.get("category"), date_from=_parse_date(args.get("from")), date_to=_parse_date(args.get("to")),
         limit=int(args.get("limit") or 30),
@@ -152,10 +153,10 @@ def _add_technique_note(session: Session, args: dict, ctx: dict) -> dict:
         fields["canonical_id"] = args["workout_id"]
     if args.get("date"):
         fields["note_date"] = args["date"]
-    held = _gate(args, cn.preview_technique_note(session, OWNER_ID, p, fields), "saving this technique note")
+    held = _gate(args, cn.preview_technique_note(session, current_owner(), p, fields), "saving this technique note")
     if held:
         return held
-    row = cn.create_technique_note(session, OWNER_ID, p, fields)
+    row = cn.create_technique_note(session, current_owner(), p, fields)
     return {"saved": True, "note": cn.note_dict(session, row)}
 
 
@@ -165,7 +166,7 @@ def _add_technique_note(session: Session, args: dict, ctx: dict) -> dict:
 def _get_coach_feedback(session: Session, args: dict, ctx: dict) -> dict:
     p = _caller(ctx)
     rows = cn.list_feedback(
-        session, OWNER_ID, p, coach=args.get("coach"), category=args.get("category"),
+        session, current_owner(), p, coach=args.get("coach"), category=args.get("category"),
         date_from=_parse_date(args.get("from")), date_to=_parse_date(args.get("to")),
         canonical_id=args.get("workout_id"), event_id=args.get("event_id"), limit=int(args.get("limit") or 30),
     )
@@ -178,10 +179,10 @@ def _add_coach_feedback(session: Session, args: dict, ctx: dict) -> dict:
     fields = {k: args[k] for k in ("text", "date", "workout_date", "focus_areas", "visibility", "coach_name", "event_id", "planned_id") if k in args and args[k] is not None}
     if args.get("workout_id") is not None:
         fields["canonical_id"] = args["workout_id"]
-    held = _gate(args, cn.preview_feedback(session, OWNER_ID, p, fields, via), "saving this feedback")
+    held = _gate(args, cn.preview_feedback(session, current_owner(), p, fields, via), "saving this feedback")
     if held:
         return held
-    row = cn.create_feedback(session, OWNER_ID, p, fields, via)
+    row = cn.create_feedback(session, current_owner(), p, fields, via)
     return {"saved": True, "feedback": cn.feedback_dict(session, row, p)}
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.core.tenant import current_owner
 from datetime import date as date_
 from typing import Any
 
@@ -12,7 +13,6 @@ from catch.sync import planning as sp
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
-OWNER = sp.OWNER_ID
 
 
 def _guard(fn):
@@ -29,18 +29,18 @@ def _guard(fn):
 
 @router.get("/api/calendar")
 def get_calendar(from_: date_ = Query(..., alias="from"), to: date_ = Query(...), db: Session = Depends(get_db)):
-    return _guard(lambda: sp.build_calendar(db, OWNER, from_, to))
+    return _guard(lambda: sp.build_calendar(db, current_owner(), from_, to))
 
 
 @router.get("/api/calendar/week-summary")
 def get_week_summary(week_start: date_ | None = Query(None), db: Session = Depends(get_db)):
-    return _guard(lambda: sp.build_week_summary(db, OWNER, week_start or sp.today()))
+    return _guard(lambda: sp.build_week_summary(db, current_owner(), week_start or sp.today()))
 
 
 @router.get("/api/calendar/phase")
 def get_phase_on(on: date_ | None = Query(None, alias="date"), db: Session = Depends(get_db)):
     day = on or sp.today()
-    phase = sp.phase_on(db, OWNER, day)
+    phase = sp.phase_on(db, current_owner(), day)
     from catch.core.settings_store import get_settings
 
     return {
@@ -83,13 +83,13 @@ class PlannedCreate(BaseModel):
 def create_planned(body: PlannedCreate, db: Session = Depends(get_db)):
     data = body.model_dump(exclude={"repeat"}, exclude_none=True)
     repeat = body.repeat.model_dump(exclude_none=True) if body.repeat else None
-    rows = _guard(lambda: sp.create_planned(db, OWNER, data, repeat))
+    rows = _guard(lambda: sp.create_planned(db, current_owner(), data, repeat))
     return {"planned": [sp.planned_dict(r) for r in rows]}
 
 
 @router.patch("/api/planned/{planned_id}")
 def update_planned(planned_id: int, body: dict[str, Any] = Body(...), scope: str = Query("this"), db: Session = Depends(get_db)):
-    rows = _guard(lambda: sp.update_planned(db, OWNER, planned_id, body, scope))
+    rows = _guard(lambda: sp.update_planned(db, current_owner(), planned_id, body, scope))
     return {"planned": [sp.planned_dict(r) for r in rows]}
 
 
@@ -99,7 +99,7 @@ class MoveRequest(BaseModel):
 
 @router.post("/api/planned/{planned_id}/move")
 def move_planned(planned_id: int, body: MoveRequest, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.move_planned(db, OWNER, planned_id, body.date)))
+    return sp.planned_dict(_guard(lambda: sp.move_planned(db, current_owner(), planned_id, body.date)))
 
 
 class LinkRequest(BaseModel):
@@ -108,38 +108,38 @@ class LinkRequest(BaseModel):
 
 @router.post("/api/planned/{planned_id}/link")
 def link_planned(planned_id: int, body: LinkRequest, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.link_planned(db, OWNER, planned_id, body.canonical_id)))
+    return sp.planned_dict(_guard(lambda: sp.link_planned(db, current_owner(), planned_id, body.canonical_id)))
 
 
 @router.post("/api/planned/{planned_id}/unlink")
 def unlink_planned(planned_id: int, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.unlink_planned(db, OWNER, planned_id)))
+    return sp.planned_dict(_guard(lambda: sp.unlink_planned(db, current_owner(), planned_id)))
 
 
 @router.post("/api/planned/{planned_id}/decline")
 def decline_suggestion(planned_id: int, body: LinkRequest, db: Session = Depends(get_db)):
-    _guard(lambda: sp.decline_suggestion(db, OWNER, planned_id, body.canonical_id))
+    _guard(lambda: sp.decline_suggestion(db, current_owner(), planned_id, body.canonical_id))
     return {"ok": True}
 
 
 @router.post("/api/planned/{planned_id}/skip")
 def skip_planned(planned_id: int, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.set_skipped(db, OWNER, planned_id, True)))
+    return sp.planned_dict(_guard(lambda: sp.set_skipped(db, current_owner(), planned_id, True)))
 
 
 @router.post("/api/planned/{planned_id}/unskip")
 def unskip_planned(planned_id: int, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.set_skipped(db, OWNER, planned_id, False)))
+    return sp.planned_dict(_guard(lambda: sp.set_skipped(db, current_owner(), planned_id, False)))
 
 
 @router.delete("/api/planned/{planned_id}")
 def delete_planned(planned_id: int, scope: str = Query("this"), db: Session = Depends(get_db)):
-    return {"deleted": _guard(lambda: sp.delete_planned(db, OWNER, planned_id, scope))}
+    return {"deleted": _guard(lambda: sp.delete_planned(db, current_owner(), planned_id, scope))}
 
 
 @router.get("/api/planned/{planned_id}")
 def get_planned(planned_id: int, db: Session = Depends(get_db)):
-    return sp.planned_dict(_guard(lambda: sp.get_planned(db, OWNER, planned_id)))
+    return sp.planned_dict(_guard(lambda: sp.get_planned(db, current_owner(), planned_id)))
 
 
 # --- Events -----------------------------------------------------------------------------------
@@ -165,40 +165,40 @@ def list_events(
     from_: date_ | None = Query(None, alias="from"), to: date_ | None = Query(None), db: Session = Depends(get_db)
 ):
     today = sp.today()
-    return {"events": [sp.event_dict(e, today) for e in sp.list_events(db, OWNER, from_, to)]}
+    return {"events": [sp.event_dict(e, today) for e in sp.list_events(db, current_owner(), from_, to)]}
 
 
 # Registered before `{event_id}` so "upcoming" is never parsed as an id.
 @router.get("/api/events/upcoming")
 def upcoming_events(limit: int = Query(5, ge=1, le=50), db: Session = Depends(get_db)):
-    return {"events": sp.upcoming_events(db, OWNER, limit)}
+    return {"events": sp.upcoming_events(db, current_owner(), limit)}
 
 
 @router.post("/api/events")
 def create_event(body: EventCreate, db: Session = Depends(get_db)):
-    event = _guard(lambda: sp.create_event(db, OWNER, body.model_dump(exclude_none=True)))
+    event = _guard(lambda: sp.create_event(db, current_owner(), body.model_dump(exclude_none=True)))
     return sp.event_dict(event)
 
 
 @router.get("/api/events/{event_id}")
 def get_event(event_id: int, db: Session = Depends(get_db)):
-    return _guard(lambda: sp.event_overview(db, OWNER, event_id))
+    return _guard(lambda: sp.event_overview(db, current_owner(), event_id))
 
 
 @router.patch("/api/events/{event_id}")
 def update_event(event_id: int, body: dict[str, Any] = Body(...), db: Session = Depends(get_db)):
-    return sp.event_dict(_guard(lambda: sp.update_event(db, OWNER, event_id, body)))
+    return sp.event_dict(_guard(lambda: sp.update_event(db, current_owner(), event_id, body)))
 
 
 @router.delete("/api/events/{event_id}")
 def delete_event(event_id: int, db: Session = Depends(get_db)):
-    _guard(lambda: sp.delete_event(db, OWNER, event_id))
+    _guard(lambda: sp.delete_event(db, current_owner(), event_id))
     return {"ok": True}
 
 
 @router.get("/api/events/{event_id}/projection")
 def event_projection(event_id: int, db: Session = Depends(get_db)):
-    return _guard(lambda: sp.event_projection(db, OWNER, event_id))
+    return _guard(lambda: sp.event_projection(db, current_owner(), event_id))
 
 
 # --- Phases -----------------------------------------------------------------------------------
@@ -224,30 +224,30 @@ class ApproveRequest(BaseModel):
 
 @router.get("/api/phases")
 def list_phases(db: Session = Depends(get_db)):
-    return {"phases": [sp.phase_dict(p, db) for p in sp.list_phases(db, OWNER)]}
+    return {"phases": [sp.phase_dict(p, db) for p in sp.list_phases(db, current_owner())]}
 
 
 @router.post("/api/phases")
 def create_phase(body: PhaseCreate, db: Session = Depends(get_db)):
-    return sp.phase_dict(_guard(lambda: sp.create_phase(db, OWNER, body.model_dump(exclude_none=True))), db)
+    return sp.phase_dict(_guard(lambda: sp.create_phase(db, current_owner(), body.model_dump(exclude_none=True))), db)
 
 
 @router.patch("/api/phases/{phase_id}")
 def update_phase(phase_id: int, body: dict[str, Any] = Body(...), db: Session = Depends(get_db)):
-    return sp.phase_dict(_guard(lambda: sp.update_phase(db, OWNER, phase_id, body)), db)
+    return sp.phase_dict(_guard(lambda: sp.update_phase(db, current_owner(), phase_id, body)), db)
 
 
 @router.delete("/api/phases/{phase_id}")
 def delete_phase(phase_id: int, db: Session = Depends(get_db)):
-    _guard(lambda: sp.delete_phase(db, OWNER, phase_id))
+    _guard(lambda: sp.delete_phase(db, current_owner(), phase_id))
     return {"ok": True}
 
 
 @router.post("/api/phases/{phase_id}/approve")
 def approve_phase(phase_id: int, body: ApproveRequest = Body(default_factory=ApproveRequest), db: Session = Depends(get_db)):
-    return sp.phase_dict(_guard(lambda: sp.approve_phase(db, OWNER, phase_id, body.approved_by, body.note)), db)
+    return sp.phase_dict(_guard(lambda: sp.approve_phase(db, current_owner(), phase_id, body.approved_by, body.note)), db)
 
 
 @router.post("/api/phases/{phase_id}/unapprove")
 def unapprove_phase(phase_id: int, db: Session = Depends(get_db)):
-    return sp.phase_dict(_guard(lambda: sp.unapprove_phase(db, OWNER, phase_id)), db)
+    return sp.phase_dict(_guard(lambda: sp.unapprove_phase(db, current_owner(), phase_id)), db)
