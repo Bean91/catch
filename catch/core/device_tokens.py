@@ -12,7 +12,7 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from catch.core import tenant
+from catch.core import tenant, tenant_hooks
 from catch.core.models import ApiToken
 
 
@@ -26,7 +26,7 @@ class ResolvedToken:
 
 def resolve(session: Session, token_hash: str) -> ResolvedToken | None:
     with tenant.system():
-        if session.get_bind().dialect.name == "postgresql":
+        if tenant_hooks.uses_rls(session.get_bind()):
             row = session.connection().execute(
                 text("SELECT token_id, owner_id, role, display_name FROM catch_private.resolve_api_token(:h)"),
                 {"h": token_hash},

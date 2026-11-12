@@ -69,13 +69,13 @@ def test_new_tables_are_created_by_create_all_and_a_second_run_is_a_noop(engine)
     assert set(NEW_TABLES) <= set(inspect(engine).get_table_names())
 
 
-def test_old_shape_api_tokens_and_planned_workouts_gain_the_new_columns_idempotently(engine):
+def test_old_shape_api_tokens_and_planned_workouts_gain_the_new_columns_idempotently(sqlite_engine):
     from sqlalchemy import inspect
     from sqlalchemy.dialects import postgresql
 
     from catch.core import db as db_module
 
-    with engine.begin() as conn:
+    with sqlite_engine.begin() as conn:
         conn.exec_driver_sql("DROP TABLE api_tokens")
         conn.exec_driver_sql("CREATE TABLE api_tokens (id INTEGER PRIMARY KEY, name TEXT, token_hash TEXT, created_at TEXT, last_used_at TEXT)")
         conn.exec_driver_sql("INSERT INTO api_tokens (name, token_hash) VALUES ('legacy', 'h')")

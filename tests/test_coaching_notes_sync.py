@@ -402,6 +402,8 @@ def test_a_new_coach_token_never_inherits_a_revoked_coachs_entries(client, sessi
     assert client.delete(f"/api/coach/tokens/{a['id']}").status_code == 200
     b = client.post("/api/coach/tokens", json={"name": "b", "role": "coach", "display_name": "Coach B"}).json()
     h_b = {"Authorization": f"Bearer {b['token']}"}
+    if b["id"] != a["id"]:
+        pytest.skip("premise is SQLite reusing the freed rowid; PostgreSQL sequences never do")
     assert b["id"] == a["id"]  # SQLite handed the freed rowid to the next token — the premise of this test
     client.cookies.clear()
 

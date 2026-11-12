@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -76,11 +77,61 @@ def _no_live_network_calls_anywhere(monkeypatch):
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _raise_live_call)
 
 
+PG_URL = os.environ.get("CATCH_TEST_PG_URL")
+_PG_SCHEMA = "catch_suite"
+
+
+@pytest.fixture(scope="session")
+def _pg_suite_schema():
+    """`CATCH_TEST_PG_URL=postgresql+psycopg://… uv run pytest` runs this whole suite against PostgreSQL instead of
+    SQLite (session 24): one scratch schema holds the tables, each test starts from empty ones. Foreign keys are
+    dropped here: the suite was written against SQLite, which doesn't enforce them, and uses placeholder ids
+    (canonical_id=5 with no such canonical) and invented owner ids with no profile rows. Everything else — column
+    types, unique and composite keys, SQL dialect, transactions — is real PostgreSQL. (The enforced constraints,
+    including the composite tenant keys, are exercised by tests/pg against the migrated schema.)"""
+    if not PG_URL:
+        yield None
+        return
+    from sqlalchemy import text
+
+    admin = create_engine(PG_URL)
+    with admin.begin() as conn:
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_PG_SCHEMA}" CASCADE'))
+        conn.execute(text(f'CREATE SCHEMA "{_PG_SCHEMA}"'))
+    eng = create_engine(PG_URL, connect_args={"options": f"-csearch_path={_PG_SCHEMA}"})
+    SQLModel.metadata.create_all(eng)
+    with eng.begin() as conn:
+        for table, name in conn.execute(text(f"SELECT conrelid::regclass::text, conname FROM pg_constraint WHERE contype = 'f' AND connamespace = '{_PG_SCHEMA}'::regnamespace")).all():
+            conn.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT {name}"))
+    yield eng
+    eng.dispose()
+    with admin.begin() as conn:
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_PG_SCHEMA}" CASCADE'))
+    admin.dispose()
+
+
 @pytest.fixture()
-def engine():
+def engine(_pg_suite_schema):
+    if _pg_suite_schema is not None:
+        from sqlalchemy import text
+
+        yield _pg_suite_schema
+        with _pg_suite_schema.begin() as conn:
+            tables = ", ".join(f'"{t.name}"' for t in SQLModel.metadata.sorted_tables)
+            conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        return
     # StaticPool: TestClient dispatches requests on a worker thread, and sqlite's default
     # per-thread pooling for "sqlite://" would otherwise hand that thread a fresh, separate
     # in-memory database with none of our tables in it.
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(eng)
+    yield eng
+
+
+@pytest.fixture()
+def sqlite_engine():
+    """Always SQLite, even in a CATCH_TEST_PG_URL run — for tests that reshape the schema (the SQLite startup
+    migrations) and must not do that to the shared PostgreSQL one."""
     eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
     return eng

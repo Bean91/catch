@@ -65,6 +65,11 @@ def test_library_and_feedback_services_behave_the_same_on_postgres(pg):
     from catch.sync import workout_library as lib
 
     SQLModel.metadata.create_all(pg)
+    with Session(pg) as _s:  # the tenant foreign key is enforced here: the owner needs its profile row
+        from catch.core.models import UserProfile
+
+        _s.add(UserProfile(id="owner", display_name="You"))
+        _s.commit()
     coach = pr.coach_principal(1, "Coach Sam")
     with Session(pg) as s:
         assert lib.seed_examples(s) >= 6 and lib.seed_examples(s) == 0

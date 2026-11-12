@@ -195,6 +195,13 @@ def _after_begin(session: Session, transaction, connection) -> None:
     )
 
 
+def uses_rls(bind) -> bool:
+    """True for the public runtime's engine (Postgres as `catch_api`, with the catch_private functions and the
+    per-transaction role switch). A Postgres engine used any other way — the suite's PostgreSQL run, an operator's
+    admin connection — is not."""
+    return bool(getattr(getattr(bind, "engine", bind), "catch_rls", False))
+
+
 def install() -> None:
     global _installed
     if _installed:

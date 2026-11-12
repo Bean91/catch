@@ -33,7 +33,14 @@ RUNTIME_PASSWORD = "catch-api-test-only"
 # Captured before the suite's autouse fixture replaces it: these tests talk to a local stack on purpose.
 REAL_HTTP = httpx.HTTPTransport.handle_request
 
-pytestmark = pytest.mark.skipif(not (DB_URL and API_URL), reason="CATCH_TEST_SUPABASE_* not set (needs a local Supabase stack)")
+def pytest_collection_modifyitems(config, items):
+    # (A module-level pytestmark in a conftest applies to nothing, so the skip is attached here.)
+    if DB_URL and API_URL:
+        return
+    skip = pytest.mark.skip(reason="CATCH_TEST_SUPABASE_* not set (needs a local Supabase stack)")
+    for item in items:
+        if "/tests/pg/" in str(item.fspath):
+            item.add_marker(skip)
 
 
 def _local(url: str) -> bool:

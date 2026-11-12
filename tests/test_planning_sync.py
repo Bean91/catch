@@ -586,13 +586,13 @@ def test_new_columns_use_portable_ddl_types():
         assert "BOOLEAN" not in decl and "DEFAULT" not in decl
 
 
-def test_add_column_statements_use_inspect_and_compile_for_postgresql(engine):
+def test_add_column_statements_use_inspect_and_compile_for_postgresql(sqlite_engine):
     from sqlalchemy import text
     from sqlalchemy.dialects import postgresql
 
     from catch.core import db as db_module
 
-    with engine.begin() as conn:
+    with sqlite_engine.begin() as conn:
         conn.exec_driver_sql("DROP TABLE events")
         conn.exec_driver_sql("CREATE TABLE events (id INTEGER PRIMARY KEY, name TEXT, date DATE, type TEXT, plan_json TEXT)")
         stmts = db_module._add_column_statements(sa_inspect(conn), {"events": db_module._NEW_COLUMNS["events"], "no_such_table": {"x": "TEXT"}})

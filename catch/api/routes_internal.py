@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from catch.core import db as db_module
-from catch.core import tenant
+from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
 from catch.core.models import SyncState, UserProfile
 
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/internal", dependencies=[Depends(require_tick_secret
 
 def user_ids() -> list[str]:
     with tenant.system(), Session(db_module.engine) as session:
-        if db_module.engine.dialect.name == "postgresql":
+        if tenant_hooks.uses_rls(db_module.engine):
             rows = session.connection().execute(text("SELECT catch_private.list_user_ids()")).scalars().all()
             session.rollback()
             return list(rows)
@@ -49,7 +49,7 @@ def user_ids() -> list[str]:
 def _claim(session: Session, job: str) -> bool:
     """Take the lease for (this user, job). The advisory lock is transaction-scoped (safe behind a pooler) and
     only serialises the claim itself; the lease row is what spans the job's own commits."""
-    if session.get_bind().dialect.name == "postgresql":
+    if tenant_hooks.uses_rls(session.get_bind()):
         session.connection().execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"catch:{job}:{tenant.current_owner()}"})
     key = f"job:{job}"
     now = datetime.now(timezone.utc)

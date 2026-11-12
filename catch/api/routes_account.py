@@ -11,8 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, SQLModel, delete
 
+from catch.api import deps
 from catch.api.deps import get_db, require_auth
-from catch.core import tenant
+from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
 from catch.core.models import UserProfile
 from catch.core.redact import redact
@@ -65,7 +66,7 @@ def delete_user_rows(db: Session) -> None:
     owned table cascades from it); on SQLite there is no cascade, so each table is cleared through the
     tenant-scoped ORM."""
     owner = tenant.current_owner()
-    if db.get_bind().dialect.name == "postgresql":
+    if tenant_hooks.uses_rls(db.get_bind()):
         db.exec(delete(UserProfile).where(UserProfile.id == owner))  # type: ignore[call-overload]
     else:
         for mapper in SQLModel._sa_registry.mappers:
@@ -109,4 +110,5 @@ def delete_account(body: DeleteAccount, request: Request, db: Session = Depends(
     # gone the cascade removes the profile and every owned row (and the user's sessions stop validating).
     admin_delete_auth_user(owner)
     delete_user_rows(db)
+    deps._profiles_known.discard(owner)
     return {"deleted": True, "files_removed": removed}

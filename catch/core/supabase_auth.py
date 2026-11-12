@@ -188,13 +188,13 @@ def session_is_live(session_id: str) -> bool:
     from sqlalchemy import text
     from sqlmodel import Session
 
-    from catch.core import db, tenant
+    from catch.core import db, tenant, tenant_hooks
 
     def query(sid: str) -> bool:
         with tenant.system(), Session(db.engine) as s:
-            if db.engine.dialect.name == "postgresql":
+            if tenant_hooks.uses_rls(db.engine):
                 return bool(s.connection().execute(text("SELECT catch_private.session_is_live(:sid)"), {"sid": sid}).scalar())
-            return True  # SQLite has no auth.sessions; unit tests of the public path replace this function
+            return True  # no auth.sessions outside the Supabase runtime; unit tests of the public path replace this
 
     return liveness.check(session_id, query)
 

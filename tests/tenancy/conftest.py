@@ -21,6 +21,9 @@ def public(monkeypatch):
     object.__setattr__(config.settings, "tick_secret", "tick-secret-for-tests")
     supabase_auth.jwks_cache = supabase_auth.JwksCache(fetch=kit.jwks)
     supabase_auth.liveness.reset()
+    from catch.api import deps
+
+    deps._profiles_known.clear()
     yield
     for k, v in previous.items():
         object.__setattr__(config.settings, k, v)
