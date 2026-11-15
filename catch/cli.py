@@ -185,7 +185,26 @@ def cmd_db_seed(args: argparse.Namespace) -> None:
         raise SystemExit("Set DATABASE_ADMIN_URL.")
     from catch.core.db_pg import build_pg_engine
 
-    db_module.engine = build_pg_engine(os.environ["DATABASE_ADMIN_URL"], rls=False)
+    import dataclasses
+
+    from sqlalchemy import event
+
+    from catch.core import config
+
+    # Global rows are owner-less; in the default personal mode they would be stamped with the Pi's owner and
+    # refused by the foreign key. The module-level engine was built for SQLite before this runs, so only the mode flips.
+    config.settings = dataclasses.replace(config.settings, deployment="public")
+    engine = build_pg_engine(os.environ["DATABASE_ADMIN_URL"], rls=False)
+
+    # The tables live in the non-exposed `catch` schema; the admin login's default search_path is `public`. A
+    # connect-time listener rather than the `options` startup parameter, which Supavisor rejects.
+    @event.listens_for(engine, "connect")
+    def _search_path(dbapi_conn, _record) -> None:
+        dbapi_conn.autocommit = True
+        dbapi_conn.execute("SET search_path TO catch, public")
+        dbapi_conn.autocommit = False
+
+    db_module.engine = engine
     with tenant.system():
         db_module._seed_exercise_library()
         db_module._seed_workout_examples()
