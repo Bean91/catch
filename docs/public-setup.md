@@ -64,8 +64,9 @@ Never use the `postgres` user or the direct connection string for `DATABASE_URL`
    `VAPID_PRIVATE_KEY` (if push is wanted). Plain variables: `CATCH_DEPLOYMENT=public`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `CATCH_OLLAMA_ENABLED=0`,
    `CATCH_BASE_URL=https://<your host>`. **Do not** set `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY` or any Garmin/Concept2 credential there.
 3. `fastapi deploy`. The entrypoint is `[tool.fastapi] entrypoint = "catch.main:app"`.
-4. ⚠ **Does FastAPI Cloud install the `public` extra?** Dependencies come from `uv.lock`; extras aren't documented. If `psycopg`/`jwt` are missing at
-   startup, deploy with a `requirements.txt` made by `uv export --extra public --no-dev --no-hashes > requirements.txt`.
+4. **Dependencies.** FastAPI Cloud's docs mention only `pyproject.toml`/`uv.lock`, nothing about extras, and it starts the app with `fastapi run` (confirmed by a failed first deploy:
+   `To use the fastapi command, please install "fastapi[standard]"`). So `fastapi[standard]`, `psycopg[binary]` and `pyjwt[crypto]` are in the main dependencies behind a
+   `platform_machine not in 'armv6l armv7l'` marker (no 32-bit ARM wheel for psycopg-binary; a 32-bit Pi installs none of them). Only `alembic` stays in the `public` extra, for the laptop.
 5. ⚠ **Is the built frontend uploaded?** It is gitignored and uploads follow `.gitignore`; `.fastapicloudignore` has a `!catch/api/static/` line, but whether a
    re-include overrides `.gitignore` is not documented. Check `GET /` after deploying; if it 404s, serve the frontend from a static host instead.
 6. ⚠ **Run `curl -H "Authorization: Bearer $CATCH_TICK_SECRET" https://<app>/internal/db-check`** — it reports the connected role, SSL, and performs the RLS probe

@@ -31,6 +31,12 @@ dependencies = [
     # that never enables push pays nothing.
     "py-vapid>=1.9",
     "http-ece>=1.2",
+    # Session 24: FastAPI Cloud installs only [project.dependencies] (its docs say nothing about extras) and starts the
+    # app with `fastapi run`, which needs fastapi-cli, plus the Postgres driver and JWT library at runtime. psycopg-binary
+    # has no 32-bit ARM wheel, so the marker keeps a 32-bit Pi's `uv sync` exactly as it was.
+    "fastapi[standard]>=0.115; platform_machine not in 'armv6l armv7l'",
+    "psycopg[binary]>=3.2; platform_machine not in 'armv6l armv7l'",
+    "pyjwt[crypto]>=2.9; platform_machine not in 'armv6l armv7l'",
 ]
 
 [project.optional-dependencies]

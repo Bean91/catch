@@ -564,8 +564,8 @@ bundler can drop it), `lib/supabase.ts` (`@supabase/auth-js`, PKCE, localStorage
 `lib/session.ts` (sign-out/user-switch wipe), `pages/Login.tsx` variants, `components/settings/AccountCard.tsx`; Playwright: `npm run test:public`. **Tests**: `tests/tenancy/` (SQLite, public
 mode patched: generic isolation for every owned table, JWT attacks, API isolation, structure, transfer, CSP), `tests/pg/` (needs a throwaway local `supabase start` + `CATCH_TEST_SUPABASE_*`:
 migrations, RLS with separate identities, Storage, GoTrue, the app on the real runtime path, a Supavisor transaction pooler), `CATCH_TEST_PG_URL=… uv run pytest` runs the **whole** suite on PostgreSQL
-(foreign keys dropped there — the suite uses placeholder ids; `sqlite_engine` fixture for tests that reshape the schema). Public deps are the optional `public` extra (psycopg-binary has no 32-bit
-ARM wheel): `uv sync --extra public` (CI/Makefile use `--all-extras --all-groups`); the Pi's `uv sync` never installs them.
+(foreign keys dropped there — the suite uses placeholder ids; `sqlite_engine` fixture for tests that reshape the schema). Public runtime deps (`fastapi[standard]`, `psycopg[binary]`, `pyjwt[crypto]`) are main dependencies behind a `platform_machine not in 'armv6l armv7l'` marker, because FastAPI Cloud installs no extras and runs `fastapi run` (psycopg-binary has no 32-bit
+ARM wheel, so a 32-bit Pi installs none); `alembic` stays in the `public` extra: `uv sync --extra public` (CI/Makefile use `--all-extras --all-groups`).
 
 ## Commands
 
