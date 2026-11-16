@@ -25,6 +25,7 @@ function empty(provider: ProviderId, label: string, methods: ConnectionCard["aut
     status: "disconnected",
     status_detail: null,
     status_text: null,
+    from_environment: false,
     auth_method: null,
     last4: "",
     scopes: [],

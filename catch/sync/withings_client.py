@@ -37,10 +37,12 @@ class WithingsReconnectNeeded(WithingsError, ProviderAuthError):
     detail = "authorization_revoked"
 
 
-# Withings answers HTTP 200 with a non-zero JSON `status`. 601 is its documented "too many requests"; 401 is an invalid or
-# expired access token. Anything else non-zero is reported with its code only — never the response body.
+# Withings answers HTTP 200 with a non-zero JSON `status`. 601 ("too many requests") and 401 ("invalid or expired access token") are
+# from memory of Withings' error list, NOT confirmed by a live response — so only those two get special handling; any other non-zero
+# status is a plain error (retried with backoff, reported by code only, never the body). A refused *refresh* is the case that really
+# needs a reconnect and is handled separately in `_request_token`.
 _RATE_STATUS = 601
-_AUTH_STATUSES = (401, 100, 101, 102, 293)
+_AUTH_STATUSES = (401,)
 _refresh_lock = threading.Lock()
 
 

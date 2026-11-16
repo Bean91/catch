@@ -351,6 +351,7 @@ def card(session: Session, provider: str) -> dict:
         "connected": row is not None,
         "status": row.status if row else "disconnected",
         "status_detail": row.status_detail if row else None,
+        "from_environment": bool(row and row.status_detail == "from_environment"),
         "status_text": DETAILS.get(row.status_detail) if row and row.status_detail else None,
         "auth_method": row.auth_method if row else None,
         "last4": row.last4 if row else "",
@@ -469,6 +470,10 @@ def test_connection(session: Session, provider: str) -> dict:
 def disconnect_provider(session: Session, provider: str) -> dict:
     """Revoke where the provider supports it, then forget every credential. Imported Catch data is never deleted."""
     _check_provider(provider)
+    row = get(session, provider)
+    if row is not None and row.status_detail == "from_environment":
+        # Deleting it would just be re-adopted from .env on the next read; say so instead of pretending.
+        raise Rejected("This connection comes from the server's .env file. Remove the key there to disconnect it.")
     revoked = False
     if provider == "whoop" and get(session, provider) is not None:
         from catch.sync import whoop_client

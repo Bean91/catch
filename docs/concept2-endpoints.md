@@ -28,7 +28,7 @@ Accept: application/vnd.c2logbook.v1+json
 `/oauth/access_token` (scopes `user:read,results:read`, read-only; the app is registered once by the operator at `/developers/keys`; refresh tokens last about a year and
 **rotate**; the docs state no user cap), and the personal token below pasted by the user. Concept2 documents no revoke endpoint (a user removes the application in
 Edit Profile → Applications), says "the API is not currently rate limited" but that abuse leads to limits or removal, and offers webhooks (`result-added/updated/deleted`)
-that Catch does not use. Verified from the documentation page (footer "Generated on 10 Nov 2026"); not exercised against a live OAuth app. See docs/provider-connections.md.
+that Catch does not use. **Unconfirmed: whether Concept2 echoes `state` back on the redirect.** The page lists `client_id`, `scope`, `response_type` and `redirect_uri` for `/oauth/authorize` and says the user returns "with `?code=` appended"; it never mentions `state`. Catch's callback refuses any request whose `state` doesn't match its signed cookie (the protection against a code being attached to someone else's account), so **Concept2 OAuth may fail on its very first live call** — if it does, the pasted personal token is the working path and the callback needs a decision (accept a cookie-only check on the personal install, keep refusing on the public one). Verified from the documentation page (footer "Generated on 10 Nov 2026"); not exercised against a live OAuth app. See docs/provider-connections.md.
 
 For a personal/single-user integration, Concept2's own docs recommend skipping the OAuth2
 Authorization Code dance entirely: **Edit Profile > Applications > Concept2 Logbook API

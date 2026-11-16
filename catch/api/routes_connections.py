@@ -123,7 +123,10 @@ def sync_now(provider: str, owner_id: str = Depends(current_owner_id)):
 @router.delete("/api/connections/{provider}")
 def disconnect(provider: str, db: Session = Depends(get_db)):
     _provider_or_404(provider)
-    return connections.disconnect_provider(db, provider)
+    try:
+        return connections.disconnect_provider(db, provider)
+    except connections.Rejected as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
 
 
 callback_router = APIRouter()  # deliberately unauthenticated: identity comes from the signed state cookie, never from a body or query

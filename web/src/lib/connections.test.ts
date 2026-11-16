@@ -12,6 +12,7 @@ const base = {
   status: "connected",
   status_detail: null,
   status_text: null,
+  from_environment: false,
   auth_method: "api_key",
   last4: "",
   scopes: [],

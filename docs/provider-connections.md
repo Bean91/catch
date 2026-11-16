@@ -85,7 +85,8 @@ and `run_sync`. They take no credential arguments and return none; they cannot c
 
 - Nothing ran against a live provider account in this session; every flow is verified against synthetic fixtures. Withings status codes for rate limiting (601)
   and an invalid grant are from memory of Withings' docs, not a live response — the first real call may need a mapping fixed in `withings_client._check_status`.
-- Concept2's OAuth token endpoint and the personal token's lifetime are as documented but unobserved.
+- Concept2's OAuth token endpoint and the personal token's lifetime are as documented but unobserved. **Concept2's docs never say the authorize redirect returns `state`; the callback requires it, so Concept2 OAuth may fail on its first live call — the pasted personal token is the fallback** (docs/concept2-endpoints.md).
+- A Garmin key or Concept2 token kept in `.env` on the Pi shows as a "from environment" connection and cannot be disconnected from the UI (it would be re-adopted at once); remove it from `.env`. Pasting a key in the UI replaces it for that account.
 - No "delete imported data" action; no Garmin "Export your data" import.
 - The Whoop 10-member cap and Concept2 production validation are operator tasks.
 - Rate limits for the connection routes are in-process (per replica).

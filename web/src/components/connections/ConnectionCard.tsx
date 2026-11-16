@@ -139,6 +139,13 @@ export function ConnectionCard({ card }: { card: Card_ }) {
 
         {!card.available && <p className="text-sm text-text-tertiary">{card.label} isn't available on this server.</p>}
 
+        {card.connected && card.from_environment && (
+          <p data-testid={`conn-env-${card.provider}`} className="rounded-md border border-border px-3 py-2 text-xs text-text-secondary">
+            This connection uses the {garmin ? "key" : "token"} in this server's <span className="font-mono-nums">.env</span> file. To disconnect it, remove it from
+            that file; pasting a {noun} here replaces it for this account.
+          </p>
+        )}
+
         {card.available && garmin && card.connected && (
           <label className="flex flex-col gap-1.5 text-sm text-text-secondary sm:flex-row sm:items-center sm:gap-3">
             Key expires on
@@ -171,7 +178,7 @@ export function ConnectionCard({ card }: { card: Card_ }) {
                 <button type="button" onClick={() => testMutation.mutate()} disabled={testMutation.isPending} className={btn}>
                   {testMutation.isPending ? "Testing…" : "Test connection"}
                 </button>
-                {!confirm && (
+                {!confirm && !card.from_environment && (
                   <button type="button" onClick={() => setConfirm(true)} className="min-h-11 px-2 text-sm font-medium text-band-red-text hover:underline">
                     Disconnect
                   </button>

@@ -414,3 +414,35 @@ def test_connection_tools_are_athlete_only_and_have_no_credential_arguments():
         props = tools.TOOLS[name]["input_schema"]["properties"]
         assert not set(props) - {"provider", "confirm"}
     assert tools.TOOLS["sync_provider"]["write"] is True
+
+
+# -- a credential kept in .env can't be "disconnected" from the UI (it would be re-adopted straight away) --------------------------
+
+
+def test_disconnecting_an_environment_credential_is_refused_with_a_plain_reason(client, session, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(connections, "settings", dataclasses.replace(real_settings, garmin_api_key="env-garmin-key-123456"))
+    assert client.get("/api/connections").json()["connections"][0]["from_environment"] is True
+    r = client.delete("/api/connections/garmin")
+    assert r.status_code == 409 and ".env" in r.json()["detail"]
+    card = client.get("/api/connections").json()["connections"][0]
+    assert card["connected"] is True and "env-garmin-key" not in json.dumps(card)
+
+    # a key pasted in the UI replaces it for this account, after which it is a normal, removable connection
+    connections.store_credential(session, "garmin", "pasted-in-the-ui-key-123456", auth_method="api_key")
+    assert client.get("/api/connections").json()["connections"][0]["from_environment"] is False
+    assert client.delete("/api/connections/garmin").status_code == 200
+
+
+def test_a_withings_data_call_status_other_than_401_or_601_is_a_plain_error_not_a_reconnect():
+    from catch.sync import withings_client
+    from catch.sync.providers.base import ProviderAuthError, ProviderRateLimited
+
+    for status in (100, 101, 102, 293, 503):
+        with pytest.raises(withings_client.WithingsError) as exc:
+            withings_client._check_status({"status": status}, "getmeas")
+        assert not isinstance(exc.value, ProviderAuthError)
+    with pytest.raises(ProviderAuthError):
+        withings_client._check_status({"status": 401}, "getmeas")
+    with pytest.raises(ProviderRateLimited):
+        withings_client._check_status({"status": 601}, "getmeas")

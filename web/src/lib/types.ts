@@ -511,6 +511,7 @@ export interface ConnectionCard {
   status: ConnectionStatus;
   status_detail: string | null;
   status_text: string | null;
+  from_environment: boolean;
   auth_method: ConnectionAuthMethod | null;
   last4: string;
   scopes: string[];

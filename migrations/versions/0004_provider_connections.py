@@ -39,7 +39,6 @@ def upgrade() -> None:
         PRIMARY KEY (owner_id, provider),
         FOREIGN KEY(owner_id) REFERENCES catch.user_profiles (id) ON DELETE CASCADE
     )""")
-    op.execute("CREATE INDEX ix_provider_connections_owner_id ON catch.provider_connections (owner_id)")
     op.execute("ALTER TABLE catch.sync_state ADD COLUMN next_attempt_at TIMESTAMP WITH TIME ZONE")
     op.execute("ALTER TABLE catch.sync_state ADD COLUMN backfill_cursor VARCHAR")
     for t in TABLES:
