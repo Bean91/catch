@@ -5,7 +5,7 @@
 | Secret | Pi (personal install) | Public deployment |
 |---|---|---|
 | Deployment secrets (`CATCH_SESSION_SECRET`, `CATCH_SECRETS_MASTER_KEY`, `WHOOP_CLIENT_SECRET`, …) | `.env` (gitignored) | FastAPI Cloud secret configuration or a secret manager — never the database, never the repo |
-| Source OAuth tokens (Garmin, Withings, Whoop) | `oauth_tokens`, Fernet under `CATCH_FERNET_KEY` | **to redesign** per user (see below) |
+| Source credentials (Garmin key, Withings/Whoop/Concept2 OAuth tokens, Concept2 token) | `provider_connections`, AES-256-GCM per owner (legacy `oauth_tokens` Fernet rows are adopted on first use) | `provider_connections`, same scheme with its own key purpose (`catch/provider-connection/v1`); see docs/provider-connections.md |
 | A user's AI provider key | `ai_credentials`, AES-256-GCM, per-owner key | same table, same scheme, master key from the secret manager |
 
 ## AI provider keys (`catch/core/secret_store.py`)
@@ -78,10 +78,12 @@ keys and database URLs. The secret key exists for one call (deleting a user's si
 
 - The USDA client still sends its key as a query parameter (`usda_client.py`); the log filter now scrubs it from
   records, but moving it to a header would be cleaner.
-- Source OAuth tokens (including Whoop's rotating refresh token) still use the single Fernet key. A multi-user build
-  must give each user their own token row, sealed like AI keys.
+- (Session 25) Source credentials are now per-user rows sealed like AI keys (`provider_connections`). A personal install's `.env` Garmin key / Concept2 token
+  stays plaintext in `.env` as before and is never copied into the database; the public deployment never reads them.
 - Rate limiting is in-process (and a stream slot abandoned without its generator being closed expires after the turn's wall-clock cap + 30 s instead of locking the owner out).
 - (Session 24) In-process rate limits (`coach/limits.py`) are per replica; with N replicas the ceiling is N× (the DB-backed daily USD/token caps still hold).
 - (Session 24) Push subscriptions are per `(owner, endpoint)`: two accounts used on one browser can both receive pushes there until the first signs out (sign-out should unsubscribe — not yet wired).
-- (Session 24) Whoop's rotating refresh token is guarded by an in-process lock; with several replicas it needs `SELECT … FOR UPDATE` before Whoop is offered publicly.
+- (Session 25) Whoop/Withings/Concept2 rotating refresh tokens use a row lock (`FOR UPDATE`) plus the in-process lock; the Postgres path is untested here.
+- (Session 25) The OAuth callback authenticates by a signed `HttpOnly` cookie (HMAC key derived from the secrets master key). It assumes the page and API share
+  an origin. Rotating the master key invalidates in-flight flows only (the previous key still verifies).
 

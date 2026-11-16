@@ -122,6 +122,9 @@ def _tool_label(name: str, args: dict) -> str:
         "add_technique_note": "Save a technique note" if args.get("confirm") else "Preview a technique note",
         "get_coach_feedback": "Read coach feedback",
         "add_coach_feedback": "Save feedback" if args.get("confirm") else "Preview feedback",
+        "get_connected_providers": "Read connected sources",
+        "get_sync_status": "Read sync status",
+        "sync_provider": f"Sync {args.get('provider')}" if args.get("confirm") else f"Preview syncing {args.get('provider')}",
     }
     return labels.get(name, name)
 

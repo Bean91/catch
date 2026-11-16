@@ -10,7 +10,6 @@ before returning.
 
 from __future__ import annotations
 
-from catch.core import tenant
 import json
 import threading
 import time
@@ -24,10 +23,9 @@ from sqlmodel import Session
 from catch.analytics.planning import aware_utc
 from catch.analytics.wellness_inputs import pick_main_sleep
 from catch.analytics.whoop import kj_to_kcal, parse_instant, parse_offset_minutes, sleep_wake_date
-from catch.core import security
 from catch.core.config import settings
-from catch.core.models import OAuthToken
-from catch.core.redact import register_secret
+from catch.sync import connections
+from catch.sync.providers.base import ProviderAuthError, ProviderError, ProviderRateLimited
 from catch.sync import wellness_readings
 from catch.sync.upsert import upsert_activity
 
@@ -44,17 +42,19 @@ _RATE_WAIT_CAP_S = 15.0
 _refresh_lock = threading.Lock()
 
 
-class WhoopError(RuntimeError):
+class WhoopError(ProviderError):
     """Never carries a token, a URL with credentials, or Whoop's response body."""
 
 
-class WhoopReconnectNeeded(WhoopError):
+class WhoopReconnectNeeded(WhoopError, ProviderAuthError):
+    detail = "authorization_revoked"
     """The refresh token was refused (revoked, already rotated, or expired): the user has to
     authorize again. Raised instead of retrying, so a dead token can't loop."""
 
 
-class WhoopRateLimited(WhoopError):
-    pass
+class WhoopRateLimited(WhoopError, ProviderRateLimited):
+    def __init__(self, message: str = "Whoop is rate-limiting Catch; the next sync will resume.", retry_after: float | None = None):
+        ProviderRateLimited.__init__(self, message, retry_after)
 
 
 def configured() -> bool:
@@ -84,18 +84,14 @@ def _http(transport: httpx.BaseTransport | None = None) -> httpx.Client:
 
 
 def _store_tokens(session: Session, body: dict) -> str:
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
-    if row is None:
-        row = OAuthToken(source=SOURCE, access_token_enc="")
-        session.add(row)
-    row.access_token_enc = security.encrypt(body["access_token"])
-    if body.get("refresh_token"):
-        row.refresh_token_enc = security.encrypt(body["refresh_token"])
-    row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(body.get("expires_in") or 3600))
-    row.updated_at = datetime.now(timezone.utc)
-    session.commit()
-    register_secret(body["access_token"])
-    register_secret(body.get("refresh_token"))
+    connections.store_oauth(
+        session,
+        SOURCE,
+        access=body["access_token"],
+        refresh=body.get("refresh_token"),
+        expires_in=int(body.get("expires_in") or 3600),
+        scopes=body.get("scope"),
+    )
     return body["access_token"]
 
 
@@ -127,19 +123,27 @@ def exchange_code(session: Session, code: str, transport: httpx.BaseTransport | 
 
 
 def get_access_token(session: Session, transport: httpx.BaseTransport | None = None, *, force: bool = False) -> str:
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
-    if row is None or not row.refresh_token_enc:
-        raise WhoopReconnectNeeded("Whoop isn't connected. Connect it in Settings.")
-    if not force and row.expires_at and aware_utc(row.expires_at) > datetime.now(timezone.utc) + _REFRESH_SKEW:
-        return security.decrypt(row.access_token_enc)
+    def usable(t) -> bool:
+        return bool(not force and t.access and t.expires_at and t.expires_at > datetime.now(timezone.utc) + _REFRESH_SKEW)
+
+    try:
+        tokens = connections.oauth_tokens(session, SOURCE)
+    except connections.ConnectionError_:
+        raise WhoopReconnectNeeded("Whoop isn't connected. Connect it in Settings → Connections.") from None
+    if not tokens.refresh:
+        raise WhoopReconnectNeeded("Whoop isn't connected. Connect it in Settings → Connections.")
+    if usable(tokens):
+        return tokens.access
+    # The per-process lock covers SQLite (one process); `for_update` takes the row lock that covers every replica on Postgres.
     with _refresh_lock:
-        session.refresh(row)  # another caller may have rotated the token while we waited
-        if not force and row.expires_at and aware_utc(row.expires_at) > datetime.now(timezone.utc) + _REFRESH_SKEW:
-            return security.decrypt(row.access_token_enc)
-        body = _token_request(
-            {"grant_type": "refresh_token", "refresh_token": security.decrypt(row.refresh_token_enc), "scope": "offline"},
-            transport,
-        )
+        tokens = connections.oauth_tokens(session, SOURCE, for_update=True)  # another caller may have rotated the token while we waited
+        if usable(tokens):
+            return tokens.access
+        try:
+            body = _token_request({"grant_type": "refresh_token", "refresh_token": tokens.refresh, "scope": "offline"}, transport)
+        except WhoopReconnectNeeded:
+            session.rollback()
+            raise
         return _store_tokens(session, body)
 
 
@@ -169,7 +173,7 @@ class WhoopApi:
             except ValueError:
                 wait = 5.0
             if _retried_rate or wait > _RATE_WAIT_CAP_S:
-                raise WhoopRateLimited("Whoop is rate-limiting Catch; the next sync will resume.")
+                raise WhoopRateLimited(retry_after=wait)
             self._sleep(wait)
             return self._request(method, path, params, _retried_auth=_retried_auth, _retried_rate=True)
         if resp.status_code >= 400:
@@ -308,14 +312,26 @@ def import_workouts(session: Session, workouts: list[dict]) -> int:
     return n
 
 
-def sync(session: Session, days: int = 3, transport: httpx.BaseTransport | None = None, sleep=time.sleep, now: datetime | None = None) -> int:
+def sync(
+    session: Session,
+    days: int = 3,
+    transport: httpx.BaseTransport | None = None,
+    sleep=time.sleep,
+    now: datetime | None = None,
+    window: tuple[date, date] | None = None,
+) -> int:
     api = WhoopApi(session, transport, sleep)
-    end = now or datetime.now(timezone.utc)
-    # Pad the window by a day: the sleep that ends on the first day started the evening before.
-    start = end - timedelta(days=days + 1)
-    sleeps = list(api.records("/v2/activity/sleep", start))
-    recoveries = list(api.records("/v2/recovery", start))
-    workouts = list(api.records("/v2/activity/workout", start))
+    if window is not None:
+        # Padded a day back (the sleep that ends on the first day started the evening before); `end` is exclusive.
+        start = datetime(window[0].year, window[0].month, window[0].day, tzinfo=timezone.utc) - timedelta(days=1)
+        stop: datetime | None = datetime(window[1].year, window[1].month, window[1].day, tzinfo=timezone.utc) + timedelta(days=1)
+    else:
+        end = now or datetime.now(timezone.utc)
+        # Pad the window by a day: the sleep that ends on the first day started the evening before.
+        start, stop = end - timedelta(days=days + 1), None
+    sleeps = list(api.records("/v2/activity/sleep", start, stop))
+    recoveries = list(api.records("/v2/recovery", start, stop))
+    workouts = list(api.records("/v2/activity/workout", start, stop))
     touched = import_sleep_and_recovery(session, sleeps, recoveries)
     wellness_readings.resolve_days(session, touched)
     return len(touched) + import_workouts(session, workouts)
@@ -323,21 +339,14 @@ def sync(session: Session, days: int = 3, transport: httpx.BaseTransport | None 
 
 def disconnect(session: Session, transport: httpx.BaseTransport | None = None) -> dict:
     """Revokes Catch's access at Whoop (best effort) and forgets the tokens. Imported data stays."""
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
-    if row is None:
+    if not connections.is_connected(session, SOURCE):
         return {"revoked": False, "was_connected": False}
     revoked = False
     try:
         revoked = WhoopApi(session, transport).revoke()
     except WhoopError:
         pass
-    session.delete(session.get(OAuthToken, tenant.pk(SOURCE)))
-    from catch.core.models import SyncState
-
-    state_row = session.get(SyncState, tenant.pk(SOURCE))
-    if state_row is not None:
-        session.delete(state_row)  # a disconnected source must not be reported as a stale sync
-    session.commit()
+    connections.delete(session, SOURCE)
     return {"revoked": revoked, "was_connected": True}
 
 
@@ -350,6 +359,6 @@ def check(session: Session, transport: httpx.BaseTransport | None = None) -> dic
     for label, path in (("recovery", "/v2/recovery"), ("sleep", "/v2/activity/sleep"), ("workout", "/v2/activity/workout"), ("cycle", "/v2/cycle")):
         page = api.get(path, {"limit": 1})
         out[label] = {"ok": True, "has_records": bool(page.get("records"))}
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
+    row = connections.get(session, SOURCE)
     out["token_expires_at"] = aware_utc(row.expires_at).isoformat() if row and row.expires_at else None
     return out

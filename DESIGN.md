@@ -413,6 +413,29 @@ Only the public build (`VITE_CATCH_DEPLOYMENT=public`) shows any of this; the pe
 - **Signing out is a clean break.** It clears the query cache, the service worker's `/api` cache, the offline gym queue and every `catch:*` local key — never just the token — and
   the same wipe runs when a *different* person signs in on the same browser.
 
+## Provider connections (session 25)
+
+`/settings/connections` — one page, one card per source (Garmin, Withings, Concept2, Whoop), reached from Settings' "Connected sources" summary and from Status. No bottom-nav slot,
+same pattern as AI providers and Status. The Settings card is now only a read-out (a glyph + word per source) with a "Connect, replace a key or disconnect" link; nothing is edited there.
+
+- **Every provider is the same card.** Status pill (glyph + word, never colour alone: ● Connected, ✕ Reconnect needed, ! Problem syncing / Waiting — provider is rate limiting,
+  ○ Not connected; "Connected — importing history" while the paced import runs), then a definition list (last sync, history import start, what was allowed, key expiry, next try), a
+  recovery sentence when something is wrong, and a row of actions. Only the way in differs: *Connect X* (a provider sign-in page), *Add your X key / Replace key* (a sheet), or both
+  for Concept2 ("Use a personal token instead"). Sync now, Test connection and Disconnect appear once connected.
+- **Secrets are entered once and never come back.** `CredentialSheet` mirrors `ProviderKeySheet`: bottom sheet at `z-30` (above the nav), centred from `sm:`, no autofocus, `type="password"`,
+  `autocomplete="off"`, cleared on close, success *and* failure, error in `role="alert"`. The card shows `Key …abcd` (long secrets only) or `Key saved`; the Playwright specs assert the full
+  value is in neither `innerText` nor the HTML. The sheet says what is and isn't being asked ("This is not your Garmin password, and Catch never asks for that") and that Catch checks the
+  key first and stores it encrypted.
+- **Honest limits, stated once.** A collapsed "What Catch can and can't do with X" lists the provider's limitations and a Yes / No / Not published capability table — both come from the
+  backend's single table, so the page, the coach and the docs can't disagree. "Not published" is used where a provider documents nothing (Garmin's rate limits and history depth) instead of
+  implying a number. Garmin's card always shows its disclosure line, quoting Garmin's "not intended for commercial applications serving multiple end users".
+- **Recovery copy is a fixed vocabulary that names the way out** ("Create a new Personal API key in Garmin Connect and choose Replace key", "Choose Reconnect and approve access again",
+  "Catch will retry on its own; nothing needs doing"). Provider text is never shown; the last error is Catch's own sentence.
+- **Disconnect is confirmed inline** in a bordered `role="group"` row (no dialog dependency): "Everything already imported stays", plus, for Garmin, "also delete the key in Garmin Connect to
+  end access completely" — Catch can't do that for you.
+- **After an OAuth round trip** the browser lands back with `?provider=…&result=connected|denied|failed` and a `role="status"` line, not a toast.
+- **Garmin's key-expiry banner** (app-wide, 14 days) and the Status page's "Garmin key" card read the connection's expiry instead of a global Settings field.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

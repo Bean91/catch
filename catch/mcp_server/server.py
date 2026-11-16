@@ -43,6 +43,8 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "illustrations). Technique notes and coach feedback: get_technique_notes, "
             "add_technique_note, get_coach_feedback, add_coach_feedback — written observations only, "
             "Catch can't measure technique quality, and private items are never shared with a coach. "
+            "Connected sources: get_connected_providers and get_sync_status report each source's connection and sync health "
+            "(never anything used to sign in); sync_provider fetches new data and previews first. "
             "Every write previews first; pass confirm=true only after the athlete has agreed."
         ),
     )
@@ -599,6 +601,21 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "add_coach_feedback", text=text, date=date, workout_id=workout_id, workout_date=workout_date, event_id=event_id,
             planned_id=planned_id, focus_areas=focus_areas, visibility=visibility, coach_name=coach_name, confirm=confirm,
         )
+
+    @mcp.tool()
+    async def get_connected_providers() -> dict:
+        """Which sources (Garmin, Withings, Concept2, Whoop) are connected, their status and what Catch can read from each."""
+        return await _call("get_connected_providers")
+
+    @mcp.tool()
+    async def get_sync_status() -> dict:
+        """Per-source sync health: last attempt/success, last error in plain words, failures, next allowed attempt."""
+        return await _call("get_sync_status")
+
+    @mcp.tool()
+    async def sync_provider(provider: Literal["garmin", "withings", "concept2", "whoop"], confirm: Optional[bool] = None) -> dict:
+        """Fetch the latest data from one connected source. Previews unless confirm=true; cannot connect or disconnect."""
+        return await _call("sync_provider", provider=provider, confirm=confirm)
 
     @mcp.prompt()
     def daily_check_in() -> str:

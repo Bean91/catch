@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import shutil
+import tempfile
 import zipfile
 from datetime import date as date_, datetime, timedelta, timezone
 from pathlib import Path
@@ -13,9 +14,9 @@ from typing import Any, Iterable
 import httpx
 from sqlmodel import Session
 
-from catch.core import security
-from catch.core.config import settings
-from catch.core.models import OAuthToken
+from catch.core.redact import register_secret
+from catch.sync import connections
+from catch.sync.providers.base import ProviderAuthError, ProviderError, ProviderRateLimited, ProviderUnavailable
 from catch.sync.canonical import resolve_canonical
 from catch.sync.fit_parse import parse_fit
 from catch.sync.samples import store_samples_from_fit
@@ -29,8 +30,47 @@ TOKEN_URL = f"{BASE_URL}/personalapitoken-service/personal-api/personal-api-key/
 SOURCE = "garmin"
 
 
-class GarminAuthError(RuntimeError):
-    pass
+class GarminAuthError(ProviderAuthError):
+    detail = "key_rejected"
+
+
+KEY_HELP = "Garmin rejected the key. Create a new Personal API key at Garmin Connect and paste it in Catch."
+
+
+def _error_for(resp: httpx.Response) -> ProviderError | None:
+    """Fixed-text mapping of a Garmin response onto the shared error kinds (never echoes the body)."""
+    if resp.status_code in (401, 403):
+        return GarminAuthError(KEY_HELP)
+    if resp.status_code == 429:
+        try:
+            wait = float(resp.headers.get("retry-after")) if resp.headers.get("retry-after") else None
+        except ValueError:
+            wait = None
+        return ProviderRateLimited("Garmin is rate-limiting Catch; it will retry on its own.", retry_after=wait)
+    if resp.status_code >= 500:
+        return ProviderUnavailable("Garmin had a problem; Catch will retry.")
+    return None
+
+
+def exchange_key(api_key: str) -> tuple[str, datetime, dict]:
+    """Personal API key -> (24 h bearer JWT, its expiry, its unverified claims). The key is the only credential involved: no Garmin
+    password, no Developer Program application. Raises the shared provider errors."""
+    try:
+        resp = httpx.post(TOKEN_URL, headers={"Authorization": f"ApiKey {api_key}"}, timeout=30.0)
+    except httpx.HTTPError:
+        raise ProviderUnavailable("Couldn't reach Garmin.") from None
+    err = _error_for(resp)
+    if err:
+        raise err
+    if resp.status_code >= 400:
+        raise GarminAuthError(KEY_HELP)
+    # The token endpoint returns the bearer token itself as a raw JWT, Content-Type text/plain — not a JSON envelope. Confirmed
+    # against a live response; the JWT's own `exp` claim gives us the real expiry (observed: exactly 24h after `iat`).
+    token = resp.text.strip()
+    register_secret(token)
+    claims = _jwt_claims(token)
+    expires_at = _jwt_expiry(token) or (datetime.now(timezone.utc) + timedelta(hours=23))
+    return token, expires_at, claims
 
 
 class GarminClient:
@@ -41,49 +81,29 @@ class GarminClient:
 
     # -- auth -----------------------------------------------------------
 
-    def _cached_token(self) -> OAuthToken | None:
-        return self.db.get(OAuthToken, tenant.pk(SOURCE))
-
-    def _exchange_token(self) -> str:
-        if not settings.garmin_api_key:
-            raise GarminAuthError("GARMIN_PERSONAL_API_KEY is not set")
-        resp = httpx.post(
-            TOKEN_URL,
-            headers={"Authorization": f"ApiKey {settings.garmin_api_key}"},
-            timeout=30.0,
-        )
-        if resp.status_code == 401:
-            raise GarminAuthError("Garmin key expired, create a new one")
-        resp.raise_for_status()
-        # The token endpoint returns the bearer token itself as a raw JWT, Content-Type
-        # text/plain — not a JSON envelope. Confirmed against a live response; the JWT's
-        # own `exp` claim gives us the real expiry (observed: exactly 24h after `iat`).
-        token = resp.text.strip()
-        expires_at = _jwt_expiry(token) or (datetime.now(timezone.utc) + timedelta(hours=23))
-
-        row = self._cached_token()
-        if row is None:
-            row = OAuthToken(source=SOURCE, access_token_enc=security.encrypt(token))
-            self.db.add(row)
-        row.access_token_enc = security.encrypt(token)
-        row.expires_at = expires_at
-        row.updated_at = datetime.now(timezone.utc)
-        self.db.commit()
-        return token
-
     def _token(self) -> str:
-        row = self._cached_token()
-        if row and row.expires_at and row.expires_at - timedelta(hours=1) > datetime.now(timezone.utc):
-            return security.decrypt(row.access_token_enc)
-        return self._exchange_token()
+        cached = connections.cached_access(self.db, SOURCE)
+        if cached.access and cached.expires_at and cached.expires_at - timedelta(hours=1) > datetime.now(timezone.utc):
+            return cached.access
+        try:
+            key = connections.credential(self.db, SOURCE)
+        except connections.ConnectionError_:
+            raise GarminAuthError("Garmin isn't connected. Add your Personal API key in Settings → Connections.") from None
+        token, expires_at, _ = exchange_key(key)
+        connections.store_access_cache(self.db, SOURCE, token, expires_at)
+        return token
 
     # -- low level --------------------------------------------------------
 
     def _get(self, path: str, params: dict | None = None) -> httpx.Response:
         token = self._token()
-        resp = self.http.get(path, params=params, headers={"Authorization": f"Bearer {token}"})
-        if resp.status_code == 401:
-            raise GarminAuthError("Garmin key expired, create a new one")
+        try:
+            resp = self.http.get(path, params=params, headers={"Authorization": f"Bearer {token}"})
+        except httpx.HTTPError:
+            raise ProviderUnavailable("Couldn't reach Garmin.") from None
+        err = _error_for(resp)
+        if err:
+            raise err
         resp.raise_for_status()
         return resp
 
@@ -119,8 +139,9 @@ class GarminClient:
             f"/download-service/files/activity/{activity_id}",
             headers={"Authorization": f"Bearer {token}"},
         ) as resp:
-            if resp.status_code == 401:
-                raise GarminAuthError("Garmin key expired, create a new one")
+            err = _error_for(resp)
+            if err:
+                raise err
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
@@ -140,6 +161,16 @@ class GarminClient:
         return fit_path
 
     def sync_activities(self, start_date: date_, end_date: date_, fit_dir: Path) -> int:
+        if tenant.is_public():
+            # No local files on the public deployment: each FIT file lives only in a temp dir for the duration of this call.
+            with tempfile.TemporaryDirectory(prefix="catch-fit-") as tmp:
+                return self._sync_activities(start_date, end_date, Path(tmp))
+        return self._sync_activities(start_date, end_date, fit_dir)
+
+    def _sync_activities(self, start_date: date_, end_date: date_, fit_dir: Path) -> int:
+        from catch.core.models import ActivitySamples
+
+        public = tenant.is_public()
         count = 0
         for item in self.list_activities(start_date, end_date):
             activity_id = item.get("activityId")
@@ -166,7 +197,11 @@ class GarminClient:
                 title_hint=item.get("activityName"),
                 raw_json=json.dumps(item),
             )
-            if not row.fit_path or not Path(row.fit_path).exists():
+            if public and self.db.get(ActivitySamples, row.id) is not None:
+                need_fit = False  # already ingested on an earlier sync; the file was never kept
+            else:
+                need_fit = not row.fit_path or not Path(row.fit_path).exists()
+            if need_fit:
                 # A stored fit_path can go stale without ever being cleared: a DB migrated
                 # from the laptop to the Pi (deploy/pi-bootstrap.sh adopting a staged catch.db
                 # + fit/ dir) carries laptop-relative paths like "data/fit/X.fit" that don't
@@ -179,7 +214,7 @@ class GarminClient:
                 else:
                     try:
                         fit_path = self.download_fit(activity_id, fit_dir)
-                    except (httpx.HTTPStatusError, httpx.TransportError):
+                    except (httpx.HTTPStatusError, httpx.TransportError, ProviderRateLimited, ProviderUnavailable):
                         # A single activity's FIT download failing (rate limit, transient network
                         # error) must not abort every later window in a multi-month backfill —
                         # confirmed a real risk live (a 429 on one activity used to kill the whole
@@ -194,6 +229,11 @@ class GarminClient:
             if row.fit_path:
                 self._ingest_fit_samples(row)
                 self._ingest_track(row)
+                if public:
+                    Path(row.fit_path).unlink(missing_ok=True)
+                    row.fit_path = None
+                    self.db.add(row)
+                    self.db.commit()
             resolve_canonical(self.db, row.canonical_id)
             count += 1
         return count
@@ -402,14 +442,15 @@ class GarminClient:
         for attempt in range(2):
             try:
                 return fn(*args)
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429 and attempt == 0:
+            except (ProviderRateLimited, httpx.HTTPStatusError) as exc:
+                limited = isinstance(exc, ProviderRateLimited) or exc.response.status_code == 429
+                if limited and attempt == 0:
                     logger.warning("%s rate-limited (429), backing off before one retry", label)
-                    time.sleep(10)
+                    time.sleep(min(getattr(exc, "retry_after", None) or 10, 60))
                     continue
-                logger.warning("%s failed for window %s-%s, skipping this window", label, args[0], args[1], exc_info=True)
+                logger.warning("%s failed for window %s-%s, skipping this window", label, args[0], args[1], exc_info=not limited)
                 return 0
-            except httpx.TransportError:
+            except (httpx.HTTPError, ProviderUnavailable):
                 logger.warning("%s failed for window %s-%s, skipping this window", label, args[0], args[1], exc_info=True)
                 return 0
         return 0
@@ -426,6 +467,17 @@ class GarminClient:
             totals["weight_rows"] += self._call_with_backoff("sync_weight", self.sync_weight, cursor, window_end)
             cursor = window_end + timedelta(days=1)
         return totals
+
+
+def _jwt_claims(token: str) -> dict:
+    """Unverified payload — used only to *identify* the account and its granted scope, never to trust anything."""
+    try:
+        _, payload_b64, _ = token.split(".")
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 def _jwt_expiry(token: str) -> datetime | None:

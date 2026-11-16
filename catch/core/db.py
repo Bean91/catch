@@ -132,6 +132,9 @@ _NEW_COLUMNS = {
         # Session 16 (see PLAN.md Part A/B) — see SyncState's docstring in models.py.
         "consecutive_failures": "INTEGER NOT NULL DEFAULT 0",
         "alert_sent_at": "TEXT",
+        # Session 25 — backoff and the paced history import, see SyncState in models.py.
+        "next_attempt_at": "TEXT",
+        "backfill_cursor": "TEXT",
     },
     "illness_acks": {
         # Session 16 (see PLAN.md Part A) — see IllnessAck's docstring in models.py.

@@ -1,5 +1,14 @@
 import { UNAUTHORIZED_EVENT, authedFetch } from "./authedFetch";
 import {
+  mockProviderConnections,
+  mockDisconnectProvider,
+  mockPutProviderCredential,
+  mockPutProviderExpiry,
+  mockStartProviderOAuth,
+  mockSyncProvider,
+  mockTestProviderConnection,
+} from "./mockConnections";
+import {
   mockAiModels,
   mockAiProviders,
   mockAiUsage,
@@ -237,7 +246,8 @@ import type {
   TemplateScope,
   WorkoutTemplate,
 } from "./types";
-import type { AiModelsResponse, AiProviderCard, AiProvidersResponse, AiTestResult, AiUsage, CoachProviderName, WhoopTestResult } from "./types";
+import type { AiModelsResponse, AiProviderCard, AiProvidersResponse, AiTestResult, AiUsage, CoachProviderName } from "./types";
+import type { ConnectionCard, ConnectionsResponse, ConnectionTestResult, ProviderId } from "./types";
 import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
 import * as mockCal from "./mockCalendar";
 import * as mockCoach from "./mockCoaching";
@@ -905,16 +915,52 @@ export async function fetchAiUsage(): Promise<AiUsage> {
   return request<AiUsage>("/api/ai/usage");
 }
 
-// --- Whoop (session 23) --------------------------------------------------------
+// --- Provider connections (session 25) -----------------------------------------
 
-export async function disconnectWhoop(): Promise<{ revoked: boolean; was_connected: boolean }> {
-  if (isMock) return delay({ revoked: true, was_connected: true }, 200);
-  return request("/auth/whoop/disconnect", { method: "POST" });
+export async function fetchConnections(): Promise<ConnectionsResponse> {
+  if (isMock) return delay(mockProviderConnections());
+  return request<ConnectionsResponse>("/api/connections");
 }
 
-export async function testWhoop(): Promise<WhoopTestResult> {
-  if (isMock) return delay({ connected: true, recovery: { ok: true, has_records: true }, sleep: { ok: true, has_records: true }, workout: { ok: true, has_records: true }, token_expires_at: null }, 600);
-  return request("/api/whoop/test");
+/** Garmin key or Concept2 token. The secret is sent once, validated by the server before anything is replaced, and never read back. */
+export async function putConnectionCredential(provider: ProviderId, secret: string, expiresOn: string | null): Promise<ConnectionCard> {
+  if (isMock) return delay(mockPutProviderCredential(provider, secret, expiresOn), 500);
+  return request(`/api/connections/${provider}/credential`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: secret, expires_on: expiresOn }),
+  });
+}
+
+export async function putConnectionExpiry(provider: ProviderId, expiresOn: string | null): Promise<ConnectionCard> {
+  if (isMock) return delay(mockPutProviderExpiry(provider, expiresOn), 150);
+  return request(`/api/connections/${provider}/expiry`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expires_on: expiresOn }),
+  });
+}
+
+/** Returns the provider's sign-in URL (a redirect from the server couldn't carry the bearer token); the caller navigates to it. In the
+ *  mock there is no provider page, so it completes in place and returns null. */
+export async function startConnectionOAuth(provider: ProviderId): Promise<{ authorize_url: string | null }> {
+  if (isMock) return delay(mockStartProviderOAuth(provider), 300);
+  return request(`/api/connections/${provider}/oauth/start`, { method: "POST" });
+}
+
+export async function testConnection(provider: ProviderId): Promise<ConnectionTestResult> {
+  if (isMock) return delay(mockTestProviderConnection(provider), 500);
+  return request(`/api/connections/${provider}/test`, { method: "POST" });
+}
+
+export async function syncConnection(provider: ProviderId): Promise<SyncResult> {
+  if (isMock) return delay(mockSyncProvider(provider), 600);
+  return request(`/api/connections/${provider}/sync`, { method: "POST" });
+}
+
+export async function disconnectConnection(provider: ProviderId): Promise<{ revoked: boolean; was_connected: boolean }> {
+  if (isMock) return delay(mockDisconnectProvider(provider), 200);
+  return request(`/api/connections/${provider}`, { method: "DELETE" });
 }
 
 // --- Coach: device tokens -----------------------------------------------------

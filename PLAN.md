@@ -4072,3 +4072,61 @@ Garmin Connect Developer Program approval; Whoop's 10-member cap until tiers are
 2. Decide the frontend hosting (the gitignored static build) from the answer to setup step 4.5.
 3. Build the signed-state OAuth callback (Withings, then Whoop), then route piece photos through Storage, then a `pg_cron` tick.
 4. Add the `tests/pg` job to CI with `supabase start`.
+
+# Session 25: per-user provider connections and sync
+
+**Numbering note.** The brief called itself "session 20"; the real number is 25 (sessions 20–24 are above). It named `docs/multi-user-migration.md`, which does not exist — the equivalents are `docs/public-architecture.md`, `public-setup.md`, `security.md` and `personal-to-public.md`. Write-ups: `docs/provider-connections.md` (the contract) and `docs/garmin-byok.md` (setup, limits, troubleshooting). `.env` was not read; env names only.
+
+## Decisions (the user chose the first three; the rest are mine)
+
+1. **Garmin = the user's own Personal API key, with disclosure.** The research changed the question: Catch already uses Garmin's *official* Personal API (a self-service key the user creates in Garmin Connect; not the Developer Program, not an unofficial login), so "BYOK" is simply each user pasting their own. Garmin's FAQ says that API "is not intended for commercial applications serving multiple end users"; a hosted multi-user Catch holding many people's keys is a grey area Garmin's pages don't resolve. The user chose to offer it, **disclosed on the card and in the docs, with an operator kill-switch** (`CATCH_GARMIN_BYOK_ENABLED=0`). Nothing unofficial, no password, MFA or session handling, no Developer Program credential anywhere (a test asserts the client has no path to a server-wide setting and that a public deployment ignores `GARMIN_PERSONAL_API_KEY`).
+2. **Concept2 = OAuth *and* a pasted personal token** in one connection (`auth_method`), so the Pi's existing token keeps working and users can skip app registration.
+3. **OAuth sources use one operator-registered app each** (Withings, Whoop, Concept2) — the unavoidable shared piece; each user's authorization, tokens and data are their own. Whoop's app is capped at 10 members until Whoop approves a tier (documented, not hidden).
+4. **One service, one table.** `provider_connections` (owned, migration `0004`, forced RLS) + `catch/sync/connections.py`; health stays on `sync_state` so there is one copy. Sealing reuses `secret_store` with its own HKDF purpose, so an AI-key blob can't be opened as a connection secret and vice versa.
+5. **No split brain.** Every `oauth_tokens` / `garmin_key_expires_on` reader moved to the service in the same change. A legacy row is adopted once and **deleted in the same transaction** (rotating refresh tokens). The `.env` Garmin key / Concept2 token stay live on the Pi as a "from environment" connection and are never copied into the DB; the public deployment never reads them.
+6. **Signed-state OAuth** (public): the URL `state` is only a nonce (Whoop requires exactly 8 characters); the HMAC-signed `{owner, provider, nonce, exp}` rides in an `HttpOnly` cookie set by the bearer-authenticated `start` call. Assumes web and API share an origin. The owner is set inside the callback handler (a sync dependency would lose it).
+7. **Backfill is paced, never inline.** Connecting queues it (`sync_state.backfill_cursor`); each sync imports one 30-day window after the incremental pass; a failed window keeps its cursor, a throttled one defers. (A first draft would have imported inside the connect request — FastAPI Cloud's timeouts are untested and Garmin rate-limits long pulls hard.)
+8. **Lease = the already-reviewed `routes_internal._claim`, generalised** to `catch/sync/lease.py` and keyed `job:sync:<provider>` (tick and manual runs share it). No new `lease_until` column; `next_attempt_at` is the only new backoff column.
+9. **Auth failures aren't failures.** A refused credential → `needs_reconnect`, no counter, no backoff to wait out, scheduled runs stop, one push; everything else → exponential backoff (5 min … 6 h, `Retry-After` wins) and the existing 3-in-a-row alert.
+10. Not built, on purpose: a "delete imported data" action (disconnect never deletes data; account deletion cascades), a Garmin "Export your data" import (format only seen in third-party guides), webhooks (none used, so no duplicate-delivery handling to test).
+
+## Bugs found while building (fixed, with regression tests unless noted)
+
+1. **A real `.env` leaked into the suite.** With a Garmin key / Concept2 token in `.env`, every test silently had "connected" sources (and one OAuth-cookie test failed because an https `CATCH_BASE_URL` made the state cookie `Secure`). `tests/conftest.py` now blanks those settings, like the Whoop/VAPID ones before it.
+2. **OAuth callback used the wrong session.** First version opened its own `get_session()` (the real engine), invisible to the test client's override and — in production — outside the request's dependency lifecycle; it now takes `get_db`, and the owner is set inside the handler.
+3. **Garmin `_call_with_backoff` retry semantics.** Mapping responses onto `ProviderRateLimited` would have stopped the old "retry once on a bare 429" behaviour; both shapes are handled and the two existing tests kept.
+4. **Backfill + `_call_with_backoff` would have lost windows.** The old backfill helper swallows a failed window as "0 rows" and moves on; reusing it for the paced import would have advanced the cursor past a window that never imported. The paced path calls the raising functions instead.
+5. **Whoop `state` length.** The first plan signed the whole payload into `state`; Whoop's docs require exactly eight characters. Caught in the plan review; the cookie carries the payload.
+6. **Structure tests froze the table list.** `test_migration_0002_covers_exactly_the_tables…` and the baseline-snapshot test assume every model table is in 0002/0001; they now union migration 0004's list (0002 stays frozen, as its docstring requires).
+
+## Verification
+
+- `uv run ruff check .` clean; `uv run pytest` — **1473 passed, 41 skipped** (the 41 are `tests/pg` ×38 and `test_postgres_optional.py` ×3, as before; 1437 at the start). New: `tests/test_connections.py` (26), `tests/tenancy/test_provider_connections.py` (10). Existing tests edited, none weakened: the Garmin/Concept2/Whoop/Withings client tests now seed a connection instead of a legacy row or a patched `settings`; the concept2 scheduler test now asserts the new needs-reconnect semantics (and a second asserts plain failures still count and back off); the structure tests union migration 0004; tool counts 55 → 58.
+- Covered: sealing per owner/provider/slot, wrong-purpose and wrong-owner failure, master-key rotation, no secret in any card / sync summary / coach tool output / log / response body / OAuth redirect, Garmin connect → replace → a rejected key not destroying the working one → unreachable provider saves nothing, Concept2 token, refresh rotation persisted (and a second caller not refreshing twice), refused refresh → reconnect, expired/revoked/invalid credentials, rate limit → `Retry-After`, backoff doubling and cap, manual sync ignoring backoff, a good sync clearing needs-reconnect, paced history (contiguous windows, a failed window retried), lease claim/release/stale takeover and "second sync not started", two users on one provider with no crossover (rows, ciphertext, cards, disconnect), no server-wide fallback in public mode, the Garmin kill-switch, signed state (tampered/expired/other-provider/wrong-state/no cookie/deleted account), a failing user not stopping another in the tick, Whoop revoked before account deletion, disconnect keeps imported rows and reconnect works, legacy adoption and live `.env` credentials on the personal install, device tokens refused on `/api/connections`.
+- Web: `tsc -b`, oxlint (only the existing `gymSync.ts` warnings), `npm test` 76 (+3), `npm run build` initial JS **210.3 KB gzip of 250**, Playwright `CI=1` against the production build **155 passed / 8 skipped** (+16 across both mobile projects and desktop: statuses, Garmin disclosure, key sheet masking and clearing on failure, a short key never echoed, reconnect/test/sync, inline disconnect, OAuth result notices, no horizontal overflow, the sheet above the nav), `test:public` 16, `node --check` on `sw.js`.
+- **Not run:** `tests/pg` (needs a throwaway local Supabase stack — none here; the migration `0004` DDL, its RLS policies and the Postgres `FOR UPDATE` path are unexercised, only the SQLite/ORM side ran), `test:live`, `test:gym`, `test:update`, the whole suite on PostgreSQL, and **every live provider call** — all provider behaviour is against synthetic fixtures.
+
+## Added
+
+DB: `provider_connections` (migration `0004`); `sync_state.next_attempt_at`, `backfill_cursor`. API: `/api/connections` (list, `PUT …/credential`, `PUT …/expiry`, `POST …/oauth/start|test|sync`, `DELETE`), unauthenticated `GET /auth/{withings,whoop,concept2}/callback` (signed state). Core: `connections.py`, `providers/`, `lease.py`, `oauth_state.py`, `secret_store` `purpose`. Coach/MCP: `get_connected_providers`, `get_sync_status`, `sync_provider` (58 tools). Web: `/settings/connections`, `ConnectionCard`, `CredentialSheet`, `lib/connections.ts`, `lib/mockConnections.ts`. Env: `CATCH_GARMIN_BYOK_ENABLED`, `CONCEPT2_CLIENT_ID/SECRET/REDIRECT_URI`. Removed: `WhoopControls`, Settings' Garmin expiry field (now per connection), `PERSONAL_ONLY_SOURCES`.
+
+## Not done / limitations
+
+- **Nothing was run against a live provider, a hosted Supabase project, or a local Supabase stack.** Withings' rate-limit status (601) and refused-grant statuses (100/101/102/293/401) are from memory of its error list; Concept2's OAuth token endpoint and personal-token lifetime, and Whoop's token-endpoint credential placement, are as documented but unobserved.
+- **Garmin's terms remain ambiguous for a hosted multi-user service** — disclosed and switchable, not resolved. Garmin publishes no rate limits or history depth for the Personal API; Catch reports "not published". No skin temperature, no push, no revocation from Catch.
+- The OAuth callback cookie **assumes the SPA and API share an origin**; revisit when frontend hosting is decided.
+- Withings, Concept2 and Garmin document no revoke call, so disconnecting removes Catch's copy only (the UI says so); Whoop is revoked on disconnect and on account deletion (best effort).
+- No "delete imported data"; no Garmin export import; rate limits on the connection routes are per replica.
+- Whoop's 10-member cap and Concept2's production validation (writes only; reads need none) are operator tasks.
+- Public weather enrichment after a Garmin sync is unchanged (the Open-Meteo licensing blocker stands).
+
+## Blockers (for opening it to users)
+
+Whoop tier approval; the Garmin terms question above (the operator's call); an Open-Meteo commercial licence and a non-OSM tile source; an email sender; health-data terms for your jurisdiction.
+
+## Next steps
+
+1. Run `tests/pg` against a local `supabase start` (migration `0004`, RLS for `provider_connections`, the `FOR UPDATE` refresh path), and add the job to CI.
+2. Register the Whoop/Withings/Concept2 apps with the real redirect URIs, connect one real account of each on a throwaway deployment, and fix whatever the first live calls disagree with (start with the status-code and token-endpoint assumptions above).
+3. Decide frontend hosting (same origin for the OAuth cookie), then deploy and run `curl …/internal/db-check`.
+4. Optional: a user-controlled Garmin "Export your data" import and a "delete imported data" action.

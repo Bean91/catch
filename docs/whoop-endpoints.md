@@ -95,7 +95,7 @@ header, otherwise leaves the rest to the next scheduled sync. A 2-hour sync is ~
 
 1. Create an app at developer.whoop.com, register `WHOOP_REDIRECT_URI`
    (`https://<your-host>/auth/whoop/callback`), set `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`, `WHOOP_REDIRECT_URI`.
-2. Settings → Connected sources → **Connect Whoop**, approve, land back on Settings.
+2. Settings → Connections → Whoop → **Connect Whoop**, approve, land back on the Connections page (session 25: a signed-state callback, per user — docs/provider-connections.md).
 3. **Test connection** (or `uv run catch whoop check`): one request per scope; prints counts only, never tokens, names
    or e-mail addresses.
 4. `uv run catch sync --source whoop --days 7`, then look at Today → Recovery details for "Whoop" next to an input.

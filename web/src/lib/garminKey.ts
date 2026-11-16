@@ -1,9 +1,7 @@
-// Garmin's personal-API-key swagger spec exposes no key-expiry field (see
-// catch/analytics/defaults.py), so there's nothing to sync from Garmin — the expiry date is
-// a plain user-editable reminder stored in Settings (garmin_key_expires_on), not read from
-// any API response. Shared between Settings.tsx (where it's set) and GarminKeyBanner.tsx
-// (which surfaces it app-wide) so the "14 days" threshold can't drift between the two.
-export const GARMIN_KEY_PAGE_URL = "https://developer.garmin.com/gc-developer-program/personal";
+// Garmin's Personal API exposes no key-expiry field, so the date is a plain reminder the user enters when they connect the key
+// (per-user, on the connection — see Connections → Garmin). Shared between the Connections card and GarminKeyBanner.tsx (which
+// surfaces it app-wide) so the "14 days" threshold can't drift between the two.
+export const GARMIN_KEY_PAGE_URL = "https://connect.garmin.com/app/settings/personalApiToken";
 
 export function daysUntilGarminKeyExpires(iso: string | null): number | null {
   if (!iso) return null;

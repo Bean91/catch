@@ -181,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 55 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 58 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -499,7 +499,7 @@ duplicate/archive, `schedule_template` = a snapshot copy through `planning.creat
 example seed from `catch/seed/workout_templates.json`) and `sync/coaching_notes.py` (notes, feedback, per-revision
 history filtering, soft delete, and the stale-reference hooks: `repoint_canonical` from `_merge_canonicals`,
 `detach_event`/`detach_planned`/`detach_piece`). Technique notes have **no rating/score field and nothing infers
-technique quality** (Catch's data can't measure it). Coach/MCP: 55 tools (`coach/library_tools.py`, merged into
+technique quality** (Catch's data can't measure it). Coach/MCP: 55 tools after this session (58 after session 25; `coach/library_tools.py`, merged into
 `TOOLS`; every write previews unless `confirm === true`). Routes: `api/routes_library.py`, `api/routes_coaching.py`
 (`/preview`, `/coaches` registered before `/{id}`). Web: `pages/Library.tsx`, `LibraryTemplate.tsx`, `LibraryEditor.tsx`,
 `Feedback.tsx`; `components/library/` (BlockEditor, StructureView, SummaryPanel, ScheduleSheet — **the browser holds no
@@ -533,7 +533,7 @@ credentials, coach settings, conversations, AI usage, rate limits all filter by 
 (per-owner rate/concurrency/length/history-trim/wall-clock), `coach/vision.py` (the shared photo path; `nutrition_vision.py` and
 `piece_vision.py` are now async and provider-neutral). A hosted model with no entered price has *unknown* cost (`None`), not
 $0; a per-owner daily token cap exists beside the USD cap. API: `routes_ai.py` (`/api/ai/providers|…/key|…/test|…/models|active|
-usage`, cookie-only); the old `/api/coach/key` stays as an alias. Tools/MCP: still 55, none touch credentials. Web:
+usage`, cookie-only); the old `/api/coach/key` stays as an alias. Tools/MCP: still 55 at that point, none touch credentials. Web:
 `pages/AiProviders.tsx` (`/settings/ai`), `components/settings/ProviderCard|ProviderKeySheet|WhoopControls|RecoveryInputsCard`,
 `lib/aiProviders.ts`, `lib/mockAi.ts`, `lib/useVisionAvailable.ts`; `RecoveryRing`'s dialog lists each input's provider.
 Playwright: `web/tests/touch/ai-providers.spec.ts` (both mobile projects) and `ai-providers-desktop.spec.ts`. Adapters and the
@@ -566,6 +566,30 @@ mode patched: generic isolation for every owned table, JWT attacks, API isolatio
 migrations, RLS with separate identities, Storage, GoTrue, the app on the real runtime path, a Supavisor transaction pooler), `CATCH_TEST_PG_URL=… uv run pytest` runs the **whole** suite on PostgreSQL
 (foreign keys dropped there — the suite uses placeholder ids; `sqlite_engine` fixture for tests that reshape the schema). Public runtime deps (`fastapi[standard]`, `psycopg[binary]`, `pyjwt[crypto]`) are main dependencies behind a `platform_machine not in 'armv6l armv7l'` marker, because FastAPI Cloud installs no extras and runs `fastapi run` (psycopg-binary has no 32-bit
 ARM wheel, so a 32-bit Pi installs none); `alembic` stays in the `public` extra: `uv sync --extra public` (CI/Makefile use `--all-extras --all-groups`).
+
+Session 25 (per-user provider connections and sync — see PLAN.md, docs/provider-connections.md, docs/garmin-byok.md, DESIGN.md "Provider connections"; the brief
+called itself "session 20"). **Every user connects their own sources; the public deployment has no server-wide provider credential** (OAuth providers need one
+operator-registered *app* — client id/secret in server secrets — but each user's authorization and tokens are their own). `ProviderConnection` (`provider_connections`,
+owned, migration `0004`) holds `auth_method` (`oauth`/`api_key`/`personal_token`), a fixed-vocabulary `status`/`status_detail`, and **sealed** `access_enc`/`refresh_enc`/
+`credential_enc` (`secret_store` with `purpose="provider-connection"`, AAD `owner|provider:slot`); last sync/error/failures/`next_attempt_at`/`backfill_cursor` stay on
+`sync_state`. `catch/sync/connections.py` is the ONE place a credential is stored, sealed, resolved or removed (REST routes, sync engine and coach/MCP tools all use it;
+cards never contain a secret). Resolution: connection row → (**personal only**) legacy `oauth_tokens` row adopted once and deleted in the same transaction, or the `.env`
+Garmin key / Concept2 token read live; the public deployment never reads either. `catch/sync/providers/` holds the shared error kinds (`ProviderAuthError` → needs-reconnect,
+`ProviderRateLimited(retry_after)`, `ProviderUnavailable`) and the one capability/limitations table the UI, tools and docs share. **Garmin = the user's own Personal API key**
+(`garmin_client.exchange_key`; official self-service, no Developer Program, no password, nothing unofficial; Garmin's "not intended for commercial applications serving
+multiple end users" wording is disclosed in the UI and `CATCH_GARMIN_BYOK_ENABLED=0` switches it off). Concept2 = OAuth **or** a pasted personal token; Withings/Whoop OAuth.
+`core/oauth_state.py` + `api/routes_connections.py`: bearer-authenticated `POST …/oauth/start` sets a signed `HttpOnly` cookie and returns the authorize URL (the `state`
+is only a nonce — Whoop needs exactly 8 chars); unauthenticated `GET /auth/{p}/callback` verifies the cookie, sets the owner **inside the handler**, redirects to
+`/settings/connections?provider=…&result=…` (assumes web and API share an origin). `run_sync(source, manual=)` skips unconnected sources silently, skips needs-reconnect and
+backing-off ones unless manual, takes a cross-replica lease (`sync/lease.py`, the old `routes_internal._claim` generalised), maps provider errors to status + exponential
+backoff (5 min…6 h, `Retry-After` wins), and imports history one 30-day window per run (`start_backfill`/`_advance_backfill`; a failed window keeps its cursor). The tick
+shuffles users and stops starting new ones after 240 s. Public Garmin FIT files are parsed from a temp dir and deleted. Disconnect revokes where possible (Whoop; Withings/
+Concept2/Garmin document no revoke), deletes credentials and the cursor, **never imported data**; account deletion revokes Whoop first. Coach/MCP: 58 tools — added
+`get_connected_providers`, `get_sync_status`, `sync_provider` (confirm-gated; athlete-only; no credential args or fields). Web: `pages/Connections.tsx`
+(`/settings/connections`, no nav slot), `components/connections/ConnectionCard.tsx`/`CredentialSheet.tsx` (mirrors `ProviderKeySheet`), `lib/connections.ts`,
+`lib/mockConnections.ts`; Settings' "Connected sources" is now a summary with a link; `WhoopControls` and Settings' Garmin expiry input moved into the Connections card.
+Playwright: `web/tests/touch/connections.spec.ts` + `connections-desktop.spec.ts`. Tests: `tests/test_connections.py`, `tests/tenancy/test_provider_connections.py`.
+Verified against synthetic fixtures only — no live provider call was made.
 
 ## Commands
 

@@ -41,7 +41,7 @@ def _count(session, model):
 
 
 def test_eight_tools_registered_with_strict_schemas_and_correct_write_flags():
-    assert len(tools.TOOLS) == 55
+    assert len(tools.TOOLS) == 58
     writes = {"create_workout_template", "update_workout_template", "add_technique_note", "add_coach_feedback"}
     for name in NEW_TOOLS:
         spec = tools.TOOLS[name]
@@ -244,7 +244,7 @@ def test_rest_tool_endpoint_filters_private_for_coach_tokens_and_refuses_other_t
 def test_rest_tool_listing_for_a_coach_token_shows_only_coach_tools(client, tokens):
     names = {t["name"] for t in client.get("/api/coach/tools", headers=tokens["coach"]).json()}
     assert names == pr.COACH_TOOLS
-    assert len({t["name"] for t in client.get("/api/coach/tools", headers=tokens["athlete"]).json()}) == 55
+    assert len({t["name"] for t in client.get("/api/coach/tools", headers=tokens["athlete"]).json()}) == 58
 
 
 def test_cookie_login_is_the_athlete_on_the_tool_endpoint(client, session):

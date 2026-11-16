@@ -42,11 +42,11 @@ def _mock_transport() -> httpx.MockTransport:
 
 
 def _http() -> httpx.Client:
-    return httpx.Client(base_url=concept2_client.BASE_URL, headers=concept2_client._headers(), transport=_mock_transport())
+    return httpx.Client(base_url=concept2_client.BASE_URL, headers={"Authorization": "Bearer test-token", "Accept": concept2_client.ACCEPT_HEADER}, transport=_mock_transport())
 
 
 def test_sync_upserts_activities_with_unit_conversions(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
 
     result = concept2_client.sync(session, http=_http())
     assert result["results"] == 3
@@ -79,7 +79,7 @@ def test_sync_upserts_activities_with_unit_conversions(monkeypatch, session):
 
 
 def test_sync_uses_date_utc_when_present(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     concept2_client.sync(session, http=_http())
 
     a102 = session.exec(select(Activity).where(Activity.external_id == "102")).first()
@@ -90,7 +90,7 @@ def test_sync_uses_date_utc_when_present(monkeypatch, session):
 
 
 def test_sync_detects_interval_resets(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     concept2_client.sync(session, http=_http())
 
     a102 = session.exec(select(Activity).where(Activity.external_id == "102")).first()
@@ -100,7 +100,7 @@ def test_sync_detects_interval_resets(monkeypatch, session):
 
 
 def test_sync_is_idempotent(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     concept2_client.sync(session, http=_http())
     concept2_client.sync(session, http=_http())
 
@@ -112,7 +112,7 @@ def test_sync_is_idempotent(monkeypatch, session):
 
 
 def test_result_without_heart_rate_links_to_garmin_and_inherits_hr(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
 
     garmin_row = Activity(
         source="garmin",
@@ -143,7 +143,7 @@ def test_result_without_heart_rate_links_to_garmin_and_inherits_hr(monkeypatch, 
 
 
 def test_sync_seeds_max_hr_from_profile_when_unset(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     assert get_settings(session)["max_hr"] is None
 
     concept2_client.sync(session, http=_http())
@@ -161,7 +161,7 @@ def test_sync_seeding_max_hr_re_resolves_an_already_cached_canonicals_zones(monk
     from catch.sync.matching import run_matching
     from catch.sync.samples import store_samples
 
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     assert get_settings(session)["max_hr"] is None
 
     session.add(DailyWellness(date=datetime(2026, 6, 1, tzinfo=timezone.utc).date(), resting_hr=50))
@@ -185,7 +185,7 @@ def test_sync_seeding_max_hr_re_resolves_an_already_cached_canonicals_zones(monk
 
 
 def test_sync_does_not_overwrite_a_configured_max_hr(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", FAKE_SETTINGS)
+    monkeypatch.setattr("catch.sync.connections.settings", FAKE_SETTINGS)
     update_settings(session, {"max_hr": 180})
 
     concept2_client.sync(session, http=_http())
@@ -194,6 +194,6 @@ def test_sync_does_not_overwrite_a_configured_max_hr(monkeypatch, session):
 
 
 def test_missing_token_raises_clear_error(monkeypatch, session):
-    monkeypatch.setattr(concept2_client, "settings", dataclasses.replace(real_settings, concept2_access_token=""))
-    with pytest.raises(concept2_client.Concept2AuthError, match="CONCEPT2_ACCESS_TOKEN"):
+    monkeypatch.setattr("catch.sync.connections.settings", dataclasses.replace(real_settings, concept2_access_token=""))
+    with pytest.raises(concept2_client.Concept2AuthError, match="isn't connected"):
         concept2_client.sync(session)

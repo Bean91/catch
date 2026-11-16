@@ -11,9 +11,9 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from catch.core import security
 from catch.core.config import settings as real_settings
 from catch.core.models import BodyComp, OAuthToken
+from catch.sync import connections
 from catch.sync import withings_client
 from conftest import load_fixture
 
@@ -80,22 +80,15 @@ def test_exchange_code_stores_encrypted_tokens(monkeypatch, session):
     token = withings_client.exchange_code(session, "auth-code-123")
     assert token == "access-1"
 
-    row = session.get(OAuthToken, tenant.pk("withings"))
-    assert security.decrypt(row.access_token_enc) == "access-1"
-    assert security.decrypt(row.refresh_token_enc) == "refresh-1"
-    assert row.expires_at > datetime.now(timezone.utc) + timedelta(hours=2)
+    tokens = connections.oauth_tokens(session, "withings")
+    assert (tokens.access, tokens.refresh) == ("access-1", "refresh-1")
+    assert tokens.expires_at > datetime.now(timezone.utc) + timedelta(hours=2)
+    assert session.get(OAuthToken, tenant.pk("withings")) is None
 
 
 def test_refresh_rotates_refresh_token(monkeypatch, session):
     monkeypatch.setattr(withings_client, "settings", FAKE_SETTINGS)
-    row = OAuthToken(
-        source="withings",
-        access_token_enc=security.encrypt("old-access"),
-        refresh_token_enc=security.encrypt("old-refresh"),
-        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
-    )
-    session.add(row)
-    session.commit()
+    connections.store_oauth(session, "withings", access="old-access", refresh="old-refresh", expires_in=-60)
 
     monkeypatch.setattr(
         withings_client.httpx,
@@ -108,21 +101,13 @@ def test_refresh_rotates_refresh_token(monkeypatch, session):
     token = withings_client.get_access_token(session)
     assert token == "new-access"
 
-    refreshed = session.get(OAuthToken, tenant.pk("withings"))
-    assert security.decrypt(refreshed.refresh_token_enc) == "new-refresh"
-    assert security.decrypt(refreshed.access_token_enc) == "new-access"
+    refreshed = connections.oauth_tokens(session, "withings")
+    assert (refreshed.refresh, refreshed.access) == ("new-refresh", "new-access")
 
 
 def test_sync_converts_values_and_maps_meastypes(monkeypatch, session):
     monkeypatch.setattr(withings_client, "settings", FAKE_SETTINGS)
-    row = OAuthToken(
-        source="withings",
-        access_token_enc=security.encrypt("valid-access"),
-        refresh_token_enc=security.encrypt("valid-refresh"),
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-    )
-    session.add(row)
-    session.commit()
+    connections.store_oauth(session, "withings", access="valid-access", refresh="valid-refresh", expires_in=3600)
 
     fixture = load_fixture("withings", "getmeas_example.json")
 

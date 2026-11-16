@@ -487,6 +487,57 @@ export interface SyncSourceStatus {
   last_success_at: string | null;
   last_error: string | null;
   token_expires_at?: string | null;
+  // Session 25: the per-user connection state (see ConnectionCard).
+  connected?: boolean;
+  status?: ConnectionStatus;
+  status_text?: string | null;
+  importing_history_from?: string | null;
+  credential_expires_on?: string | null;
+}
+
+// --- Provider connections (session 25) ----------------------------------------
+export type ProviderId = "garmin" | "withings" | "concept2" | "whoop";
+export type ConnectionStatus = "connected" | "needs_reconnect" | "error" | "rate_limited" | "disconnected";
+export type ConnectionAuthMethod = "oauth" | "api_key" | "personal_token";
+
+/** Everything the browser ever gets about a connection: a status, dates, the last four characters of a long key — never a secret. */
+export interface ConnectionCard {
+  provider: ProviderId;
+  label: string;
+  auth_methods: ConnectionAuthMethod[];
+  available: boolean;
+  oauth_available: boolean;
+  connected: boolean;
+  status: ConnectionStatus;
+  status_detail: string | null;
+  status_text: string | null;
+  auth_method: ConnectionAuthMethod | null;
+  last4: string;
+  scopes: string[];
+  account_connected_at: string | null;
+  credential_expires_on: string | null;
+  token_expires_at: string | null;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  next_attempt_at: string | null;
+  importing_history_from: string | null;
+  capabilities: Record<string, "yes" | "no" | "unknown">;
+  limitations: string[];
+  notes: string;
+}
+
+export interface ConnectionsResponse {
+  deployment: "personal" | "public";
+  connections: ConnectionCard[];
+}
+
+export interface ConnectionTestResult {
+  connected: boolean;
+  ok: boolean;
+  needs_reconnect?: boolean;
+  message: string;
 }
 
 export interface SyncResult {
@@ -911,6 +962,8 @@ export interface NotificationLogRow {
 }
 
 export interface SourceStatus {
+  connected?: boolean;
+  status?: ConnectionStatus;
   source: string;
   last_success_at: string | null;
   last_attempt_at: string | null;
@@ -1067,16 +1120,6 @@ export interface AiUsage {
   today: { spend_usd: number; tokens: number; cap_usd: number | null; token_cap: number | null };
   provider_balance: null;
   source: "recorded_by_catch";
-}
-
-export interface WhoopTestResult {
-  connected: boolean;
-  reconnect?: boolean;
-  error?: string;
-  recovery?: { ok: boolean; has_records: boolean };
-  sleep?: { ok: boolean; has_records: boolean };
-  workout?: { ok: boolean; has_records: boolean };
-  token_expires_at?: string | null;
 }
 
 export interface CoachModel {

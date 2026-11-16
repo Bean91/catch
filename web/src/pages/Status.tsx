@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { fetchStatus } from "../lib/api";
 import { formatBytes, formatRelativeTime, formatUptime } from "../lib/format";
 import { Card } from "../components/ui/Card";
@@ -34,7 +35,9 @@ export function StatusPage() {
               <div>
                 <div className="text-sm font-medium capitalize text-text-primary">{s.source}</div>
                 <div className="text-xs text-text-tertiary">
-                  {s.last_error ? (
+                  {s.connected === false ? (
+                    "not connected"
+                  ) : s.last_error ? (
                     <span className="text-band-red-text">
                       failed — {s.last_error} ({s.consecutive_failures} in a row)
                     </span>
@@ -51,8 +54,11 @@ export function StatusPage() {
 
       <Card title="Garmin key">
         <p className="text-sm text-text-primary">
-          {data.garmin_key_expires_on ? `Expires ${data.garmin_key_expires_on}` : "No expiry reminder set — add one in Settings."}
+          {data.garmin_key_expires_on ? `Expires ${data.garmin_key_expires_on}` : "No expiry reminder set — add one under Connections."}
         </p>
+        <Link to="/settings/connections" className="mt-2 inline-block text-sm font-medium text-accent hover:underline">
+          Manage connections
+        </Link>
       </Card>
 
       <Card title="Backup">

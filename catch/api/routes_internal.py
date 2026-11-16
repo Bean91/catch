@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import hmac
 import logging
-from datetime import datetime, timedelta, timezone
+import random
+import time
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,10 +19,11 @@ from sqlmodel import Session, select
 from catch.core import db as db_module
 from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
-from catch.core.models import SyncState, UserProfile
+from catch.core.models import UserProfile
+from catch.sync import lease
 
 logger = logging.getLogger("catch.tick")
-LEASE = timedelta(minutes=10)
+TICK_BUDGET_S = 240.0  # stop starting new users after this long; the ones left run on the next tick
 JOBS = ("sync", "notifications")
 
 
@@ -47,39 +49,24 @@ def user_ids() -> list[str]:
 
 
 def _claim(session: Session, job: str) -> bool:
-    """Take the lease for (this user, job). The advisory lock is transaction-scoped (safe behind a pooler) and
-    only serialises the claim itself; the lease row is what spans the job's own commits."""
-    if tenant_hooks.uses_rls(session.get_bind()):
-        session.connection().execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"catch:{job}:{tenant.current_owner()}"})
-    key = f"job:{job}"
-    now = datetime.now(timezone.utc)
-    row = session.get(SyncState, tenant.pk(key))
-    if row is None:
-        row = SyncState(source=key)
-        session.add(row)
-    elif row.last_attempt_at is not None:
-        started = row.last_attempt_at if row.last_attempt_at.tzinfo else row.last_attempt_at.replace(tzinfo=timezone.utc)
-        finished = row.last_success_at
-        running = finished is None or finished < row.last_attempt_at
-        if running and now - started < LEASE:
-            session.rollback()
-            return False
-    row.last_attempt_at = now
-    session.commit()
-    return True
+    return lease.claim(session, job)
 
 
 def _finish(session: Session, job: str) -> None:
-    row = session.get(SyncState, tenant.pk(f"job:{job}"))
-    if row is not None:
-        row.last_success_at = datetime.now(timezone.utc)
-        session.commit()
+    lease.finish(session, job)
 
 
-def run_for_each_user(job: str, work: Callable[[], object]) -> dict:
-    summary = {"users": 0, "ran": 0, "skipped_running": 0, "failed": 0}
-    for uid in user_ids():
+def run_for_each_user(job: str, work: Callable[[], object], budget_s: float | None = None) -> dict:
+    summary = {"users": 0, "ran": 0, "skipped_running": 0, "failed": 0, "deferred": 0}
+    budget = TICK_BUDGET_S if budget_s is None else budget_s
+    started = time.monotonic()
+    uids = user_ids()
+    random.shuffle(uids)  # a budget that runs out must not always starve the same users
+    for uid in uids:
         summary["users"] += 1
+        if time.monotonic() - started > budget:
+            summary["deferred"] += 1
+            continue
         with tenant.use_owner(uid):
             with Session(db_module.engine) as session:
                 if not _claim(session, job):
@@ -97,10 +84,15 @@ def run_for_each_user(job: str, work: Callable[[], object]) -> dict:
 
 
 def _sync_work() -> None:
+    """Credentials are resolved inside run_sync from this user's own connection row; the only things passed along are the source
+    name and the owner context set by run_for_each_user."""
     from catch.sync.scheduler import SOURCES, run_sync
 
     for source in SOURCES:
-        run_sync(source)
+        try:
+            run_sync(source)
+        except Exception:  # noqa: BLE001 — one provider never stops the others
+            logger.exception("sync %s failed for one user", source)
 
 
 def _notification_work() -> None:

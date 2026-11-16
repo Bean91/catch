@@ -28,8 +28,14 @@ TEST_PASSWORD = "correct-horse-battery-staple"
 from catch.core.config import settings as _real_settings  # noqa: E402
 
 object.__setattr__(_real_settings, "ollama_enabled", True)
-for _field in ("secrets_master_key_previous", "whoop_client_id", "whoop_client_secret", "whoop_redirect_uri"):
+for _field in (
+    "secrets_master_key_previous", "whoop_client_id", "whoop_client_secret", "whoop_redirect_uri",
+    # Session 25: a real .env's Garmin key / Concept2 token would silently become a "connected" source in every test.
+    "garmin_api_key", "concept2_access_token", "concept2_client_id", "concept2_client_secret", "concept2_redirect_uri",
+):
     object.__setattr__(_real_settings, _field, "")
+object.__setattr__(_real_settings, "base_url", "http://localhost:8000")  # a real https base URL would make the OAuth state cookie Secure
+object.__setattr__(_real_settings, "garmin_byok_enabled", True)
 # A fixed, test-only master key: never the ambient .env's CATCH_FERNET_KEY, so credential tests
 # are deterministic on a laptop with a real .env and in CI without one.
 object.__setattr__(_real_settings, "secrets_master_key", "test-master-key-not-a-real-secret-0123456789")

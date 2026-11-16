@@ -106,6 +106,10 @@ def delete_account(body: DeleteAccount, request: Request, db: Session = Depends(
         removed = purge_storage(token, owner)
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="Could not remove stored files; nothing was deleted — try again") from None
+    # End live provider grants (Whoop offers revocation) while the credentials still exist; best effort, never blocks deletion.
+    from catch.sync import connections
+
+    connections.revoke_all_for_account_deletion(db)
     # The auth user goes first: it is the step that can fail for a reason outside our database, and once it is
     # gone the cascade removes the profile and every owned row (and the user's sessions stop validating).
     admin_delete_auth_user(owner)

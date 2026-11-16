@@ -24,7 +24,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from catch.core.config import settings
 
 FORMAT = "v1"
-_INFO = b"catch/ai-credential/v1"
+AI_PURPOSE = "ai-credential"
+CONNECTION_PURPOSE = "provider-connection"  # session 25: a separate key domain from the AI keys, same master + owner
 
 
 class SecretStoreError(RuntimeError):
@@ -46,8 +47,8 @@ def _masters() -> list[tuple[str, bytes]]:
     return masters
 
 
-def _derive(master: bytes, owner_id: str) -> bytes:
-    return HKDF(algorithm=hashes.SHA256(), length=32, salt=owner_id.encode(), info=_INFO).derive(master)
+def _derive(master: bytes, owner_id: str, purpose: str = AI_PURPOSE) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=owner_id.encode(), info=f"catch/{purpose}/v1".encode()).derive(master)
 
 
 def _aad(owner_id: str, provider: str) -> bytes:
@@ -61,16 +62,16 @@ def current_key_id() -> str:
     return masters[0][0]
 
 
-def seal(plaintext: str, *, owner_id: str, provider: str) -> tuple[str, str]:
-    """Returns (blob, key_id)."""
+def seal(plaintext: str, *, owner_id: str, provider: str, purpose: str = AI_PURPOSE) -> tuple[str, str]:
+    """Returns (blob, key_id). `provider` is the AAD scope: connections pass "garmin:credential", "whoop:refresh", …"""
     key_id = current_key_id()
     master = _masters()[0][1]
     nonce = os.urandom(12)
-    ct = AESGCM(_derive(master, owner_id)).encrypt(nonce, plaintext.encode(), _aad(owner_id, provider))
+    ct = AESGCM(_derive(master, owner_id, purpose)).encrypt(nonce, plaintext.encode(), _aad(owner_id, provider))
     return f"{FORMAT}.{key_id}.{base64.urlsafe_b64encode(nonce + ct).decode()}", key_id
 
 
-def open_sealed(blob: str, *, owner_id: str, provider: str) -> str:
+def open_sealed(blob: str, *, owner_id: str, provider: str, purpose: str = AI_PURPOSE) -> str:
     try:
         fmt, key_id, payload = blob.split(".", 2)
         raw = base64.urlsafe_b64decode(payload.encode())
@@ -82,7 +83,7 @@ def open_sealed(blob: str, *, owner_id: str, provider: str) -> str:
     if master is None:
         raise SecretStoreError("The master key that sealed this credential is not configured.")
     try:
-        return AESGCM(_derive(master, owner_id)).decrypt(raw[:12], raw[12:], _aad(owner_id, provider)).decode()
+        return AESGCM(_derive(master, owner_id, purpose)).decrypt(raw[:12], raw[12:], _aad(owner_id, provider)).decode()
     except InvalidTag as exc:
         raise SecretStoreError("Stored credential could not be verified for this owner and provider.") from exc
 

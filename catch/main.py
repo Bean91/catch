@@ -17,6 +17,7 @@ from catch.api import (
     routes_ai,
     routes_analytics,
     routes_auth,
+    routes_connections,
     routes_body,
     routes_calendar,
     routes_coaching,
@@ -149,6 +150,8 @@ async def _no_tenant(request: Request, exc: tenant.NoTenantContext):
 
 
 app.include_router(routes_auth.router)
+app.include_router(routes_connections.router)
+app.include_router(routes_connections.callback_router)
 app.include_router(routes_account.router)
 app.include_router(routes_internal.router)
 app.include_router(routes_wellness.router)

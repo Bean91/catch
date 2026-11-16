@@ -22,6 +22,7 @@ const TrainingIntelligencePage = lazy(() => import("./pages/TrainingIntelligence
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
 const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
+const ConnectionsPage = lazy(() => import("./pages/Connections").then((m) => ({ default: m.ConnectionsPage })));
 const AiProvidersPage = lazy(() => import("./pages/AiProviders").then((m) => ({ default: m.AiProvidersPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
@@ -108,6 +109,7 @@ export function App() {
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/ai" element={<AiProvidersPage />} />
+          <Route path="/settings/connections" element={<ConnectionsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/status" element={<StatusPage />} />
         </Routes>

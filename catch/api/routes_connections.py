@@ -1,0 +1,173 @@
+"""Settings → Connections (session 25; docs/provider-connections.md).
+
+Cookie / bearer-JWT only, like the AI-provider routes: a device token, an MCP client and a coach token never reach these. No
+response ever contains a token, key or code — only a masked card (last four characters of a long key, a status, dates)."""
+
+from __future__ import annotations
+
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, SecretStr
+from sqlmodel import Session
+
+from catch.api.deps import get_db, require_auth
+from catch.coach import limits
+from catch.core import oauth_state, tenant
+from catch.core.owner import current_owner_id
+from catch.sync import connections
+from catch.sync.providers import available
+
+router = APIRouter(dependencies=[Depends(require_auth)])
+OAUTH_PROVIDERS = ("withings", "whoop", "concept2")
+
+
+def _provider_or_404(provider: str) -> str:
+    if provider not in connections.PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    return provider
+
+
+def _throttle(owner_id: str) -> None:
+    try:
+        limits.check_rate(owner_id, "admin")
+    except limits.LimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=exc.message) from None
+
+
+class CredentialBody(BaseModel):
+    api_key: SecretStr
+    expires_on: str | None = None
+
+
+class ExpiryBody(BaseModel):
+    expires_on: str | None = None
+
+
+def _expiry(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Enter the expiry as a date (YYYY-MM-DD).") from None
+
+
+@router.get("/api/connections")
+def list_connections(db: Session = Depends(get_db)):
+    return {"deployment": "public" if tenant.is_public() else "personal", "connections": connections.list_cards(db)}
+
+
+@router.put("/api/connections/{provider}/credential")
+def put_credential(provider: str, body: CredentialBody, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    """Garmin Personal API key, or a Concept2 personal token. Validated against the provider first; the secret is never echoed."""
+    if _provider_or_404(provider) not in ("garmin", "concept2"):
+        raise HTTPException(status_code=422, detail="This provider connects through its own sign-in page.")
+    if not available(provider):
+        raise HTTPException(status_code=404, detail="Not available on this server")
+    _throttle(owner_id)
+    try:
+        return connections.connect_with_credential(db, provider, body.api_key.get_secret_value(), expires_on=_expiry(body.expires_on))
+    except connections.Rejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.put("/api/connections/{provider}/expiry")
+def put_expiry(provider: str, body: ExpiryBody, db: Session = Depends(get_db)):
+    """The date a Garmin key expires (Garmin doesn't expose it; you choose it when creating the key) — drives the reminder."""
+    if _provider_or_404(provider) != "garmin" or not connections.is_connected(db, provider):
+        raise HTTPException(status_code=404, detail="Not connected")
+    connections.set_credential_expiry(db, provider, _expiry(body.expires_on))
+    return connections.card(db, provider)
+
+
+@router.post("/api/connections/{provider}/oauth/start")
+def oauth_start(provider: str, response: Response, owner_id: str = Depends(current_owner_id)):
+    """Bearer-authenticated; returns the provider's authorize URL (the browser then navigates there — a redirect from here
+    couldn't carry the bearer). Sets the signed state cookie the callback needs."""
+    if _provider_or_404(provider) not in OAUTH_PROVIDERS:
+        raise HTTPException(status_code=422, detail="This provider uses a pasted key, not a sign-in page.")
+    _throttle(owner_id)
+    url = authorize_url_for(provider, response, owner_id)
+    return {"authorize_url": url}
+
+
+def authorize_url_for(provider: str, response: Response, owner_id: str) -> str:
+    from catch.sync import concept2_client, whoop_client, withings_client
+
+    configured = {"withings": withings_client.configured, "whoop": whoop_client.configured, "concept2": concept2_client.oauth_configured}[provider]
+    if not configured():
+        raise HTTPException(status_code=409, detail=f"{provider.capitalize()} sign-in isn't set up on this server.")
+    nonce = oauth_state.new_nonce(provider)
+    url = {"withings": withings_client.authorize_url, "whoop": whoop_client.authorize_url, "concept2": concept2_client.authorize_url}[provider](nonce)
+    response.set_cookie(oauth_state.cookie_name(provider), oauth_state.make(owner_id, provider, nonce), **oauth_state.cookie_kwargs())
+    return url
+
+
+@router.post("/api/connections/{provider}/test")
+def test_connection(provider: str, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    _provider_or_404(provider)
+    _throttle(owner_id)
+    return connections.test_connection(db, provider)
+
+
+@router.post("/api/connections/{provider}/sync")
+def sync_now(provider: str, owner_id: str = Depends(current_owner_id)):
+    from catch.sync.scheduler import run_sync
+
+    _provider_or_404(provider)
+    _throttle(owner_id)
+    return run_sync(provider, manual=True)
+
+
+@router.delete("/api/connections/{provider}")
+def disconnect(provider: str, db: Session = Depends(get_db)):
+    _provider_or_404(provider)
+    return connections.disconnect_provider(db, provider)
+
+
+callback_router = APIRouter()  # deliberately unauthenticated: identity comes from the signed state cookie, never from a body or query
+
+
+@callback_router.get("/auth/{provider}/callback")
+def oauth_callback(
+    provider: str,
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    session: Session = Depends(get_db),  # a session begins lazily, so the owner set below is what its first statement sees
+):
+    """Runs without a bearer token. The owner is established *inside* this handler from the verified cookie (a sync dependency would
+    set it in a thread copy of the context and lose it)."""
+    from fastapi.responses import RedirectResponse
+
+    from catch.core.models import UserProfile
+    from catch.sync import concept2_client, whoop_client, withings_client
+
+    if provider not in OAUTH_PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    try:
+        owner = oauth_state.verify(request.cookies.get(oauth_state.cookie_name(provider)), provider, state)
+    except oauth_state.OAuthStateError:
+        raise HTTPException(status_code=400, detail="Invalid or missing OAuth state") from None
+
+    def done(result: str) -> RedirectResponse:
+        redirect = RedirectResponse(f"/settings/connections?provider={provider}&result={result}", status_code=303)
+        redirect.delete_cookie(oauth_state.cookie_name(provider), path="/")
+        return redirect
+
+    if error or not code:
+        return done("denied")
+    exchange = {"withings": withings_client.exchange_code, "whoop": whoop_client.exchange_code, "concept2": concept2_client.exchange_code}[provider]
+    try:
+        with tenant.use_owner(owner):
+            if tenant.is_public() and session.get(UserProfile, owner) is None:
+                return done("failed")  # the account was deleted between start and callback
+            exchange(session, code)
+            from catch.sync.scheduler import start_backfill
+
+            start_backfill(session, provider)
+    except Exception:  # noqa: BLE001 — fixed outcome only; never the code, tokens or the provider's body
+        return done("failed")
+    return done("connected")

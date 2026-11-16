@@ -184,7 +184,11 @@ def check_illness(session: Session) -> None:
 
 def check_garmin_key_expiring(session: Session) -> None:
     settings = get_settings(session)
-    expires_on = settings.get("garmin_key_expires_on")
+    from catch.sync import connections
+
+    conn = connections.get(session, "garmin")
+    # The connection's own expiry wins; the settings row stays the fallback for a key kept in .env on the Pi.
+    expires_on = conn.credential_expires_on.isoformat() if conn and conn.credential_expires_on else settings.get("garmin_key_expires_on")
     if not expires_on or _sent_today(session, "garmin_key_expiring"):
         return
     days_left = (date.fromisoformat(str(expires_on)) - date.today()).days

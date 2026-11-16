@@ -62,7 +62,7 @@ Never use the `postgres` user or the direct connection string for `DATABASE_URL`
    ```
 2. Secrets (`fastapi cloud env set --secret …`, write-once): `DATABASE_URL`, `SUPABASE_SECRET_KEY`, `CATCH_TICK_SECRET`, `CATCH_SECRETS_MASTER_KEY`,
    `VAPID_PRIVATE_KEY` (if push is wanted). Plain variables: `CATCH_DEPLOYMENT=public`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `CATCH_OLLAMA_ENABLED=0`,
-   `CATCH_BASE_URL=https://<your host>`. **Do not** set `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY` or any Garmin/Concept2 credential there.
+   `CATCH_BASE_URL=https://<your host>`. **Do not** set `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY`, `GARMIN_PERSONAL_API_KEY` or `CONCEPT2_ACCESS_TOKEN` there (users supply their own; a public deployment never reads them). To offer OAuth sources set `WITHINGS_*`, `WHOOP_*` and `CONCEPT2_CLIENT_ID/SECRET/REDIRECT_URI` as secrets (redirect URIs `https://<your host>/auth/<provider>/callback`, registered with each provider), and `CATCH_GARMIN_BYOK_ENABLED=0` to switch Garmin off (docs/garmin-byok.md).
 3. `fastapi deploy`. The entrypoint is `[tool.fastapi] entrypoint = "catch.main:app"`.
 4. **Dependencies.** FastAPI Cloud's docs mention only `pyproject.toml`/`uv.lock`, nothing about extras, and it starts the app with `fastapi run` (confirmed by a failed first deploy:
    `To use the fastapi command, please install "fastapi[standard]"`). So `fastapi[standard]`, `psycopg[binary]` and `pyjwt[crypto]` are in the main dependencies behind a
@@ -87,8 +87,9 @@ select cron.schedule('catch-sync', '7,37 * * * *', $$
 select cron.schedule('catch-notify', '*/10 * * * *', $$ … same, /internal/tick/notifications … $$);
 ```
 
-Source connections (Withings, Whoop) need a per-user OAuth redirect that carries the user's identity; **that flow is not built** — in the public deployment those
-connect routes answer 404 and Garmin/Concept2 (which use one server-wide credential) are skipped. See "Not done" in PLAN.md.
+Source connections (session 25, docs/provider-connections.md): each user connects their own Garmin key / Withings / Concept2 / Whoop under Settings → Connections.
+OAuth callbacks are unauthenticated redirects identified by a signed `HttpOnly` cookie, which assumes **the web app and the API share an origin**. The tick walks
+connected providers per user within a 240 s budget; history import advances one window per tick.
 
 ## 6. Security headers
 

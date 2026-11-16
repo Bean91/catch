@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import urllib.parse
 from datetime import date as date_, datetime, timedelta, timezone
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -11,6 +13,8 @@ from sqlmodel import Session
 
 from catch.analytics.erg_math import watts_from_pace
 from catch.core.config import settings
+from catch.sync import connections
+from catch.sync.providers.base import ProviderAuthError, ProviderRateLimited, ProviderUnavailable
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync.samples import store_samples_from_strokes
 from catch.sync.upsert import upsert_activity, upsert_strokes
@@ -26,29 +30,110 @@ SOURCE = "concept2"
 WATTS_DERIVABLE_TYPES = {"rower", "dynamic", "slides", "skierg"}
 
 
-class Concept2AuthError(RuntimeError):
-    pass
+class Concept2AuthError(ProviderAuthError):
+    detail = "key_rejected"
 
 
-def _headers() -> dict:
-    if not settings.concept2_access_token:
-        raise Concept2AuthError("CONCEPT2_ACCESS_TOKEN is not set")
-    return {
-        "Authorization": f"Bearer {settings.concept2_access_token}",
-        "Accept": ACCEPT_HEADER,
+AUTH_URL = f"{BASE_URL}/oauth/authorize"
+TOKEN_URL = f"{BASE_URL}/oauth/access_token"
+# Read-only: the sync never writes results back. Scopes can't be added later, and the docs warn against relying on the default.
+SCOPES = "user:read,results:read"
+_REFRESH_SKEW = timedelta(minutes=5)
+_refresh_lock = threading.Lock()
+
+
+def oauth_configured() -> bool:
+    return bool(settings.concept2_client_id and settings.concept2_client_secret and settings.concept2_redirect_uri)
+
+
+def authorize_url(state: str) -> str:
+    params = {
+        "client_id": settings.concept2_client_id,
+        "scope": SCOPES,
+        "response_type": "code",
+        "redirect_uri": settings.concept2_redirect_uri,
+        "state": state,
     }
+    return f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(base_url=BASE_URL, headers=_headers(), timeout=30.0)
+def _token_request(form: dict, transport: httpx.BaseTransport | None = None) -> dict:
+    form = {**form, "client_id": settings.concept2_client_id, "client_secret": settings.concept2_client_secret, "scope": SCOPES}
+    try:
+        with httpx.Client(timeout=30.0, transport=transport) as client:
+            resp = client.post(TOKEN_URL, data=form, headers={"Accept": "application/json"})
+    except httpx.HTTPError:
+        raise ProviderUnavailable("Couldn't reach Concept2.") from None
+    if resp.status_code in (400, 401):
+        raise Concept2AuthError("Concept2 refused the authorization. Connect Concept2 again.")
+    if resp.status_code == 429:
+        raise ProviderRateLimited("Concept2 is rate-limiting Catch; it will retry on its own.")
+    if resp.status_code != 200:
+        raise ProviderUnavailable("Concept2 had a problem; Catch will retry.")
+    try:
+        body = resp.json()
+        body["access_token"]
+    except (ValueError, KeyError):
+        raise ProviderUnavailable("Concept2 sent a token response Catch couldn't read.") from None
+    return body
+
+
+def exchange_code(session: Session, code: str, transport: httpx.BaseTransport | None = None) -> None:
+    body = _token_request({"grant_type": "authorization_code", "code": code, "redirect_uri": settings.concept2_redirect_uri}, transport)
+    connections.store_oauth(session, SOURCE, access=body["access_token"], refresh=body.get("refresh_token"), expires_in=body.get("expires_in"), scopes=SCOPES)
+
+
+def validate_token(token: str, transport: httpx.BaseTransport | None = None) -> dict:
+    """A personal token is checked with one cheap read of the user's own profile; returns the (non-sensitive) account id."""
+    try:
+        with httpx.Client(base_url=BASE_URL, timeout=30.0, transport=transport, headers={"Authorization": f"Bearer {token}", "Accept": ACCEPT_HEADER}) as http:
+            resp = http.get("/api/users/me")
+    except httpx.HTTPError:
+        raise ProviderUnavailable("Couldn't reach Concept2.") from None
+    _check(resp)
+    data = (resp.json() or {}).get("data") or {}
+    return {"account_id": str(data["id"]) if data.get("id") is not None else None}
+
+
+def get_access_token(session: Session, transport: httpx.BaseTransport | None = None) -> str:
+    row = connections.get(session, SOURCE)
+    if row is None:
+        raise Concept2AuthError("Concept2 isn't connected. Connect it in Settings → Connections.")
+    if row.auth_method != "oauth":
+        try:
+            return connections.credential(session, SOURCE)
+        except connections.ConnectionError_:
+            raise Concept2AuthError("Concept2 isn't connected. Connect it in Settings → Connections.") from None
+    tokens = connections.oauth_tokens(session, SOURCE)
+    if tokens.access and tokens.expires_at and tokens.expires_at > datetime.now(timezone.utc) + _REFRESH_SKEW:
+        return tokens.access
+    with _refresh_lock:
+        tokens = connections.oauth_tokens(session, SOURCE, for_update=True)  # another caller may have rotated it meanwhile
+        if tokens.access and tokens.expires_at and tokens.expires_at > datetime.now(timezone.utc) + _REFRESH_SKEW:
+            return tokens.access
+        if not tokens.refresh:
+            raise Concept2AuthError("Concept2 authorization expired. Connect Concept2 again.")
+        body = _token_request({"grant_type": "refresh_token", "refresh_token": tokens.refresh}, transport)
+        connections.store_oauth(session, SOURCE, access=body["access_token"], refresh=body.get("refresh_token"), expires_in=body.get("expires_in"))
+        return body["access_token"]
+
+
+def _client(session: Session, transport: httpx.BaseTransport | None = None) -> httpx.Client:
+    headers = {"Authorization": f"Bearer {get_access_token(session, transport)}", "Accept": ACCEPT_HEADER}
+    return httpx.Client(base_url=BASE_URL, headers=headers, timeout=30.0, transport=transport)
 
 
 def _check(resp: httpx.Response) -> httpx.Response:
-    if resp.status_code == 401:
-        raise Concept2AuthError(
-            "Concept2 access token invalid or expired — generate a new one under "
-            "Edit Profile > Applications > Concept2 Logbook API integration"
-        )
+    if resp.status_code in (401, 403):
+        raise Concept2AuthError("Concept2 rejected the saved authorization. Reconnect Concept2 (or paste a new personal token).")
+    if resp.status_code == 429:
+        try:
+            wait = float(resp.headers["retry-after"]) if resp.headers.get("retry-after") else None
+        except ValueError:
+            wait = None
+        raise ProviderRateLimited("Concept2 is rate-limiting Catch; it will retry on its own.", retry_after=wait)
+    if resp.status_code >= 500:
+        raise ProviderUnavailable("Concept2 had a problem; Catch will retry.")
     resp.raise_for_status()
     return resp
 
@@ -233,14 +318,18 @@ def sync(
     updated_after: datetime | None = None,
     days: int | None = None,
     http: httpx.Client | None = None,
+    window: tuple[date_, date_] | None = None,
 ) -> dict:
-    http = http or _client()
+    http = http or _client(session)
     _seed_max_hr(session, http)
 
     from_date = date_.today() - timedelta(days=days) if (days and not updated_after) else None
+    to_date = None
+    if window is not None:  # a history-import window: exactly these days, whatever the incremental cursor says
+        from_date, to_date, updated_after = window[0], window[1], None
     results = 0
     strokes_total = 0
-    for item in list_results(http, updated_after=updated_after, from_date=from_date):
+    for item in list_results(http, updated_after=updated_after, from_date=from_date, to_date=to_date):
         # The list endpoint doesn't carry workout/drag_factor/stroke_rate/heart_rate (per the
         # documented response shape), and a live account has shown `stroke_data` on a list
         # item as a bare presence flag (bool) rather than the embedded array — so a prior

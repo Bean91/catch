@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
-from catch.core.models import OAuthToken, SyncState
+from catch.core.models import SyncState
+from catch.sync import connections
 from catch.sync.scheduler import SOURCES, run_sync
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -14,20 +15,32 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 def trigger_sync(source: str):
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
-    return run_sync(source)
+    return run_sync(source, manual=True)
 
 
 @router.get("/api/sync/status")
 def sync_status(db: Session = Depends(get_db)):
-    sync_rows = {row.source: row for row in db.exec(select(SyncState)).all()}
-    # Concept2 has no OAuthToken row (static long-lived personal access token, no exchange/
-    # refresh step) — token_expires_at stays null there, which is correct, not missing data.
-    token_rows = {row.source: row for row in db.exec(select(OAuthToken)).all()}
+    from catch.core import tenant
+
     out = []
-    for source in SOURCES:
-        base = sync_rows.get(source) or {"source": source, "last_success_at": None, "last_error": None}
-        base = base.model_dump() if hasattr(base, "model_dump") else dict(base)
-        token = token_rows.get(source)
-        base["token_expires_at"] = token.expires_at if token else None
-        out.append(base)
+    for card in connections.list_cards(db):
+        row = db.get(SyncState, tenant.pk(card["provider"]))
+        out.append(
+            {
+                "source": card["provider"],
+                "cursor": row.cursor if row else None,
+                "last_attempt_at": row.last_attempt_at if row else None,
+                "last_success_at": row.last_success_at if row else None,
+                "last_error": row.last_error if row else None,
+                "consecutive_failures": row.consecutive_failures if row else 0,
+                "alert_sent_at": row.alert_sent_at if row else None,
+                # Concept2 personal tokens and Garmin keys have no OAuth expiry: null there is correct, not missing data.
+                "token_expires_at": card["token_expires_at"],
+                "connected": card["connected"],
+                "status": card["status"],
+                "status_text": card["status_text"],
+                "importing_history_from": card["importing_history_from"],
+                "credential_expires_on": card["credential_expires_on"],
+            }
+        )
     return out

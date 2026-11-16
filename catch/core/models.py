@@ -369,6 +369,11 @@ class SyncState(OwnedStrict, SQLModel, table=True):
     # the two conditions tripped first) and cleared back to None on the next success — lets
     # `record_success` tell a genuinely-new episode apart from the same one continuing.
     alert_sent_at: Optional[datetime] = None
+    # Session 25: earliest time a *scheduled* run may try this source again (exponential backoff / the provider's
+    # Retry-After); a manual sync ignores it. `backfill_cursor` is the next historical window's start (ISO date) while a
+    # newly connected account's history is still being imported one window per tick; None once caught up.
+    next_attempt_at: Optional[datetime] = None
+    backfill_cursor: Optional[str] = None
 
 
 class OAuthToken(OwnedStrict, SQLModel, table=True):
@@ -443,6 +448,32 @@ class AiCredential(OwnedStrict, SQLModel, table=True):
     status_detail: Optional[str] = None
     status_checked_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ProviderConnection(OwnedStrict, SQLModel, table=True):
+    """Session 25: one user's connection to one data source (docs/provider-connections.md). Credentials are sealed per
+    owner/provider/slot by catch.core.secret_store and never leave the server; `status`/`status_detail` are fixed
+    vocabularies, never provider-supplied text. Sync health (last success / last error) stays on `sync_state`."""
+
+    __tablename__ = "provider_connections"
+
+    owner_id: str = owner_field(primary_key=True)
+    provider: str = Field(primary_key=True)
+    auth_method: str  # oauth | api_key | personal_token
+    status: str = "connected"  # connected | needs_reconnect | error | rate_limited | disconnected
+    status_detail: Optional[str] = None
+    account_id: Optional[str] = None
+    scopes_json: Optional[str] = None
+    access_enc: Optional[str] = None
+    refresh_enc: Optional[str] = None
+    credential_enc: Optional[str] = None
+    key_id: Optional[str] = None
+    last4: str = ""
+    expires_at: Optional[datetime] = None
+    credential_expires_on: Optional[date_] = None
+    connected_at: datetime = Field(default_factory=_utcnow)
+    last_validated_at: Optional[datetime] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 

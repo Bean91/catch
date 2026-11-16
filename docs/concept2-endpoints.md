@@ -24,6 +24,12 @@ Authorization: Bearer <token>
 Accept: application/vnd.c2logbook.v1+json
 ```
 
+**Session 25 (per-user connections):** Catch now supports **both** ways per user — OAuth authorization-code against `https://log.concept2.com/oauth/authorize` and
+`/oauth/access_token` (scopes `user:read,results:read`, read-only; the app is registered once by the operator at `/developers/keys`; refresh tokens last about a year and
+**rotate**; the docs state no user cap), and the personal token below pasted by the user. Concept2 documents no revoke endpoint (a user removes the application in
+Edit Profile → Applications), says "the API is not currently rate limited" but that abuse leads to limits or removal, and offers webhooks (`result-added/updated/deleted`)
+that Catch does not use. Verified from the documentation page (footer "Generated on 10 Nov 2026"); not exercised against a live OAuth app. See docs/provider-connections.md.
+
 For a personal/single-user integration, Concept2's own docs recommend skipping the OAuth2
 Authorization Code dance entirely: **Edit Profile > Applications > Concept2 Logbook API
 integration** on the Logbook website generates a long-lived personal access token directly.

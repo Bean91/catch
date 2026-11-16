@@ -94,6 +94,12 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return "Read coach feedback";
     case "add_coach_feedback":
       return input.confirm ? "Save feedback" : "Preview feedback";
+    case "get_connected_providers":
+      return "Read connected sources";
+    case "get_sync_status":
+      return "Read sync status";
+    case "sync_provider":
+      return input.confirm ? `Sync ${input.provider}` : `Preview syncing ${input.provider}`;
     default:
       return name;
   }

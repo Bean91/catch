@@ -1,3 +1,4 @@
+import { mockProviderConnections } from "./mockConnections";
 import type {
   ActivityOverrides,
   ActivitySamplesResponse,
@@ -296,12 +297,6 @@ function shiftDate(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const SYNC_STATUS: SyncSourceStatus[] = [
-  { source: "garmin", last_success_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(), last_error: null },
-  { source: "withings", last_success_at: null, last_error: "No Withings tokens stored — visit /auth/withings/start first" },
-  { source: "concept2", last_success_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(), last_error: null },
-];
-
 const WATCH_ILLNESS: IllnessState = {
   level: "watch",
   deviated_count: 2,
@@ -347,9 +342,17 @@ export function mockToday(scenario: MockScenario): Today {
 }
 
 export function mockSyncStatus(): SyncSourceStatus[] {
-  return SYNC_STATUS.map((s) => ({
-    ...s,
-    token_expires_at: s.source === "garmin" ? new Date(Date.now() + 20 * 3600 * 1000).toISOString() : null,
+  return mockProviderConnections().connections.map((c) => ({
+    source: c.provider,
+    last_attempt_at: c.last_attempt_at,
+    last_success_at: c.last_success_at,
+    last_error: c.last_error,
+    token_expires_at: c.token_expires_at,
+    connected: c.connected,
+    status: c.status,
+    status_text: c.status_text,
+    importing_history_from: c.importing_history_from,
+    credential_expires_on: c.credential_expires_on,
   }));
 }
 

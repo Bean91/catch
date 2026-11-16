@@ -14,6 +14,7 @@ from sqlmodel import select
 
 from catch.core.config import settings as real_settings
 from catch.core.models import Activity, DailyWellness, OAuthToken
+from catch.sync import connections
 from catch.sync.garmin_client import GarminAuthError, GarminClient
 from conftest import load_fixture
 
@@ -38,17 +39,15 @@ def test_token_exchange_parses_raw_jwt_body(monkeypatch, session):
         )
 
     monkeypatch.setattr("catch.sync.garmin_client.httpx.post", fake_post)
-    monkeypatch.setattr(
-        "catch.sync.garmin_client.settings", dataclasses.replace(real_settings, garmin_api_key="fake-key")
-    )
+    monkeypatch.setattr("catch.sync.connections.settings", dataclasses.replace(real_settings, garmin_api_key="fake-key"))
 
     client = GarminClient(session)
-    token = client._exchange_token()
+    token = client._token()
     assert token == jwt
 
-    row = session.get(OAuthToken, tenant.pk("garmin"))
-    assert row is not None
-    assert row.expires_at > datetime.now(timezone.utc) + timedelta(hours=23)
+    cached = connections.cached_access(session, "garmin")  # sealed in the connection row, not the legacy oauth_tokens table
+    assert cached.access == jwt and cached.expires_at > datetime.now(timezone.utc) + timedelta(hours=23)
+    assert session.get(OAuthToken, tenant.pk("garmin")) is None
 
 
 def test_token_exchange_401_raises_clear_error(monkeypatch, session):
@@ -56,13 +55,11 @@ def test_token_exchange_401_raises_clear_error(monkeypatch, session):
         return httpx.Response(401, text="unauthorized", request=httpx.Request("POST", url))
 
     monkeypatch.setattr("catch.sync.garmin_client.httpx.post", fake_post)
-    monkeypatch.setattr(
-        "catch.sync.garmin_client.settings", dataclasses.replace(real_settings, garmin_api_key="fake-key")
-    )
+    monkeypatch.setattr("catch.sync.connections.settings", dataclasses.replace(real_settings, garmin_api_key="fake-key"))
 
     client = GarminClient(session)
-    with pytest.raises(GarminAuthError, match="create a new one"):
-        client._exchange_token()
+    with pytest.raises(GarminAuthError, match="Create a new Personal API key"):
+        client._token()
 
 
 def _mock_transport() -> httpx.MockTransport:
@@ -90,16 +87,13 @@ def _mock_transport() -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
-def _client_with_cached_token(session) -> GarminClient:
-    from catch.core import security
+def _connect_garmin(session) -> None:
+    connections.store_credential(session, "garmin", "test-personal-api-key-1234", auth_method="api_key")
+    connections.store_access_cache(session, "garmin", _fake_jwt(), datetime.now(timezone.utc) + timedelta(hours=12))
 
-    row = OAuthToken(
-        source="garmin",
-        access_token_enc=security.encrypt(_fake_jwt()),
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=12),
-    )
-    session.add(row)
-    session.commit()
+
+def _client_with_cached_token(session) -> GarminClient:
+    _connect_garmin(session)
     http = httpx.Client(base_url="https://personal.connectapi.garmin.com", transport=_mock_transport())
     return GarminClient(session, http=http)
 
@@ -203,12 +197,7 @@ def test_sync_activities_repairs_a_stale_fit_path_without_a_network_call(session
 
     http = httpx.Client(base_url="https://personal.connectapi.garmin.com", transport=httpx.MockTransport(handler))
     client = GarminClient(session, http=http)
-    from catch.core import security
-
-    session.add(
-        OAuthToken(source="garmin", access_token_enc=security.encrypt(_fake_jwt()), expires_at=datetime.now(timezone.utc) + timedelta(hours=12))
-    )
-    session.commit()
+    _connect_garmin(session)
 
     client.sync_activities(date(2026, 10, 1), date(2026, 10, 31), tmp_path)
 
@@ -321,12 +310,7 @@ def test_a_single_fit_download_failure_does_not_abort_the_rest_of_the_sync(sessi
 
     http = httpx.Client(base_url="https://personal.connectapi.garmin.com", transport=httpx.MockTransport(handler))
     client = GarminClient(session, http=http)
-    from catch.core import security
-
-    session.add(
-        OAuthToken(source="garmin", access_token_enc=security.encrypt(_fake_jwt()), expires_at=datetime.now(timezone.utc) + timedelta(hours=12))
-    )
-    session.commit()
+    _connect_garmin(session)
 
     count = client.sync_activities(date(2026, 10, 1), date(2026, 10, 31), tmp_path)
     assert count == 2  # both activities upserted despite the first's FIT download failing

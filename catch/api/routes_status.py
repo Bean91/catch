@@ -6,15 +6,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
 from catch.core import tenant
 from catch.core.config import settings
-from catch.core.models import OAuthToken, SyncState
+from catch.sync import connections
 from catch.core.settings_store import get_settings
 from catch.core.uptime import START_TIME
-from catch.sync.scheduler import SOURCES
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -56,34 +55,35 @@ def _db_size_bytes() -> int:
 
 @router.get("/api/status")
 def status(db: Session = Depends(get_db)):
-    sync_rows = {row.source: row for row in db.exec(select(SyncState)).all()}
-    token_rows = {row.source: row for row in db.exec(select(OAuthToken)).all()}
-    sources = []
-    for source in SOURCES:
-        row = sync_rows.get(source)
-        sources.append(
-            {
-                "source": source,
-                "last_success_at": row.last_success_at if row else None,
-                "last_attempt_at": row.last_attempt_at if row else None,
-                "last_error": row.last_error if row else None,
-                "consecutive_failures": row.consecutive_failures if row else 0,
-                "token_expires_at": (token_rows.get(source).expires_at if token_rows.get(source) else None),
-            }
-        )
+    sources = [
+        {
+            "source": card["provider"],
+            "last_success_at": card["last_success_at"],
+            "last_attempt_at": card["last_attempt_at"],
+            "last_error": card["last_error"],
+            "consecutive_failures": card["consecutive_failures"],
+            "token_expires_at": card["token_expires_at"],
+            "connected": card["connected"],
+            "status": card["status"],
+        }
+        for card in connections.list_cards(db)
+    ]
+    garmin = connections.get(db, "garmin")
 
     app_settings = get_settings(db)
+    # A per-user connection owns its key expiry; the Pi's settings row remains the fallback for a key kept in .env.
+    garmin_expiry = garmin.credential_expires_on.isoformat() if garmin and garmin.credential_expires_on else app_settings.get("garmin_key_expires_on")
     if tenant.is_public():
         # Disk, database size, uptime and backup state describe the shared server — not something one user may read.
         return {
-            "sources": sources, "garmin_key_expires_on": None, "backup": None, "disk_free_bytes": 0, "disk_total_bytes": 0,
+            "sources": sources, "garmin_key_expires_on": garmin_expiry, "backup": None, "disk_free_bytes": 0, "disk_total_bytes": 0,
             "db_size_bytes": 0, "uptime_seconds": 0, "build": _build_info(),
         }
     disk = shutil.disk_usage(Path(settings.db_file).parent)
 
     return {
         "sources": sources,
-        "garmin_key_expires_on": app_settings.get("garmin_key_expires_on"),
+        "garmin_key_expires_on": garmin_expiry,
         "backup": _backup_status(),
         "disk_free_bytes": disk.free,
         "disk_total_bytes": disk.total,

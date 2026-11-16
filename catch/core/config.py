@@ -48,6 +48,10 @@ class Settings:
     withings_client_secret: str
     withings_redirect_uri: str
     concept2_access_token: str
+    concept2_client_id: str
+    concept2_client_secret: str
+    concept2_redirect_uri: str
+    garmin_byok_enabled: bool
     sync_interval_hours: float
     backfill_days: int
     mcp_http_enabled: bool
@@ -105,6 +109,12 @@ def load_settings() -> Settings:
         withings_client_secret=_get("WITHINGS_CLIENT_SECRET"),
         withings_redirect_uri=_get("WITHINGS_REDIRECT_URI"),
         concept2_access_token=_get("CONCEPT2_ACCESS_TOKEN"),
+        concept2_client_id=_get("CONCEPT2_CLIENT_ID"),
+        concept2_client_secret=_get("CONCEPT2_CLIENT_SECRET"),
+        concept2_redirect_uri=_get("CONCEPT2_REDIRECT_URI"),
+        # Operator kill-switch for users supplying their own Garmin Personal API key on a public deployment: Garmin's FAQ says
+        # that API "is not intended for commercial applications serving multiple end users" (docs/garmin-byok.md).
+        garmin_byok_enabled=_get("CATCH_GARMIN_BYOK_ENABLED", "1") == "1",
         sync_interval_hours=float(_get("SYNC_INTERVAL_HOURS", "2")),
         backfill_days=int(_get("BACKFILL_DAYS", "30")),
         # Off by default: the `mcp` package is only imported when this is set, so a Pi

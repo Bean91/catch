@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta, timezone
 
-from catch.core.models import Activity, BodyComp, DailyScore, OAuthToken, Stroke
+from catch.core.models import Activity, BodyComp, DailyScore, Stroke
 from catch.sync.matching import run_matching
 from catch.sync.samples import store_samples_from_strokes
 from conftest import TEST_PASSWORD
@@ -182,11 +182,13 @@ def test_pbs_distance_and_time_buckets(client, session):
 
 
 def test_sync_status_includes_token_expiry(client, session):
-    session.add(OAuthToken(source="garmin", access_token_enc="x", expires_at=datetime(2026, 2, 1, tzinfo=timezone.utc)))
-    session.commit()
+    from catch.sync import connections
+
+    connections.store_oauth(session, "whoop", access="a" * 20, refresh="r" * 20, expires_in=3600)
 
     _login(client)
     resp = client.get("/api/sync/status")
     by_source = {row["source"]: row for row in resp.json()}
-    assert by_source["garmin"]["token_expires_at"] is not None
+    assert by_source["whoop"]["token_expires_at"] is not None
+    assert by_source["whoop"]["connected"] is True and by_source["garmin"]["connected"] is False
     assert by_source["concept2"]["token_expires_at"] is None

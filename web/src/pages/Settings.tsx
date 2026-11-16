@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { fetchSettings, fetchSyncStatus, saveSettings, triggerSync } from "../lib/api";
+import { Link } from "react-router-dom";
+import { fetchSettings, fetchSyncStatus, saveSettings } from "../lib/api";
+import { STATUS_GLYPH, STATUS_LABEL } from "../lib/connections";
 import { formatRelativeTime } from "../lib/format";
-import { daysUntilGarminKeyExpires, GARMIN_KEY_PAGE_URL } from "../lib/garminKey";
 import { useTheme } from "../lib/theme";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
@@ -14,7 +14,6 @@ import { NutritionTargetsCard } from "../components/nutrition/NutritionTargetsCa
 import { IllnessBacktestCard } from "../components/settings/IllnessBacktestCard";
 import { NotificationsCard } from "../components/settings/NotificationsCard";
 import { RecoveryInputsCard } from "../components/settings/RecoveryInputsCard";
-import { WhoopControls } from "../components/settings/WhoopControls";
 import { AccountCard } from "../components/settings/AccountCard";
 import { isPublic } from "../lib/deployment";
 
@@ -26,11 +25,6 @@ export function SettingsPage() {
   const { theme, toggle } = useTheme();
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
   const statusQuery = useQuery({ queryKey: ["sync-status"], queryFn: fetchSyncStatus });
-
-  const [searchParams] = useSearchParams();
-  const whoopNotice = { connected: "Whoop connected.", denied: "Whoop access wasn't granted.", failed: "Couldn't finish connecting Whoop. Try again." }[
-    searchParams.get("whoop") ?? ""
-  ];
 
   const [form, setForm] = useState<Settings | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -47,11 +41,6 @@ export function SettingsPage() {
     },
   });
 
-  const sync = useMutation({
-    mutationFn: (source: string) => triggerSync(source),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["sync-status"] }),
-  });
-
   if (settingsQuery.isLoading || !form) {
     return (
       <div className="flex flex-col gap-4">
@@ -66,8 +55,6 @@ export function SettingsPage() {
     setDirty(true);
   }
 
-  const warnDays = daysUntilGarminKeyExpires(form.garmin_key_expires_on);
-
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
@@ -75,79 +62,38 @@ export function SettingsPage() {
       <Card
         title="Connected sources"
         action={
-          <Link to="/settings/status" className="text-sm font-medium text-accent hover:underline">
-            Status
+          <Link to="/settings/connections" className="text-sm font-medium text-accent hover:underline">
+            Manage
           </Link>
         }
       >
-        {whoopNotice && (
-          <p role="status" data-testid="whoop-notice" className="mb-3 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
-            {whoopNotice}
-          </p>
-        )}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3" data-testid="connected-sources">
           {SOURCES.map((source) => {
             const status = statusQuery.data?.find((s) => s.source === source);
+            const connected = status?.connected ?? false;
+            const state = status?.status ?? "disconnected";
             return (
               <div key={source} className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 last:border-0 last:pb-0">
                 <div>
                   <div className="text-sm font-medium capitalize text-text-primary">{source}</div>
                   <div className="text-xs text-text-tertiary">
-                    {status?.last_error ? (
-                      <span className="text-band-red-text">failed — {status.last_error}</span>
-                    ) : (
-                      <>last sync {formatRelativeTime(status?.last_success_at)}</>
-                    )}
-                    {status?.token_expires_at && <> · token valid until {new Date(status.token_expires_at).toLocaleString()}</>}
+                    {connected ? <>last sync {formatRelativeTime(status?.last_success_at)}</> : "connect it under Connections"}
                   </div>
                 </div>
-                {source === "whoop" ? (
-                  <WhoopControls status={status} onSync={() => sync.mutate("whoop")} syncing={sync.isPending} />
-                ) : source === "withings" ? (
-                  <a
-                    href="/auth/withings/start"
-                    className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent"
-                  >
-                    Reconnect
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => sync.mutate(source)}
-                    disabled={sync.isPending}
-                    className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50"
-                  >
-                    {sync.isPending ? "Syncing…" : "Sync now"}
-                  </button>
-                )}
+                <span className="text-xs text-text-secondary">
+                  <span aria-hidden="true">{STATUS_GLYPH[connected ? state : "disconnected"]}</span> {connected ? STATUS_LABEL[state] : "Not connected"}
+                </span>
               </div>
             );
           })}
         </div>
-
-        <div className="mt-4 border-t border-border pt-3">
-          <label className="flex flex-col gap-1.5 text-sm text-text-secondary sm:flex-row sm:items-center sm:gap-3">
-            Garmin personal API key expires on
-            <input
-              type="date"
-              value={form.garmin_key_expires_on ?? ""}
-              onChange={(e) => update("garmin_key_expires_on", e.target.value || null)}
-              className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
-            />
-          </label>
-          <p className="mt-1 text-xs text-text-tertiary">
-            Garmin's API exposes no key-expiry field — this is a reminder only you can set, separate from the token-refresh
-            date above.
-          </p>
-          {warnDays != null && warnDays <= 14 && (
-            <p className="mt-2 rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-xs text-band-red-text">
-              {warnDays <= 0 ? "Garmin key has expired" : `Garmin key expires in ${warnDays} day(s)`} —{" "}
-              <a href={GARMIN_KEY_PAGE_URL} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
-                create a new one
-              </a>
-              .
-            </p>
-          )}
+        <div className="mt-3 flex flex-wrap gap-3 border-t border-border pt-3 text-sm">
+          <Link to="/settings/connections" className="font-medium text-accent hover:underline">
+            Connect, replace a key or disconnect
+          </Link>
+          <Link to="/settings/status" className="font-medium text-accent hover:underline">
+            Status
+          </Link>
         </div>
       </Card>
 

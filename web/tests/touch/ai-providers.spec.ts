@@ -143,10 +143,12 @@ test("with no active provider the page says AI is off, and photo entry points di
   await expect(page.getByText("Estimate a meal from a photo")).toHaveCount(0);
 });
 
-test("Settings shows Whoop with a connect link, the recovery-input choice, and a link to AI providers", async ({ page }) => {
+test("Settings summarises each source, links to Connections, shows the recovery-input choice and a link to AI providers", async ({ page }) => {
   await page.goto("/settings?mock=1");
-  const whoop = page.getByTestId("whoop-controls");
-  await expect(whoop.getByRole("link", { name: "Connect Whoop" })).toHaveAttribute("href", "/auth/whoop/start");
+  const sources = page.getByTestId("connected-sources");
+  await expect(sources).toContainText("whoop");
+  await expect(sources.getByText("Reconnect needed")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Connect, replace a key or disconnect" })).toHaveAttribute("href", "/settings/connections");
   await expect(page.getByRole("radiogroup", { name: "Preferred device" })).toBeVisible();
   await expect(page.getByTestId("ai-provider-summary")).toContainText("Anthropic");
   await noHorizontalOverflow(page);

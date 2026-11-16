@@ -1,5 +1,9 @@
 # Garmin Connect Personal API — real endpoint inventory
 
+> **Session 25:** this is the API every user connects to with **their own** Personal API key (docs/garmin-byok.md). Official self-service key; not the Developer
+> Program. Key lifetime 30/90/180/365 days, shown once, deleted by the user in Garmin Connect; token endpoint `POST …/personalapitoken-service/personal-api/personal-api-key/token`
+> (`Authorization: ApiKey <key>`) returns a 24 h JWT, no refresh tokens. Garmin publishes no rate limits or history depth here.
+
 Source: the OpenAPI 3.0.1 spec embedded in the swagger-docs page's JS bundle at
 https://developer.garmin.com/gc-developer-program/personal/swagger-docs (the page itself
 is a client-rendered SwaggerUI with no server-rendered endpoint list; the spec is inlined

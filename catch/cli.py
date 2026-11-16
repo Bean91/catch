@@ -22,7 +22,12 @@ def cmd_backfill(args: argparse.Namespace) -> None:
     init_db()
     days = args.days or settings.backfill_days
     with get_session() as session:
+        from catch.sync import connections
+
         for source in SOURCES:
+            if source == "whoop" and not connections.is_connected(session, "whoop"):
+                print("whoop: not connected, skipped")
+                continue
             state.record_attempt(session, source)
             try:
                 if source == "garmin":
@@ -36,11 +41,6 @@ def cmd_backfill(args: argparse.Namespace) -> None:
                     n = withings_sync(session, days=days)
                     print(f"withings backfill ({days}d): {n} body_comp rows")
                 elif source == "whoop":
-                    from catch.core.models import OAuthToken
-
-                    if session.get(OAuthToken, tenant.pk("whoop")) is None:
-                        print("whoop: not connected, skipped")
-                        continue
                     from catch.sync.whoop_client import sync as whoop_sync
 
                     print(f"whoop backfill ({days}d): {whoop_sync(session, days=days)} records")

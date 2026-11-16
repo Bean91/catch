@@ -1,3 +1,10 @@
+> **Session 25 (per-user connections — docs/provider-connections.md):** the app credentials stay operator-side (`WITHINGS_*`); each user authorizes their own account and
+> their tokens are sealed per user. Verified against Withings' developer docs (2026-11): the standard API is limited to **120 requests per minute across the whole application**;
+> access tokens last 3 h, refresh tokens 1 year, and a refresh returns a **new** refresh token (the old one expires 8 h after issuance or on first use of the new access token);
+> webhooks exist (`appli` notifications) and are not used. **No token-revocation call was found in the documentation we could read**, so disconnecting removes Catch's copy only —
+> the grant stays on the user's Withings account until they remove it there. Non-zero `status` 601 is treated as rate limiting and 100/101/102/293/401 as a refused authorization —
+> **from memory of Withings' error list, not confirmed by a live response.**
+
 # Withings public API — what we actually confirmed
 
 Source: developer.withings.com guide pages, scraped directly (the site is a Docusaurus SPA;

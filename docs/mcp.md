@@ -1,5 +1,8 @@
 # MCP server
 
+> **Session 25:** three connection tools were added (`get_connected_providers`, `get_sync_status`, `sync_provider`; 58 tools total). They report connection and sync
+> state and can trigger a confirm-gated sync; they never see or accept a key or token (docs/provider-connections.md).
+>
 > **Session 23:** no tools were added or changed in count (still 55). AI provider keys and settings are deliberately
 > *not* reachable from here: the key routes are cookie-only, no tool name, schema or output mentions a credential
 > (`tests/test_ai_no_leak.py` plants keys and sweeps every read tool, the REST tool endpoint and the `/mcp` mount),
@@ -25,7 +28,7 @@ interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water
 are labelled; `get_route` never returns coordinates; weather is context, not a correction), and
 (session 22) the workout library, technique notes and coach feedback — `search_workout_library`/
 `get_workout_template`/`create_workout_template`/`update_workout_template`, `get_technique_notes`/
-`add_technique_note`, `get_coach_feedback`/`add_coach_feedback` — 55 tools
+`add_technique_note`, `get_coach_feedback`/`add_coach_feedback`, (session 25) `get_connected_providers`/`get_sync_status`/`sync_provider` — 58 tools
 total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 

@@ -29,6 +29,7 @@ FORMAT = 1
 EXCLUDED_TABLES = {
     # secrets and anything bound to this install or device: re-create them in the new account
     "oauth_tokens": "source connections must be re-authorised",
+    "provider_connections": "source connections and their credentials must be re-created in the new account",
     "ai_credentials": "AI keys are never exported",
     "coach_credentials": "AI keys are never exported",
     "api_tokens": "device tokens are bound to this install",

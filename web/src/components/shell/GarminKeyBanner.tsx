@@ -1,19 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchSettings } from "../../lib/api";
+import { fetchSyncStatus } from "../../lib/api";
 import { daysUntilGarminKeyExpires, GARMIN_KEY_PAGE_URL } from "../../lib/garminKey";
 import { useAuth } from "../../lib/auth";
 
 export function GarminKeyBanner() {
   const { status } = useAuth();
   const { data } = useQuery({
-    queryKey: ["settings"],
-    queryFn: fetchSettings,
+    queryKey: ["sync-status"],
+    queryFn: fetchSyncStatus,
     enabled: status === "authed",
     staleTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
-  const daysLeft = daysUntilGarminKeyExpires(data?.garmin_key_expires_on ?? null);
+  const garmin = data?.find((s) => s.source === "garmin");
+  const daysLeft = garmin?.connected ? daysUntilGarminKeyExpires(garmin.credential_expires_on ?? null) : null;
   if (daysLeft === null || daysLeft > 14) return null;
 
   const message =

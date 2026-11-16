@@ -70,8 +70,10 @@ def test_every_unique_key_and_primary_key_is_per_owner():
 
 def test_migration_0002_covers_exactly_the_tables_the_models_declare():
     m = _migration("0002_security")
+    later = set(_migration("0004_provider_connections").TABLES)  # tables added after 0002's frozen list, each with its own RLS
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
-    assert set(m.OWNED) == set(owned) and set(m.SHARED) == set(shared)
+    assert set(m.OWNED) | later == set(owned) and set(m.SHARED) == set(shared)
+    assert not set(m.OWNED) & later
     assert {m.PROFILES, m.GLOBAL_CACHE} == GLOBAL_TABLES
     # tenant FKs = every declared (non-EXTRA) reference to a strictly owned parent
     declared = {r for r in tenant_hooks.reference_columns() if r not in set(tenant_hooks.EXTRA_REFS) and r[2] in owned}
@@ -80,7 +82,8 @@ def test_migration_0002_covers_exactly_the_tables_the_models_declare():
 
 def test_the_baseline_snapshot_creates_every_table_and_only_those():
     sql = (ROOT / "migrations" / "versions" / "0001_baseline.sql").read_text()
-    assert set(re.findall(r"^CREATE TABLE (\w+) \(", sql, flags=re.M)) == set(SQLModel.metadata.tables)
+    later = set(_migration("0004_provider_connections").TABLES)
+    assert set(re.findall(r"^CREATE TABLE (\w+) \(", sql, flags=re.M)) | later == set(SQLModel.metadata.tables)
 
 
 ALLOWED_RAW_SQL = {
@@ -89,7 +92,8 @@ ALLOWED_RAW_SQL = {
     "catch/core/tenant_hooks.py",  # the per-transaction role + claims
     "catch/core/device_tokens.py",  # SECURITY DEFINER lookup before an owner is known
     "catch/core/supabase_auth.py",  # SECURITY DEFINER session check
-    "catch/api/routes_internal.py",  # SECURITY DEFINER user list + advisory lock
+    "catch/api/routes_internal.py",  # SECURITY DEFINER user list
+    "catch/sync/lease.py",  # the advisory lock behind the per-(user, job) claim
 }
 
 

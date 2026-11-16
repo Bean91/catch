@@ -11,8 +11,8 @@ import pytest
 from sqlmodel import Session, select
 
 from catch.analytics.whoop import parse_offset_minutes, sleep_wake_date, sport_family
-from catch.core import security
-from catch.core.models import Activity, DailyWellness, OAuthToken, SyncState, WellnessReading
+from catch.core.models import Activity, DailyWellness, ProviderConnection, SyncState, WellnessReading
+from catch.sync import connections
 from catch.core.settings_store import update_settings
 from catch.sync import whoop_client as wc
 from catch.sync import wellness_readings
@@ -34,15 +34,7 @@ def whoop_settings(monkeypatch):
 
 
 def connect(session, *, expires_in=3600, access="WHOOP-ACCESS-TOKEN-AAAAAAAAAAAA", refresh="WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB"):
-    session.add(
-        OAuthToken(
-            source="whoop",
-            access_token_enc=security.encrypt(access),
-            refresh_token_enc=security.encrypt(refresh),
-            expires_at=datetime.now(timezone.utc) + timedelta(seconds=expires_in),
-        )
-    )
-    session.commit()
+    connections.store_oauth(session, "whoop", access=access, refresh=refresh, expires_in=expires_in)
 
 
 class FakeWhoop:
@@ -95,9 +87,9 @@ def test_exchange_code_stores_tokens_encrypted(session):
     fake_response = load("token_response.json")
     transport = httpx.MockTransport(lambda r: httpx.Response(200, json=fake_response))
     wc.exchange_code(session, "the-code", transport)
-    row = session.get(OAuthToken, tenant.pk("whoop"))
-    assert "WHOOP-ACCESS-TOKEN" not in row.access_token_enc and "WHOOP-REFRESH-TOKEN" not in row.refresh_token_enc
-    assert security.decrypt(row.refresh_token_enc) == "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB"
+    row = session.get(ProviderConnection, tenant.pk("whoop"))
+    assert "WHOOP-ACCESS-TOKEN" not in row.access_enc and "WHOOP-REFRESH-TOKEN" not in row.refresh_enc
+    assert connections.oauth_tokens(session, "whoop").refresh == "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB"
     assert row.expires_at is not None
 
 
@@ -127,14 +119,14 @@ def test_expired_token_refreshes_and_the_rotated_refresh_token_is_committed(sess
     body = fake.requests[0].content.decode()
     assert "grant_type=refresh_token" in body and "scope=offline" in body and "WHOOP-REFRESH-TOKEN-BBBBBBBBBBBB" in body
     session.expire_all()
-    assert security.decrypt(session.get(OAuthToken, tenant.pk("whoop")).refresh_token_enc) == "NEW-REFRESH-1-YYYYYYYY"
+    assert connections.oauth_tokens(session, "whoop").refresh == "NEW-REFRESH-1-YYYYYYYY"
 
 
 def test_a_second_caller_with_a_stale_row_does_not_refresh_again(engine):
     with Session(engine) as a:
         connect(a, expires_in=60)
-        stale = a.get(OAuthToken, tenant.pk("whoop"))
-        assert stale.access_token_enc
+        stale = a.get(ProviderConnection, tenant.pk("whoop"))
+        assert stale.access_enc
         fake = FakeWhoop()
         with Session(engine) as b:
             wc.get_access_token(b, fake.transport())  # B rotates the token
@@ -400,7 +392,7 @@ def test_disconnect_revokes_forgets_tokens_and_keeps_imported_data(session):
     result = wc.disconnect(session, fake.transport())
     assert result == {"revoked": True, "was_connected": True}
     assert any(r.method == "DELETE" and r.url.path == "/developer/v2/user/access" for r in fake.requests)
-    assert session.get(OAuthToken, tenant.pk("whoop")) is None and session.get(SyncState, tenant.pk("whoop")) is None
+    assert session.get(ProviderConnection, tenant.pk("whoop")) is None and session.get(SyncState, tenant.pk("whoop")) is None
     assert session.get(DailyWellness, tenant.pk(date(2026, 11, 10))) is not None
     assert len(session.exec(select(Activity).where(Activity.source == "whoop")).all()) == 1
     assert wc.disconnect(session, fake.transport()) == {"revoked": False, "was_connected": False}
@@ -409,7 +401,7 @@ def test_disconnect_revokes_forgets_tokens_and_keeps_imported_data(session):
 def test_disconnect_still_forgets_tokens_when_whoop_is_unreachable(session):
     connect(session)
     result = wc.disconnect(session, httpx.MockTransport(lambda r: httpx.Response(500)))
-    assert result["revoked"] is False and session.get(OAuthToken, tenant.pk("whoop")) is None
+    assert result["revoked"] is False and session.get(ProviderConnection, tenant.pk("whoop")) is None
 
 
 def test_check_reports_counts_only(session):
@@ -461,12 +453,13 @@ def test_oauth_routes(client, monkeypatch):
     start = client.get("/auth/whoop/start", follow_redirects=False)
     assert start.status_code in (302, 307) and start.headers["location"].startswith("https://api.prod.whoop.com/oauth/oauth2/auth")
     state = httpx.URL(start.headers["location"]).params["state"]
-    assert client.cookies.get("whoop_oauth_state") == state
+    assert len(state) == 8  # Whoop insists on exactly eight characters
+    assert client.cookies.get("catch_oauth_whoop")
 
     bad = client.get("/auth/whoop/callback", params={"code": "c", "state": "WRONGSTA"}, follow_redirects=False)
     assert bad.status_code == 400
     ok = client.get("/auth/whoop/callback", params={"code": "c", "state": state}, follow_redirects=False)
-    assert ok.status_code == 303 and ok.headers["location"] == "/settings?whoop=connected"
+    assert ok.status_code == 303 and ok.headers["location"] == "/settings/connections?provider=whoop&result=connected"
 
 
 def test_oauth_denied_lands_on_settings(client):
@@ -474,7 +467,7 @@ def test_oauth_denied_lands_on_settings(client):
     start = client.get("/auth/whoop/start", follow_redirects=False)
     state = httpx.URL(start.headers["location"]).params["state"]
     denied = client.get("/auth/whoop/callback", params={"error": "access_denied", "state": state}, follow_redirects=False)
-    assert denied.headers["location"] == "/settings?whoop=denied"
+    assert denied.headers["location"] == "/settings/connections?provider=whoop&result=denied"
 
 
 def test_oauth_routes_need_login(client):

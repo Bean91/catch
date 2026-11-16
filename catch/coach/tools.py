@@ -1571,6 +1571,10 @@ from catch.coach import library_tools as _library_tools  # noqa: E402 — needs 
 
 TOOLS.update(_library_tools.TOOLS)
 
+from catch.coach import connection_tools as _connection_tools  # noqa: E402
+
+TOOLS.update(_connection_tools.TOOLS)
+
 
 def anthropic_tool_schemas() -> list[dict]:
     return [{"name": name, "description": spec["description"], "input_schema": spec["input_schema"]} for name, spec in TOOLS.items()]

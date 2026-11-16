@@ -121,15 +121,15 @@ Consequences (**design rules, because these are unknowns**):
    claimed under a transaction-scoped advisory lock — the only kind that is safe behind a pooler) stops two overlapping ticks double-running; a lease older
    than 10 minutes is considered dead. The user list comes from a SECURITY DEFINER function, so the runtime role never needs a bypass.
 2. **No local files.** Nothing in public mode writes to or reads from disk for user data. FIT-file based features
-   (Garmin download, `backfill-gps`) stay Pi-only until a Storage-backed blob store exists; Garmin public access needs
-   Garmin's developer approval anyway.
+   (`backfill-gps`) stay Pi-only until a Storage-backed blob store exists. Session 25: a public Garmin sync downloads each FIT into a temp
+   directory, parses it, and deletes it — nothing is kept; Garmin access is the user's own Personal API key (docs/garmin-byok.md), not the Developer Program.
 3. **No `create_all`/`ALTER TABLE` at startup.** The schema is changed only by Alembic, run by a human/CI with an admin
    URL — never by the app and never with the runtime role.
 4. **No assumption of IPv6 egress.** The runtime connects through the **shared pooler**, which is IPv4 [docs].
 5. **No transaction held across an LLM stream.** The chat loop commits (ending its read transaction) immediately before each provider stream; a test stalls a stream mid-way and asserts via
    `pg_stat_activity` that no `catch_api` session is `idle in transaction` (it failed before the fix — the memory-block read had left one open for the whole stream).
-6. **Rotating Whoop refresh tokens** need `SELECT … FOR UPDATE` on the token row in public mode (the in-process lock is
-   per-replica); until then Whoop is documented as single-replica-safe only.
+6. **Rotating refresh tokens** (Whoop, Withings, Concept2 OAuth) are read under an ORM `with_for_update()` row lock on the user's `provider_connections` row
+   (session 25), in addition to the in-process lock. The row lock is a no-op on SQLite and has not been exercised on Postgres here (`tests/pg` needs a local Supabase stack).
 7. Rate limits / AI concurrency are in-process (`coach/limits.py`); with several replicas the real ceiling is N× — a
    documented limitation, mitigated by the per-owner USD/token daily caps being DB-backed.
 
@@ -242,5 +242,5 @@ storage/serving/downloads, storage/uploads/file-limits, reference/javascript/aut
 2. Run `fastapi cloud` deploy, then `catch db check` **on FastAPI Cloud** — egress to the pooler, SSL, role, RLS probe.
 3. Confirm FastAPI Cloud installs the `public` extra (else deploy a `requirements.txt` — documented in `docs/public-setup.md`).
 4. Confirm SSE streaming and request timeouts for the coach on FastAPI Cloud (undocumented).
-5. Garmin Connect Developer Program approval; Whoop tier approval (new apps capped at 10 members); Open-Meteo commercial
+5. Whoop tier approval (new apps capped at 10 members); Open-Meteo commercial
    licence; a non-OSM tile source (see session 20/23 blockers in PLAN.md).

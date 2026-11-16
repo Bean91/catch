@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from catch.core import tenant
 import hashlib
 import hmac
+import threading
 import time
 import urllib.parse
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
 
 import httpx
 from sqlmodel import Session
 
-from catch.core import security
 from catch.core.config import settings
-from catch.core.models import OAuthToken
+from catch.sync import connections
+from catch.sync.providers.base import ProviderAuthError, ProviderError, ProviderRateLimited, ProviderUnavailable
 from catch.sync.upsert import upsert_body_comp
 
 AUTHORIZE_URL = "https://account.withings.com/oauth2_user/authorize2"
@@ -29,12 +29,27 @@ MEASTYPE_MAP = {1: "weight_kg", 6: "fat_pct", 8: "fat_kg", 76: "muscle_kg", 77: 
 MEASTYPES = ",".join(str(k) for k in MEASTYPE_MAP)
 
 
-class WithingsError(RuntimeError):
+class WithingsError(ProviderError):
     pass
+
+
+class WithingsReconnectNeeded(WithingsError, ProviderAuthError):
+    detail = "authorization_revoked"
+
+
+# Withings answers HTTP 200 with a non-zero JSON `status`. 601 is its documented "too many requests"; 401 is an invalid or
+# expired access token. Anything else non-zero is reported with its code only — never the response body.
+_RATE_STATUS = 601
+_AUTH_STATUSES = (401, 100, 101, 102, 293)
+_refresh_lock = threading.Lock()
 
 
 def _check_status(data: dict, action: str) -> None:
     status = data.get("status")
+    if status == _RATE_STATUS:
+        raise ProviderRateLimited("Withings is rate-limiting Catch; it will retry on its own.")
+    if status in _AUTH_STATUSES:
+        raise WithingsReconnectNeeded("Withings refused the authorization. Reconnect Withings.")
     if status != 0:
         # Withings' error responses carry the real reason in a top-level "error" field
         # (e.g. {"status": 503, "error": "Invalid Params"}) that status alone doesn't explain.
@@ -62,15 +77,26 @@ def authorize_url(state: str) -> str:
 def _get_nonce() -> str:
     timestamp = str(int(time.time()))
     signature = _sign("getnonce", settings.withings_client_id, timestamp)
-    resp = httpx.post(
+    resp = _post(
         SIGNATURE_URL,
         data={"action": "getnonce", "client_id": settings.withings_client_id, "timestamp": timestamp, "signature": signature},
-        timeout=30.0,
     )
-    resp.raise_for_status()
     data = resp.json()
     _check_status(data, "getnonce")
     return data["body"]["nonce"]
+
+
+def _post(url: str, **kwargs) -> httpx.Response:
+    try:
+        resp = httpx.post(url, timeout=30.0, **kwargs)
+    except httpx.HTTPError:
+        raise ProviderUnavailable("Couldn't reach Withings.") from None
+    if resp.status_code == 429:
+        raise ProviderRateLimited("Withings is rate-limiting Catch; it will retry on its own.")
+    if resp.status_code >= 500:
+        raise ProviderUnavailable("Withings had a problem; Catch will retry.")
+    resp.raise_for_status()
+    return resp
 
 
 def _request_token(session: Session, *, grant_type: str, code: str | None = None, refresh_token: str | None = None) -> str:
@@ -89,21 +115,26 @@ def _request_token(session: Session, *, grant_type: str, code: str | None = None
     else:
         params["refresh_token"] = refresh_token
 
-    resp = httpx.post(OAUTH_URL, data=params, timeout=30.0)
-    resp.raise_for_status()
+    resp = _post(OAUTH_URL, data=params)
     data = resp.json()
-    _check_status(data, "requesttoken")
+    try:
+        _check_status(data, "requesttoken")
+    except WithingsError as exc:
+        if grant_type == "refresh_token" and not isinstance(exc, WithingsReconnectNeeded):
+            # A refused refresh can't be retried into working: the old token is dead once a newer one exists.
+            raise WithingsReconnectNeeded("Withings refused the saved authorization. Reconnect Withings.") from None
+        raise
     body = data["body"]
-
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
-    if row is None:
-        row = OAuthToken(source=SOURCE, access_token_enc="")
-        session.add(row)
-    row.access_token_enc = security.encrypt(body["access_token"])
-    row.refresh_token_enc = security.encrypt(body["refresh_token"])
-    row.expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(body.get("expires_in", 10800)))
-    row.updated_at = datetime.now(timezone.utc)
-    session.commit()
+    # Withings' refresh tokens rotate (the old one survives only ~8 h): persist the new pair before anything else.
+    connections.store_oauth(
+        session,
+        SOURCE,
+        access=body["access_token"],
+        refresh=body["refresh_token"],
+        expires_in=int(body.get("expires_in", 10800)),
+        scopes=body.get("scope"),
+        account_id=str(body["userid"]) if body.get("userid") is not None else None,
+    )
     return body["access_token"]
 
 
@@ -112,13 +143,20 @@ def exchange_code(session: Session, code: str) -> str:
 
 
 def get_access_token(session: Session) -> str:
-    row = session.get(OAuthToken, tenant.pk(SOURCE))
-    if row is None:
-        raise WithingsError("No Withings tokens stored — visit /auth/withings/start first")
-    if row.expires_at and row.expires_at > datetime.now(timezone.utc) + timedelta(minutes=5):
-        return security.decrypt(row.access_token_enc)
-    refresh_token = security.decrypt(row.refresh_token_enc)
-    return _request_token(session, grant_type="refresh_token", refresh_token=refresh_token)
+    try:
+        tokens = connections.oauth_tokens(session, SOURCE)
+    except connections.ConnectionError_:
+        raise WithingsReconnectNeeded("Withings isn't connected. Connect it in Settings → Connections.") from None
+    fresh = lambda t: t.access and t.expires_at and t.expires_at > datetime.now(timezone.utc) + timedelta(minutes=5)  # noqa: E731
+    if fresh(tokens):
+        return tokens.access
+    with _refresh_lock:
+        tokens = connections.oauth_tokens(session, SOURCE, for_update=True)  # re-read: another caller may have rotated it
+        if fresh(tokens):
+            return tokens.access
+        if not tokens.refresh:
+            raise WithingsReconnectNeeded("Withings authorization expired. Reconnect Withings.")
+        return _request_token(session, grant_type="refresh_token", refresh_token=tokens.refresh)
 
 
 def _fetch_measure_pages(access_token: str, **extra_params: str) -> Iterator[dict]:
@@ -127,13 +165,7 @@ def _fetch_measure_pages(access_token: str, **extra_params: str) -> Iterator[dic
     while True:
         if offset:
             params["offset"] = offset
-        resp = httpx.post(
-            MEASURE_URL,
-            data=params,
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=30.0,
-        )
-        resp.raise_for_status()
+        resp = _post(MEASURE_URL, data=params, headers={"Authorization": f"Bearer {access_token}"})
         data = resp.json()
         _check_status(data, "getmeas")
         body = data.get("body", {})
@@ -144,9 +176,15 @@ def _fetch_measure_pages(access_token: str, **extra_params: str) -> Iterator[dic
         offset = body.get("offset")
 
 
-def sync(session: Session, lastupdate: int | None = None, days: int | None = None) -> int:
+def sync(session: Session, lastupdate: int | None = None, days: int | None = None, window: tuple[date, date] | None = None) -> int:
     access_token = get_access_token(session)
-    if days is not None:
+    if window is not None:
+        start, end = window
+        extra = {
+            "startdate": int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp()),
+            "enddate": int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) + 86400,
+        }
+    elif days is not None:
         now = int(time.time())
         extra = {"startdate": now - days * 86400, "enddate": now}
     elif lastupdate:
@@ -166,3 +204,13 @@ def sync(session: Session, lastupdate: int | None = None, days: int | None = Non
         upsert_body_comp(session, SOURCE, str(grp.get("grpid", grp["date"])), ts=ts, **values)
         count += 1
     return count
+
+
+def configured() -> bool:
+    return bool(settings.withings_client_id and settings.withings_client_secret and settings.withings_redirect_uri)
+
+
+def disconnect(session: Session) -> dict:
+    """Forgets Catch's tokens. Withings' public docs describe no revoke call, so the grant itself stays on the user's Withings
+    account until they remove it there (docs/withings-endpoints.md)."""
+    return {"revoked": False, "was_connected": connections.delete(session, SOURCE)}
