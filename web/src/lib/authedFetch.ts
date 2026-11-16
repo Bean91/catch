@@ -15,7 +15,8 @@ export async function authedFetch(input: string, init: RequestInit = {}): Promis
   const send = (token: string) => {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
-    return fetch(input, { ...init, headers, credentials: "omit" });
+    // "omit" also makes the browser discard Set-Cookie on the response; the OAuth start call needs its signed state cookie kept.
+    return fetch(input, { ...init, headers, credentials: init.credentials ?? "omit" });
   };
   const token = await accessToken();
   if (!token) {

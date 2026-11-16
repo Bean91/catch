@@ -945,7 +945,7 @@ export async function putConnectionExpiry(provider: ProviderId, expiresOn: strin
  *  mock there is no provider page, so it completes in place and returns null. */
 export async function startConnectionOAuth(provider: ProviderId): Promise<{ authorize_url: string | null }> {
   if (isMock) return delay(mockStartProviderOAuth(provider), 300);
-  return request(`/api/connections/${provider}/oauth/start`, { method: "POST" });
+  return request(`/api/connections/${provider}/oauth/start`, { method: "POST", credentials: "same-origin" });
 }
 
 export async function testConnection(provider: ProviderId): Promise<ConnectionTestResult> {
