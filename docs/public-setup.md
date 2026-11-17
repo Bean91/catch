@@ -32,8 +32,8 @@ uv run catch db seed             # global reference data: the exercise library a
 psql "$DATABASE_ADMIN_URL" -c "ALTER ROLE catch_api PASSWORD '<a long random password>'"
 ```
 
-The migrations create the `catch_api` login role (no superuser, **no BYPASSRLS**, no table privileges of its own — it can only `SET ROLE authenticated`,
-nothing else) and live in the non-exposed `catch` schema (plus `catch_private` for three SECURITY DEFINER lookups). Revision `0002` needs the `auth` schema, so it only runs against a Supabase database.
+The migrations create the `catch_api` login role (no superuser, **no BYPASSRLS**, no privileges on any owned table — it can only `SET ROLE authenticated` for those;
+since revision `0005` it also has direct grants on the shared leaderboard tables, reached only through `catch/sync/leaderboard_store.py`) and live in the non-exposed `catch` schema (plus `catch_private` for three SECURITY DEFINER lookups). Revision `0002` needs the `auth` schema, so it only runs against a Supabase database.
 To roll back: `uv run catch db upgrade 0001` (drops policies/roles, keeps data) or `base`. **Take a backup first** (§7).
 
 ## 3. Connection string for the app (FastAPI Cloud has no documented IPv6 egress)
@@ -60,7 +60,7 @@ Never use the `postgres` user or the direct connection string for `DATABASE_URL`
    ```
    cd web && VITE_CATCH_DEPLOYMENT=public VITE_SUPABASE_URL=https://<ref>.supabase.co VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_… npm run build
    ```
-2. Secrets (`fastapi cloud env set --secret …`, write-once): `DATABASE_URL`, `SUPABASE_SECRET_KEY`, `CATCH_TICK_SECRET`, `CATCH_SECRETS_MASTER_KEY`,
+2. Secrets (`fastapi cloud env set --secret …`, write-once): `CATCH_MODERATOR_IDS` (session 26: comma-separated Supabase user ids who may moderate leaderboards), `DATABASE_URL`, `SUPABASE_SECRET_KEY`, `CATCH_TICK_SECRET`, `CATCH_SECRETS_MASTER_KEY`,
    `VAPID_PRIVATE_KEY` (if push is wanted). Plain variables: `CATCH_DEPLOYMENT=public`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `CATCH_OLLAMA_ENABLED=0`,
    `CATCH_BASE_URL=https://<your host>`. **Do not** set `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY`, `GARMIN_PERSONAL_API_KEY` or `CONCEPT2_ACCESS_TOKEN` there (users supply their own; a public deployment never reads them). To offer OAuth sources set `WITHINGS_*`, `WHOOP_*` and `CONCEPT2_CLIENT_ID/SECRET/REDIRECT_URI` as secrets (redirect URIs `https://<your host>/auth/<provider>/callback`, registered with each provider), and `CATCH_GARMIN_BYOK_ENABLED=0` to switch Garmin off (docs/garmin-byok.md).
 3. `fastapi deploy`. The entrypoint is `[tool.fastapi] entrypoint = "catch.main:app"`.
