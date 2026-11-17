@@ -89,6 +89,8 @@ Constants in `analytics/leaderboards.py`, listed as overridable decisions (a leg
   sleep, resting HR, weight, body composition, nutrition, check-ins, heart rate, power, calories, training history, notes other than a chosen
   public one, the Concept2 result id or user id, the date of birth, an exact date the athlete didn't agree to, the account name or email.
 - **Dates**: hidden by default. The athlete chooses none / year / month / day, and the date is truncated **before** the public row is written.
+- **Anonymous is a display name, not unlinkability**: an "Anonymous rower" keeps one stable public athlete id, so their results are linkable to each
+  other on the profile page (just not to a name).
 - **Names**: the athlete's chosen handle (3–24 characters, globally unique case-insensitively, reserved/impersonation words and anything
   link-shaped refused) or "Anonymous rower". Catch's account display name is never used.
 - **Notes**: up to 140 characters, no links, public only if ticked.
@@ -114,7 +116,8 @@ until the athlete previews and republishes. Edits can't silently change a publis
 - Entry status is `active`, `hidden` or `removed`. It lives in a shared table the athlete's role has **no grant on**, so an athlete can't change it
   (or the audit log), only withdraw their own entry.
 - **Every** status change goes through one function and writes a `moderation_events` row in the same transaction: who (athlete / moderator /
-  system), from → to, a reason code and a **mandatory written reason**. The table is **append-only** (INSERT and SELECT grants only). Nothing is
+  system), from → to, a reason code and a **mandatory written reason**. The table is **append-only**: the runtime role can INSERT and SELECT, never DELETE, and may UPDATE only the two
+  person-reference columns (so deleting an account can detach the person from the log; no decision's text or status can be rewritten). Nothing is
   hidden, removed or restored without a recorded reason.
 - **Reports**: any signed-in user can report another's public result (reason + optional detail). One open report per reporter per entry; 10 per
   user per day; three distinct reporters automatically **hide it for review** (an event with the reason `report_threshold`). Reporters are never
@@ -124,7 +127,12 @@ until the athlete previews and republishes. Edits can't silently change a publis
 - **Appeals**: the athlete sees every event on their entries with its reason and can appeal a hidden or removed entry (one open appeal per
   entry, three open at once). A moderator resolves it **overturned** (the entry is restored through the same function, recorded) or **upheld**
   (recorded), with a reason either way. The athlete sees the outcome and reason in Settings → Leaderboards.
-- Withdrawals by the athlete delete the public row after recording the event; hidden/removed rows stay so an appeal can refer to them.
+- **Withdrawing can't undo a decision.** Taking down an active entry (or one hidden only because its source changed) records the event and deletes
+  the public row. An entry a moderator hid or removed, or the report threshold hid, is **kept as a tombstone** when the athlete asks to take it down
+  or opts out: the request is recorded, the entry stays closed, and it keeps its unique key, so withdrawing and publishing again is refused. The
+  athlete's way out is an appeal; only an overturned appeal (a moderator) restores it.
+- An entry hidden only because its source changed is cleared by the athlete: "Review and publish again" replaces it (recorded as
+  `replaced_by_republish`), or "Take down" removes it.
 
 ## 9. Rate limits
 

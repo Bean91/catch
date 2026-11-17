@@ -220,14 +220,22 @@ function OptedIn({ state }: { state: LbState }) {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    {(r.published === "hidden" || r.published === "removed") && (
-                      <button type="button" onClick={() => setAppealing(r.entry_id)} data-testid={`lb-appeal-${key}`} className={btn}>
-                        Appeal
+                    {r.can_republish ? (
+                      <button type="button" onClick={() => setPublishing(r)} data-testid={`lb-republish-${key}`} className={btn}>
+                        Review and publish again…
+                      </button>
+                    ) : (
+                      (r.published === "hidden" || r.published === "removed") && (
+                        <button type="button" onClick={() => setAppealing(r.entry_id)} data-testid={`lb-appeal-${key}`} className={btn}>
+                          Appeal
+                        </button>
+                      )
+                    )}
+                    {(r.published === "active" || r.can_republish) && (
+                      <button type="button" onClick={() => setTakeDown(r.entry_id)} data-testid={`lb-takedown-${key}`} className={btn}>
+                        Take down…
                       </button>
                     )}
-                    <button type="button" onClick={() => setTakeDown(r.entry_id)} data-testid={`lb-takedown-${key}`} className={btn}>
-                      Take down…
-                    </button>
                   </div>
                 )}
               </li>

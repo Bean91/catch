@@ -83,7 +83,8 @@ def use_owner(owner: str) -> Iterator[str]:
 @contextmanager
 def system() -> Iterator[None]:
     """A pre-authentication or seeding block. On Postgres the connection stays the unprivileged
-    `catch_api` role (no table grants at all — only the few SECURITY DEFINER functions it may EXECUTE);
+    `catch_api` role (no grants on any owned table — only the few SECURITY DEFINER functions it may EXECUTE, and, since session 26,
+    direct grants on the global leaderboard tables, reached only through catch.sync.leaderboard_store);
     for seeds it allows writing rows whose owner is NULL (global reference data)."""
     token = _system.set(True)
     try:

@@ -68,7 +68,7 @@ chat and the photo features say "Your stored key can't be read any more … Re-e
 
 The threat the multi-user build adds is one user reaching another's data. Three independent layers (docs/public-architecture.md §6): the request's owner comes only from a
 verified Supabase JWT (or a device token resolved to its minting user), never from a body, query or tool argument; the ORM adds `owner_id = :owner` to every query, stamps/verifies it
-on every write and resolves every cross-row id for that owner; and Postgres row level security, evaluated on the same connection, with a runtime role that has no privileges of its own,
+on every write and resolves every cross-row id for that owner; and Postgres row level security, evaluated on the same connection, with a runtime role that has no privileges on any owned table (session 26 gave it direct grants on the shared leaderboard tables only, reached through one module),
 cannot become any role but `authenticated`, and is checked at startup not to bypass RLS. Foreign-key checks bypass RLS, hence the composite tenant keys. The Data API never sees the tables
 (non-exposed schema). JWTs: ES256/RS256 only, fixed issuer/audience, `session_id` checked against `auth.sessions` (an access token can't otherwise be revoked). The browser keeps its Supabase
 session in localStorage — an SPA with a separate API has no httpOnly option — so a strict CSP (scripts by hash) is the defence, and sign-out wipes every local trace. `redact.py` scrubs JWTs, `sb_secret_`
@@ -81,7 +81,7 @@ owned, RLS-protected data. What other users may see lives in **shared tables wit
 (granted directly, since it inherits nothing) reaches them, and only through `catch/sync/leaderboard_store.py`, which opens a fresh session with the request's owner cleared
 (`tenant.system_detached`) and takes the acting owner as an explicit argument. The public row is a projection holding only allowlisted fields, rendered by one serializer; Concept2 ids, exact
 dates, dates of birth and every health or training metric stay in the owner's private snapshot or are never stored. Entry status and the moderation log are in tables the athlete's role cannot
-write (the log is INSERT/SELECT-only). Moderators are `CATCH_MODERATOR_IDS` (a server secret). Rate limits that matter (publishing, reports, appeals) are counted in the database. On account
+write (the log: INSERT/SELECT, plus UPDATE on the two person-reference columns so account deletion can detach the person). A moderator's closure survives withdraw and opt-out (the entry is kept as a tombstone), so it can't be undone by republishing. Moderators are `CATCH_MODERATOR_IDS` (a server secret). Rate limits that matter (publishing, reports, appeals) are counted in the database. On account
 deletion the public rows go, and the audit log is kept with the person detached.
 
 ## Known gaps

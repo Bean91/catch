@@ -4,7 +4,7 @@ Two owned tables (the athlete's private consent and per-publication snapshot) wi
 GLOBAL tables that hold what other signed-in users may see plus the moderation trail. Global tables are reachable only by
 the runtime role `catch_api` (granted directly: it is NOINHERIT, so membership in `authenticated` gives it nothing); the
 `authenticated` role has no grant on them, so an athlete cannot read another athlete's row, flip their own entry's status,
-or edit the audit log. `moderation_events` is append-only: SELECT and INSERT only.
+or edit the audit log. `moderation_events` is append-only: SELECT and INSERT, plus UPDATE on the two person-reference columns only (so account deletion can detach the person); no row is ever deleted or has its decision rewritten.
 
 A new revision rather than an edit of 0002: that revision's table lists are FROZEN (see its docstring).
 
@@ -196,6 +196,9 @@ def _global() -> None:
             op.execute(f"GRANT SELECT, INSERT ON catch.{t} TO catch_api")
             op.execute(f"CREATE POLICY {t}_select ON catch.{t} FOR SELECT TO catch_api USING (true)")
             op.execute(f"CREATE POLICY {t}_insert ON catch.{t} FOR INSERT TO catch_api WITH CHECK (true)")
+            # Account deletion detaches the person from the log. Column-level: nothing a decision says can be rewritten, and no row deleted.
+            op.execute(f"GRANT UPDATE (subject_owner_id, actor_id) ON catch.{t} TO catch_api")
+            op.execute(f"CREATE POLICY {t}_detach ON catch.{t} FOR UPDATE TO catch_api USING (true) WITH CHECK (true)")
             continue
         op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON catch.{t} TO catch_api")
         op.execute(f"CREATE POLICY {t}_select ON catch.{t} FOR SELECT TO catch_api USING (true)")

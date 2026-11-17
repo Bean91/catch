@@ -454,7 +454,7 @@ only). **No bottom-nav slot** (the bar is pinned at eight); a Sidebar entry on d
   see it" renders the public profile from the same endpoint everyone else reads. Settings say what applies to future publications and what keeps what you previewed.
 - **Take-down and opt-out are inline confirmations** in a bordered `role="group"` row, never a modal, and they say what happens ("recorded in your history with the reason 'you opted out'").
 - **Decisions are never silent.** "Decisions and appeals" lists every hidden/removed/withdrawn change on your results with who made it, the reason in full, and the time; a hidden or
-  removed result gets an **Appeal** button. Reports are anonymous to the athlete; the report sheet says so.
+  removed result gets an **Appeal** button (no "Take down" — a closed entry stays closed), and one hidden only because its source changed gets **Review and publish again**. Reports are anonymous to the athlete; the report sheet says so.
 - **Young athletes:** the join form shows the guardian-consent box only for youth bands and tells them what is different (handle or anonymous only, year-only dates). The browser does no
   age maths — it labels and asks; the server decides.
 - **Moderator page:** every action sits beside a required reason field; an empty reason returns the server's "A reason is required" in a `role="alert"` line.

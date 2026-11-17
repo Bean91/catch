@@ -230,8 +230,7 @@ def test_a_timed_board_ranks_by_distance(env):
 # ------------------------------------------------------------------ duplicates
 
 def test_one_result_cannot_be_published_twice_even_from_two_catch_accounts(env):
-    athlete(env, ALICE, "Alpha", 1, account="1")
-    act = seed(env, ALICE, 1)
+    _, act = athlete(env, ALICE, "Alpha", 1, account="1")
     assert publish(env, ALICE, act).status_code == 409  # already published by the same athlete
     join(env, BOB, "Bravo")
     bobs = seed(env, BOB, 1, account="1")  # the same Concept2 account + result id synced into a second Catch account
@@ -501,17 +500,17 @@ def test_deleting_an_account_removes_public_rows_but_keeps_an_anonymous_audit_tr
 
 # ------------------------------------------------------------------ privacy
 
-SENTINELS = ["97.3171", "27531", "73.4137", "18.2749", "171.3719", "7351", "311.77", "90417213", "55290183", "1984-03-09", "2026-10-14", "2026-10", "alice-private-note"]
+SENTINELS = ["97.3171", "17.8643", "73.4137", "18.2749", "171.3719", "7351.25", "311.77", "90417213", "55290183", "1984-03-09", "2026-10-14", "2026-10", "alice-private-note"]
 
 
 def test_no_private_metric_or_provider_identifier_ever_reaches_another_users_response(env):
     env.profiles[ALICE] = {"id": 55290183, "dob": "1984-03-09"}
     with tenant.use_owner(ALICE), Session(env.engine) as s:
-        s.add(DailyWellness(date=datetime(2026, 10, 14).date(), hrv_rmssd=97.3171, sleep_seconds=27531, resting_hr=41, stress=88))
+        s.add(DailyWellness(date=datetime(2026, 10, 14).date(), hrv_rmssd=97.3171, respiration=17.8643, resting_hr=41, stress=88))
         s.add(BodyComp(external_id="x", ts=datetime(2026, 10, 14, tzinfo=UTC), weight_kg=73.4137, fat_pct=18.2749))
         s.commit()
     join(env, ALICE, "Alpha", show_age_band=True, show_weight_class=True)
-    act = seed(env, ALICE, 90417213, account="55290183", extra={"avg_hr": 171.3719, "calories": 7351, "avg_power": 311.77})
+    act = seed(env, ALICE, 90417213, account="55290183", extra={"avg_hr": 171.3719, "calories": 7351.25, "avg_power": 311.77})
     p = preview(env, ALICE, act, note="alice-private-note", note_public=False)
     assert p.status_code == 200
     publish(env, ALICE, act, note="alice-private-note", note_public=False)
@@ -575,11 +574,11 @@ def _tool(env, sub, name, **args):
 def test_the_tools_return_public_information_only_and_no_private_metric(env):
     env.profiles[ALICE] = {"id": 55290183, "dob": "1984-03-09"}
     with tenant.use_owner(ALICE), Session(env.engine) as s:
-        s.add(DailyWellness(date=datetime(2026, 10, 14).date(), hrv_rmssd=97.3171, sleep_seconds=27531))
+        s.add(DailyWellness(date=datetime(2026, 10, 14).date(), hrv_rmssd=97.3171, respiration=17.8643))
         s.add(BodyComp(external_id="x", ts=datetime(2026, 10, 14, tzinfo=UTC), weight_kg=73.4137))
         s.commit()
     join(env, ALICE, "Alpha", show_age_band=True)
-    act = seed(env, ALICE, 90417213, account="55290183", extra={"avg_hr": 171.3719, "calories": 7351, "avg_power": 311.77})
+    act = seed(env, ALICE, 90417213, account="55290183", extra={"avg_hr": 171.3719, "calories": 7351.25, "avg_power": 311.77})
     assert publish(env, ALICE, act, date_precision="year").status_code == 200
     athlete_id = env.c.get("/api/leaderboards/me", headers=bearer(ALICE)).json()["athlete"]["athlete_id"]
 
@@ -647,3 +646,79 @@ def test_a_result_from_another_concept2_account_is_never_verified_through_this_c
         a.c2_user_id = "999"  # a result Concept2 attributes to somebody else
         s.commit()
     assert env.c.get("/api/leaderboards/me/results", headers=bearer(ALICE)).json()["results"][0]["verification"] == "provider_linked"
+
+
+# ------------------------------------------------------------------ a moderation decision can't be undone by withdrawing
+
+def _entry_status(env, entry):
+    with store.store() as s:
+        row = s.get(store.PublicEntry, entry)
+        return row.status if row else None
+
+
+def test_withdrawing_a_removed_entry_keeps_it_closed_and_it_cannot_be_republished(env):
+    entry, act = athlete(env, ALICE, "Alpha", 1, account="1")
+    env.c.post(f"/api/moderation/entries/{entry}/action", headers=bearer(MOD), json={"action": "remove", "reason": "Not a real result."})
+    r = env.c.post(f"/api/leaderboards/publications/{entry}/withdraw", headers=bearer(ALICE), json={"confirm": True})
+    assert r.status_code == 200 and r.json()["withdrawn"] is False and r.json()["kept_for_review"] is True
+    assert _entry_status(env, entry) == "removed"
+    assert publish(env, ALICE, act).status_code == 409  # the result is still the one a moderator removed
+    assert board(env, BOB)["total"] == 0
+    assert [e["reason_code"] for e in events(ALICE)] == ["withdrawal_requested", "moderator_remove"]
+    # the athlete's way out is the appeal, which still works on the kept entry
+    assert env.c.post(f"/api/leaderboards/entries/{entry}/appeal", headers=bearer(ALICE), json={"text": "It is real."}).status_code == 200
+
+
+def test_a_report_threshold_hide_cannot_be_escaped_by_withdrawing_and_republishing(env):
+    entry, act = athlete(env, ALICE, "Alpha", 1, account="1")
+    for sub in (BOB, CAROL, DAVE):
+        report(env, sub, entry)
+    env.c.post(f"/api/leaderboards/publications/{entry}/withdraw", headers=bearer(ALICE), json={"confirm": True})
+    assert _entry_status(env, entry) == "hidden"
+    assert publish(env, ALICE, act).status_code == 409 and board(env, ERIN)["total"] == 0
+
+
+def test_opting_out_and_back_in_cannot_clear_a_moderators_decision(env):
+    entry, act = athlete(env, ALICE, "Alpha", 1, account="1")
+    env.c.post(f"/api/moderation/entries/{entry}/action", headers=bearer(MOD), json={"action": "remove", "reason": "Not a real result."})
+    env.c.post("/api/leaderboards/me/opt-out", headers=bearer(ALICE), json={"confirm": True})
+    assert _entry_status(env, entry) == "removed"
+    join(env, ALICE, "Alpha")
+    assert publish(env, ALICE, act).status_code == 409
+    # restored by an overturned appeal, it is public again — through a moderator, not through the athlete
+    a = env.c.post(f"/api/leaderboards/entries/{entry}/appeal", headers=bearer(ALICE), json={"text": "Please look again."}).json()
+    env.c.post(f"/api/moderation/appeals/{a['id']}/resolve", headers=bearer(MOD), json={"outcome": "overturned", "reason": "It checks out."})
+    assert board(env, BOB)["total"] == 1
+
+
+def test_a_source_changed_entry_is_replaced_by_publishing_again_and_can_be_taken_down(env):
+    entry, act = athlete(env, ALICE, "Alpha", 1, account="1", duration=400.0)
+    with tenant.use_owner(ALICE), Session(env.engine) as s:
+        s.get(Activity, act).duration = 380.0
+        s.commit()
+    row = env.c.get("/api/leaderboards/me/results", headers=bearer(ALICE)).json()["results"][0]
+    assert row["published"] == "hidden" and row["can_republish"] is True
+    again = publish(env, ALICE, act)
+    assert again.status_code == 200 and again.json()["entry"]["entry_id"] != entry
+    data = board(env, BOB)
+    assert data["total"] == 1 and data["entries"][0]["result"] == "6:20.0"
+    assert [e["reason_code"] for e in events(ALICE)] == ["replaced_by_republish", "source_changed"]
+    assert _entry_status(env, entry) is None
+
+
+def test_a_source_changed_entry_can_simply_be_taken_down(env):
+    entry, act = athlete(env, ALICE, "Alpha", 1, account="1")
+    with tenant.use_owner(ALICE), Session(env.engine) as s:
+        s.get(Activity, act).duration = 380.0
+        s.commit()
+    env.c.get("/api/leaderboards/me", headers=bearer(ALICE))
+    r = env.c.post(f"/api/leaderboards/publications/{entry}/withdraw", headers=bearer(ALICE), json={"confirm": True})
+    assert r.json()["withdrawn"] is True and _entry_status(env, entry) is None
+
+
+def test_an_anonymous_athlete_keeps_one_stable_public_id_across_results(env):
+    join(env, ALICE)
+    publish(env, ALICE, seed(env, ALICE, 1))
+    publish(env, ALICE, seed(env, ALICE, 2, distance=5000, duration=1100.0))
+    ids = {e["athlete_id"] for key in ("2000m", "5000m") for e in board(env, BOB, key)["entries"]}
+    assert len(ids) == 1  # documented: anonymous is a display name, not unlinkability

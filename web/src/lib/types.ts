@@ -2361,6 +2361,8 @@ export interface LbResult {
   performed_on: string | null; // the athlete's own view only; never part of a public shape
   published: "active" | "hidden" | "removed" | "withdrawn" | null;
   entry_id: string | null;
+  /** Hidden only because its source changed: publishing it again is the way back. */
+  can_republish: boolean;
 }
 export interface LbPrefs {
   show_age_band?: boolean | null;

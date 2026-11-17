@@ -180,11 +180,36 @@ def set_note(owner_id: str, entry_id: str, note: Optional[str]) -> None:
         s.commit()
 
 
-def withdraw(owner_id: str, entry_id: str, *, reason_code: str = "user_withdrawn", reason_text: str = "Withdrawn by the athlete.") -> None:
+def _closed_by_source_change(s: Session, entry: PublicEntry) -> bool:
+    """True when the entry is hidden only because its source changed, which the athlete can clear by publishing again. A hide or
+    removal for any other reason (a moderator, the report threshold) is a decision the athlete can't undo by taking the entry down."""
+    if entry.status != "hidden":
+        return False
+    last = s.exec(select(ModerationEvent).where(ModerationEvent.entry_id == entry.entry_id).order_by(ModerationEvent.id.desc()).limit(1)).first()  # type: ignore[attr-defined]
+    return last is not None and last.reason_code == "source_changed" and last.to_status == "hidden"
+
+
+def withdraw(owner_id: str, entry_id: str, *, reason_code: str = "user_withdrawn", reason_text: str = "Withdrawn by the athlete.") -> bool:
+    """Take an entry down. An active entry, or one hidden only because its source changed, is deleted (after its event). One that a
+    moderator or the report threshold closed is **kept as a tombstone**: the request is recorded, the entry stays closed and keeps
+    its unique key, so withdrawing and republishing can't undo a moderation decision. Returns whether the row was deleted."""
     with store() as s:
         entry = _entry_for_owner(s, owner_id, entry_id)
-        set_entry_status(s, entry, "withdrawn", actor_kind="user", actor_id=owner_id, reason_code=reason_code, reason_text=reason_text)
+        if entry.status == "active" or _closed_by_source_change(s, entry):
+            set_entry_status(s, entry, "withdrawn", actor_kind="user", actor_id=owner_id, reason_code=reason_code, reason_text=reason_text)
+            s.commit()
+            return True
+        s.add(ModerationEvent(entry_id=entry.entry_id, subject_owner_id=entry.owner_id, from_status=entry.status, to_status=entry.status, actor_kind="user",
+                              actor_id=owner_id, reason_code="withdrawal_requested",
+                              reason_text="The athlete asked to take this down while it was closed. It stays closed until the decision is reversed."))
         s.commit()
+        return False
+
+
+def republishable(owner_id: str) -> set[str]:
+    """Entry ids the athlete may replace by publishing the result again (hidden only because the source changed)."""
+    with store() as s:
+        return {e.entry_id for e in s.exec(select(PublicEntry).where(PublicEntry.owner_id == owner_id, PublicEntry.status == "hidden")).all() if _closed_by_source_change(s, e)}
 
 
 def system_hide(owner_id: str, entry_id: str, reason_code: str, reason_text: str) -> bool:
@@ -469,13 +494,19 @@ def clubs_of(public_id: str) -> list[dict]:
 
 # ---------------------------------------------------------------- account deletion / opt-out
 
-def withdraw_all(owner_id: str, reason_code: str, reason_text: str) -> int:
+def withdraw_all(owner_id: str, reason_code: str, reason_text: str) -> set[str]:
+    """Opt-out: every entry comes down, except ones a moderation decision has closed, which stay as tombstones. Returns the ids deleted."""
+    deleted: set[str] = set()
     with store() as s:
-        entries = s.exec(select(PublicEntry).where(PublicEntry.owner_id == owner_id)).all()
-        for e in entries:
-            set_entry_status(s, e, "withdrawn", actor_kind="user", actor_id=owner_id, reason_code=reason_code, reason_text=reason_text)
+        for e in s.exec(select(PublicEntry).where(PublicEntry.owner_id == owner_id)).all():
+            if e.status == "active" or _closed_by_source_change(s, e):
+                deleted.add(e.entry_id)
+                set_entry_status(s, e, "withdrawn", actor_kind="user", actor_id=owner_id, reason_code=reason_code, reason_text=reason_text)
+            else:
+                s.add(ModerationEvent(entry_id=e.entry_id, subject_owner_id=owner_id, from_status=e.status, to_status=e.status, actor_kind="user", actor_id=owner_id,
+                                      reason_code="withdrawal_requested", reason_text="The athlete opted out while this was closed. It stays closed until the decision is reversed."))
         s.commit()
-        return len(entries)
+    return deleted
 
 
 def delete_owner_data(owner_id: str) -> None:

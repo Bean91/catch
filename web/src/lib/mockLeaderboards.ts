@@ -67,9 +67,9 @@ let withdrawnRefs = new Set<string>();
 let nextEvent = 1;
 
 const RESULTS: LbResult[] = [
-  { ref: { kind: "concept2_result", id: 101 }, board_key: "2000m", board_label: "2,000 m", result: "6:34.2", split_500m: "1:38.6", verification: "verified", verification_label: "Verified", verification_explained: "", performed_on: "2026-10-14", published: null, entry_id: null },
-  { ref: { kind: "concept2_result", id: 102 }, board_key: "5000m", board_label: "5,000 m", result: "17:40.0", split_500m: "1:46.0", verification: "provider_linked", verification_label: "Provider-linked", verification_explained: "", performed_on: "2026-10-02", published: null, entry_id: null },
-  { ref: { kind: "piece", id: 7 }, board_key: "6000m", board_label: "6,000 m", result: "21:20.0", split_500m: "1:46.7", verification: "unverified", verification_label: "Unverified", verification_explained: "", performed_on: "2026-09-20", published: null, entry_id: null },
+  { ref: { kind: "concept2_result", id: 101 }, board_key: "2000m", board_label: "2,000 m", result: "6:34.2", split_500m: "1:38.6", verification: "verified", verification_label: "Verified", verification_explained: "", performed_on: "2026-10-14", published: null, entry_id: null, can_republish: false },
+  { ref: { kind: "concept2_result", id: 102 }, board_key: "5000m", board_label: "5,000 m", result: "17:40.0", split_500m: "1:46.0", verification: "provider_linked", verification_label: "Provider-linked", verification_explained: "", performed_on: "2026-10-02", published: null, entry_id: null, can_republish: false },
+  { ref: { kind: "piece", id: 7 }, board_key: "6000m", board_label: "6,000 m", result: "21:20.0", split_500m: "1:46.7", verification: "unverified", verification_label: "Unverified", verification_explained: "", performed_on: "2026-09-20", published: null, entry_id: null, can_republish: false },
 ];
 const MEANING: Record<Verification, string> = {
   verified: "Fetched through your own Concept2 account and flagged verified by Concept2. Catch can authenticate where this result came from; it does not confirm who rowed it or the conditions.",

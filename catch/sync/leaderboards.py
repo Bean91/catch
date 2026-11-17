@@ -143,12 +143,13 @@ def opt_out(session: Session, body: dict) -> dict:
         raise LeaderboardError("Confirm that you want to leave the public leaderboards.")
     owner = tenant.current_owner()
     row = settings_row(session)
-    store.withdraw_all(owner, "user_opted_out", "The athlete opted out of public leaderboards.")
+    deleted = store.withdraw_all(owner, "user_opted_out", "The athlete opted out of public leaderboards.")
     existing = _athlete(owner)
     if existing is not None:
         store.upsert_athlete(owner, handle=None, display_mode="anonymous", active=False)
     for pub in session.exec(select(ResultPublication).where(ResultPublication.withdrawn_at.is_(None))).all():  # type: ignore[union-attr]
-        pub.withdrawn_at = _now()
+        if pub.entry_id in deleted:  # one a moderator closed is kept, so opting out can't undo that decision
+            pub.withdrawn_at = _now()
     row.opted_in = False
     session.commit()
     return my_state(session)
@@ -267,7 +268,10 @@ def _publication_for(session: Session, r: dict) -> Optional[ResultPublication]:
 # ---------------------------------------------------------------- my results
 
 def my_results(session: Session, *, board: str | None = None, state: str | None = None, limit: int = 100) -> list[dict]:
-    statuses = store.entry_statuses(tenant.current_owner())
+    owner = tenant.current_owner()
+    check_source_changes(session)
+    statuses = store.entry_statuses(owner)
+    again = store.republishable(owner)
     out: list[dict] = []
     acts = session.exec(
         select(Activity).where(Activity.source == "concept2", Activity.type == "rower", Activity.workout_type.in_(RANKED_TYPES)).order_by(Activity.start.desc()).limit(2000)  # type: ignore[union-attr,attr-defined]
@@ -296,6 +300,7 @@ def my_results(session: Session, *, board: str | None = None, state: str | None 
             "verification_label": lb.VERIFICATION_LABELS[verification], "verification_explained": vf.EXPLANATION[verification],
             "performed_on": r["date"].isoformat() if r["date"] else None,  # the athlete's own view; never in a public shape
             "published": (statuses.get(pub.entry_id, "withdrawn") if pub else None), "entry_id": pub.entry_id if pub else None,
+            "can_republish": bool(pub and pub.entry_id in again),
         })
         if len(out) >= limit:
             break
@@ -381,12 +386,19 @@ def publish(session: Session, ref: dict, prefs: dict, *, confirm: bool, preview_
     made = session.exec(select(func.count()).select_from(ResultPublication).where(ResultPublication.created_at >= since)).one()
     if made >= PUBLICATIONS_PER_DAY:
         raise LeaderboardError("You've reached today's publishing limit. Try again tomorrow.", 429)
+    check_source_changes(session)
     prep = _prepare(session, ref, prefs)
     if prep["hash"] != preview_hash:
         raise LeaderboardError("The preview is out of date. Review it again before publishing.", 409)
     r = prep["r"]
-    if _publication_for(session, r) is not None:
-        raise LeaderboardError("You've already published this result.", 409)
+    existing = _publication_for(session, r)
+    if existing is not None:
+        if existing.entry_id not in store.republishable(owner):
+            raise LeaderboardError("You've already published this result.", 409)
+        # Hidden only because its source changed: publishing again is the way back, and replaces the old entry (recorded).
+        store.withdraw(owner, existing.entry_id, reason_code="replaced_by_republish", reason_text="The athlete reviewed the changed result and published it again.")
+        existing.withdrawn_at = _now()
+        session.commit()
     e = prep["entry"]
     if r["kind"] == "concept2_result":
         provider, provider_user_id = "concept2", r["meta"]["user_id"] or f"owner:{owner}"
@@ -452,9 +464,12 @@ def unpublish(session: Session, entry_id: str, *, confirm: bool) -> dict:
     if pub is None:
         raise LeaderboardError("Not found.", 404)
     try:
-        store.withdraw(tenant.current_owner(), entry_id)
+        deleted = store.withdraw(tenant.current_owner(), entry_id)
     except store.StoreError as exc:
         raise LeaderboardError(str(exc), exc.status) from None
+    if not deleted:
+        return {"withdrawn": False, "kept_for_review": True,
+                "message": "This result is closed by a moderation decision, so it stays closed. Your request is recorded; you can appeal the decision."}
     pub.withdrawn_at = _now()
     session.commit()
     return {"withdrawn": True}

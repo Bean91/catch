@@ -602,7 +602,7 @@ only the band kept) beats a self-declared band; `MIN_PUBLISH_AGE=13`, guardian c
 **The one new cross-user read path:** two owned tables (`leaderboard_settings`, `result_publications`, forced RLS) plus seven **global** tables (`public_athletes`, `public_entries`, `clubs`,
 `club_members`, `moderation_events` — append-only, `result_reports`, `appeals`) that the `authenticated` role has no grant on and `catch_api` reaches only through
 `catch/sync/leaderboard_store.py`, which opens a fresh Session under `tenant.system_detached()` (owner cleared — `system()` alone keeps the request's owner and so `SET LOCAL ROLE authenticated`).
-Every status change goes through `leaderboard_store.set_entry_status`, which writes a `moderation_events` row with a mandatory reason in the same transaction; moderators are the Supabase ids in
+Every status change goes through `leaderboard_store.set_entry_status`, which writes a `moderation_events` row with a mandatory reason in the same transaction (an entry a moderator or the report threshold closed survives withdraw/opt-out as a tombstone, so republishing can't undo it; a source-changed hide is cleared by republishing); moderators are the Supabase ids in
 `CATCH_MODERATOR_IDS`; reports (3 distinct reporters auto-hide), appeals, DB-counted daily limits. Publishing = preview (`public_entry_view`, the one public serializer) then `confirm` + the
 preview's hash. `catch/sync/leaderboards.py` is the athlete-facing service (also `check_source_changes`, called after each Concept2 sync: a changed source hides the entry with a recorded reason);
 `api/routes_leaderboards.py`, `routes_moderation.py`; migration `0005`. Coach/MCP: 61 tools — added **read-only** `get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`
