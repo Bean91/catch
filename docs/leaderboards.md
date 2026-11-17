@@ -148,8 +148,8 @@ Counted in the database, so they hold across replicas: 20 publications per athle
   `moderation_events`, `result_reports`, `appeals`. The public row carries only the allowlisted public fields plus internal keys that are never
   serialized (athlete key, provider ids, age years for the youth boards).
 - Publishing writes the shared row, then the owned snapshot; if the second fails the first is removed (it was never confirmed to the athlete).
-- Not run: the Postgres side of the shared tables (grants, forced RLS with `TO catch_api` policies, append-only) has migration tests written but
-  needs a Supabase stack — see PLAN.md.
+- The Postgres side of the shared tables (grants, forced RLS with `TO catch_api` policies, append-only log, account deletion) is covered by
+  `tests/pg/test_leaderboards.py` against a local Supabase stack; it has not been run against a hosted project.
 
 ## 11. Retention and deletion
 

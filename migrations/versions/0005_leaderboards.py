@@ -224,3 +224,5 @@ def downgrade() -> None:
         op.execute(f"DROP TABLE IF EXISTS catch.{t}")
     for c in ("c2_weight_class", "c2_verified", "c2_user_id"):
         op.execute(f"ALTER TABLE catch.activities DROP COLUMN IF EXISTS {c}")
+    # Table and sequence grants went with the tables; the schema grant is what would stop 0002 dropping the role.
+    op.execute("REVOKE USAGE ON SCHEMA catch FROM catch_api")

@@ -99,7 +99,7 @@ def test_a_failing_profile_trigger_never_blocks_a_signup(migrated, admin):
             conn.execute(text("DELETE FROM auth.users WHERE email LIKE 'blocked-%'"))
 
 
-def test_rollback_keeps_data_and_the_upgrade_restores_the_protection(migrated, admin):
+def test_rollback_keeps_data_and_the_upgrade_restores_the_protection(migrated, admin, runtime):
     user = signup("rollback")
     with admin.begin() as conn:
         conn.execute(text("INSERT INTO catch.notes (owner_id, date, text, created_at) VALUES (:i, '2026-11-02', 'keep me', now())"), {"i": user.id})
@@ -117,15 +117,17 @@ def test_rollback_keeps_data_and_the_upgrade_restores_the_protection(migrated, a
     assert q(admin, "SELECT text FROM catch.notes WHERE owner_id = :i", i=user.id) == [("keep me",)]
     with admin.begin() as conn:
         conn.execute(text("DELETE FROM auth.users WHERE id = :i"), {"i": user.id})
+    runtime.dispose()  # the role was dropped and recreated: pooled connections from before belong to the old one
 
 
-def test_a_second_upgrade_is_a_noop_and_base_downgrade_works(migrated, admin):
+def test_a_second_upgrade_is_a_noop_and_base_downgrade_works(migrated, admin, runtime):
     assert run_alembic("upgrade", "head").returncode == 0
     assert run_alembic("downgrade", "base").returncode == 0
     assert q(admin, "SELECT count(*) FROM pg_tables WHERE schemaname = 'catch' AND tablename <> 'alembic_version'")[0][0] == 0
     assert run_alembic("upgrade", "head").returncode == 0
     with admin.begin() as conn:
         conn.execute(text(f"ALTER ROLE catch_api PASSWORD '{RUNTIME_PASSWORD}'"))
+    runtime.dispose()
 
 
 def test_backup_and_restore_keeps_rows_policies_and_isolation(migrated, admin, tmp_path):
