@@ -41,6 +41,10 @@ def legacy_engine(tmp_path, monkeypatch):
     return eng, path
 
 
+# Session 26: global leaderboard tables (public deployment; created but empty on a personal install).
+LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "clubs", "club_members", "moderation_events", "result_reports", "appeals"}
+
+
 def test_an_old_database_upgrades_in_place_keeping_every_row(legacy_engine):
     eng, path = legacy_engine
     assert "owner_id" not in {c["name"] for c in inspect(eng).get_columns("daily_wellness")}
@@ -48,7 +52,7 @@ def test_an_old_database_upgrades_in_place_keeping_every_row(legacy_engine):
     db_module.init_db()  # a second startup is a no-op
     cols = {t: {c["name"] for c in inspect(eng).get_columns(t)} for t in inspect(eng).get_table_names()}
     for table in SQLModel.metadata.tables:
-        if table in ("weather_cells", "user_profiles"):
+        if table in ("weather_cells", "user_profiles") or table in LEADERBOARD_GLOBAL:
             continue
         assert "owner_id" in cols[table], table
     with eng.connect() as conn:

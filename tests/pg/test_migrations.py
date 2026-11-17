@@ -44,7 +44,7 @@ def test_every_table_has_forced_rls_and_a_policy_per_command(migrated, admin):
                        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                        WHERE n.nspname = 'catch' AND c.relkind = 'r' AND c.relname <> 'alembic_version'""")
     assert len(rows) == len(SQLModel.metadata.tables)
-    expected = {"weather_cells": 2}
+    expected = {"weather_cells": 2, "moderation_events": 2}  # events are append-only: select + insert only
     for name, rls, forced, policies in rows:
         assert rls and forced, f"{name}: RLS not enabled and forced"
         assert policies == expected.get(name, 4), f"{name}: {policies} policies"

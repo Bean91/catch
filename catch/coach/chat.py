@@ -125,6 +125,9 @@ def _tool_label(name: str, args: dict) -> str:
         "get_connected_providers": "Read connected sources",
         "get_sync_status": "Read sync status",
         "sync_provider": f"Sync {args.get('provider')}" if args.get("confirm") else f"Preview syncing {args.get('provider')}",
+        "get_leaderboards": f"Read the {args.get('board')} leaderboard" if args.get("board") else "Read the leaderboards",
+        "get_public_athlete_profile": "Read a public athlete profile" if args.get("athlete_id") else "Read your public profile",
+        "get_verified_results": "Read your leaderboard-eligible results",
     }
     return labels.get(name, name)
 

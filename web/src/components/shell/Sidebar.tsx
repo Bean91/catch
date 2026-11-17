@@ -1,7 +1,9 @@
 import { NavLink } from "react-router-dom";
+import { isMock } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { isPublic } from "../../lib/deployment";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CalendarIcon, CoachIcon, FeedbackIcon, GymIcon, LibraryIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CalendarIcon, CoachIcon, FeedbackIcon, GymIcon, LeaderboardsIcon, LibraryIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
@@ -24,7 +26,11 @@ const ITEMS = [
   { to: "/settings", label: "Settings", Icon: SettingsIcon },
 ];
 
+// Session 26: leaderboards exist only on the public build (no bottom-nav slot, same pattern as Tests/Routes); the mock shows them too.
+const LEADERBOARDS_ITEM = { to: "/leaderboards", label: "Leaderboards", Icon: LeaderboardsIcon };
+
 export function Sidebar() {
+  const items = isPublic || isMock ? [...ITEMS.slice(0, -1), LEADERBOARDS_ITEM, ITEMS[ITEMS.length - 1]] : ITEMS;
   const { theme, toggle } = useTheme();
   const { logout, status } = useAuth();
 
@@ -33,7 +39,7 @@ export function Sidebar() {
       <div>
         <span className="font-mono-nums block px-2 text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
         <ul className="mt-6 flex flex-col gap-1">
-          {ITEMS.map(({ to, label, Icon }) => (
+          {items.map(({ to, label, Icon }) => (
             <li key={to}>
               <NavLink
                 to={to}

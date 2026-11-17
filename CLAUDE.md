@@ -181,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 58 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 61 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -591,6 +591,26 @@ Concept2/Garmin document no revoke), deletes credentials and the cursor, **never
 Playwright: `web/tests/touch/connections.spec.ts` + `connections-desktop.spec.ts`. Tests: `tests/test_connections.py`, `tests/tenancy/test_provider_connections.py`.
 Verified against synthetic fixtures only — no live provider call was made.
 
+Session 26 (public leaderboards and verified results — see PLAN.md, docs/leaderboards.md, DESIGN.md "Leaderboards and verified results"; the brief called itself "session 21", which is
+the calendar session — this is the 26th). **Public deployment only, signed-in users only** (every route 404s on a personal install). *Verification* (`analytics/verification.py`) = fetched through the
+user's own Concept2 connection **and** the result's `user_id` equals `provider_connections.account_id` **and** Concept2's own `verified` flag is true; otherwise provider-linked or unverified; a
+piece is never verified; "verified" means the *source* can be authenticated, never who rowed it. `activities` gained `c2_user_id`/`c2_verified`/`c2_weight_class` (read through `raw_json` for older
+rows). *Ranking* (`analytics/leaderboards.py`, pure): exact boards only (500/1k/2k/5k/6k m by time, 30/60 min by distance — never the test center's 2 % tolerance, never the user's `test_type`
+override), integer values, one best entry per athlete (athlete key = keyed hash of the Concept2 user id), standard competition ranking 1-2-2-4, tie order = hash of the entry id; only verified
+entries are ranked, the rest are a separately-ranked, labelled list. Age: youth cumulative "under" boards U14–U19 + exclusive adult bands; a Concept2 date of birth (read at publish, discarded,
+only the band kept) beats a self-declared band; `MIN_PUBLISH_AGE=13`, guardian consent under 16, minors get handle/anonymous only and year-only dates — constants, overridable, legal review pending.
+**The one new cross-user read path:** two owned tables (`leaderboard_settings`, `result_publications`, forced RLS) plus seven **global** tables (`public_athletes`, `public_entries`, `clubs`,
+`club_members`, `moderation_events` — append-only, `result_reports`, `appeals`) that the `authenticated` role has no grant on and `catch_api` reaches only through
+`catch/sync/leaderboard_store.py`, which opens a fresh Session under `tenant.system_detached()` (owner cleared — `system()` alone keeps the request's owner and so `SET LOCAL ROLE authenticated`).
+Every status change goes through `leaderboard_store.set_entry_status`, which writes a `moderation_events` row with a mandatory reason in the same transaction; moderators are the Supabase ids in
+`CATCH_MODERATOR_IDS`; reports (3 distinct reporters auto-hide), appeals, DB-counted daily limits. Publishing = preview (`public_entry_view`, the one public serializer) then `confirm` + the
+preview's hash. `catch/sync/leaderboards.py` is the athlete-facing service (also `check_source_changes`, called after each Concept2 sync: a changed source hides the entry with a recorded reason);
+`api/routes_leaderboards.py`, `routes_moderation.py`; migration `0005`. Coach/MCP: 61 tools — added **read-only** `get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`
+(`coach/leaderboard_tools.py`; athlete-only; no publish/unpublish tools by design). Web: `pages/Leaderboards.tsx`, `LeaderboardAthlete.tsx`, `LeaderboardSettings.tsx`, `Moderation.tsx`,
+`components/leaderboards/` (PublishSheet, ReasonSheet, EntryRow, VerificationBadge), `lib/leaderboards.ts` (labels only — the browser holds no ranking or age math), `lib/mockLeaderboards.ts`.
+Playwright: `web/tests/touch/leaderboards.spec.ts`, `leaderboards-desktop.spec.ts`. Verified against synthetic Concept2 fixtures only; the Postgres grants/RLS for the global tables are written but
+unrun here.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -656,5 +676,5 @@ Verified against synthetic fixtures only — no live provider call was made.
 
 Everything sensitive lives in `.env` (gitignored) — on the public deployment, in FastAPI Cloud's secrets (never `DATABASE_ADMIN_URL`, never in the frontend; only the publishable key
 is public). `.env.example` documents every key with
-no real values. Never commit `.env`, the SQLite DB, or downloaded FIT files. Never print env
+no real values (session 26 added `CATCH_MODERATOR_IDS`, the Supabase user ids allowed to moderate leaderboards — a server secret, never in the frontend). Never commit `.env`, the SQLite DB, or downloaded FIT files. Never print env
 values to logs or chat — key *names* only when debugging.

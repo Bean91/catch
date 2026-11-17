@@ -4136,3 +4136,70 @@ Whoop tier approval; the Garmin terms question above (the operator's call); an O
 2. Register the Whoop/Withings/Concept2 apps with the real redirect URIs, connect one real account of each on a throwaway deployment, and fix whatever the first live calls disagree with (start with the status-code and token-endpoint assumptions above).
 3. Decide frontend hosting (same origin for the OAuth cookie), then deploy and run `curl …/internal/db-check`.
 4. Optional: a user-controlled Garmin "Export your data" import and a "delete imported data" action.
+
+
+# Session 26: public leaderboards and verified rowing results
+
+**Numbering note.** The brief called itself "session 21"; the real number is 26 (PLAN.md's own Session 21 is the calendar session, and sessions 22–25 are above). It said to use the "existing test-center, activity and account systems" — it did: results come from the Concept2 `Activity` rows and pieces the test center already reads, and the public build's accounts/tenancy carry the rest. `.env` was not read.
+
+## Decisions (the user chose the first four; the rest are mine)
+
+1. **Signed-in users only.** There are no logged-out pages or endpoints, so no SPA auth-gate change and no anonymous surface.
+2. **Only verified results are ranked.** Provider-linked and unverified ones can be published and are shown behind "Also show unverified", in their own labelled, separately ranked section, never above a verified result.
+3. **Age category from the Concept2 profile *or* self-declared, with all the youth bands** (U14–U19). Concept2's date of birth, when present, wins and disables self-declaring (nobody can declare into an easier band); only the band is stored, never the date of birth.
+4. **Moderators = `CATCH_MODERATOR_IDS`** (Supabase user ids in a server secret). No admin accounts were added.
+5. **"Verified" is three conditions, not Concept2's flag alone:** fetched through the user's own connection, the result's `user_id` equals the connection's authenticated `account_id`, and Concept2's `verified` is true. A piece is never verified. A Garmin link neither raises nor lowers a state. The meaning is stated everywhere it appears: the *source* can be authenticated; nothing is claimed about identity or condition.
+6. **Boards are exact.** Not the test center's 2 % tolerance (a 1,960 m piece must not rank as a 2k), not the user's `test_type` override; RowErg, `FixedDistanceSplits`/`FixedTimeSplits`, no intervals. `30min_r20` is not a board (its stroke-rate cap is Catch's rule).
+7. **Ranking = integers, one best entry per athlete, competition ranking 1-2-2-4, tie order = hash of the entry id.** The athlete key is a keyed hash of the Concept2 user id, so two Catch accounts on one Concept2 account are one athlete. Ties are never ordered by date or publication order, which would leak both.
+8. **Youth protections are constants I chose and the user can override:** `MIN_PUBLISH_AGE = 13`, guardian-consent attestation under 16, handle/anonymous only and year-only dates under 18. The user asked for "all the youth categories"; the 13 floor is a COPPA/GDPR-K-driven default, not a requested limit. Youth boards are cumulative ("U16" = under 16; a 14-year-old is on U15–U19). The bands are Catch's own, not claimed to match Concept2's official categories.
+9. **Cross-user reads are one reviewed module.** The requirement was a first-ever user-A-sees-user-B path. Private data stays `OwnedStrict` (the generic isolation suite is untouched and still passes); everything shared is in seven **global tables** the `authenticated` role has no grant on, reached only by the runtime role through `catch/sync/leaderboard_store.py` in a fresh session with the owner cleared (`tenant.system_detached`). No hook, marker class or RLS policy for existing tables changed.
+10. **Status and audit are out of the athlete's reach.** `public_entries.status` and `moderation_events` are in tables the athlete's role can't write; the log is INSERT/SELECT-only; every transition (athlete withdraw, moderator, three-reporter auto-hide, source change) goes through one function that writes the event in the same transaction and refuses an empty reason.
+11. **Publishing is preview → confirm.** The preview and the board rows are the same serializer; publishing needs `confirm: true` and the preview's hash. **No publish/unpublish coach tools**: the three tools are read-only and athlete-only, and the confirmation lives in the endpoint and UI.
+12. **Source changes hide, they don't block.** Instead of locking the PATCH routes, a digest of the source is stored at publish time and compared after each Concept2 sync; a mismatch hides the entry with a recorded reason until republished.
+13. **Rate limits that matter are DB-counted** (publications 20/day, reports 10/day, one open report per reporter per entry, 3 open appeals); the in-process limiter only smooths bursts (it is per replica).
+14. Not built, on purpose: gender categories, interval/multi-piece boards, notifications about moderation, logged-out profiles, publish/unpublish tools, a shared cache for boards (a board reads at most 5,000 rows and ranks in Python).
+
+## Bugs found while building (fixed, with regression tests unless noted)
+
+1. **`tenant.system()` inside a request still became `authenticated`.** It keeps the request's owner, so `_after_begin` ran `SET LOCAL ROLE authenticated`, which can't reach the shared tables. Added `tenant.system_detached()` (owner cleared) — used by exactly one module. Only the SQLite path ran here; see Not done.
+2. **`catch_api` is NOINHERIT**: being a member of `authenticated` gives it nothing, so the migration grants it schema `USAGE` and each table directly.
+3. **An OAuth-connected Concept2 account never stored its account id** (`exchange_code` doesn't pass it; only the personal-token path did), so nothing could ever have been verified. The account id is now resolved once from the profile and stored; a test pins it.
+4. **A reserved/invalid handle raised outside the error mapping** (a 500 instead of a 422), found by the handle test.
+5. **The youth age was stored on the public row even when the athlete hadn't agreed to show it.** Now `age_years`/`age_band` are stored only when the athlete chose to show the band; a test checks the stored row.
+6. **Classifying a long result list could have made one Concept2 profile call per result.** The connected account is resolved once per listing.
+7. **`tests/test_personal_unchanged.py` and the structure tests assumed every table is owned or listed.** They now know the seven global tables (and `0004.TABLES` was hardwired in two places).
+8. **`tsc --noEmit` passed but `tsc -b` (the build) did not**: a mutation typed to one of two return shapes and an unused mock parameter. Fixed; the build is the check that counts.
+
+## Verification
+
+- `uv run ruff check .` clean; `uv run pytest` — **1576 passed, 41 skipped** (the 41 are `tests/pg` and `test_postgres_optional.py`, as before). New: `tests/analytics/test_leaderboards.py` and `test_verification.py` (42), `tests/tenancy/test_leaderboards_api.py` (49), `tests/coach/test_leaderboard_tools.py` (9).
+- Covered: ranking, ties (1-2-2-4, tenth-of-a-second boundaries, input-order independence), exact eligibility (1,960 m, JustRow, intervals, other ergs rejected), age bands incl. cumulative youth, self-declared never easier, minimum age, guardian consent, minors' year-only dates; verification from the synthetic Concept2 fixtures (flag false, other account, no connection, piece never verified, Garmin neutral); opt-in/opt-out/profile visibility; publish needs confirm + the matching preview; duplicates (same athlete, two Catch accounts, same Concept2 account); handle uniqueness/anonymous; weight class and age opt-in; clubs; source-change auto-hide; reports (dedupe, self-report, threshold, daily limit); moderation (404 for non-moderators, reason required, own-entry refusal, restore/hide/remove, appeal lifecycle overturned/upheld, athlete can't change status); every status change leaves an event; account deletion keeps an anonymous audit trail; **a sentinel test** seeds distinctive HRV, sleep, weight, body fat, heart rate, calories, power, Concept2 ids, date of birth and exact date for one athlete and asserts none appears in any board, profile, preview, settings or tool response seen by another user, plus a column/key allowlist; the three tools (read-only, athlete-only, unavailable on personal, MCP parity).
+- Web: `tsc -b`, oxlint (only the existing `gymSync.ts` warnings), `npm test` 80, `npm run build` initial JS **214.4 KB gzip of 250**, Playwright `CI=1` `test:touch` **174 passed / 8 skipped** (+19 new across both mobile projects and desktop), `test:public` 16 passed.
+- **Not run:** `tests/pg` and the Postgres half of this session — migration `0005`'s DDL, grants, forced RLS with `TO catch_api` policies, the append-only log, the `catch_api`-role read path and `tenant.system_detached` on a real `catch_rls` engine — **there is no Supabase stack here**; `tests/pg` has the policy-count exception written but unexecuted. Also not run: `test:live`, `test:gym`, `test:update`, and every live Concept2 call (all provider data is the repo's synthetic fixtures).
+
+## Added
+
+DB (`0005`): `activities.c2_user_id/c2_verified/c2_weight_class`; owned `leaderboard_settings`, `result_publications`; global `public_athletes`, `public_entries`, `clubs`, `club_members`, `moderation_events`, `result_reports`, `appeals`. API: `/api/leaderboards/*` (boards, board, me, settings, opt-in/out, results, publications preview/create/patch/withdraw, athletes, profile-preview, report, appeal, clubs) and `/api/moderation/*`. Coach/MCP: `get_leaderboards`, `get_public_athlete_profile`, `get_verified_results` (61 tools). Web: Leaderboards, athlete page, settings, moderation, publish/report/appeal sheets, mock. Docs: `docs/leaderboards.md` (verification, ranking and ties, privacy rules, moderation and appeals, retention), plus `security.md`, `public-architecture.md`, `mcp.md`, DESIGN.md, CLAUDE.md. Config: `CATCH_MODERATOR_IDS`.
+
+## Not done / limitations
+
+- **The Postgres path is untested** (see Verification). Specifically unproven: that `catch_api` can read/write the global tables with the grants and policies in `0005`, that `tenant.system_detached` yields the bare role, and that `compare_metadata` agrees with the hand-written DDL (index and constraint names were written to match SQLModel's defaults).
+- **Concept2's `verified` flag has never been seen on a live result**; its semantics are as documented. If it means something narrower or broader, "Verified" must be re-defined before launch.
+- **Age bands are not Concept2's official categories**, and a Concept2 date of birth is itself self-entered; both provenances are labelled as claims.
+- Publishing writes the shared row and then the owned snapshot in two transactions (compensated on failure), not one.
+- A board query reads at most 5,000 entries and ranks in Python; no pagination cursor beyond offset/limit, no caching.
+- Per-replica burst limits; the daily caps are DB-counted.
+- After an athlete disconnects Concept2, their existing entries stay as published; new ones can't be verified.
+- Moderator tooling is minimal (queue, act with a reason, resolve appeals); no search, no bulk actions, no reporter-side status.
+- A report's free text is stored but only shown to moderators; notes and handles are checked for links and reserved words only, not for abuse generally.
+
+## Blockers (for opening it to users)
+
+Confirm Concept2's `verified` semantics on a live account; check Concept2's current ranking/age categories and decide whether to match them; **legal review of publishing minors' results** (the 13 floor, the guardian attestation as a recorded checkbox rather than verified consent, retention of the moderation log after deletion, and the privacy notice/consent wording); run the Postgres side against a real Supabase project; decide who the first moderators are and a response-time promise for appeals; a way to contact a moderator that isn't the appeal form.
+
+## Next steps
+
+1. Run `tests/pg` (add the global-table grants, RLS, append-only and `catch_api` read-path tests) against `supabase start`; fix whatever `compare_metadata` and the first real queries disagree with.
+2. Connect a real Concept2 account on a throwaway deployment and read a result's `verified`/`ranked`/`weight_class`/`user_id` before trusting the definition.
+3. Notify athletes when an entry is hidden or an appeal is decided (push exists; it wasn't wired here).
+4. Decide on a real consent mechanism for under-16s and a retention period for the audit log, then update `docs/leaderboards.md` §4 and §11.

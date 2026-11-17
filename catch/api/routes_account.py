@@ -18,6 +18,7 @@ from catch.core.config import settings
 from catch.core.models import UserProfile
 from catch.core.redact import redact
 from catch.core.tenant import OwnedOrShared, OwnedStrict
+from catch.sync import leaderboard_store
 
 logger = logging.getLogger("catch.account")
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -66,6 +67,7 @@ def delete_user_rows(db: Session) -> None:
     owned table cascades from it); on SQLite there is no cascade, so each table is cleared through the
     tenant-scoped ORM."""
     owner = tenant.current_owner()
+    leaderboard_store.delete_owner_data(owner)  # global leaderboard rows carry no cascade-safe owner scoping on every path
     if tenant_hooks.uses_rls(db.get_bind()):
         db.exec(delete(UserProfile).where(UserProfile.id == owner))  # type: ignore[call-overload]
     else:

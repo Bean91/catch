@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSettings, fetchSyncStatus, saveSettings } from "../lib/api";
+import { fetchSettings, fetchSyncStatus, isMock, saveSettings } from "../lib/api";
 import { STATUS_GLYPH, STATUS_LABEL } from "../lib/connections";
 import { formatRelativeTime } from "../lib/format";
 import { useTheme } from "../lib/theme";
@@ -96,6 +96,21 @@ export function SettingsPage() {
           </Link>
         </div>
       </Card>
+
+      {(isPublic || isMock) && (
+        <Card
+          title="Leaderboards"
+          action={
+            <Link to="/settings/leaderboards" data-testid="settings-leaderboards" className="text-sm font-medium text-accent hover:underline">
+              Manage
+            </Link>
+          }
+        >
+          <p className="text-sm text-text-secondary">
+            Publish verified erg results to the public leaderboards — only what you choose, with a preview first. Opt in or out and take results down any time.
+          </p>
+        </Card>
+      )}
 
       <RecoveryInputsCard settings={form} />
 

@@ -81,10 +81,15 @@ class Settings:
     supabase_jwt_audience: str
     supabase_session_check_ttl: float
     tick_secret: str
+    moderator_ids: str
 
     @property
     def is_public(self) -> bool:
         return self.deployment == "public"
+
+    @property
+    def moderators(self) -> frozenset[str]:
+        return frozenset(i.strip() for i in self.moderator_ids.split(",") if i.strip())
 
     @property
     def db_file(self) -> Path:
@@ -146,6 +151,7 @@ def load_settings() -> Settings:
         supabase_jwt_audience=_get("SUPABASE_JWT_AUDIENCE", "authenticated"),
         supabase_session_check_ttl=float(_get("CATCH_SESSION_CHECK_TTL", "15")),
         tick_secret=_get("CATCH_TICK_SECRET"),
+        moderator_ids=_get("CATCH_MODERATOR_IDS"),
     )
 
 

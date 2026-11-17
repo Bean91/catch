@@ -42,6 +42,10 @@ them would have rewritten sealed-credential AAD bindings and ~80 call sites for 
 
 Seeded `workout_templates` examples are rows with `owner_id IS NULL`, readable by all, writable by none.
 
+**Session 26 — shared leaderboard tables (global, no `owner_id` filter, runtime role only):** `public_athletes`, `public_entries`, `clubs`, `club_members`, `moderation_events` (append-only),
+`result_reports`, `appeals`. The `authenticated` role has no grant on them; `catch_api` is granted directly and reaches them only through `catch/sync/leaderboard_store.py` (docs/leaderboards.md).
+Two further tables are ordinary owned tables: `leaderboard_settings`, `result_publications`.
+
 **User-owned (every other table), grouped:**
 
 - *Source data:* `activities`, `strokes`, `activity_samples`, `activity_tracks`, `activity_weather`, `canonical_activities`,

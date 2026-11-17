@@ -17,6 +17,9 @@ from catch.core.tenant import OwnedOrShared, OwnedStrict
 
 ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_TABLES = {"user_profiles", "weather_cells"}  # no owner column by design (see docs/public-architecture.md §2)
+# Session 26: what other signed-in users may see, plus the moderation trail. Reachable only by the runtime role through
+# catch.sync.leaderboard_store (docs/leaderboards.md); the authenticated role has no grant on any of them.
+LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "clubs", "club_members", "moderation_events", "result_reports", "appeals"}
 
 
 def _migration(name: str):
@@ -34,7 +37,7 @@ def _classes(marker):
 def test_every_table_is_owned_shared_or_explicitly_global():
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
     assert not set(owned) & set(shared)
-    unclassified = set(SQLModel.metadata.tables) - set(owned) - set(shared) - GLOBAL_TABLES
+    unclassified = set(SQLModel.metadata.tables) - set(owned) - set(shared) - GLOBAL_TABLES - LEADERBOARD_GLOBAL
     assert not unclassified, f"tables with no tenant classification: {sorted(unclassified)}"
 
 
@@ -55,7 +58,7 @@ GLOBAL_KEYS = {
 
 def test_every_unique_key_and_primary_key_is_per_owner():
     for name, table in SQLModel.metadata.tables.items():
-        if name in GLOBAL_TABLES:
+        if name in GLOBAL_TABLES or name in LEADERBOARD_GLOBAL:
             continue
         pk = [c.name for c in table.primary_key.columns]
         fk_cols = {c.name for c in table.columns if any(f.column.table.name != "user_profiles" for f in c.foreign_keys)}
@@ -68,9 +71,15 @@ def test_every_unique_key_and_primary_key_is_per_owner():
                 assert "owner_id" in {c.name for c in idx.columns}, f"{name}.{idx.name} is a global unique index"
 
 
+def test_the_leaderboard_global_tables_match_the_migration():
+    assert set(_migration("0005_leaderboards").GLOBAL) == LEADERBOARD_GLOBAL
+    for name in LEADERBOARD_GLOBAL:
+        assert name in SQLModel.metadata.tables and name not in {*_classes(OwnedStrict), *_classes(OwnedOrShared)}, name
+
+
 def test_migration_0002_covers_exactly_the_tables_the_models_declare():
     m = _migration("0002_security")
-    later = set(_migration("0004_provider_connections").TABLES)  # tables added after 0002's frozen list, each with its own RLS
+    later = set(_migration("0004_provider_connections").TABLES) | set(_migration("0005_leaderboards").TABLES)  # tables added after 0002's frozen list, each with its own RLS
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
     assert set(m.OWNED) | later == set(owned) and set(m.SHARED) == set(shared)
     assert not set(m.OWNED) & later
@@ -82,7 +91,8 @@ def test_migration_0002_covers_exactly_the_tables_the_models_declare():
 
 def test_the_baseline_snapshot_creates_every_table_and_only_those():
     sql = (ROOT / "migrations" / "versions" / "0001_baseline.sql").read_text()
-    later = set(_migration("0004_provider_connections").TABLES)
+    mig4, mig5 = _migration("0004_provider_connections"), _migration("0005_leaderboards")
+    later = set(mig4.TABLES) | set(mig5.TABLES) | set(mig5.GLOBAL)
     assert set(re.findall(r"^CREATE TABLE (\w+) \(", sql, flags=re.M)) | later == set(SQLModel.metadata.tables)
 
 

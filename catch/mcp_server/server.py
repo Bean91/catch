@@ -45,6 +45,9 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "Catch can't measure technique quality, and private items are never shared with a coach. "
             "Connected sources: get_connected_providers and get_sync_status report each source's connection and sync health "
             "(never anything used to sign in); sync_provider fetches new data and previews first. "
+            "Leaderboards (public deployment only, read-only): get_leaderboards, get_public_athlete_profile and "
+            "get_verified_results. Only verified results are ranked; \"verified\" means the source can be authenticated, not that Catch "
+            "vouches for the athlete. Publishing or taking down a result is the athlete's own confirmed act in the app. "
             "Every write previews first; pass confirm=true only after the athlete has agreed."
         ),
     )
@@ -616,6 +619,28 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def sync_provider(provider: Literal["garmin", "withings", "concept2", "whoop"], confirm: Optional[bool] = None) -> dict:
         """Fetch the latest data from one connected source. Previews unless confirm=true; cannot connect or disconnect."""
         return await _call("sync_provider", provider=provider, confirm=confirm)
+
+    @mcp.tool()
+    async def get_leaderboards(
+        board: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min", "60min"]] = None,
+        age: Optional[str] = None,
+        weight: Optional[Literal["any", "lightweight"]] = None,
+        club: Optional[str] = None,
+        verification: Optional[Literal["verified", "include_unverified"]] = None,
+        limit: Optional[int] = None,
+    ) -> dict:
+        """Public rowing leaderboards. No board = list them. Only verified results are ranked; public information only."""
+        return await _call("get_leaderboards", board=board, age=age, weight=weight, club=club, verification=verification, limit=limit)
+
+    @mcp.tool()
+    async def get_public_athlete_profile(athlete_id: Optional[str] = None) -> dict:
+        """What the public sees of one athlete (omit athlete_id for your own public profile). Never private metrics."""
+        return await _call("get_public_athlete_profile", athlete_id=athlete_id)
+
+    @mcp.tool()
+    async def get_verified_results(board: Optional[str] = None, state: Optional[Literal["verified", "provider_linked", "unverified"]] = None) -> dict:
+        """Your own leaderboard-eligible erg results with their verification state. Read-only; publishing happens in the app."""
+        return await _call("get_verified_results", board=board, state=state)
 
     @mcp.prompt()
     def daily_check_in() -> str:

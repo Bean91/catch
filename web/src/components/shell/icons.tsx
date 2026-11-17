@@ -198,3 +198,11 @@ export function ShareIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function LeaderboardsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M5 20v-7h4v7M10 20V6h4v14M15 20v-9h4v9" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}

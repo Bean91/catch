@@ -35,6 +35,10 @@ const LibraryPage = lazy(() => import("./pages/Library").then((m) => ({ default:
 const LibraryTemplatePage = lazy(() => import("./pages/LibraryTemplate").then((m) => ({ default: m.LibraryTemplatePage })));
 const LibraryEditorPage = lazy(() => import("./pages/LibraryEditor").then((m) => ({ default: m.LibraryEditorPage })));
 const FeedbackPage = lazy(() => import("./pages/Feedback").then((m) => ({ default: m.FeedbackPage })));
+const LeaderboardsPage = lazy(() => import("./pages/Leaderboards").then((m) => ({ default: m.LeaderboardsPage })));
+const LeaderboardAthletePage = lazy(() => import("./pages/LeaderboardAthlete").then((m) => ({ default: m.LeaderboardAthletePage })));
+const LeaderboardSettingsPage = lazy(() => import("./pages/LeaderboardSettings").then((m) => ({ default: m.LeaderboardSettingsPage })));
+const ModerationPage = lazy(() => import("./pages/Moderation").then((m) => ({ default: m.ModerationPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -112,6 +116,10 @@ export function App() {
           <Route path="/settings/connections" element={<ConnectionsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/status" element={<StatusPage />} />
+          <Route path="/settings/leaderboards" element={<LeaderboardSettingsPage />} />
+          <Route path="/settings/moderation" element={<ModerationPage />} />
+          <Route path="/leaderboards" element={<LeaderboardsPage />} />
+          <Route path="/leaderboards/athletes/:id" element={<LeaderboardAthletePage />} />
         </Routes>
       </Suspense>
     </AppShell>

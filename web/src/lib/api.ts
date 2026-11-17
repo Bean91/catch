@@ -1,5 +1,10 @@
 import { UNAUTHORIZED_EVENT, authedFetch } from "./authedFetch";
 import {
+  mockLbAppeal, mockLbBoard, mockLbBoards, mockLbCreateClub, mockLbJoinClub, mockLbLeaveClub, mockLbMe, mockLbModEntry, mockLbModQueue,
+  mockLbModerate, mockLbOptIn, mockLbOptOut, mockLbPreview, mockLbProfile, mockLbPublish, mockLbReport, mockLbResolve, mockLbResults,
+  mockLbSaveSettings, mockLbWithdraw,
+} from "./mockLeaderboards";
+import {
   mockProviderConnections,
   mockDisconnectProvider,
   mockPutProviderCredential,
@@ -248,6 +253,7 @@ import type {
 } from "./types";
 import type { AiModelsResponse, AiProviderCard, AiProvidersResponse, AiTestResult, AiUsage, CoachProviderName } from "./types";
 import type { ConnectionCard, ConnectionsResponse, ConnectionTestResult, ProviderId } from "./types";
+import type { LbAppeal, LbBoardFilters, LbBoardInfo, LbBoardResponse, LbClub, LbEntry, LbModEntry, LbModQueue, LbPrefs, LbPreview, LbProfile, LbResult, LbResultRef, LbSettingsPatch, LbState } from "./types";
 import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
 import * as mockCal from "./mockCalendar";
 import * as mockCoach from "./mockCoaching";
@@ -1786,4 +1792,118 @@ export async function deleteFeedback(id: number): Promise<{ ok: boolean }> {
 export async function fetchFeedbackHistory(id: number): Promise<{ history: FeedbackRevision[] }> {
   if (isMock) return mocked(() => ({ history: mockCoach.mockHistory(id) }), 100);
   return request<{ history: FeedbackRevision[] }>(`/api/coach-feedback/${id}/history`);
+}
+
+// --- Leaderboards and verified results (session 26) ----------------------------------------------------------------
+
+const jsonInit = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+export async function fetchLbBoards(): Promise<{ boards: LbBoardInfo[]; age_bands: string[] }> {
+  if (isMock) return delay(mockLbBoards());
+  return request("/api/leaderboards/boards");
+}
+
+export async function fetchLbBoard(key: string, f: LbBoardFilters): Promise<LbBoardResponse> {
+  if (isMock) return delay(mockLbBoard(key, f));
+  const q = new URLSearchParams();
+  if (f.age) q.set("age", f.age);
+  if (f.weight && f.weight !== "any") q.set("weight", f.weight);
+  if (f.club) q.set("club", f.club);
+  if (f.verification) q.set("verification", f.verification);
+  return request(`/api/leaderboards/boards/${key}${q.size ? `?${q}` : ""}`);
+}
+
+export async function fetchLbMe(): Promise<LbState> {
+  if (isMock) return delay(mockLbMe());
+  return request("/api/leaderboards/me");
+}
+
+export async function saveLbSettings(patch: LbSettingsPatch): Promise<LbState["settings"]> {
+  if (isMock) return delay(mockLbSaveSettings(patch), 150);
+  return request("/api/leaderboards/me/settings", jsonInit("PUT", patch));
+}
+
+export async function lbOptIn(body: LbSettingsPatch & { confirm: boolean }): Promise<LbState> {
+  if (isMock) return delay(mockLbOptIn(body), 250);
+  return request("/api/leaderboards/me/opt-in", jsonInit("POST", body));
+}
+
+export async function lbOptOut(confirm: boolean): Promise<LbState> {
+  if (isMock) return delay(mockLbOptOut(), 250);
+  return request("/api/leaderboards/me/opt-out", jsonInit("POST", { confirm }));
+}
+
+export async function fetchLbResults(): Promise<{ results: LbResult[] }> {
+  if (isMock) return delay({ results: mockLbResults() });
+  return request("/api/leaderboards/me/results");
+}
+
+export async function previewLbPublication(ref: LbResultRef, prefs: LbPrefs): Promise<LbPreview> {
+  if (isMock) return delay(mockLbPreview(ref, prefs), 250);
+  return request("/api/leaderboards/publications/preview", jsonInit("POST", { ref, prefs }));
+}
+
+export async function publishLbResult(ref: LbResultRef, prefs: LbPrefs, previewHash: string): Promise<{ published: boolean; entry: LbEntry }> {
+  if (isMock) return delay(mockLbPublish(ref, prefs, true, previewHash), 300);
+  return request("/api/leaderboards/publications", jsonInit("POST", { ref, prefs, confirm: true, preview_hash: previewHash }));
+}
+
+export async function withdrawLbPublication(entryId: string): Promise<{ withdrawn: boolean }> {
+  if (isMock) return delay(mockLbWithdraw(entryId, true), 250);
+  return request(`/api/leaderboards/publications/${entryId}/withdraw`, jsonInit("POST", { confirm: true }));
+}
+
+export async function fetchLbProfile(id: string): Promise<LbProfile> {
+  if (isMock) return delay(mockLbProfile(id));
+  return request(`/api/leaderboards/athletes/${id}`);
+}
+
+export async function fetchLbProfilePreview(): Promise<LbProfile> {
+  if (isMock) return delay(mockLbProfile("a-me"));
+  return request("/api/leaderboards/me/profile-preview");
+}
+
+export async function reportLbEntry(entryId: string, reason: string, detail: string): Promise<{ reported: boolean; hidden_for_review: boolean }> {
+  if (isMock) return delay(mockLbReport(entryId, reason), 250);
+  return request(`/api/leaderboards/entries/${entryId}/report`, jsonInit("POST", { reason, detail: detail || null }));
+}
+
+export async function appealLbEntry(entryId: string, text: string): Promise<LbAppeal> {
+  if (isMock) return delay(mockLbAppeal(entryId, text), 250);
+  return request(`/api/leaderboards/entries/${entryId}/appeal`, jsonInit("POST", { text }));
+}
+
+export async function createLbClub(name: string): Promise<LbClub & { join_code: string }> {
+  if (isMock) return delay(mockLbCreateClub(name), 200);
+  return request("/api/leaderboards/clubs", jsonInit("POST", { name }));
+}
+
+export async function joinLbClub(code: string): Promise<LbClub> {
+  if (isMock) return delay(mockLbJoinClub(code), 200);
+  return request("/api/leaderboards/clubs/join", jsonInit("POST", { code }));
+}
+
+export async function leaveLbClub(id: string): Promise<{ left: boolean }> {
+  if (isMock) return delay(mockLbLeaveClub(id), 150);
+  return request(`/api/leaderboards/clubs/${id}`, { method: "DELETE" });
+}
+
+export async function fetchModQueue(): Promise<LbModQueue> {
+  if (isMock) return delay(mockLbModQueue());
+  return request("/api/moderation/queue");
+}
+
+export async function fetchModEntry(id: string): Promise<LbModEntry> {
+  if (isMock) return delay(mockLbModEntry(id));
+  return request(`/api/moderation/entries/${id}`);
+}
+
+export async function moderateLbEntry(id: string, action: string, reason: string): Promise<{ status: string }> {
+  if (isMock) return delay(mockLbModerate(id, action, reason), 250);
+  return request(`/api/moderation/entries/${id}/action`, jsonInit("POST", { action, reason }));
+}
+
+export async function resolveLbAppeal(id: number, outcome: "upheld" | "overturned", reason: string): Promise<unknown> {
+  if (isMock) return delay(mockLbResolve(id, outcome, reason), 250);
+  return request(`/api/moderation/appeals/${id}/resolve`, jsonInit("POST", { outcome, reason }));
 }

@@ -1,5 +1,10 @@
 # MCP server
 
+> **Session 26:** three read-only leaderboard tools were added (`get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`; 61 tools total). They return public
+> information only (what an athlete chose to publish, through the same serializer the app uses) plus the caller's own results with their verification state. They are athlete-only (a
+> coach token is refused) and return `{"available": false}` on a personal install. There are **no** publish or unpublish tools: putting a result on a public board needs the athlete's own
+> confirmed action in the app (docs/leaderboards.md).
+
 > **Session 25:** three connection tools were added (`get_connected_providers`, `get_sync_status`, `sync_provider`; 58 tools total). They report connection and sync
 > state and can trigger a confirm-gated sync; they never see or accept a key or token (docs/provider-connections.md).
 >
@@ -28,7 +33,8 @@ interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water
 are labelled; `get_route` never returns coordinates; weather is context, not a correction), and
 (session 22) the workout library, technique notes and coach feedback — `search_workout_library`/
 `get_workout_template`/`create_workout_template`/`update_workout_template`, `get_technique_notes`/
-`add_technique_note`, `get_coach_feedback`/`add_coach_feedback`, (session 25) `get_connected_providers`/`get_sync_status`/`sync_provider` — 58 tools
+`add_technique_note`, `get_coach_feedback`/`add_coach_feedback`, (session 25) `get_connected_providers`/`get_sync_status`/`sync_provider`, (session 26)
+`get_leaderboards`/`get_public_athlete_profile`/`get_verified_results` — 61 tools
 total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 

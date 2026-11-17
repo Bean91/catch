@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { confirmTest, fetchPbs, fetchProjection, fetchTestCandidates, fetchTests } from "../lib/api";
+import { confirmTest, fetchPbs, fetchProjection, fetchTestCandidates, fetchTests, isMock } from "../lib/api";
+import { isPublic } from "../lib/deployment";
 import { formatDistance, formatDuration, formatShortDate, formatTimeTenths } from "../lib/format";
 import { ERG_TEST_TYPES, type ErgTestType } from "../lib/types";
 import { Card } from "../components/ui/Card";
@@ -40,6 +41,11 @@ export function TestCenterPage() {
         <div>
           <h1 className="text-lg font-semibold text-text-primary">Test center</h1>
           <p className="text-sm text-text-tertiary">500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.</p>
+          {(isPublic || isMock) && (
+            <Link to="/settings/leaderboards" data-testid="tests-leaderboards-link" className="text-sm font-medium text-accent hover:underline">
+              Publish verified results to the leaderboards
+            </Link>
+          )}
         </div>
         <div className="flex shrink-0 gap-2">
           <button

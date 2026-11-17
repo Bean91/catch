@@ -174,6 +174,12 @@ def get_profile(http: httpx.Client) -> dict:
     return _check(http.get("/api/users/me")).json().get("data", {})
 
 
+def fetch_profile(session: Session, transport: httpx.BaseTransport | None = None) -> dict:
+    """The connected athlete's own Concept2 profile (leaderboard age category and account id). Never stored whole."""
+    with _client(session, transport) as http:
+        return get_profile(http)
+
+
 def _result_end_utc(item: dict) -> datetime | None:
     # Per the docs, `date` is the workout's *end* time as stored on the monitor, local time
     # unless `timezone`/`date_utc` are set (both can be null for older/simpler entries).
@@ -238,6 +244,9 @@ def _activity_fields(item: dict) -> dict:
         "drag_factor": item.get("drag_factor"),
         "stroke_rate": item.get("stroke_rate"),
         "intervals_json": json.dumps(workout) if workout else None,
+        "c2_user_id": str(item["user_id"]) if item.get("user_id") is not None else None,
+        "c2_verified": item["verified"] if isinstance(item.get("verified"), bool) else None,
+        "c2_weight_class": item.get("weight_class") if item.get("weight_class") in ("H", "L") else None,
         "raw_json": json.dumps(raw),
         # A PM5 only ever logs HR from a paired ANT+ strap — there's no wrist sensor on the
         # monitor itself — so any result with HR at all is chest-strap HR by construction
@@ -350,4 +359,10 @@ def sync(
     from catch.sync.matching import run_matching
 
     match_result = run_matching(session)
+    try:
+        from catch.sync.leaderboards import check_source_changes
+
+        check_source_changes(session)
+    except Exception:  # a bug in the newer leaderboard subsystem must not undo a finished sync
+        logger.exception("leaderboard source-change check failed")
     return {"results": results, "strokes": strokes_total, **match_result}

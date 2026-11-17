@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date as date_, datetime, timezone
 from typing import Optional
 
+from sqlalchemy import Column, ForeignKey, String
 from sqlmodel import Field, Index, SQLModel, UniqueConstraint
 
 from catch.core.tenant import OwnedOrShared, OwnedStrict, owner_field
@@ -139,6 +140,11 @@ class Activity(OwnedStrict, SQLModel, table=True):
     drag_factor: Optional[int] = None
     stroke_rate: Optional[float] = None
     intervals_json: Optional[str] = None
+    # Session 26: promoted from raw_json so verification never parses JSON per row. Read through
+    # catch.analytics.verification.concept2_meta, which falls back to raw_json for rows synced earlier.
+    c2_user_id: Optional[str] = None
+    c2_verified: Optional[bool] = None
+    c2_weight_class: Optional[str] = None
     # Deprecated (session 2) — see the class docstring. Superseded by canonical_id.
     linked_activity_id: Optional[int] = Field(default=None, foreign_key="activities.id")
     # "cycling" | "rowing" | "running" | "strength" | "other" — the matching engine's broad
@@ -1377,6 +1383,166 @@ class CoachFeedbackRevision(OwnedStrict, SQLModel, table=True):
     edited_by_id: str
     edited_by_name: str
     edited_at: datetime = Field(default_factory=_utcnow)
+
+
+class LeaderboardSettings(OwnedStrict, SQLModel, table=True):
+    """Session 26 (docs/leaderboards.md): one athlete's private leaderboard consent and display choices. The public
+    face of these choices lives in `public_athletes`; nothing here is ever served to another user."""
+
+    __tablename__ = "leaderboard_settings"
+
+    owner_id: str = owner_field(primary_key=True)
+    opted_in: bool = False
+    consent_version: Optional[int] = None
+    opted_in_at: Optional[datetime] = None
+    attested_min_age_at: Optional[datetime] = None
+    guardian_attested_at: Optional[datetime] = None
+    date_precision: str = "none"  # none | year | month | day
+    show_age_band: bool = False
+    show_weight_class: bool = False
+    age_source: Optional[str] = None  # concept2_profile | self_declared
+    self_declared_band: Optional[str] = None
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ResultPublication(OwnedStrict, SQLModel, table=True):
+    """The athlete's private snapshot of a published result: provider identifiers and original timestamps live
+    here and nowhere public. `source_digest` detects a source row that changed after publishing."""
+
+    __tablename__ = "result_publications"
+    __table_args__ = (UniqueConstraint("owner_id", "entry_id", name="uq_result_publications_entry"),)
+
+    owner_id: str = owner_field()
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: str
+    board_key: str
+    verification: str  # verified | provider_linked | unverified
+    source_kind: str  # concept2_result | piece
+    canonical_id: Optional[int] = None
+    activity_id: Optional[int] = None
+    piece_id: Optional[int] = None
+    provider: Optional[str] = None
+    provider_user_id: Optional[str] = None
+    provider_result_id: Optional[str] = None
+    original_date_utc: Optional[str] = None
+    original_timezone: Optional[str] = None
+    value: int  # tenths of a second (distance boards) or metres (timed boards)
+    source_digest: str
+    note: Optional[str] = None
+    note_public: bool = False
+    show_age_band: bool = False
+    show_weight_class: bool = False
+    date_precision: str = "none"
+    created_at: datetime = Field(default_factory=_utcnow)
+    withdrawn_at: Optional[datetime] = None
+
+
+# Global tables (no owner column): written and read only through catch.sync.leaderboard_store, which runs as the
+# runtime role outside any owner's context. The authenticated role has no grant on any of them.
+class PublicAthlete(SQLModel, table=True):
+    __tablename__ = "public_athletes"
+
+    public_id: str = Field(primary_key=True)
+    owner_id: str = Field(sa_column=Column("owner_id", String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, unique=True))
+    handle: Optional[str] = None
+    handle_ci: Optional[str] = Field(default=None, unique=True)
+    display_mode: str = "handle"  # handle | anonymous
+    age_group: Optional[str] = None  # tightest published band label
+    age_provenance: Optional[str] = None
+    active: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class PublicEntry(SQLModel, table=True):
+    __tablename__ = "public_entries"
+    __table_args__ = (
+        Index("ix_public_entries_board", "board_key", "status"),
+        UniqueConstraint("provider", "provider_user_id", "provider_result_id", name="uq_public_entries_provider_result"),
+    )
+
+    entry_id: str = Field(primary_key=True)
+    owner_id: str = Field(sa_column=Column("owner_id", String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True))
+    public_id: str = Field(sa_column=Column("public_id", String, ForeignKey("public_athletes.public_id", ondelete="CASCADE"), nullable=False))
+    athlete_key: str  # keyed hash; two Catch accounts on one Concept2 account share it
+    board_key: str
+    value: int
+    verification: str
+    status: str = "active"  # active | hidden | removed
+    provider: Optional[str] = None
+    provider_user_id: Optional[str] = Field(default=None)
+    provider_result_id: Optional[str] = Field(default=None)
+    age_years: Optional[int] = None  # internal: derives the cumulative youth boards, never serialized
+    age_band: Optional[str] = None  # internal: adult exclusive band
+    age_label: Optional[str] = None  # public, only when the athlete opted in
+    age_provenance: Optional[str] = None
+    weight_class: Optional[str] = None  # public, only when the athlete opted in
+    date_label: Optional[str] = None  # already truncated to the consented precision
+    note: Optional[str] = None
+    tiebreak: str  # hash of entry_id, never a date or publication order
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Club(SQLModel, table=True):
+    __tablename__ = "clubs"
+
+    club_id: str = Field(primary_key=True)
+    name: str
+    name_ci: str = Field(unique=True)
+    code_hash: str = Field(unique=True)
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubMember(SQLModel, table=True):
+    __tablename__ = "club_members"
+
+    club_id: str = Field(sa_column=Column("club_id", String, ForeignKey("clubs.club_id", ondelete="CASCADE"), primary_key=True))
+    public_id: str = Field(sa_column=Column("public_id", String, ForeignKey("public_athletes.public_id", ondelete="CASCADE"), primary_key=True))
+    joined_at: datetime = Field(default_factory=_utcnow)
+
+
+class ModerationEvent(SQLModel, table=True):
+    """Append-only (INSERT/SELECT grants only on Postgres). One row per status change, whoever made it."""
+
+    __tablename__ = "moderation_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: str = Field(index=True)
+    subject_owner_id: Optional[str] = Field(default=None, index=True)
+    from_status: Optional[str] = None
+    to_status: str
+    actor_kind: str  # user | moderator | system
+    actor_id: Optional[str] = None
+    reason_code: str
+    reason_text: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ResultReport(SQLModel, table=True):
+    __tablename__ = "result_reports"
+    __table_args__ = (UniqueConstraint("entry_id", "reporter_id", name="uq_result_reports_entry_reporter"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: str = Field(index=True)
+    reporter_id: Optional[str] = Field(default=None, index=True)
+    reason: str
+    detail: Optional[str] = None
+    status: str = "open"  # open | actioned | dismissed
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Appeal(SQLModel, table=True):
+    __tablename__ = "appeals"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entry_id: str = Field(index=True)
+    owner_id: str = Field(index=True)
+    text: str
+    status: str = "open"  # open | upheld | overturned | withdrawn
+    resolution_text: Optional[str] = None
+    resolved_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    resolved_at: Optional[datetime] = None
 
 
 from catch.core import tenant_hooks as _tenant_hooks  # noqa: E402

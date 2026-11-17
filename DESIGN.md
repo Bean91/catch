@@ -436,6 +436,30 @@ same pattern as AI providers and Status. The Settings card is now only a read-ou
 - **After an OAuth round trip** the browser lands back with `?provider=…&result=connected|denied|failed` and a `role="status"` line, not a toast.
 - **Garmin's key-expiry banner** (app-wide, 14 days) and the Status page's "Garmin key" card read the connection's expiry instead of a global Settings field.
 
+## Leaderboards and verified results (session 26)
+
+`/leaderboards` (board + filters), `/leaderboards/athletes/:id`, `/settings/leaderboards` (opt-in, privacy, your results, history, clubs) and `/settings/moderation` (moderators
+only). **No bottom-nav slot** (the bar is pinned at eight); a Sidebar entry on desktop (public build, and the mock), a Settings card, and a link from the Test center.
+
+- **A board always says what it is.** One line above the list spells out every filter that changes the ranking ("2,000 m · Verified results only · 143 athletes"), then "ranked by
+  fastest time · equal results share a rank". The page never shows a rank without that context. The reader's own row is pinned above the list, accent-outlined, labelled "You".
+- **Verification is a glyph and a word, never colour alone:** ✓ Verified, ◐ Provider-linked, ○ Unverified. Only Verified is tinted (the green band token); the others stay neutral so
+  nothing reads as "wrong". Unverified results appear only behind "Also show unverified", in their own labelled section that says it is never ranked above a verified result.
+- **What verified means is stated where it matters** — in the publish sheet's first step and in a Card on the settings page — in plain words, including what it does *not* mean
+  ("not that Catch guarantees who rowed it or their physical condition").
+- **Publishing is three steps and an explicit confirm** in one bottom sheet (z-30, centred from `sm:`, no autofocus): *what this status means* → *what you choose to show* (date detail
+  defaults to "No date"; age category and weight class are separate unticked boxes; an optional note) → *preview*, which renders the server's own public row and a short list of
+  disclosures, with "Change choices" and "Publish this result". The confirm sends the preview's hash, so a stale preview can't be published.
+- **Privacy is changed in plain controls with plain words**: a "How you appear" radio (a handle you choose, or "Anonymous rower"), a date-detail select, two checkboxes. "Preview as others
+  see it" renders the public profile from the same endpoint everyone else reads. Settings say what applies to future publications and what keeps what you previewed.
+- **Take-down and opt-out are inline confirmations** in a bordered `role="group"` row, never a modal, and they say what happens ("recorded in your history with the reason 'you opted out'").
+- **Decisions are never silent.** "Decisions and appeals" lists every hidden/removed/withdrawn change on your results with who made it, the reason in full, and the time; a hidden or
+  removed result gets an **Appeal** button. Reports are anonymous to the athlete; the report sheet says so.
+- **Young athletes:** the join form shows the guardian-consent box only for youth bands and tells them what is different (handle or anonymous only, year-only dates). The browser does no
+  age maths — it labels and asks; the server decides.
+- **Moderator page:** every action sits beside a required reason field; an empty reason returns the server's "A reason is required" in a `role="alert"` line.
+- Playwright: `web/tests/touch/leaderboards.spec.ts` (both mobile projects) and `leaderboards-desktop.spec.ts` (desktop-mouse).
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

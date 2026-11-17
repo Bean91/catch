@@ -92,6 +92,20 @@ def system() -> Iterator[None]:
         _system.reset(token)
 
 
+@contextmanager
+def system_detached() -> Iterator[None]:
+    """`system()` with the request's owner cleared. On the public runtime this keeps the connection as the bare
+    `catch_api` role instead of `SET LOCAL ROLE authenticated`, which is the only role that can reach the global
+    leaderboard tables. Used by exactly one module (catch.sync.leaderboard_store) — never for an owned table."""
+    owner_token = _owner.set(None)
+    system_token = _system.set(True)
+    try:
+        yield
+    finally:
+        _system.reset(system_token)
+        _owner.reset(owner_token)
+
+
 def pk(*rest: Any) -> tuple:
     """Primary key for `session.get` on a table whose key is (owner_id, ...rest)."""
     return (current_owner(), *rest)

@@ -74,7 +74,19 @@ cannot become any role but `authenticated`, and is checked at startup not to byp
 session in localStorage — an SPA with a separate API has no httpOnly option — so a strict CSP (scripts by hash) is the defence, and sign-out wipes every local trace. `redact.py` scrubs JWTs, `sb_secret_`
 keys and database URLs. The secret key exists for one call (deleting a user's sign-in account); AI keys are sealed per user (`secret_store.py`) under a master key that is a platform secret, never a row.
 
+## Leaderboards (session 26)
+
+The first place one user can see another's data, so it is deliberately narrow (docs/leaderboards.md). Private leaderboard data (`leaderboard_settings`, `result_publications`) is ordinary
+owned, RLS-protected data. What other users may see lives in **shared tables with no owner column** that the `authenticated` role has *no grant on*; only the runtime role `catch_api`
+(granted directly, since it inherits nothing) reaches them, and only through `catch/sync/leaderboard_store.py`, which opens a fresh session with the request's owner cleared
+(`tenant.system_detached`) and takes the acting owner as an explicit argument. The public row is a projection holding only allowlisted fields, rendered by one serializer; Concept2 ids, exact
+dates, dates of birth and every health or training metric stay in the owner's private snapshot or are never stored. Entry status and the moderation log are in tables the athlete's role cannot
+write (the log is INSERT/SELECT-only). Moderators are `CATCH_MODERATOR_IDS` (a server secret). Rate limits that matter (publishing, reports, appeals) are counted in the database. On account
+deletion the public rows go, and the audit log is kept with the person detached.
+
 ## Known gaps
+
+- (Session 26) The shared leaderboard tables' grants, forced-RLS policies and append-only log are written and have `tests/pg` expectations, but were not run against a real Supabase stack here.
 
 - The USDA client still sends its key as a query parameter (`usda_client.py`); the log filter now scrubs it from
   records, but moving it to a header would be cleaner.

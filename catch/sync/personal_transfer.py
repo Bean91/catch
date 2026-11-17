@@ -30,6 +30,8 @@ EXCLUDED_TABLES = {
     # secrets and anything bound to this install or device: re-create them in the new account
     "oauth_tokens": "source connections must be re-authorised",
     "provider_connections": "source connections and their credentials must be re-created in the new account",
+    "leaderboard_settings": "public-leaderboard consent is per account and must be given again (session 26)",
+    "result_publications": "publishing is an explicit act in the public account, never carried over (session 26)",
     "ai_credentials": "AI keys are never exported",
     "coach_credentials": "AI keys are never exported",
     "api_tokens": "device tokens are bound to this install",

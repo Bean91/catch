@@ -54,6 +54,10 @@ _NEW_COLUMNS = {
         # Session 13 (see PLAN.md Part A).
         "steps": "INTEGER",
         "bmr_kcal": "REAL",
+        # Session 26 (see PLAN.md): Concept2 result metadata promoted out of raw_json.
+        "c2_user_id": "TEXT",
+        "c2_verified": "BOOLEAN",
+        "c2_weight_class": "TEXT",
     },
     "strokes": {
         "seq": "INTEGER NOT NULL DEFAULT 0",

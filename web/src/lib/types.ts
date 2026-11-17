@@ -2233,3 +2233,170 @@ export interface FeedbackFilters {
   from?: string;
   to?: string;
 }
+
+// --- Leaderboards and verified results (session 26) ------------------------------------------------------------------
+// Hand-kept in sync with catch/analytics/leaderboards.py's public serializer: these are the ONLY fields a public result carries.
+export type Verification = "verified" | "provider_linked" | "unverified";
+export type LbDatePrecision = "none" | "year" | "month" | "day";
+
+export interface LbBoardInfo {
+  board_key: string;
+  label: string;
+  kind: "distance" | "timed";
+  ranks_by: string;
+}
+export interface LbEntry {
+  entry_id: string;
+  athlete_id: string;
+  name: string;
+  board_key: string;
+  board_label: string;
+  result: string;
+  split_500m: string | null;
+  verification: Verification;
+  verification_label: string;
+  age_label: string | null;
+  age_provenance: string | null;
+  weight_class: string | null;
+  date_label: string | null;
+  note: string | null;
+  rank?: number;
+  is_you?: boolean;
+}
+export interface LbBoardContext {
+  board_key: string;
+  label: string;
+  ranks_by: string;
+  age: string | null;
+  weight: string;
+  club: string | null;
+  verification: "verified" | "include_unverified";
+  ranked_athletes: number;
+  ties: string;
+}
+export interface LbBoardResponse {
+  context: LbBoardContext;
+  entries: LbEntry[];
+  unverified: LbEntry[];
+  you: LbEntry | null;
+  total: number;
+  offset: number;
+  limit: number;
+}
+export interface LbBoardFilters {
+  age?: string;
+  weight?: "any" | "lightweight";
+  club?: string;
+  verification?: "verified" | "include_unverified";
+}
+export interface LbSettings {
+  opted_in: boolean;
+  date_precision: LbDatePrecision;
+  show_age_band: boolean;
+  show_weight_class: boolean;
+  age_source: "concept2_profile" | "self_declared" | null;
+  self_declared_band: string | null;
+  min_age_attested: boolean;
+  guardian_attested: boolean;
+  consent_version: number | null;
+}
+export interface LbModerationEvent {
+  id: number;
+  entry_id: string;
+  from_status: string | null;
+  to_status: string;
+  actor_kind: "user" | "moderator" | "system";
+  reason_code: string;
+  reason_text: string;
+  created_at: string;
+}
+export interface LbAppeal {
+  id: number;
+  entry_id: string;
+  text: string;
+  status: "open" | "upheld" | "overturned" | "withdrawn";
+  resolution_text: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+export interface LbPublicationRow {
+  entry_id: string;
+  board_key: string;
+  verification: Verification;
+  status: "active" | "hidden" | "removed" | "withdrawn";
+  note: string | null;
+  note_public: boolean;
+  created_at: string;
+}
+export interface LbClub {
+  club_id: string;
+  name: string;
+}
+export interface LbState {
+  available: boolean;
+  is_moderator: boolean;
+  settings: LbSettings;
+  athlete: { athlete_id: string; handle: string | null; display_mode: "handle" | "anonymous"; active: boolean } | null;
+  publications: LbPublicationRow[];
+  clubs: LbClub[];
+  moderation: { events: LbModerationEvent[]; appeals: LbAppeal[] };
+  age_bands: string[];
+  date_precisions: LbDatePrecision[];
+  min_age: number;
+  guardian_below: number;
+}
+export interface LbResultRef {
+  kind: "concept2_result" | "piece";
+  id: number;
+}
+export interface LbResult {
+  ref: LbResultRef;
+  board_key: string;
+  board_label: string;
+  result: string;
+  split_500m: string | null;
+  verification: Verification;
+  verification_label: string;
+  verification_explained: string;
+  performed_on: string | null; // the athlete's own view only; never part of a public shape
+  published: "active" | "hidden" | "removed" | "withdrawn" | null;
+  entry_id: string | null;
+}
+export interface LbPrefs {
+  show_age_band?: boolean | null;
+  show_weight_class?: boolean | null;
+  date_precision?: LbDatePrecision | null;
+  note?: string | null;
+  note_public?: boolean;
+}
+export interface LbPreview {
+  entry: LbEntry;
+  preview_hash: string;
+  disclosures: string[];
+  ranked: boolean;
+}
+export interface LbProfile {
+  athlete_id: string;
+  name: string;
+  results: LbEntry[];
+  is_preview?: boolean;
+}
+export interface LbSettingsPatch {
+  handle?: string | null;
+  display_mode?: "handle" | "anonymous";
+  date_precision?: LbDatePrecision;
+  show_age_band?: boolean;
+  show_weight_class?: boolean;
+  self_declared_band?: string | null;
+  attest_min_age?: boolean;
+  attest_guardian?: boolean;
+}
+export interface LbModQueue {
+  reports: { entry_id: string; reporters: number; last_reported_at: string; status: string; board_key: string; reasons: string[] }[];
+  appeals: (LbAppeal & { entry_status: string | null })[];
+  non_active: { entry_id: string; status: string; board_key: string }[];
+}
+export interface LbModEntry {
+  entry: { entry_id: string; board_key: string; value: number; verification: Verification; status: string; handle: string | null; age_label: string | null; weight_class: string | null; date_label: string | null; note: string | null };
+  events: { from_status: string | null; to_status: string; actor_kind: string; reason_code: string; reason_text: string; created_at: string }[];
+}

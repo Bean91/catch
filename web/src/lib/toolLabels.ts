@@ -100,6 +100,12 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return "Read sync status";
     case "sync_provider":
       return input.confirm ? `Sync ${input.provider}` : `Preview syncing ${input.provider}`;
+    case "get_leaderboards":
+      return input.board ? `Read the ${input.board} leaderboard` : "Read the leaderboards";
+    case "get_public_athlete_profile":
+      return input.athlete_id ? "Read a public athlete profile" : "Read your public profile";
+    case "get_verified_results":
+      return "Read your leaderboard-eligible results";
     default:
       return name;
   }
