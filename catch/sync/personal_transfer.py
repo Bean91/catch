@@ -32,6 +32,7 @@ EXCLUDED_TABLES = {
     "provider_connections": "source connections and their credentials must be re-created in the new account",
     "leaderboard_settings": "public-leaderboard consent is per account and must be given again (session 26)",
     "result_publications": "publishing is an explicit act in the public account, never carried over (session 26)",
+    "club_blocks": "who someone chose not to see in a club belongs to the public account's clubs (session 27); none exist on a personal install",
     "ai_credentials": "AI keys are never exported",
     "coach_credentials": "AI keys are never exported",
     "api_tokens": "device tokens are bound to this install",

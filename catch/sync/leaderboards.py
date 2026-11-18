@@ -512,7 +512,7 @@ def my_state(session: Session) -> dict:
              "note": p.note, "note_public": p.note_public, "created_at": p.created_at.isoformat()}
             for p in pubs
         ],
-        "clubs": store.clubs_of(athlete["public_id"]) if athlete else [],
+        "clubs": store.public_clubs_of(owner),
         "moderation": {"events": store.my_events(owner), "appeals": store.my_appeals(owner)},
         "age_bands": list(lb.AGE_LABELS),
         "date_precisions": list(lb.PRECISIONS),
@@ -590,7 +590,7 @@ def my_profile_preview(session: Session) -> dict:
     return {**athlete_profile(athlete["public_id"]), "is_preview": True}
 
 
-# ---------------------------------------------------------------- reports, appeals, clubs
+# ---------------------------------------------------------------- reports, appeals
 
 def report_entry(session: Session, entry_id: str, reason: str, detail: str | None) -> dict:
     try:
@@ -604,29 +604,3 @@ def appeal_entry(session: Session, entry_id: str, text: str) -> dict:
         return store.appeal(tenant.current_owner(), entry_id, text)
     except store.StoreError as exc:
         raise LeaderboardError(str(exc), exc.status) from None
-
-
-def _my_public_id() -> str:
-    athlete = _athlete(tenant.current_owner())
-    if athlete is None or not athlete["active"]:
-        raise LeaderboardError("Opt in to public leaderboards first.", 403)
-    return athlete["public_id"]
-
-
-def create_club(session: Session, name: str) -> dict:
-    try:
-        return store.create_club(tenant.current_owner(), _my_public_id(), name)
-    except store.StoreError as exc:
-        raise LeaderboardError(str(exc), exc.status) from None
-
-
-def join_club(session: Session, code: str) -> dict:
-    try:
-        return store.join_club(_my_public_id(), code)
-    except store.StoreError as exc:
-        raise LeaderboardError(str(exc), exc.status) from None
-
-
-def leave_club(session: Session, club_id: str) -> dict:
-    store.leave_club(_my_public_id(), club_id)
-    return {"left": True}

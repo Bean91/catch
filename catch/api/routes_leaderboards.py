@@ -1,4 +1,4 @@
-"""Session 26 (docs/leaderboards.md): leaderboards, publishing, reports, appeals, clubs. Public deployment only, signed-in
+"""Session 26 (docs/leaderboards.md): leaderboards, publishing, reports, appeals (clubs moved to routes_clubs.py in session 27). Public deployment only, signed-in
 users only (cookie/JWT — never a device token). Every other-user read goes through catch.sync.leaderboards, which renders
 through the one public serializer."""
 
@@ -93,14 +93,6 @@ class ReportBody(BaseModel):
 
 class AppealBody(BaseModel):
     text: str
-
-
-class ClubBody(BaseModel):
-    name: str
-
-
-class JoinBody(BaseModel):
-    code: str
 
 
 @router.get("/api/leaderboards/boards")
@@ -199,20 +191,3 @@ def appeal(entry_id: str, body: AppealBody, db: Session = Depends(get_db)):
 @router.post("/api/leaderboards/appeals/{appeal_id}/withdraw")
 def withdraw_appeal(appeal_id: int):
     return _call(store.withdraw_appeal, tenant.current_owner(), appeal_id) or {"withdrawn": True}
-
-
-@router.post("/api/leaderboards/clubs")
-def create_club(body: ClubBody, db: Session = Depends(get_db)):
-    _throttle()
-    return _call(svc.create_club, db, body.name)
-
-
-@router.post("/api/leaderboards/clubs/join")
-def join_club(body: JoinBody, db: Session = Depends(get_db)):
-    _throttle()
-    return _call(svc.join_club, db, body.code)
-
-
-@router.delete("/api/leaderboards/clubs/{club_id}")
-def leave_club(club_id: str, db: Session = Depends(get_db)):
-    return _call(svc.leave_club, db, club_id)

@@ -42,7 +42,10 @@ def legacy_engine(tmp_path, monkeypatch):
 
 
 # Session 26: global leaderboard tables (public deployment; created but empty on a personal install).
-LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "clubs", "club_members", "moderation_events", "result_reports", "appeals"}
+LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "clubs", "club_members", "moderation_events", "result_reports", "appeals"} | {
+    # Session 27: membership-scoped club tables, likewise created but empty on a personal install.
+    "club_profiles", "club_member_prefs", "club_invites", "club_join_requests", "club_announcements", "club_sessions", "club_session_participation",
+    "club_challenges", "club_challenge_entries", "club_challenge_claims", "club_results", "club_logos", "club_reports", "club_audit"}
 
 
 def test_an_old_database_upgrades_in_place_keeping_every_row(legacy_engine):

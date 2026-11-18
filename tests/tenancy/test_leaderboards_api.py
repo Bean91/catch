@@ -351,17 +351,31 @@ def test_filter_values_are_validated(env):
     assert keys == ["500m", "1000m", "2000m", "5000m", "6000m", "30min", "60min"]
 
 
-def test_clubs_use_a_join_code_and_filter_the_board(env):
+def _club(env, club_id, *, visibility, members):
+    """members: [(owner_id, include_public_results)] — seeded directly, since club membership is session 27's service (tests/tenancy/test_clubs_*.py)."""
+    from catch.core.models import Club, ClubMember, ClubMemberPrefs
+
+    with Session(env.engine) as s:
+        s.add(Club(club_id=club_id, name=club_id, name_ci=club_id, visibility=visibility, audience="adult", join_policy="open" if visibility == "public" else "request"))
+        s.commit()
+        for owner, show in members:
+            s.add(ClubMember(club_id=club_id, owner_id=owner, club_audience="adult", role="athlete"))
+            s.commit()
+            s.add(ClubMemberPrefs(club_id=club_id, owner_id=owner, include_public_results=show))
+        s.commit()
+
+
+def test_the_public_board_club_filter_only_ever_matches_public_clubs_and_members_who_opted_in(env):
     athlete(env, ALICE, "Alpha", 1, account="1")
     athlete(env, BOB, "Bravo", 2, account="2")
-    club = env.c.post("/api/leaderboards/clubs", headers=bearer(ALICE), json={"name": "River Rowing Club"}).json()
-    assert env.c.post("/api/leaderboards/clubs/join", headers=bearer(BOB), json={"code": "NOPE"}).status_code == 404
-    assert env.c.post("/api/leaderboards/clubs/join", headers=bearer(BOB), json={"code": club["join_code"]}).status_code == 200
-    assert {e["name"] for e in board(env, CAROL, club=club["club_id"])["entries"]} == {"Alpha", "Bravo"}
-    athlete(env, DAVE, "Delta", 4, account="4")  # not in the club
-    assert board(env, CAROL)["total"] == 3 and board(env, CAROL, club=club["club_id"])["total"] == 2
-    env.c.delete(f"/api/leaderboards/clubs/{club['club_id']}", headers=bearer(BOB))
-    assert [e["name"] for e in board(env, CAROL, club=club["club_id"])["entries"]] == ["Alpha"]
+    athlete(env, DAVE, "Delta", 4, account="4")
+    _club(env, "river-public", visibility="public", members=[(ALICE, True), (BOB, False)])
+    _club(env, "river-private", visibility="private", members=[(ALICE, True), (BOB, True)])
+    assert {e["name"] for e in board(env, CAROL, club="river-public")["entries"]} == {"Alpha"}  # Bob didn't tick "show my public results"
+    assert board(env, CAROL, club="river-private")["total"] == 0  # a private club's membership can't be enumerated through the public board
+    assert board(env, CAROL)["total"] == 3
+    state = env.c.get("/api/leaderboards/me", headers=bearer(ALICE)).json()
+    assert [c["club_id"] for c in state["clubs"]] == ["river-public"]  # the filter offers public clubs only
 
 
 # ------------------------------------------------------------------ source changes

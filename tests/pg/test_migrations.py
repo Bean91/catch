@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from sqlalchemy import text
@@ -11,6 +13,8 @@ from sqlmodel import SQLModel
 
 from tests.pg.conftest import DB_URL, run_alembic, signup, runtime_url, RUNTIME_PASSWORD
 import catch.core.models  # noqa: F401
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def q(admin, sql, **params):
@@ -44,7 +48,12 @@ def test_every_table_has_forced_rls_and_a_policy_per_command(migrated, admin):
                        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                        WHERE n.nspname = 'catch' AND c.relkind = 'r' AND c.relname <> 'alembic_version'""")
     assert len(rows) == len(SQLModel.metadata.tables)
-    expected = {"weather_cells": 2, "moderation_events": 3}  # append-only: select, insert, and a column-limited update that detaches a deleted person
+    spec = importlib.util.spec_from_file_location("mig0006", ROOT / "migrations" / "versions" / "0006_clubs.py")
+    mig6 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig6)
+    # moderation_events: append-only (select, insert, and a column-limited update that detaches a deleted person). Club tables carry
+    # their `authenticated` policies plus catch_api's; the migration module is the single statement of both (club_audit is append-only too).
+    expected = {"weather_cells": 2, "moderation_events": 3, **mig6.POLICY_COUNTS}
     for name, rls, forced, policies in rows:
         assert rls and forced, f"{name}: RLS not enabled and forced"
         assert policies == expected.get(name, 4), f"{name}: {policies} policies"

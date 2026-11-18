@@ -20,12 +20,12 @@ from tests.pg.test_runtime import app  # noqa: F401  (the fixture: the real app 
 
 pytestmark = pytest.mark.filterwarnings("ignore:Cannot correctly sort tables")
 
-GLOBAL = ("public_athletes", "public_entries", "clubs", "club_members", "moderation_events", "result_reports", "appeals")
+GLOBAL = ("public_athletes", "public_entries", "moderation_events", "result_reports", "appeals")  # clubs/club_members became membership-scoped in 0006 (tests/pg/test_clubs.py)
 
 
 def _wipe(admin) -> None:
     with admin.begin() as conn:
-        for t in ("appeals", "result_reports", "moderation_events", "club_members", "clubs", "public_entries", "public_athletes"):
+        for t in ("appeals", "result_reports", "moderation_events", "public_entries", "public_athletes"):
             conn.execute(text(f"DELETE FROM catch.{t}"))
 
 

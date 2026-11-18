@@ -7,8 +7,6 @@ touches an owned table, so it needs no raw SQL and no unscoped query."""
 
 from __future__ import annotations
 
-import hashlib
-import secrets
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -22,7 +20,7 @@ from sqlmodel import Session, func, select
 from catch.analytics import leaderboards as lb
 from catch.core import db as db_module
 from catch.core import tenant
-from catch.core.models import Appeal, Club, ClubMember, ModerationEvent, PublicAthlete, PublicEntry, ResultReport
+from catch.core.models import Appeal, Club, ClubMember, ClubMemberPrefs, ModerationEvent, PublicAthlete, PublicEntry, ResultReport
 
 REPORT_AUTO_HIDE_AT = 3
 REPORTS_PER_DAY = 10
@@ -228,6 +226,24 @@ def entry_statuses(owner_id: str) -> dict[str, str]:
         return {e.entry_id: e.status for e in s.exec(select(PublicEntry).where(PublicEntry.owner_id == owner_id)).all()}
 
 
+def _public_club_ids(owner_ids: set[str], s: Session) -> dict[str, set[str]]:
+    """Which clubs a board row may be filtered by. Only PUBLIC adult clubs, and only for a member who ticked 'show my public results in
+    this club': otherwise the public board's club filter would let anyone enumerate a private (or junior) club's members."""
+    out: dict[str, set[str]] = {}
+    if not owner_ids:
+        return out
+    q = (
+        select(ClubMember.owner_id, ClubMember.club_id)
+        .join(Club, Club.club_id == ClubMember.club_id)
+        .join(ClubMemberPrefs, (ClubMemberPrefs.club_id == ClubMember.club_id) & (ClubMemberPrefs.owner_id == ClubMember.owner_id))
+        .where(ClubMember.owner_id.in_(owner_ids), ClubMember.status == "active", Club.visibility == "public", Club.audience == "adult",  # type: ignore[attr-defined]
+               Club.status == "active", ClubMemberPrefs.include_public_results == True)  # noqa: E712
+    )
+    for owner_id, club_id in s.exec(q).all():
+        out.setdefault(owner_id, set()).add(club_id)
+    return out
+
+
 def board_rows(board_key: str) -> list[dict]:
     """Every active entry on a board from an active athlete, with the fields ranking and filtering need. Capped."""
     with store() as s:
@@ -237,17 +253,13 @@ def board_rows(board_key: str) -> list[dict]:
             .where(PublicEntry.board_key == board_key, PublicEntry.status == "active", PublicAthlete.active == True)  # noqa: E712
             .limit(5000)
         ).all()
-        clubs: dict[str, set[str]] = {}
-        ids = {a.public_id for _, a in rows}
-        if ids:
-            for m in s.exec(select(ClubMember).where(ClubMember.public_id.in_(ids))).all():  # type: ignore[attr-defined]
-                clubs.setdefault(m.public_id, set()).add(m.club_id)
+        clubs = _public_club_ids({e.owner_id for e, _ in rows}, s)
         return [
             {
                 "entry_id": e.entry_id, "owner_id": e.owner_id, "public_id": e.public_id, "athlete_key": e.athlete_key, "board_key": e.board_key,
                 "value": e.value, "verification": e.verification, "tiebreak": e.tiebreak, "age_years": e.age_years, "age_band": e.age_band,
                 "age_label": e.age_label, "age_provenance": e.age_provenance, "weight_class": e.weight_class, "date_label": e.date_label,
-                "note": e.note, "handle": a.handle, "display_mode": a.display_mode, "clubs": clubs.get(e.public_id, set()),
+                "note": e.note, "handle": a.handle, "display_mode": a.display_mode, "clubs": clubs.get(e.owner_id, set()),
             }
             for e, a in rows
         ]
@@ -446,49 +458,13 @@ def resolve_appeal(moderator_id: str, appeal_id: int, outcome: str, reason: str)
         return _appeal_dict(row)
 
 
-# ---------------------------------------------------------------- clubs
-
-def _code_hash(code: str) -> str:
-    return hashlib.sha256(code.strip().upper().encode()).hexdigest()
-
-
-def create_club(owner_id: str, public_id: str, name: str) -> dict:
-    name = " ".join((name or "").split())
-    if not (3 <= len(name) <= 40) or lb._URL_RE.search(name):
-        raise StoreError("A club name is 3-40 characters and can't contain a web address.")
-    code = secrets.token_hex(4).upper()
+def public_clubs_of(owner_id: str) -> list[dict]:
+    """The public clubs this person is an active member of: the only clubs the public board can be filtered by."""
     with store() as s:
-        club = Club(club_id=str(uuid.uuid4()), name=name, name_ci=name.lower(), code_hash=_code_hash(code), created_by=owner_id)
-        s.add(club)
-        s.add(ClubMember(club_id=club.club_id, public_id=public_id))
-        try:
-            s.commit()
-        except IntegrityError:
-            s.rollback()
-            raise StoreError("A club with that name already exists.", 409) from None
-        return {"club_id": club.club_id, "name": club.name, "join_code": code}
-
-
-def join_club(public_id: str, code: str) -> dict:
-    with store() as s:
-        club = s.exec(select(Club).where(Club.code_hash == _code_hash(code or ""))).first()
-        if club is None:
-            raise StoreError("That join code isn't valid.", 404)
-        if s.get(ClubMember, (club.club_id, public_id)) is None:
-            s.add(ClubMember(club_id=club.club_id, public_id=public_id))
-            s.commit()
-        return {"club_id": club.club_id, "name": club.name}
-
-
-def leave_club(public_id: str, club_id: str) -> None:
-    with store() as s:
-        s.exec(sa_delete(ClubMember).where(ClubMember.club_id == club_id, ClubMember.public_id == public_id))
-        s.commit()
-
-
-def clubs_of(public_id: str) -> list[dict]:
-    with store() as s:
-        rows = s.exec(select(Club).join(ClubMember, ClubMember.club_id == Club.club_id).where(ClubMember.public_id == public_id)).all()
+        rows = s.exec(
+            select(Club).join(ClubMember, ClubMember.club_id == Club.club_id)
+            .where(ClubMember.owner_id == owner_id, ClubMember.status == "active", Club.visibility == "public", Club.audience == "adult", Club.status == "active")  # type: ignore[attr-defined]
+        ).all()
         return [{"club_id": c.club_id, "name": c.name} for c in rows]
 
 
@@ -514,8 +490,6 @@ def delete_owner_data(owner_id: str) -> None:
     person (no owner id), because a moderation decision must remain explainable after the account is gone."""
     with store() as s:
         athlete = s.exec(select(PublicAthlete).where(PublicAthlete.owner_id == owner_id)).first()
-        if athlete is not None:
-            s.exec(sa_delete(ClubMember).where(ClubMember.public_id == athlete.public_id))
         s.exec(sa_delete(PublicEntry).where(PublicEntry.owner_id == owner_id))
         if athlete is not None:
             s.delete(athlete)

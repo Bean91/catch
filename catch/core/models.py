@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date as date_, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, ForeignKey, String
+from sqlalchemy import CheckConstraint, Column, ForeignKey, ForeignKeyConstraint, Integer, LargeBinary, String, and_, column
 from sqlmodel import Field, Index, SQLModel, UniqueConstraint
 
 from catch.core.tenant import OwnedOrShared, OwnedStrict, owner_field
@@ -1482,23 +1482,339 @@ class PublicEntry(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+# ---------------------------------------------------------------- clubs (session 27; docs/clubs.md)
+# Membership-scoped tables: no owner column, read and written by the `authenticated` role under RLS policies that call
+# the catch_club.* helpers (migration 0006), so another club's rows are unreachable even if a query forgets its WHERE.
+# Role/audience/status vocabularies are CHECK constraints here and in 0006; analytics/clubs.py holds the same lists and
+# tests/test_clubs_schema.py asserts they agree.
+
+
+def _fk(name: str, target: str, *, ondelete: str = "CASCADE", **kw):
+    return Field(sa_column=Column(name, String, ForeignKey(target, ondelete=ondelete), nullable=False, **kw))
+
+
+_ACTIVE_OWNER = and_(column("role") == "owner", column("status") == "active")
+_PENDING = column("status") == "pending"
+
+
 class Club(SQLModel, table=True):
     __tablename__ = "clubs"
+    __table_args__ = (
+        UniqueConstraint("club_id", "audience", name="uq_clubs_id_audience"),
+        CheckConstraint("visibility IN ('public','private')", name="ck_clubs_visibility"),
+        CheckConstraint("audience IN ('adult','junior')", name="ck_clubs_audience"),
+        CheckConstraint("join_policy IN ('open','request','invite')", name="ck_clubs_join_policy"),
+        CheckConstraint("status IN ('active','suspended')", name="ck_clubs_status"),
+        CheckConstraint("audience = 'adult' OR (visibility = 'private' AND join_policy = 'request' AND has_logo = false)", name="ck_clubs_junior_is_private"),
+        CheckConstraint("join_policy <> 'open' OR visibility = 'public'", name="ck_clubs_open_is_public"),
+    )
 
     club_id: str = Field(primary_key=True)
     name: str
     name_ci: str = Field(unique=True)
-    code_hash: str = Field(unique=True)
+    description: Optional[str] = None
+    location: Optional[str] = None
+    visibility: str = "private"
+    audience: str = "adult"  # immutable after creation (the composite FK from club_members has no ON UPDATE action)
+    join_policy: str = "request"
+    rules: Optional[str] = None
+    status: str = "active"  # suspended by a platform moderator; members keep read access
+    has_logo: bool = False
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class ClubProfile(SQLModel, table=True):
+    """The person as clubs see them: a handle (never a real name or email) and a self-declared age class."""
+
+    __tablename__ = "club_profiles"
+    __table_args__ = (CheckConstraint("age_class IN ('adult','youth')", name="ck_club_profiles_age_class"),)
+
+    owner_id: str = _fk("owner_id", "user_profiles.id", primary_key=True)
+    handle: str
+    handle_ci: str = Field(unique=True)
+    age_band: str  # adult | u19 | u18 | u17 | u16 | u15 | u14 (analytics/clubs.py)
+    age_class: str
+    guardian_consent_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class ClubMember(SQLModel, table=True):
     __tablename__ = "club_members"
+    __table_args__ = (
+        ForeignKeyConstraint(["club_id", "club_audience"], ["clubs.club_id", "clubs.audience"], ondelete="CASCADE"),
+        CheckConstraint("role IN ('owner','admin','coach','athlete')", name="ck_club_members_role"),
+        CheckConstraint("status IN ('active','removed')", name="ck_club_members_status"),
+        CheckConstraint("age_class IN ('adult','youth')", name="ck_club_members_age_class"),
+        # A young athlete exists only as an athlete in a junior club; everyone else (every adult-club member, every junior-club
+        # owner/admin/coach) is an adult.
+        CheckConstraint("(age_class = 'youth') = (role = 'athlete' AND club_audience = 'junior')", name="ck_club_members_age_matches_audience"),
+        Index("uq_club_members_one_owner", "club_id", unique=True, sqlite_where=_ACTIVE_OWNER, postgresql_where=_ACTIVE_OWNER),
+        Index("ix_club_members_owner_id", "owner_id"),
+    )
 
-    club_id: str = Field(sa_column=Column("club_id", String, ForeignKey("clubs.club_id", ondelete="CASCADE"), primary_key=True))
-    public_id: str = Field(sa_column=Column("public_id", String, ForeignKey("public_athletes.public_id", ondelete="CASCADE"), primary_key=True))
+    club_id: str = Field(sa_column=Column("club_id", String, primary_key=True))
+    owner_id: str = _fk("owner_id", "user_profiles.id", primary_key=True)
+    club_audience: str
+    role: str = "athlete"
+    status: str = "active"  # removed = a staff decision that stays as a tombstone so it can't be undone by rejoining
+    age_class: str = "adult"
     joined_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubMemberPrefs(SQLModel, table=True):
+    """The member's own switches. A separate table so a member can write their own row without being able to touch role/status."""
+
+    __tablename__ = "club_member_prefs"
+    __table_args__ = (ForeignKeyConstraint(["club_id", "owner_id"], ["club_members.club_id", "club_members.owner_id"], ondelete="CASCADE"),)
+
+    club_id: str = Field(sa_column=Column("club_id", String, primary_key=True))
+    owner_id: str = Field(sa_column=Column("owner_id", String, primary_key=True))
+    include_public_results: bool = False
+    share_numbers: bool = False
+    rules_accepted_at: Optional[datetime] = None
+
+
+class ClubInvite(SQLModel, table=True):
+    __tablename__ = "club_invites"
+    __table_args__ = (CheckConstraint("role IN ('athlete','coach')", name="ck_club_invites_role"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    token_hash: str = Field(unique=True)
+    role: str = "athlete"
+    created_by: Optional[str] = None
+    expires_at: datetime
+    max_uses: Optional[int] = None  # uses are counted from club_join_requests.via_invite_id, not a counter
+    revoked_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubJoinRequest(SQLModel, table=True):
+    __tablename__ = "club_join_requests"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','approved','rejected')", name="ck_club_join_requests_status"),
+        CheckConstraint("role IN ('athlete','coach')", name="ck_club_join_requests_role"),
+        Index("uq_club_join_requests_pending", "club_id", "owner_id", unique=True, sqlite_where=_PENDING, postgresql_where=_PENDING),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    owner_id: str = _fk("owner_id", "user_profiles.id", index=True)
+    role: str = "athlete"
+    message: Optional[str] = None
+    status: str = "pending"
+    via_invite_id: Optional[int] = Field(default=None, sa_column=Column("via_invite_id", Integer, ForeignKey("club_invites.id", ondelete="SET NULL"), index=True))
+    decided_by: Optional[str] = None
+    decision_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    decided_at: Optional[datetime] = None
+
+
+class ClubAnnouncement(SQLModel, table=True):
+    __tablename__ = "club_announcements"
+    __table_args__ = (
+        UniqueConstraint("id", "club_id", name="uq_club_announcements_id_club"),
+        CheckConstraint("status IN ('pending','published','rejected','hidden')", name="ck_club_announcements_status"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    author_id: Optional[str] = None
+    title: str
+    body: str
+    status: str = "pending"
+    decided_by: Optional[str] = None
+    decision_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    decided_at: Optional[datetime] = None
+
+
+class ClubSession(SQLModel, table=True):
+    """A planned team session. Never a completed workout and never a PlannedWorkout (no per-user plan is created)."""
+
+    __tablename__ = "club_sessions"
+    __table_args__ = (
+        UniqueConstraint("id", "club_id", name="uq_club_sessions_id_club"),
+        CheckConstraint("status IN ('pending','published','cancelled','rejected')", name="ck_club_sessions_status"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    created_by: Optional[str] = None
+    title: str
+    session_type: str = "other"
+    date: date_
+    start_time: Optional[str] = None
+    duration_min: Optional[int] = None
+    distance_m: Optional[int] = None
+    description: Optional[str] = None
+    status: str = "pending"
+    decided_by: Optional[str] = None
+    decision_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubSessionParticipation(SQLModel, table=True):
+    """Only that a member took part, plus the distance/duration they chose to share. The workout itself stays theirs."""
+
+    __tablename__ = "club_session_participation"
+    __table_args__ = (
+        ForeignKeyConstraint(["session_id", "club_id"], ["club_sessions.id", "club_sessions.club_id"], ondelete="CASCADE"),
+        ForeignKeyConstraint(["club_id", "owner_id"], ["club_members.club_id", "club_members.owner_id"], ondelete="CASCADE"),
+    )
+
+    session_id: int = Field(sa_column=Column("session_id", Integer, primary_key=True))
+    owner_id: str = Field(sa_column=Column("owner_id", String, primary_key=True))
+    club_id: str = Field(sa_column=Column("club_id", String, index=True, nullable=False))
+    shared_distance_m: Optional[int] = None
+    shared_duration_s: Optional[int] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubChallenge(SQLModel, table=True):
+    __tablename__ = "club_challenges"
+    __table_args__ = (
+        UniqueConstraint("id", "club_id", name="uq_club_challenges_id_club"),
+        CheckConstraint("metric IN ('distance','time','sessions','tests','consistency')", name="ck_club_challenges_metric"),
+        CheckConstraint("sport IN ('rowing','any')", name="ck_club_challenges_sport"),
+        CheckConstraint("status IN ('pending','active','cancelled','rejected')", name="ck_club_challenges_status"),
+        CheckConstraint("start_date <= end_date", name="ck_club_challenges_dates"),
+        # Volume challenges are capped by construction: extra volume past the goal earns nothing.
+        CheckConstraint("metric NOT IN ('distance','time') OR goal IS NOT NULL", name="ck_club_challenges_volume_has_cap"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    created_by: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    metric: str
+    sport: str = "rowing"
+    start_date: date_
+    end_date: date_
+    goal: Optional[int] = None  # metres | seconds | sessions | tests | weeks, by metric: the score never exceeds it
+    target_per_week: Optional[int] = None  # consistency: sessions that make a week count
+    day_cap_m: Optional[int] = None
+    day_cap_s: Optional[int] = None
+    min_session_s: int = 1200
+    status: str = "pending"
+    decided_by: Optional[str] = None
+    decision_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubChallengeEntry(SQLModel, table=True):
+    """One member's standing: written only by their own request from their own data (club_challenges service)."""
+
+    __tablename__ = "club_challenge_entries"
+    __table_args__ = (
+        ForeignKeyConstraint(["challenge_id", "club_id"], ["club_challenges.id", "club_challenges.club_id"], ondelete="CASCADE"),
+        ForeignKeyConstraint(["club_id", "owner_id"], ["club_members.club_id", "club_members.owner_id"], ondelete="CASCADE"),
+        CheckConstraint("status IN ('joined','left')", name="ck_club_challenge_entries_status"),
+    )
+
+    challenge_id: int = Field(sa_column=Column("challenge_id", Integer, primary_key=True))
+    owner_id: str = Field(sa_column=Column("owner_id", String, primary_key=True))
+    club_id: str = Field(sa_column=Column("club_id", String, index=True, nullable=False))
+    status: str = "joined"
+    value: int = 0
+    excused_weeks: Optional[str] = None  # comma-separated ISO Mondays the member chose to excuse; no reason is stored
+    joined_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubChallengeClaim(SQLModel, table=True):
+    """Keyed hash of a provider activity. The primary key is global, so one activity can't count for two accounts."""
+
+    __tablename__ = "club_challenge_claims"
+
+    challenge_id: int = Field(sa_column=Column("challenge_id", Integer, ForeignKey("club_challenges.id", ondelete="CASCADE"), primary_key=True))
+    activity_key: str = Field(primary_key=True)
+    owner_id: str = _fk("owner_id", "user_profiles.id", index=True)
+
+
+class ClubResult(SQLModel, table=True):
+    """A result the member explicitly shared to one club (allowlisted fields only; provider ids stay in the owner's rows)."""
+
+    __tablename__ = "club_results"
+    __table_args__ = (
+        UniqueConstraint("club_id", "source_key", name="uq_club_results_source"),
+        ForeignKeyConstraint(["club_id", "owner_id"], ["club_members.club_id", "club_members.owner_id"], ondelete="CASCADE"),
+        CheckConstraint("status IN ('active','hidden')", name="ck_club_results_status"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = Field(sa_column=Column("club_id", String, index=True, nullable=False))
+    owner_id: str = Field(sa_column=Column("owner_id", String, index=True, nullable=False))
+    board_key: str
+    value: int
+    verification: str
+    source_key: str
+    note: Optional[str] = None
+    status: str = "active"
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubLogo(SQLModel, table=True):
+    __tablename__ = "club_logos"
+    __table_args__ = (CheckConstraint("length(data) <= 262144", name="ck_club_logos_size"),)
+
+    club_id: str = _fk("club_id", "clubs.club_id", primary_key=True)
+    content_type: str
+    data: bytes = Field(sa_column=Column("data", LargeBinary, nullable=False))
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubReport(SQLModel, table=True):
+    """Visible to the reporter and to platform moderators, not to club staff (a reporter shouldn't have to be named to the people reported)."""
+
+    __tablename__ = "club_reports"
+    __table_args__ = (
+        UniqueConstraint("target_type", "target_id", "reporter_id", name="uq_club_reports_target_reporter"),
+        CheckConstraint("target_type IN ('club','announcement','member','challenge')", name="ck_club_reports_target"),
+        CheckConstraint("status IN ('open','actioned','dismissed')", name="ck_club_reports_status"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = _fk("club_id", "clubs.club_id", index=True)
+    target_type: str
+    target_id: str
+    reporter_id: Optional[str] = Field(default=None, index=True)
+    reason: str
+    detail: Optional[str] = None
+    status: str = "open"
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubAudit(SQLModel, table=True):
+    """Append-only (INSERT/SELECT; one column-limited UPDATE that detaches a deleted person). No FK on club_id: the trail
+    outlives a deleted club."""
+
+    __tablename__ = "club_audit"
+    __table_args__ = (CheckConstraint("actor_kind IN ('member','staff','moderator','system')", name="ck_club_audit_actor_kind"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    club_id: str = Field(index=True)
+    actor_id: Optional[str] = None
+    actor_kind: str
+    action: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    subject_owner_id: Optional[str] = Field(default=None, index=True)
+    reason_text: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ClubBlock(OwnedStrict, SQLModel, table=True):
+    """The one owned club table: who this person has chosen not to see in club lists. Private to them."""
+
+    __tablename__ = "club_blocks"
+
+    owner_id: str = owner_field(primary_key=True)
+    blocked_owner_id: str = Field(primary_key=True)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class ModerationEvent(SQLModel, table=True):
