@@ -217,6 +217,9 @@ def test_the_role_matrix_is_enforced_by_the_database(env):
     assert run(runtime, u["coa"], rm, c=cid, t=u["ath"]) == 1                              # a coach removes an athlete
     assert run(runtime, u["coa"], rm, c=cid, t=u["own"]) == 0
     assert run(runtime, u["ath"], "SELECT catch_club.is_member(:c, :u)", c=cid, u=u["ath"]) == [(False,)]  # removed means out
+    stranger = users(admin, "str")["str"]
+    for who, sees in ((u["own"], 1), (u["coa"], 1), (stranger, 0)):  # staff still read the handle of someone they removed (the audit trail stays legible); a stranger doesn't
+        assert run(runtime, who, "SELECT count(*) FROM club_profiles WHERE owner_id = :t", t=u["ath"]) == [(sees,)], who
     assert [r[0] for r in run(runtime, u["ath"], "SELECT status FROM club_members")] == ["removed"]         # they see only their own tombstone
 
 
@@ -481,6 +484,8 @@ def test_the_audit_log_is_append_only_for_everyone_the_app_runs_as(env):
     denied(runtime, u["coa"], ins, c=cid, a=u["own"])                      # no forging someone else's action
     outsider = users(admin, "out")["out"]
     denied(runtime, outsider, ins, c=cid, a=outsider)                      # nor writing into a club you're not in
+    assert run(runtime, u["ath"], ins, c=cid, a=u["ath"]) == 1                # an athlete's own act (leaving) is recorded...
+    assert run(runtime, u["ath"], "SELECT count(*) FROM club_audit") == [(1,)]  # ...and they can read just that, not the staff's entries
     denied(runtime, u["own"], "UPDATE club_audit SET reason_text = 'edited'")
     denied(runtime, u["own"], "DELETE FROM club_audit")
     with runtime.connect() as conn:                                        # the bare runtime role, as account deletion uses it

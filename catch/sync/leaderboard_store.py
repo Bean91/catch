@@ -265,6 +265,18 @@ def board_rows(board_key: str) -> list[dict]:
         ]
 
 
+def public_entries_for_owners(board_key: str, owner_ids: list[str]) -> list[dict]:
+    """Active public entries of specific people on one board: what a club board shows for a member who ticked 'also show my public results here'."""
+    if not owner_ids:
+        return []
+    with store() as s:
+        rows = s.exec(
+            select(PublicEntry).join(PublicAthlete, PublicAthlete.public_id == PublicEntry.public_id)
+            .where(PublicEntry.board_key == board_key, PublicEntry.status == "active", PublicAthlete.active == True, PublicEntry.owner_id.in_(owner_ids))  # noqa: E712
+        ).all()
+        return [{"entry_id": e.entry_id, "owner_id": e.owner_id, "value": e.value, "verification": e.verification, "tiebreak": e.tiebreak} for e in rows]
+
+
 def entries_for_athlete(public_id: str) -> list[dict]:
     with store() as s:
         a = s.get(PublicAthlete, public_id)

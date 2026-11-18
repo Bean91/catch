@@ -33,6 +33,20 @@ def _skip(source: str, why: str) -> dict:
     return {"source": source, "skipped": why}
 
 
+def _refresh_club_challenges(session) -> None:
+    """New data can change a member's challenge standing, so recompute it here (as them) rather than on a timer. Public deployment only; a bug in
+    this newer subsystem must not undo a finished sync."""
+    if not tenant.is_public():
+        return
+    try:
+        from catch.sync.club_challenges import refresh_my_scores
+
+        refresh_my_scores(session)
+    except Exception:
+        logger.exception("club challenge refresh failed")
+        session.rollback()
+
+
 def run_sync(source: str, days: int = 3, *, manual: bool = False) -> dict:
     """One provider, for the current owner. Credentials are resolved here from the owner's own connection — nothing secret is ever
     a parameter. A scheduled run skips a connection that needs reconnecting or is backing off; a manual one always tries."""
@@ -70,6 +84,7 @@ def run_sync(source: str, days: int = 3, *, manual: bool = False) -> dict:
                 from catch.sync.scoring import recompute_scores
 
                 recompute_scores(session)
+                _refresh_club_challenges(session)
                 if source == "garmin":
                     _post_garmin_enrichment(session)
                 backfill = _advance_backfill(session, source)

@@ -40,7 +40,7 @@ def _now() -> float:
 
 
 def check_rate(owner_id: str, bucket: str = "chat") -> None:
-    limit = {"vision": VISION_REQUESTS_PER_MINUTE, "admin": ADMIN_REQUESTS_PER_MINUTE, "leaderboard": 30, "report": 5}.get(bucket, REQUESTS_PER_MINUTE)
+    limit = {"vision": VISION_REQUESTS_PER_MINUTE, "admin": ADMIN_REQUESTS_PER_MINUTE, "leaderboard": 30, "report": 5, "club": 60}.get(bucket, REQUESTS_PER_MINUTE)
     now = _now()
     with _lock:
         window = _windows[(owner_id, bucket)]

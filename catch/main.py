@@ -23,6 +23,7 @@ from catch.api import (
     routes_coaching,
     routes_leaderboards,
     routes_moderation,
+    routes_clubs,
     routes_library,
     routes_checkins,
     routes_coach,
@@ -180,6 +181,7 @@ app.include_router(routes_library.router)
 app.include_router(routes_coaching.router)
 app.include_router(routes_leaderboards.router)
 app.include_router(routes_moderation.router)
+app.include_router(routes_clubs.router)
 
 
 @app.get("/api/health")

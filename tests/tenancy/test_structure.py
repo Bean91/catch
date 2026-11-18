@@ -117,6 +117,7 @@ ALLOWED_RAW_SQL = {
     "catch/core/supabase_auth.py",  # SECURITY DEFINER session check
     "catch/api/routes_internal.py",  # SECURITY DEFINER user list
     "catch/sync/lease.py",  # the advisory lock behind the per-(user, job) claim
+    "catch/sync/club_store.py",  # session 27: catch_club.transfer_ownership (SECURITY DEFINER; re-checks the caller is the owner)
 }
 
 

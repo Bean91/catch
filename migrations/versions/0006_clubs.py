@@ -43,9 +43,10 @@ M = "catch_club"
 _MEMBER = f"{M}.is_member(club_id, {UID})"
 _STAFF = f"{M}.is_staff(club_id, {UID})"
 _ADMIN = f"{M}.is_admin(club_id, {UID})"
-_PUBLISH_INSERT = lambda who: f"{_STAFF} AND {who} = {UID} AND (status = 'pending' OR (status = 'published' AND {M}.may_publish(club_id, {UID})))"  # noqa: E731
-_PUBLISH_UPDATE = f"{_STAFF} AND (status IN ('rejected','hidden','cancelled') OR (status = 'published' AND {M}.may_publish(club_id, {UID})))"
-_POST_SELECT = f"{_MEMBER} AND (status = 'published' OR {_STAFF})"
+# A post is live as 'published' (announcements, sessions) or 'active' (challenges); it waits as 'pending'. Who may make it live is may_publish.
+_PUBLISH_INSERT = lambda who, live="published": f"{_STAFF} AND {who} = {UID} AND (status = 'pending' OR (status = '{live}' AND {M}.may_publish(club_id, {UID})))"  # noqa: E731
+_PUBLISH_UPDATE = lambda live="published": f"{_STAFF} AND (status IN ('rejected','hidden','cancelled') OR (status = '{live}' AND {M}.may_publish(club_id, {UID})))"  # noqa: E731
+_POST_SELECT = lambda live="published": f"{_MEMBER} AND (status = '{live}' OR {_STAFF})"  # noqa: E731
 _OWN = f"owner_id = {UID}"
 
 AUTH: dict[str, dict[str, tuple]] = {
@@ -81,9 +82,9 @@ AUTH: dict[str, dict[str, tuple]] = {
         "update": (f"status = 'pending' AND {M}.may_decide_request(club_id, {UID}, role)", f"status IN ('approved','rejected') AND decided_by = {UID}"),
         "delete": (_OWN, None),
     },
-    "club_announcements": {"select": (_POST_SELECT, None), "insert": (None, _PUBLISH_INSERT("author_id")), "update": (_STAFF, _PUBLISH_UPDATE), "delete": (_ADMIN, None)},
-    "club_sessions": {"select": (_POST_SELECT, None), "insert": (None, _PUBLISH_INSERT("created_by")), "update": (_STAFF, _PUBLISH_UPDATE), "delete": (_ADMIN, None)},
-    "club_challenges": {"select": (_POST_SELECT, None), "insert": (None, _PUBLISH_INSERT("created_by")), "update": (_STAFF, _PUBLISH_UPDATE), "delete": (_ADMIN, None)},
+    "club_announcements": {"select": (_POST_SELECT(), None), "insert": (None, _PUBLISH_INSERT("author_id")), "update": (_STAFF, _PUBLISH_UPDATE()), "delete": (_ADMIN, None)},
+    "club_sessions": {"select": (_POST_SELECT(), None), "insert": (None, _PUBLISH_INSERT("created_by")), "update": (_STAFF, _PUBLISH_UPDATE()), "delete": (_ADMIN, None)},
+    "club_challenges": {"select": (_POST_SELECT("active"), None), "insert": (None, _PUBLISH_INSERT("created_by", "active")), "update": (_STAFF, _PUBLISH_UPDATE("active")), "delete": (_ADMIN, None)},
     "club_session_participation": {
         "select": (_MEMBER, None),
         "insert": (None, f"{_OWN} AND EXISTS (SELECT 1 FROM catch.club_sessions s WHERE s.id = session_id AND s.status = 'published')"),
@@ -109,7 +110,8 @@ AUTH: dict[str, dict[str, tuple]] = {
     },
     "club_logos": {"select": (f"{M}.club_visible(club_id, {UID})", None), "insert": (None, _ADMIN), "update": (_ADMIN, _ADMIN), "delete": (_ADMIN, None)},
     "club_reports": {"select": (f"reporter_id = {UID}", None), "insert": (None, f"reporter_id = {UID} AND {M}.club_visible(club_id, {UID})")},
-    "club_audit": {"select": (_STAFF, None), "insert": (None, f"actor_id = {UID} AND {_MEMBER}")},
+    # An athlete leaving writes their own audit row; INSERT ... RETURNING needs the SELECT policy to admit it, so people can read their own entries.
+    "club_audit": {"select": (f"{_STAFF} OR actor_id = {UID}", None), "insert": (None, f"actor_id = {UID} AND {_MEMBER}")},
 }
 # Column-level UPDATE grants where a row-level policy alone can't say "this column, not that one".
 UPDATE_COLUMNS = {
@@ -348,7 +350,9 @@ def _functions() -> None:
        """SELECT EXISTS (SELECT 1 FROM catch.club_members a JOIN catch.club_members b ON a.club_id = b.club_id
                          WHERE a.owner_id = target AND b.owner_id = viewer AND a.status = 'active' AND b.status = 'active')
               OR EXISTS (SELECT 1 FROM catch.club_join_requests r JOIN catch.club_members s ON s.club_id = r.club_id
-                         WHERE r.owner_id = target AND r.status = 'pending' AND s.owner_id = viewer AND s.status = 'active' AND s.role IN ('owner','admin','coach'))""")
+                         WHERE r.owner_id = target AND r.status = 'pending' AND s.owner_id = viewer AND s.status = 'active' AND s.role IN ('owner','admin','coach'))
+              OR EXISTS (SELECT 1 FROM catch.club_members a JOIN catch.club_members s ON s.club_id = a.club_id
+                         WHERE a.owner_id = target AND s.owner_id = viewer AND s.status = 'active' AND s.role IN ('owner','admin','coach'))""")  # staff keep reading the handle of someone they removed, so the audit trail stays legible
     fn("invite_valid(inv integer, cid text, req_role text)", "boolean",
        """SELECT EXISTS (SELECT 1 FROM catch.club_invites i WHERE i.id = inv AND i.club_id = cid AND i.role = req_role AND i.revoked_at IS NULL AND i.expires_at > now()
               AND (i.max_uses IS NULL OR (SELECT count(*) FROM catch.club_join_requests r WHERE r.via_invite_id = i.id) < i.max_uses))""")
@@ -413,6 +417,39 @@ def _functions() -> None:
     op.execute("GRANT EXECUTE ON FUNCTION catch_club.transfer_ownership(text, text) TO authenticated, catch_api")
 
 
+def _succession_trigger() -> None:
+    """Deleting a person (through the app, or directly in Supabase) must never leave a club without an owner. BEFORE the profile row goes
+    (and its cascade removes the person's memberships), each club they own passes to its longest-standing ADULT member, admins first, then
+    coaches, then athletes: so a young athlete can never inherit a junior club. A club with no such member is deleted. The Python
+    equivalent is club_store.delete_owner_data; tests/pg/test_clubs_api.py proves this one, tests/tenancy proves that one."""
+    op.execute("""CREATE OR REPLACE FUNCTION catch_club.hand_over_clubs() RETURNS trigger
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+        AS $$ DECLARE r record; succ text;
+        BEGIN
+            FOR r IN SELECT club_id FROM catch.club_members WHERE owner_id = OLD.id AND role = 'owner' AND status = 'active' LOOP
+                SELECT m.owner_id INTO succ FROM catch.club_members m
+                 WHERE m.club_id = r.club_id AND m.status = 'active' AND m.owner_id <> OLD.id AND m.age_class = 'adult'
+                 ORDER BY CASE m.role WHEN 'admin' THEN 0 WHEN 'coach' THEN 1 ELSE 2 END, m.joined_at, m.owner_id LIMIT 1;
+                DELETE FROM catch.club_members WHERE club_id = r.club_id AND owner_id = OLD.id;
+                IF succ IS NOT NULL THEN
+                    UPDATE catch.club_members SET role = 'owner' WHERE club_id = r.club_id AND owner_id = succ;
+                    INSERT INTO catch.club_audit (club_id, actor_id, actor_kind, action, subject_owner_id, reason_text, created_at)
+                    VALUES (r.club_id, NULL, 'system', 'ownership_transferred_on_account_deletion', succ,
+                            'The owner deleted their account; the longest-standing eligible member took over.', now());
+                ELSE
+                    INSERT INTO catch.club_audit (club_id, actor_id, actor_kind, action, subject_owner_id, reason_text, created_at)
+                    VALUES (r.club_id, NULL, 'system', 'club_deleted_owner_left_no_successor', NULL,
+                            'The owner deleted their account and no member could take over.', now());
+                    DELETE FROM catch.clubs WHERE club_id = r.club_id;
+                END IF;
+            END LOOP;
+            RETURN OLD;
+        END $$""")
+    op.execute("REVOKE ALL ON FUNCTION catch_club.hand_over_clubs() FROM PUBLIC, anon, authenticated")
+    op.execute("DROP TRIGGER IF EXISTS catch_club_hand_over ON catch.user_profiles")
+    op.execute("CREATE TRIGGER catch_club_hand_over BEFORE DELETE ON catch.user_profiles FOR EACH ROW EXECUTE FUNCTION catch_club.hand_over_clubs()")
+
+
 def _policies() -> None:
     op.execute("GRANT USAGE ON SCHEMA catch TO catch_api")  # idempotent; 0005 granted it
     for t in GLOBAL:
@@ -458,12 +495,14 @@ def upgrade() -> None:
     _create_tables()
     _backfill()
     _functions()
+    _succession_trigger()
     _policies()
 
 
 def downgrade() -> None:
     # Everything new is dropped and 0005's empty-shaped club tables are restored (clubs and members are NOT carried back: the
     # old shape keyed membership by public athlete and had no roles, so there is nothing faithful to restore).
+    op.execute("DROP TRIGGER IF EXISTS catch_club_hand_over ON catch.user_profiles")
     op.execute("DROP SCHEMA IF EXISTS catch_club CASCADE")
     for t in ("club_blocks", "club_audit", "club_reports", "club_logos", "club_results", "club_challenge_claims", "club_challenge_entries",
               "club_challenges", "club_session_participation", "club_sessions", "club_announcements", "club_join_requests", "club_invites",
