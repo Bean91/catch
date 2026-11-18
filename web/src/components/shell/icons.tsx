@@ -206,3 +206,23 @@ export function LeaderboardsIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function ClubsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="5.5" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="18.5" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M6.5 19c.4-3 2.4-4.8 5.5-4.8s5.1 1.8 5.5 4.8M2.5 18c.2-2 1.2-3.2 3-3.6M21.5 18c-.2-2-1.2-3.2-3-3.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function GlobeIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M3.8 12h16.4M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}

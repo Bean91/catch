@@ -99,6 +99,21 @@ export function SettingsPage() {
 
       {(isPublic || isMock) && (
         <Card
+          title="Clubs"
+          action={
+            <Link to="/clubs" data-testid="settings-clubs" className="text-sm font-medium text-accent hover:underline">
+              Open
+            </Link>
+          }
+        >
+          <p className="text-sm text-text-secondary">
+            Join or start a rowing club: roles, invitations, a team calendar, challenges and announcements. Junior clubs are private, coach-approved and never list their members.
+          </p>
+        </Card>
+      )}
+
+      {(isPublic || isMock) && (
+        <Card
           title="Leaderboards"
           action={
             <Link to="/settings/leaderboards" data-testid="settings-leaderboards" className="text-sm font-medium text-accent hover:underline">

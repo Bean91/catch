@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { fetchModQueue, moderateLbEntry, resolveLbAppeal } from "../lib/api";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
+import { ClubModeration } from "../components/clubs/ClubModeration";
 
 const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 
@@ -74,6 +75,7 @@ export function ModerationPage() {
           </Card>
         </>
       )}
+      {q.data && <ClubModeration />}
     </div>
   );
 }

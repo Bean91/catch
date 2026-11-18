@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  createLbClub, fetchLbMe, fetchLbProfilePreview, fetchLbResults, joinLbClub, lbOptIn, lbOptOut, leaveLbClub, saveLbSettings, withdrawLbPublication,
+  fetchLbMe, fetchLbProfilePreview, fetchLbResults, lbOptIn, lbOptOut, saveLbSettings, withdrawLbPublication,
 } from "../lib/api";
 import { EntryRow } from "../components/leaderboards/EntryRow";
 import { PublishSheet } from "../components/leaderboards/PublishSheet";
@@ -160,9 +160,6 @@ function OptedIn({ state }: { state: LbState }) {
   const [showAge, setShowAge] = useState(state.settings.show_age_band);
   const [showWeight, setShowWeight] = useState(state.settings.show_weight_class);
   const [band, setBand] = useState(state.settings.self_declared_band ?? "");
-  const [clubName, setClubName] = useState("");
-  const [clubCode, setClubCode] = useState("");
-  const [newCode, setNewCode] = useState<string | null>(null);
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["lb-me"] });
     queryClient.invalidateQueries({ queryKey: ["lb-results"] });
@@ -177,9 +174,6 @@ function OptedIn({ state }: { state: LbState }) {
   });
   const withdraw = useMutation({ mutationFn: (id: string) => withdrawLbPublication(id), onSuccess: () => { setTakeDown(null); setError(null); refresh(); }, onError });
   const leave = useMutation({ mutationFn: () => lbOptOut(true), onSuccess: () => { setLeaving(false); refresh(); }, onError });
-  const create = useMutation({ mutationFn: () => createLbClub(clubName), onSuccess: (c) => { setNewCode(c.join_code); setClubName(""); setError(null); refresh(); }, onError });
-  const join = useMutation({ mutationFn: () => joinLbClub(clubCode), onSuccess: () => { setClubCode(""); setError(null); refresh(); }, onError });
-  const leaveClub = useMutation({ mutationFn: (id: string) => leaveLbClub(id), onSuccess: refresh, onError });
   const profile = useQuery({ queryKey: ["lb-profile-preview"], queryFn: fetchLbProfilePreview, enabled: showProfile, retry: false });
   const fromConcept2 = state.settings.age_source === "concept2_profile";
   const bandById = (id: string) => state.publications.find((p) => p.entry_id === id);
@@ -347,35 +341,18 @@ function OptedIn({ state }: { state: LbState }) {
         )}
       </Card>
 
-      <Card title="Clubs">
-        <ul className="flex flex-col gap-2">
-          {state.clubs.map((c) => (
-            <li key={c.club_id} className="flex items-center justify-between text-sm text-text-primary">
-              {c.name}
-              <button type="button" onClick={() => leaveClub.mutate(c.club_id)} className={btn}>
-                Leave
-              </button>
-            </li>
-          ))}
-        </ul>
-        {state.clubs.length === 0 && <p className="text-sm text-text-secondary">You're not in a club. A club is just a join code; being in one lets club boards include you.</p>}
-        {newCode && (
-          <p role="status" data-testid="lb-club-code" className="mt-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
-            Share this code with your club: <span className="font-mono-nums font-semibold text-text-primary">{newCode}</span>. It's shown once.
-          </p>
-        )}
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input value={clubName} onChange={(e) => setClubName(e.target.value)} placeholder="New club name" className={inputCls} aria-label="New club name" data-testid="lb-club-name" />
-          <button type="button" onClick={() => create.mutate()} disabled={!clubName.trim()} className={btn} data-testid="lb-club-create">
-            Create
-          </button>
-        </div>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <input value={clubCode} onChange={(e) => setClubCode(e.target.value)} placeholder="Join code" className={inputCls} aria-label="Club join code" data-testid="lb-club-code-input" />
-          <button type="button" onClick={() => join.mutate()} disabled={!clubCode.trim()} className={btn} data-testid="lb-club-join">
-            Join
-          </button>
-        </div>
+      <Card
+        title="Clubs"
+        action={
+          <Link to="/clubs" data-testid="lb-clubs-link" className="text-sm font-medium text-accent hover:underline">
+            Open clubs
+          </Link>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          Clubs have their own page now: roles, invitations, a team calendar, challenges and a club results board. A public club's board can include your public results only if you tick
+          “show my public results” in that club.
+        </p>
       </Card>
 
       <Card title="Leave the leaderboards">

@@ -1,6 +1,6 @@
 import { UNAUTHORIZED_EVENT, authedFetch } from "./authedFetch";
 import {
-  mockLbAppeal, mockLbBoard, mockLbBoards, mockLbCreateClub, mockLbJoinClub, mockLbLeaveClub, mockLbMe, mockLbModEntry, mockLbModQueue,
+  mockLbAppeal, mockLbBoard, mockLbBoards, mockLbMe, mockLbModEntry, mockLbModQueue,
   mockLbModerate, mockLbOptIn, mockLbOptOut, mockLbPreview, mockLbProfile, mockLbPublish, mockLbReport, mockLbResolve, mockLbResults,
   mockLbSaveSettings, mockLbWithdraw,
 } from "./mockLeaderboards";
@@ -253,11 +253,16 @@ import type {
 } from "./types";
 import type { AiModelsResponse, AiProviderCard, AiProvidersResponse, AiTestResult, AiUsage, CoachProviderName } from "./types";
 import type { ConnectionCard, ConnectionsResponse, ConnectionTestResult, ProviderId } from "./types";
-import type { LbAppeal, LbBoardFilters, LbBoardInfo, LbBoardResponse, LbClub, LbEntry, LbModEntry, LbModQueue, LbPrefs, LbPreview, LbProfile, LbResult, LbResultRef, LbSettingsPatch, LbState } from "./types";
+import type { LbAppeal, LbBoardFilters, LbBoardInfo, LbBoardResponse, LbEntry, LbModEntry, LbModQueue, LbPrefs, LbPreview, LbProfile, LbResult, LbResultRef, LbSettingsPatch, LbState } from "./types";
 import type { CalendarPayload, EventInput, EventOverview, EventProjection, PhaseInput, PlanWeekSummary, PlannedInput, PlannedWorkout, PlanPhase, UpcomingEvent } from "./types";
 import * as mockCal from "./mockCalendar";
 import * as mockCoach from "./mockCoaching";
 import * as mockLib from "./mockLibrary";
+import * as mockClubs from "./mockClubs";
+import type {
+  Club, ClubAuditEvent, ClubBoard, ClubChallengeDetail, ClubChallengeRow, ClubInvite, ClubInvitePreview, ClubJoinRequestRow, ClubMember, ClubModDetail, ClubModReport, ClubMyRequest, ClubPost, ClubProfile,
+  ClubRole, ClubSessionItem, ClubSummary, ClubsMine, NewChallengeInput, NewClubInput,
+} from "./types";
 
 export const MOCK_SCENARIO = mockScenarioFromQuery();
 export const isMock = MOCK_SCENARIO !== null;
@@ -1873,21 +1878,6 @@ export async function appealLbEntry(entryId: string, text: string): Promise<LbAp
   return request(`/api/leaderboards/entries/${entryId}/appeal`, jsonInit("POST", { text }));
 }
 
-export async function createLbClub(name: string): Promise<LbClub & { join_code: string }> {
-  if (isMock) return delay(mockLbCreateClub(name), 200);
-  return request("/api/leaderboards/clubs", jsonInit("POST", { name }));
-}
-
-export async function joinLbClub(code: string): Promise<LbClub> {
-  if (isMock) return delay(mockLbJoinClub(code), 200);
-  return request("/api/leaderboards/clubs/join", jsonInit("POST", { code }));
-}
-
-export async function leaveLbClub(id: string): Promise<{ left: boolean }> {
-  if (isMock) return delay(mockLbLeaveClub(id), 150);
-  return request(`/api/leaderboards/clubs/${id}`, { method: "DELETE" });
-}
-
 export async function fetchModQueue(): Promise<LbModQueue> {
   if (isMock) return delay(mockLbModQueue());
   return request("/api/moderation/queue");
@@ -1907,3 +1897,267 @@ export async function resolveLbAppeal(id: number, outcome: "upheld" | "overturne
   if (isMock) return delay(mockLbResolve(id, outcome, reason), 250);
   return request(`/api/moderation/appeals/${id}/resolve`, jsonInit("POST", { outcome, reason }));
 }
+
+
+// --- Clubs (session 27; docs/clubs.md) -----------------------------------------------------------------------------------
+// Public deployment only; every call acts as the signed-in person and the server decides what they may do. A club's logo is fetched with the
+// bearer header and shown from a blob URL (an <img src> can't send it).
+
+const club = (path = "") => `/api/clubs${path}`;
+
+// A mock "server" answers with the state it has WHEN IT RESPONDS (not when asked), so a fetch already in flight can't deliver a list that predates a write.
+function lazyDelay<T>(fn: () => T, ms = 300): Promise<T> {
+  return new Promise((resolve, reject) =>
+    setTimeout(() => {
+      try {
+        resolve(fn());
+      } catch (e) {
+        reject(e);
+      }
+    }, ms),
+  );
+}
+
+export async function fetchMyClubs(): Promise<ClubsMine> {
+  if (isMock) return lazyDelay(() => mockClubs.mockClubsMine());
+  return request(club("/mine"));
+}
+
+export async function fetchDiscoverClubs(q?: string): Promise<{ clubs: Club[] }> {
+  if (isMock) return lazyDelay(() => ({ clubs: mockClubs.mockClubsDiscover(q) }));
+  return request(club(`/discover${q ? `?q=${encodeURIComponent(q)}` : ""}`));
+}
+
+export async function saveClubProfile(body: { handle: string; age_band: string; attest_min_age: boolean; guardian_consent: boolean }): Promise<ClubProfile> {
+  if (isMock) return lazyDelay(() => mockClubs.mockSaveProfile(body), 150);
+  return request(club("/profile"), jsonInit("PUT", body));
+}
+
+export async function createClub(body: NewClubInput): Promise<Club> {
+  if (isMock) return lazyDelay(() => mockClubs.mockCreateClub(body), 200);
+  return request(club(), jsonInit("POST", body));
+}
+
+export async function fetchClub(id: string): Promise<Club> {
+  if (isMock) return lazyDelay(() => mockClubs.mockGetClub(id));
+  return request(club(`/${id}`));
+}
+
+export async function updateClub(id: string, patch: Partial<NewClubInput>): Promise<Club> {
+  if (isMock) return lazyDelay(() => mockClubs.mockUpdateClub(id, patch), 150);
+  return request(club(`/${id}`), jsonInit("PATCH", patch));
+}
+
+export async function deleteClub(id: string, confirm: boolean): Promise<{ deleted: boolean; preview?: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockDeleteClub(id, confirm), 150);
+  return request(club(`/${id}/delete`), jsonInit("POST", { confirm }));
+}
+
+export async function leaveClub(id: string): Promise<{ left: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockLeave(id), 150);
+  return request(club(`/${id}/leave`), jsonInit("POST", {}));
+}
+
+export async function transferClub(id: string, member_ref: string, confirm: boolean): Promise<{ transferred: boolean; preview?: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockTransfer(id, member_ref, confirm), 150);
+  return request(club(`/${id}/transfer`), jsonInit("POST", { member_ref, confirm }));
+}
+
+export async function fetchClubMembers(id: string): Promise<{ members: ClubMember[]; count: number }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockMembers(id));
+  return request(club(`/${id}/members`));
+}
+
+export async function setClubRole(id: string, ref: string, role: ClubRole): Promise<{ role: ClubRole }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockSetRole(id, ref, role), 150);
+  return request(club(`/${id}/members/${ref}/role`), jsonInit("PUT", { role }));
+}
+
+export async function removeClubMember(id: string, ref: string, reason: string): Promise<{ removed: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockRemoveMember(id, ref, reason), 150);
+  return request(club(`/${id}/members/${ref}/remove`), jsonInit("POST", { reason }));
+}
+
+export async function setClubPrefs(id: string, patch: { include_public_results?: boolean; share_numbers?: boolean }): Promise<{ include_public_results: boolean; share_numbers: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockPrefs(id, patch), 100);
+  return request(club(`/${id}/prefs`), jsonInit("PUT", patch));
+}
+
+export async function fetchClubInvites(id: string): Promise<{ invites: ClubInvite[] }> {
+  if (isMock) return lazyDelay(() => ({ invites: mockClubs.mockInvites(id) }));
+  return request(club(`/${id}/invites`));
+}
+
+export async function createClubInvite(id: string, role: "athlete" | "coach", days?: number, max_uses?: number): Promise<ClubInvite> {
+  if (isMock) return lazyDelay(() => mockClubs.mockCreateInvite(id, role, days, max_uses), 150);
+  return request(club(`/${id}/invites`), jsonInit("POST", { role, days, max_uses }));
+}
+
+export async function revokeClubInvite(id: string, inviteId: number): Promise<ClubInvite> {
+  if (isMock) return lazyDelay(() => mockClubs.mockRevokeInvite(id, inviteId) as ClubInvite, 100);
+  return request(club(`/${id}/invites/${inviteId}/revoke`), jsonInit("POST", {}));
+}
+
+export async function fetchClubRequests(id: string): Promise<{ requests: ClubJoinRequestRow[] }> {
+  if (isMock) return lazyDelay(() => ({ requests: mockClubs.mockRequests(id) }));
+  return request(club(`/${id}/requests`));
+}
+
+export async function decideClubRequest(id: string, requestId: number, approve: boolean, reason?: string): Promise<{ status: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockDecideRequest(id, requestId, approve, reason), 150);
+  return request(club(`/${id}/requests/${requestId}/decide`), jsonInit("POST", { approve, reason }));
+}
+
+export async function previewClubInvite(token: string): Promise<ClubInvitePreview> {
+  if (isMock) return lazyDelay(() => mockClubs.mockPreviewInvite(token), 150);
+  return request(club("/invite-preview"), jsonInit("POST", { token })); // POST, not a URL: a token stays out of logs and history
+}
+
+export async function joinClub(body: { token?: string; club_id?: string; message?: string; accept_rules?: boolean }): Promise<{ status: "joined" | "requested"; club_id: string; needs?: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockJoin(body) as { status: "joined" | "requested"; club_id: string; needs?: string }, 200);
+  return request(club("/join"), jsonInit("POST", body));
+}
+
+export async function withdrawClubRequest(requestId: number): Promise<{ withdrawn: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockWithdraw(requestId), 100);
+  return request(club(`/requests/${requestId}`), { method: "DELETE" });
+}
+
+export async function fetchClubPosts(id: string): Promise<{ announcements: ClubPost[] }> {
+  if (isMock) return lazyDelay(() => ({ announcements: mockClubs.mockPosts(id) }));
+  return request(club(`/${id}/announcements`));
+}
+
+export async function postClubAnnouncement(id: string, title: string, body: string): Promise<{ id: number; status: string; message: string | null }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockPost(id, title, body), 150);
+  return request(club(`/${id}/announcements`), jsonInit("POST", { title, body }));
+}
+
+export async function decideClubPost(id: string, kind: "announcement" | "session" | "challenge", postId: number, action: "approve" | "reject" | "hide", reason?: string): Promise<{ status: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockDecidePost(id, kind, postId, action, reason), 150);
+  return request(club(`/${id}/posts/${kind}/${postId}/decide`), jsonInit("POST", { action, reason }));
+}
+
+export async function fetchClubCalendar(id: string): Promise<{ sessions: ClubSessionItem[]; from: string; to: string }> {
+  if (isMock) return lazyDelay(() => ({ sessions: mockClubs.mockCalendar(id), from: "", to: "" }));
+  return request(club(`/${id}/calendar`));
+}
+
+export async function createClubSession(id: string, body: { title: string; session_type: string; date: string; start_time?: string; duration_min?: number; distance_m?: number; description?: string }): Promise<{ id: number; status: string; message: string | null }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockCreateSession(id, body), 150);
+  return request(club(`/${id}/sessions`), jsonInit("POST", body));
+}
+
+export async function linkClubWorkout(id: string, sessionId: number, canonicalId: number, share: boolean): Promise<{ took_part: boolean; shared_numbers: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockLink(id, sessionId, share), 150);
+  return request(club(`/${id}/sessions/${sessionId}/participation`), jsonInit("POST", { canonical_id: canonicalId, share_numbers: share }));
+}
+
+export async function unlinkClubWorkout(id: string, sessionId: number): Promise<{ took_part: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockUnlink(id, sessionId), 100);
+  return request(club(`/${id}/sessions/${sessionId}/participation`), { method: "DELETE" });
+}
+
+export async function fetchClubSummary(id: string): Promise<ClubSummary> {
+  if (isMock) return lazyDelay(() => mockClubs.mockSummary(id));
+  return request(club(`/${id}/summary`));
+}
+
+export async function fetchClubChallenges(id: string): Promise<{ challenges: ClubChallengeRow[] }> {
+  if (isMock) return lazyDelay(() => ({ challenges: mockClubs.mockChallenges(id) }));
+  return request(club(`/${id}/challenges`));
+}
+
+export async function createClubChallenge(id: string, body: NewChallengeInput): Promise<{ id: number; status: string; rules: string[]; message: string | null }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockCreateChallenge(id, body), 150);
+  return request(club(`/${id}/challenges`), jsonInit("POST", body));
+}
+
+export async function fetchClubChallenge(id: string, challengeId: number): Promise<ClubChallengeDetail> {
+  if (isMock) return lazyDelay(() => mockClubs.mockChallenge(id, challengeId));
+  return request(club(`/${id}/challenges/${challengeId}`));
+}
+
+export async function joinClubChallenge(id: string, challengeId: number): Promise<{ joined: boolean; value: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockJoinChallenge(id, challengeId), 200);
+  return request(club(`/${id}/challenges/${challengeId}/join`), jsonInit("POST", {}));
+}
+
+export async function leaveClubChallenge(id: string, challengeId: number): Promise<{ joined: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockLeaveChallenge(id, challengeId), 150);
+  return request(club(`/${id}/challenges/${challengeId}/leave`), jsonInit("POST", {}));
+}
+
+export async function excuseClubWeek(id: string, challengeId: number, week: string, excused: boolean): Promise<{ excused_weeks: string[]; value: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockExcuse(id, challengeId, week, excused), 100);
+  return request(club(`/${id}/challenges/${challengeId}/excuse`), jsonInit("POST", { week, excused }));
+}
+
+export async function fetchClubBoard(id: string, board: string): Promise<ClubBoard> {
+  if (isMock) return lazyDelay(() => mockClubs.mockBoard(id));
+  return request(club(`/${id}/leaderboard?board=${encodeURIComponent(board)}`));
+}
+
+export async function shareClubResult(id: string, ref: LbResultRef, note?: string): Promise<{ shared: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockShareResult(id, note), 200);
+  return request(club(`/${id}/results`), jsonInit("POST", { ref, note }));
+}
+
+export async function withdrawClubResult(id: string, resultId: number): Promise<{ withdrawn: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockWithdrawResult(id, resultId), 100);
+  return request(club(`/${id}/results/${resultId}`), { method: "DELETE" });
+}
+
+export async function reportClub(id: string, target_type: "club" | "announcement" | "member" | "challenge", target_id: string, reason: string, detail?: string): Promise<{ reported: boolean; message: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockReport(id, target_type, reason), 150);
+  return request(club(`/${id}/report`), jsonInit("POST", { target_type, target_id, reason, detail }));
+}
+
+export async function blockClubMember(id: string, ref: string, blocked: boolean): Promise<{ blocked: boolean }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockBlock(id, ref, blocked), 100);
+  return request(club(`/${id}/blocks/${ref}`), blocked ? jsonInit("POST", {}) : { method: "DELETE" });
+}
+
+export async function fetchClubAudit(id: string): Promise<{ events: ClubAuditEvent[] }> {
+  if (isMock) return lazyDelay(() => ({ events: mockClubs.mockAudit(id) }));
+  return request(club(`/${id}/audit`));
+}
+
+/** A logo as an object URL, or null if the club has none or it can't be read. The caller revokes it. */
+export async function fetchClubLogoUrl(id: string): Promise<string | null> {
+  if (isMock) return null;
+  try {
+    const res = await authedFetch(club(`/${id}/logo`));
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  } catch {
+    return null;
+  }
+}
+
+export async function uploadClubLogo(id: string, blob: Blob): Promise<{ has_logo: boolean }> {
+  if (isMock) return delay({ has_logo: true }, 150);
+  return request(club(`/${id}/logo`), { method: "PUT", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
+}
+
+export async function deleteClubLogo(id: string): Promise<{ has_logo: boolean }> {
+  if (isMock) return delay({ has_logo: false }, 100);
+  return request(club(`/${id}/logo`), { method: "DELETE" });
+}
+
+export async function fetchClubModQueue(): Promise<{ reports: ClubModReport[] }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockModQueue());
+  return request("/api/moderation/clubs/queue");
+}
+
+export async function fetchClubModDetail(id: string): Promise<ClubModDetail> {
+  if (isMock) return lazyDelay(() => mockClubs.mockModDetail(id));
+  return request(`/api/moderation/clubs/${id}`);
+}
+
+export async function moderateClub(id: string, action: string, reason: string, target_id?: string, target_type?: string): Promise<{ action: string }> {
+  if (isMock) return lazyDelay(() => mockClubs.mockModAction(id, action, reason), 150);
+  return request(`/api/moderation/clubs/${id}/action`, jsonInit("POST", { action, reason, target_id, target_type }));
+}
+
+export type { ClubMyRequest, ClubProfile as ClubProfileType };

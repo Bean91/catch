@@ -2402,3 +2402,260 @@ export interface LbModEntry {
   entry: { entry_id: string; board_key: string; value: number; verification: Verification; status: string; handle: string | null; age_label: string | null; weight_class: string | null; date_label: string | null; note: string | null };
   events: { from_status: string | null; to_status: string; actor_kind: string; reason_code: string; reason_text: string; created_at: string }[];
 }
+
+// --- Clubs, team training and challenges (session 27; docs/clubs.md) -----------------------------------------------------
+// Hand-kept in sync with catch/sync/clubs.py, club_team.py and club_challenges.py. The browser holds no permission, scoring or age logic:
+// it renders `capabilities`, `can_*` flags and every figure exactly as the server returns them.
+
+export type ClubRole = "owner" | "admin" | "coach" | "athlete";
+export type ClubAudience = "adult" | "junior";
+export type ClubVisibility = "public" | "private";
+export type ClubJoinPolicy = "open" | "request" | "invite";
+
+export interface ClubProfile {
+  exists: boolean;
+  handle?: string;
+  age_band?: string;
+  age_class?: "adult" | "youth";
+  guardian_consent?: boolean;
+  bands: string[];
+  min_age: number;
+  guardian_below: number;
+}
+
+export interface Club {
+  club_id: string;
+  name: string;
+  description: string | null;
+  location: string | null;
+  visibility: ClubVisibility;
+  audience: ClubAudience;
+  join_policy: ClubJoinPolicy;
+  rules: string | null;
+  status: "active" | "suspended";
+  has_logo: boolean;
+  member_count: number | null;
+  my_role: ClubRole | null;
+  capabilities: Record<string, boolean> | null;
+  created_at: string | null;
+  pending?: { requests: number; posts: number };
+  joined?: boolean;
+  my_prefs?: { include_public_results: boolean; share_numbers: boolean; rules_accepted: boolean };
+}
+
+export interface ClubMyRequest {
+  request_id: number;
+  club_id: string;
+  club_name: string;
+  role: "athlete" | "coach";
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  decision_reason: string | null;
+}
+
+export interface ClubsMine {
+  clubs: Club[];
+  profile: ClubProfile;
+  requests: ClubMyRequest[];
+}
+
+export interface ClubMember {
+  member_ref: string;
+  handle: string;
+  role: ClubRole;
+  joined: string | null;
+  is_me: boolean;
+  blocked: boolean;
+  can_manage: boolean;
+  guardian_consent?: boolean;
+}
+
+export interface ClubInvite {
+  invite_id: number;
+  role: "athlete" | "coach";
+  state: "active" | "expired" | "revoked";
+  expires_at: string;
+  max_uses: number | null;
+  uses: number | null;
+  token: string | null; // only on the response that creates it
+  created_at: string;
+}
+
+export interface ClubJoinRequestRow {
+  request_id: number;
+  handle: string;
+  role: "athlete" | "coach";
+  age_class: "adult" | "youth" | null;
+  message: string | null;
+  guardian_consent: boolean | null;
+  created_at: string;
+  can_decide: boolean;
+}
+
+export interface ClubInvitePreview {
+  club_id: string;
+  name: string;
+  description: string | null;
+  audience: ClubAudience;
+  visibility: ClubVisibility;
+  join_policy: ClubJoinPolicy;
+  rules: string | null;
+  role: "athlete" | "coach";
+  already_member: boolean;
+  needs_profile: boolean;
+  cannot_join_because: string | null;
+  will_need_approval: boolean;
+}
+
+export interface ClubPost {
+  id: number;
+  title: string;
+  body: string;
+  status: "pending" | "published" | "rejected" | "hidden";
+  author: string;
+  created_at: string;
+  can_approve: boolean;
+  decision_reason: string | null;
+}
+
+export interface ClubSessionItem {
+  id: number;
+  title: string;
+  type: string;
+  date: string;
+  start_time: string | null;
+  duration_min: number | null;
+  distance_m: number | null;
+  description: string | null;
+  status: "pending" | "published" | "cancelled" | "rejected";
+  participants: number;
+  i_took_part: boolean;
+  can_approve: boolean;
+}
+
+export interface ClubSuppressed {
+  count: number;
+  shared: number;
+  total: number | null;
+  mean: number | null;
+  suppressed: boolean;
+}
+
+export interface ClubSummary {
+  sessions: number;
+  participations: number;
+  members: number;
+  mean_participants: number | null;
+  attendance_rate: number | null;
+  distance_m: ClubSuppressed;
+  duration_s: ClubSuppressed;
+  note: string;
+  from: string;
+  to: string;
+}
+
+export interface ClubChallengeRow {
+  id: number;
+  title: string;
+  description: string | null;
+  metric: "distance" | "time" | "sessions" | "tests" | "consistency";
+  sport: "rowing" | "any";
+  start: string;
+  end: string;
+  goal: number | null;
+  status: "pending" | "active" | "cancelled" | "rejected";
+  phase: string;
+  participants: number;
+  joined: boolean;
+  my_value: string | null;
+  can_join: boolean;
+  can_approve: boolean;
+}
+
+export interface ClubStanding {
+  rank: number;
+  name: string;
+  value: string;
+  raw: number;
+  is_me: boolean;
+  member_ref: string;
+}
+
+export interface ClubChallengeDetail extends ClubChallengeRow {
+  rules: string[];
+  standings: ClubStanding[];
+  my_detail: { met?: number; eligible_weeks?: number; weeks?: { week: string; state: string; sessions?: number }[] } | null;
+  excused_weeks: string[];
+  settles_on: string;
+  target_per_week: number | null;
+  min_session_minutes: number;
+}
+
+export interface ClubBoardRow {
+  rank: number;
+  name: string;
+  result: string;
+  split_500m: string | null;
+  verification: Verification;
+  verification_label: string;
+  source: "club" | "public";
+  is_me: boolean;
+  result_id: number | null;
+  member_ref: string;
+}
+
+export interface ClubBoard {
+  board_key: string;
+  board_label: string;
+  ranked: ClubBoardRow[];
+  unverified: ClubBoardRow[];
+  note: string;
+}
+
+export interface ClubAuditEvent {
+  action: string;
+  by: string | null;
+  about: string | null;
+  reason: string;
+  at: string;
+}
+
+export interface ClubModReport {
+  club_id: string;
+  club_name: string;
+  club_status: string | null;
+  audience: ClubAudience | null;
+  target_type: string;
+  target_id: string;
+  reports: number;
+  reasons: string[];
+  first_at: string;
+}
+
+export interface ClubModDetail {
+  club: { club_id: string; name: string; audience: ClubAudience; visibility: ClubVisibility; status: string; member_count: number; description: string | null; rules: string | null };
+  reports: { target_type: string; target_id: string; reason: string; detail: string | null; at: string; about: string | null }[];
+  announcements: { id: number; title: string; body: string; status: string }[];
+  events: { action: string; actor_kind: string; reason: string; at: string }[];
+}
+
+export interface NewClubInput {
+  name: string;
+  description?: string;
+  location?: string;
+  visibility: ClubVisibility;
+  audience: ClubAudience;
+  join_policy: ClubJoinPolicy;
+  rules?: string;
+}
+
+export interface NewChallengeInput {
+  title: string;
+  metric: ClubChallengeRow["metric"];
+  start: string;
+  end: string;
+  goal?: number | null;
+  description?: string;
+  sport?: "rowing" | "any";
+  target_per_week?: number | null;
+}

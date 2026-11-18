@@ -39,6 +39,10 @@ const LeaderboardsPage = lazy(() => import("./pages/Leaderboards").then((m) => (
 const LeaderboardAthletePage = lazy(() => import("./pages/LeaderboardAthlete").then((m) => ({ default: m.LeaderboardAthletePage })));
 const LeaderboardSettingsPage = lazy(() => import("./pages/LeaderboardSettings").then((m) => ({ default: m.LeaderboardSettingsPage })));
 const ModerationPage = lazy(() => import("./pages/Moderation").then((m) => ({ default: m.ModerationPage })));
+const ClubsPage = lazy(() => import("./pages/Clubs").then((m) => ({ default: m.ClubsPage })));
+const ClubPage = lazy(() => import("./pages/ClubPage").then((m) => ({ default: m.ClubPage })));
+const ClubChallengePage = lazy(() => import("./pages/ClubChallenge").then((m) => ({ default: m.ClubChallengePage })));
+const ClubJoinPage = lazy(() => import("./pages/ClubJoin").then((m) => ({ default: m.ClubJoinPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -120,6 +124,10 @@ export function App() {
           <Route path="/settings/moderation" element={<ModerationPage />} />
           <Route path="/leaderboards" element={<LeaderboardsPage />} />
           <Route path="/leaderboards/athletes/:id" element={<LeaderboardAthletePage />} />
+          <Route path="/clubs" element={<ClubsPage />} />
+          <Route path="/clubs/join" element={<ClubJoinPage />} />
+          <Route path="/clubs/:id" element={<ClubPage />} />
+          <Route path="/clubs/:id/challenges/:cid" element={<ClubChallengePage />} />
         </Routes>
       </Suspense>
     </AppShell>

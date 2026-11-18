@@ -3,7 +3,7 @@ import { isMock } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { isPublic } from "../../lib/deployment";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CalendarIcon, CoachIcon, FeedbackIcon, GymIcon, LeaderboardsIcon, LibraryIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { BodyIcon, CalendarIcon, ClubsIcon, CoachIcon, FeedbackIcon, GymIcon, LeaderboardsIcon, LibraryIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
 
 const ITEMS = [
   { to: "/", label: "Today", Icon: TodayIcon },
@@ -28,9 +28,11 @@ const ITEMS = [
 
 // Session 26: leaderboards exist only on the public build (no bottom-nav slot, same pattern as Tests/Routes); the mock shows them too.
 const LEADERBOARDS_ITEM = { to: "/leaderboards", label: "Leaderboards", Icon: LeaderboardsIcon };
+// Session 27: clubs, same pattern (public build and the mock only; the bottom nav stays at eight).
+const CLUBS_ITEM = { to: "/clubs", label: "Clubs", Icon: ClubsIcon };
 
 export function Sidebar() {
-  const items = isPublic || isMock ? [...ITEMS.slice(0, -1), LEADERBOARDS_ITEM, ITEMS[ITEMS.length - 1]] : ITEMS;
+  const items = isPublic || isMock ? [...ITEMS.slice(0, -1), CLUBS_ITEM, LEADERBOARDS_ITEM, ITEMS[ITEMS.length - 1]] : ITEMS;
   const { theme, toggle } = useTheme();
   const { logout, status } = useAuth();
 

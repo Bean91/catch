@@ -244,22 +244,6 @@ export function mockLbAppeal(entryId: string, text: string) {
   return a;
 }
 
-export function mockLbCreateClub(name: string) {
-  const club = { club_id: `c${state.clubs.length + 1}`, name };
-  state.clubs.push(club);
-  return { ...club, join_code: "A1B2C3D4" };
-}
-export function mockLbJoinClub(code: string) {
-  if (code.trim().toUpperCase() !== "A1B2C3D4") throw new Error("That join code isn't valid.");
-  const club = { club_id: "c-joined", name: "River Rowing Club" };
-  if (!state.clubs.some((c) => c.club_id === club.club_id)) state.clubs.push(club);
-  return club;
-}
-export function mockLbLeaveClub(id: string) {
-  state.clubs = state.clubs.filter((c) => c.club_id !== id);
-  return { left: true };
-}
-
 let modQueue: LbModQueue = {
   reports: [{ entry_id: "e6", reporters: 2, last_reported_at: "2026-11-10T09:00:00Z", status: "active", board_key: "2000m", reasons: ["not_a_real_result", "not_a_real_result"] }],
   appeals: [{ id: 1, entry_id: "e5", text: "This is my result; the Concept2 logbook shows it.", status: "open", resolution_text: null, created_at: "2026-11-11T09:00:00Z", resolved_at: null, entry_status: "hidden" }],
