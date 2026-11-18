@@ -181,7 +181,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 61 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 66 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -600,7 +600,7 @@ override), integer values, one best entry per athlete (athlete key = keyed hash 
 entries are ranked, the rest are a separately-ranked, labelled list. Age: youth cumulative "under" boards U14–U19 + exclusive adult bands; a Concept2 date of birth (read at publish, discarded,
 only the band kept) beats a self-declared band; `MIN_PUBLISH_AGE=13`, guardian consent under 16, minors get handle/anonymous only and year-only dates — constants, overridable, legal review pending.
 **The one new cross-user read path:** two owned tables (`leaderboard_settings`, `result_publications`, forced RLS) plus seven **global** tables (`public_athletes`, `public_entries`, `clubs`,
-`club_members`, `moderation_events` — append-only, `result_reports`, `appeals`) that the `authenticated` role has no grant on and `catch_api` reaches only through
+`club_members` — **reshaped into membership-scoped tables in session 27**, `moderation_events` — append-only, `result_reports`, `appeals`) that the `authenticated` role has no grant on and `catch_api` reaches only through
 `catch/sync/leaderboard_store.py`, which opens a fresh Session under `tenant.system_detached()` (owner cleared — `system()` alone keeps the request's owner and so `SET LOCAL ROLE authenticated`).
 Every status change goes through `leaderboard_store.set_entry_status`, which writes a `moderation_events` row with a mandatory reason in the same transaction (an entry a moderator or the report threshold closed survives withdraw/opt-out as a tombstone, so republishing can't undo it; a source-changed hide is cleared by republishing); moderators are the Supabase ids in
 `CATCH_MODERATOR_IDS`; reports (3 distinct reporters auto-hide), appeals, DB-counted daily limits. Publishing = preview (`public_entry_view`, the one public serializer) then `confirm` + the
@@ -610,6 +610,25 @@ preview's hash. `catch/sync/leaderboards.py` is the athlete-facing service (also
 `components/leaderboards/` (PublishSheet, ReasonSheet, EntryRow, VerificationBadge), `lib/leaderboards.ts` (labels only — the browser holds no ranking or age math), `lib/mockLeaderboards.ts`.
 Playwright: `web/tests/touch/leaderboards.spec.ts`, `leaderboards-desktop.spec.ts`. Verified against synthetic Concept2 fixtures only; the Postgres grants/RLS for the global tables are written but
 unrun here.
+
+Session 27 (clubs, teams and group challenges — see PLAN.md, docs/clubs.md, DESIGN.md "Clubs, teams and challenges"; the brief called itself "session 22", which is the library session — this is the 27th).
+**Public deployment only, signed-in users only.** Session 26's join-code clubs were replaced and migrated. A club is for **adults** or **juniors** (under 19), fixed at creation; age is **self-declared** (club profile: a handle + age group,
+reusing session 26's U14–U19 bands, minimum age 13 and the under-16 guardian tick). A junior club is always private, unlisted, request-only with **a coach approving every young member**, with no logo and no links; a young athlete exists only in a junior club
+(CHECK on `club_members`: `age_class='youth'` ⇔ `role='athlete'` AND junior). Roles: owner/admin/coach/athlete (a club's *coach* is unrelated to a coach device token). **One permission matrix** in `analytics/clubs.py` (pure; also
+`challenges.py`: limits, scoring, ranking), mirrored by `catch_club.*` SQL predicates, and a PG test compares them for every combination. **Membership-scoped RLS, not store-only**: 15 tables (`clubs`, `club_profiles`, `club_members`,
+`club_member_prefs`, `club_invites`, `club_join_requests`, `club_announcements`, `club_sessions`, `club_session_participation`, `club_challenges`, `club_challenge_entries`, `club_challenge_claims`, `club_results`, `club_logos`, `club_reports`, `club_audit`
+— append-only) + the owned `club_blocks`; granted to `authenticated` behind forced policies that call `SECURITY DEFINER` predicates in a separate `catch_club` schema (not `catch_private`, which `0002` keeps away from `authenticated`); `catch_api` has
+permissive policies for `tenant.system_detached()` work only, in `catch/sync/club_store.py` (counts, invite lookup, report threshold, moderation, account deletion; the one module with raw SQL, `catch_club.transfer_ownership`). A `BEFORE DELETE` trigger on
+`user_profiles` hands an owned club to the longest-standing **adult** member (never a young athlete) or deletes it. **A member's private data never enters a club**: a member's own request computes an integer from their own data and writes it
+(`club_challenge_entries`); participation is "took part" + optional distance/time the member chose to share; summaries are aggregate with k≥3 suppression; no club column can hold health data (a test enforces it). Members are addressed by a per-club keyed
+`member_ref`, never an account id. **Challenges are capped by design** (goal required, per-day cap, per-week ceiling tighter for juniors, consistency = weeks reaching 1–5 sessions, excusable weeks, no streaks, no health metric), count only
+provider-sourced activities, give one activity to one account (`club_challenge_claims`, global PK), tie-share ranks (1-2-2-4), freeze 2 days after the end (computed from dates; scores refresh on join/view/after `run_sync`, no new job). Services:
+`sync/clubs.py`, `club_team.py`, `club_challenges.py`, `club_store.py`; routes `api/routes_clubs.py` (+ club part of `routes_moderation.py`; static paths before `/{club_id}`). Moderation: staff act inside their club with a mandatory reason (append-only
+`club_audit`), reports go to platform moderators (`CATCH_MODERATOR_IDS`) and never to club staff, three reporters auto-hide an announcement, moderators can suspend a club but not one they belong to. Coach/MCP: **five read-only tools** (66 total;
+`coach/club_tools.py`) acting as the signed-in athlete under the same service and RLS; **no club write tools by design**. Web: `pages/Clubs.tsx`, `ClubPage.tsx`, `ClubChallenge.tsx`, `ClubJoin.tsx` (`/clubs/join#token`, fragment cleared once used),
+`components/clubs/` (tabs, sheets, `ClubModeration`), `lib/clubs.ts` (labels only), `lib/mockClubs.ts` (answers with state at response time); `PrivacyBadge` gained Public and Club-only. Playwright: `web/tests/touch/clubs.spec.ts` (both mobile projects) and
+`clubs-desktop.spec.ts`. Tests: `tests/analytics/test_clubs.py`/`test_challenges.py`, `tests/test_clubs_schema.py`, `tests/tenancy/test_clubs_api.py`/`test_clubs_tools.py`, `tests/coach/test_club_tools.py`, and on a local Supabase stack `tests/pg/test_clubs.py`
+(RLS with separate identities) and `test_clubs_api.py` (the API on the real runtime path). Verified against synthetic data and a local `supabase start` stack only.
 
 ## Commands
 
@@ -627,7 +646,7 @@ unrun here.
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)
-- `uv run pytest` — tests (fixtures only, never hits live APIs)
+- `uv run pytest` — tests (fixtures only, never hits live APIs). If your `.env` sets `CATCH_DEPLOYMENT=public`, run `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` (the personal-default tests fail otherwise); `tests/pg` needs a throwaway local Supabase stack (see `tests/pg/conftest.py`)
 - `uv run catch-mcp` — MCP stdio server for Claude Desktop (needs `CATCH_BASE_URL` +
   `CATCH_MCP_TOKEN` env vars; see `docs/mcp.md`)
 - `cd web && npm install` — install frontend deps

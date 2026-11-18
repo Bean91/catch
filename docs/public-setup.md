@@ -33,7 +33,7 @@ psql "$DATABASE_ADMIN_URL" -c "ALTER ROLE catch_api PASSWORD '<a long random pas
 ```
 
 The migrations create the `catch_api` login role (no superuser, **no BYPASSRLS**, no privileges on any owned table — it can only `SET ROLE authenticated` for those;
-since revision `0005` it also has direct grants on the shared leaderboard tables, reached only through `catch/sync/leaderboard_store.py`) and live in the non-exposed `catch` schema (plus `catch_private` for three SECURITY DEFINER lookups). Revision `0002` needs the `auth` schema, so it only runs against a Supabase database.
+since revision `0005` it also has direct grants on the shared leaderboard tables, reached only through `catch/sync/leaderboard_store.py`, and since `0006` permissive policies on the club tables for `catch/sync/club_store.py`) and live in the non-exposed `catch` schema (plus `catch_private` for three SECURITY DEFINER lookups, and `catch_club` — policy predicates for clubs, executable by `authenticated`, see `docs/clubs.md` §10). Revision `0002` needs the `auth` schema, so it only runs against a Supabase database.
 To roll back: `uv run catch db upgrade 0001` (drops policies/roles, keeps data) or `base`. **Take a backup first** (§7).
 
 ## 3. Connection string for the app (FastAPI Cloud has no documented IPv6 egress)

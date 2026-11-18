@@ -460,6 +460,29 @@ only). **No bottom-nav slot** (the bar is pinned at eight); a Sidebar entry on d
 - **Moderator page:** every action sits beside a required reason field; an empty reason returns the server's "A reason is required" in a `role="alert"` line.
 - Playwright: `web/tests/touch/leaderboards.spec.ts` (both mobile projects) and `leaderboards-desktop.spec.ts` (desktop-mouse).
 
+## Clubs, teams and challenges (session 27)
+
+`/clubs` (your clubs, profile, an invite-link box, Discover), `/clubs/join#token` (an invite lands here; the token lives in the URL fragment and is cleared once used), `/clubs/:id` (a public club's visitor view, or a member's tabs: Overview,
+News, Calendar, Challenges, Board, Members, Manage), `/clubs/:id/challenges/:cid`, and a club-reports card on `/settings/moderation`. **No bottom-nav slot** (the bar stays at eight); a Sidebar entry on desktop and a Settings card.
+
+- **Every section says who can see it, in a glyph and a word.** `PrivacyBadge` gained two states beside Private and Shared: **Public** (a globe: every signed-in user) and **Club-only** (the people glyph: members of this club). A club is always labelled
+  "Public club" or "Private club", and a junior club adds "Junior club · under 19". Colour is never the only signal.
+- **The browser decides nothing about permission, age or scoring.** It renders the server's `capabilities` and `can_*` flags and every figure as returned. Controls a role can't use aren't dimmed, they're absent (an athlete has no Manage tab and no
+  "New announcement"). Where a rule is *why* a button is missing, say so in words: "In a junior club only a coach approves a young member."
+- **Junior clubs are visibly different**: a note under the header ("members are under 19 and approved by a coach … no web links, logos or private messages"), "Waiting for a coach" on held posts, sessions and challenges, and an owner who isn't a coach is told
+  "only a coach can approve this" instead of getting a button. Held posts are invisible to athletes. The create-club sheet replaces the visibility and join-policy choices with a plain explanation when "Juniors" is chosen. No logo control exists for a junior club.
+- **A decision about a person needs a written reason in a sheet** (removing a member, declining a post/session/challenge/request, taking something down, every moderator action), with the submit button disabled until there is one and the server's own wording
+  in a `role="alert"` line. An irreversible act (delete a club, hand it over) shows exactly what is lost in a `role="group"` row and needs a second tap.
+- **Sheets** are the existing pattern (z-30, a bottom sheet on a phone and centred from `sm:`, no autofocus), because a sheet that reaches the bottom nav's z-index hides its own buttons. **The tab bar scrolls inside itself** (`overflow-x-auto` with negative page
+  margins) so seven tabs never widen the page at 390 px.
+- **Team totals say when they are hidden**: "Hidden" with the line "Totals appear only when at least 3 members chose to share a number." A small number is never replaced by a dash that could read as zero.
+- **Challenges state their rules before you join**: the plain-words rule list is a Card on the page, including "extra volume earns nothing", "Equal scores share a rank (1, 2, 2, 4)" and "Nothing about weight, calories, recovery or sleep is used or shown". Consistency shows each week as
+  met / missed / in progress / excused, with one "Excuse this week" tap and the line "no reason needed and it's never held against you". Opting out is a plain button, not a confirmation.
+- **Invite links**: shown once in a read-only field that selects on focus, with "shown once and only a fingerprint of it is stored".
+- **Profile**: the handle and age group sheet says "never your real name or email", and shows the guardian tick for any under-19 band, naming under-16 as where it is needed (the server decides).
+- **Reporting** says who sees it before you send it: "A platform moderator reviews every report. The club's staff are not told who reported."
+- Playwright: `web/tests/touch/clubs.spec.ts` (both mobile projects, no horizontal overflow, sheets clear of the bottom nav, every junior state) and `clubs-desktop.spec.ts` (desktop-mouse).
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

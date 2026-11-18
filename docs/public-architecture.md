@@ -42,7 +42,7 @@ them would have rewritten sealed-credential AAD bindings and ~80 call sites for 
 
 Seeded `workout_templates` examples are rows with `owner_id IS NULL`, readable by all, writable by none.
 
-**Session 26 — shared leaderboard tables (global, no `owner_id` filter, runtime role only):** `public_athletes`, `public_entries`, `clubs`, `club_members`, `moderation_events` (append-only),
+**Session 26 — shared leaderboard tables (global, no `owner_id` filter, runtime role only):** `public_athletes`, `public_entries`, `moderation_events` (append-only),
 `result_reports`, `appeals`. The `authenticated` role has no grant on them; `catch_api` is granted directly and reaches them only through `catch/sync/leaderboard_store.py` (docs/leaderboards.md).
 Two further tables are ordinary owned tables: `leaderboard_settings`, `result_publications`.
 
@@ -248,3 +248,8 @@ storage/serving/downloads, storage/uploads/file-limits, reference/javascript/aut
 4. Confirm SSE streaming and request timeouts for the coach on FastAPI Cloud (undocumented).
 5. Whoop tier approval (new apps capped at 10 members); Open-Meteo commercial
    licence; a non-OSM tile source (see session 20/23 blockers in PLAN.md).
+
+**Session 27 — clubs (membership-scoped, `authenticated` + RLS, `docs/clubs.md` §10):** `clubs` and `club_members` (reshaped from session 26's global join-code tables), `club_profiles`, `club_member_prefs`, `club_invites`,
+`club_join_requests`, `club_announcements`, `club_sessions`, `club_session_participation`, `club_challenges`, `club_challenge_entries`, `club_challenge_claims`, `club_results`, `club_logos`, `club_reports`, `club_audit` (append-only),
+plus the owned `club_blocks`. Their policies call `SECURITY DEFINER` predicates in the separate `catch_club` schema; a `BEFORE DELETE` trigger on `user_profiles` hands clubs over when an owner's account goes. `catch_api` has permissive
+policies on them for `tenant.system_detached()` work only (counts, invite lookup, moderation, account deletion) in `catch/sync/club_store.py`.

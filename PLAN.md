@@ -4208,3 +4208,80 @@ Confirm Concept2's `verified` semantics on a live account; check Concept2's curr
 2. Connect a real Concept2 account on a throwaway deployment and read a result's `verified`/`ranked`/`weight_class`/`user_id` before trusting the definition.
 3. Notify athletes when an entry is hidden or an appeal is decided (push exists; it wasn't wired here).
 4. Decide on a real consent mechanism for under-16s and a retention period for the audit log, then update `docs/leaderboards.md` §4 and §11.
+
+
+# Session 27: clubs, teams and group challenges
+
+**Numbering note.** The brief called itself "session 22"; PLAN.md's own Session 22 is the workout library, so the real number is 27. It said to use "the existing Supabase Auth, database, leaderboard and privacy systems" — it did: accounts and tenancy from session 24,
+the leaderboards' eligibility/verification/ranking/age constants from 26, and the same moderator list. Session 26's join-code `clubs`/`club_members` were **replaced** (decision 1), not built alongside.
+
+## Decisions (the user chose the first four; the rest are mine)
+
+1. **Replace and migrate** session 26's clubs: one concept of a club. Rows were migrated (non-destructively, see below); the old `/api/leaderboards/clubs` routes are gone and the public board's club filter was rewired.
+2. **Announcements only**, no member comments (a smaller abuse surface for juniors). No direct messages either, by the brief.
+3. **Junior rules** (the user's words, made concrete): junior-only clubs with adult coaches; juniors can never join public clubs; joining needs a coach's approval; posts not written by a coach need a coach's approval. The user then chose that **"anything not by a coach"** waits (a coach's own post publishes, so one-coach clubs work) and that **junior handles and shared results need no extra approval**.
+4. **MCP/coach tools are read-only** (five tools). The brief listed five reads and said administrative writes need confirmation and role authorization; I read that as a constraint *if* any write tool existed and chose none, the session 26 precedent. If confirm-gated admin tools are wanted later they must call the same service functions.
+5. **Real RLS, not just a store module.** The brief asks for "RLS and backend role checks … never frontend-only" and "RLS and backend authorization together". Session 26's global tables had no `authenticated` grant; clubs instead have membership-scoped policies calling `SECURITY DEFINER` predicates in a **separate `catch_club` schema** (`0002` keeps `catch_private` away from `authenticated`, and a test guards that). `catch_api` gets permissive policies for `system_detached` work only (`club_store.py`).
+6. **Audience model**: `adult`/`junior`, immutable (the composite FK has no ON UPDATE action). Age is **self-declared**; a CHECK ties `age_class='youth'` to `role='athlete'` AND junior, so a young person exists only as a junior-club athlete and a junior club's staff are adults.
+7. **One permission matrix** in `analytics/clubs.py`, mirrored by SQL predicates; a Postgres test runs every actor × target × role through both and asserts equality, for adult and junior clubs.
+8. **Cross-user data is an allowlisted snapshot**, never a read of another member's tables: a member's own request computes an integer from their own activities and writes it. Participation is "took part" + optional shared distance/time; no `club_session_links` table (the canonical id is never stored), so nothing private can be recovered from a club.
+9. **Challenge safety**: goal required (also a CHECK), per-day cap, per-week ceiling (tighter for juniors), 2 sessions/day and 6/week, minimum session length, consistency = weeks reaching 1–5 sessions with **excusable weeks and no streaks**, erg-test participation counts distinct tests not speed, no health metric exists. Constants are **pending safety review**.
+10. **Anti-manipulation**: provider-sourced activities only (typed-in, edited and excluded ones never count; sport from the provider's record); `club_challenge_claims` (keyed hash, global PK) gives one activity to one account; no endpoint accepts a score; standings freeze 2 days after the end, **computed from dates** (no finalizer job); scores refresh on join/view/after `run_sync` (no tick job, no pg_cron change).
+11. **Ranking**: standard competition ranking (1-2-2-4); order within a tie is a per-challenge hash so nothing implies one is ahead.
+12. **Aggregates only, k ≥ 3**: team totals appear only when at least three members chose to share a number.
+13. **Invites** are random, stored only as a hash, shown once, 1–30 days, revocable, optionally use-limited, carried in the URL **fragment**; uses are *counted from join requests* (no counter to drift). A removed member is a tombstone and can't rejoin.
+14. **Reports are invisible to club staff**; three distinct reporters auto-hide an announcement (nothing else auto-acts: a few accounts could otherwise silence a club). Platform moderators can suspend a club but not one they belong to.
+15. **Members are addressed by a per-club keyed `member_ref`**, never an account id, so a response in one club can't identify the same person in another.
+16. **Logo** in a small `club_logos` table (≤256 KB, client-resized), fetched with the bearer header and shown from a blob URL; not allowed for junior clubs. No new Storage bucket policy.
+17. **Migration backfill is non-destructive**: members map `public_id → owner_id`; the creator (else the longest-standing member) becomes owner; the old code becomes a 30-day revocable invite; a leaderboard **youth** member is *not* carried into an adult club and is recorded in `club_audit` rather than silently dropped. I couldn't confirm no real rows exist (the last session left a local dump), hence the care.
+
+## Bugs found while building (fixed, with regression tests unless noted)
+
+Running the same flows on **real Postgres** found most of these; SQLite alone would have hidden them.
+
+1. **The backfill silently dropped every member with no declared age band** (`NOT (NULL ~ …)` is NULL). Caught by the migration test on real data shapes.
+2. **A removed member could delete their own tombstone and rejoin an open club** (the DELETE policy allowed it). Policy now requires `status='active'`.
+3. **RLS refused every challenge creation**: a live challenge's status is `active` but the policies only admitted `published`. Policies now take the live status per table.
+4. **An invite holder couldn't read a private club under RLS, so joining 404'd** (and completing an approved request skipped silently). Both now use a system lookup (`club_store.club_row`).
+5. **Account deletion left an ownerless club.** The route deletes the auth user first; the cascade removed the owner's membership before the Python succession ran (and deleting a user in the Supabase dashboard would do the same). A `BEFORE DELETE` trigger on `user_profiles` now hands the club to the longest-standing **adult** member or deletes it; the Python path remains for SQLite.
+6. **Staff couldn't read the handle of a member they had removed**, so the audit trail read "a former member" (`profile_visible` widened to staff of a club the person has a membership row in).
+7. **An athlete leaving failed under RLS**: the audit INSERT … RETURNING needs the SELECT policy to admit the row, which was staff-only. People can now read their own audit entries.
+8. **Claim lookup relied on RLS hiding other accounts' claims**, so on SQLite a second account believed it already held the first's claim and double-counted. Now filtered by owner explicitly (correctness must not depend on RLS).
+9. **The public board's club filter would have let anyone enumerate a private or junior club's members.** It now matches only public adult clubs and only members who opted in.
+10. Web: a mock "server" computed its answer at call time, so a fetch already in flight could deliver a list older than a write (a mock artifact; mocks now answer with state at response time).
+11. I committed layer 4 with a lint error, then amended it (unpushed). The user's `.env` sets `CATCH_DEPLOYMENT=public`, so the personal-default tests fail unless overridden — now noted in CLAUDE.md and project memory.
+
+## Verification
+
+- `uv run ruff check .` clean. `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` — **1821 passed, 3 skipped**. The same suite against **real PostgreSQL** (`CATCH_TEST_PG_URL`) — **1823 passed, 1 skipped**.
+- **`tests/pg` on a local `supabase start` stack: 77 passed, 1 skipped**, including `compare_metadata` ≡ the hand-written `0006` DDL (partial indexes and composite FKs included), the per-table policy counts, `test_clubs.py` (29: RLS with separate identities, every actor/target combination through both the Python matrix and the SQL predicates, junior rules, publish gating, challenge write rules, claims, audit immutability, the backfill) and `test_clubs_api.py` (7 end-to-end flows on the real runtime path).
+- New SQLite-suite tests: `tests/analytics/test_clubs.py` + `test_challenges.py` (146), `tests/test_clubs_schema.py` (vocab = CHECK constraints; no health column), `tests/tenancy/test_clubs_api.py` (52: roles, invites, junior rules, cross-club isolation, challenge scoring and claims, a privacy sentinel, reports/moderation, deletion), `test_clubs_tools.py`, `tests/coach/test_club_tools.py`.
+- Web: `tsc -b`, oxlint (only the existing `gymSync.ts` warnings), `npm test` 80, `npm run build` initial JS **221.9 KB gzip of 250**, Playwright `CI=1` **237 passed / 8 skipped** (29 new tests × both mobile projects + 5 desktop), `test:public` 16 passed.
+- Everything used synthetic data; no live provider, hosted Supabase project, or real minor was involved.
+
+## Added
+
+DB (`0006`): reshaped `clubs`/`club_members`; `club_profiles`, `club_member_prefs`, `club_invites`, `club_join_requests`, `club_announcements`, `club_sessions`, `club_session_participation`, `club_challenges`, `club_challenge_entries`, `club_challenge_claims`, `club_results`, `club_logos`, `club_reports`, `club_audit`; owned `club_blocks`; the `catch_club` schema (predicates, `invite_preview`, `transfer_ownership`, `hand_over_clubs` trigger function). API: `/api/clubs/*` and `/api/moderation/clubs/*`. Tools: `get_my_clubs`, `get_club`, `get_club_calendar`, `get_club_challenges`, `get_club_leaderboard` (66 total). Web: Clubs, ClubPage, ClubChallenge, ClubJoin, the club-reports card, Sidebar/Settings entries, `PrivacyBadge` Public/Club-only. Docs: `docs/clubs.md` (permissions, moderation, data access), updates to `leaderboards.md`, `public-architecture.md`, `public-setup.md`, `security.md`, `mcp.md`, CLAUDE.md, DESIGN.md. Config: none (the report bucket `club` limit is in code).
+
+## Not done / limitations
+
+- **Age and guardian consent are declarations**, not verification; the guardian tick is a recorded checkbox, not a consent process. The junior rules limit exposure; they are not a safeguarding policy.
+- The challenge caps and the 13/16 thresholds are unreviewed constants.
+- No push notifications for invites/approvals/announcements; no member comments; no direct messages (deliberately); no moderator contact route beyond the report form; no retention period for the audit log or reports.
+- The RLS and trigger were exercised on a **local** stack, not a hosted Supabase project.
+- A junior club needs a **coach** before it can admit anyone (the owner can't approve a young athlete); the UI says so, but a one-person junior club sits idle until a coach joins by invite.
+- The claim table protects only activities with a provider id; two Catch accounts can't otherwise be told apart.
+- Pending-approval re-entry window: leaving and rejoining within 14 days of an approval needs no new approval.
+- The logo path is not exercised against a real browser upload end-to-end (the blob/`img` flow is covered by the mock and the API test).
+
+## Blockers (for opening it to users)
+
+**A legal and safeguarding review of clubs that include minors** (what a coach may see, how a guardian actually consents, mandatory-reporting duties, retention of reports and the audit log); a named first set of moderators and a response-time promise; confirming a hosted Supabase project runs `0006` and the trigger; deciding whether junior clubs should be disabled by `CATCH_CLUBS_JUNIOR_ENABLED=0` until the above is done (not built).
+
+## Next steps
+
+1. Run `0006` and `tests/pg` against a hosted Supabase project (the trigger and `catch_club` grants especially).
+2. Push notifications for invites, approvals and held posts (push exists; the trigger types weren't added here).
+3. Decide the retention period for `club_audit` and `club_reports` and a guardian-consent mechanism, then update `docs/clubs.md` §12/§14.
+4. A kill switch for junior clubs, and a moderator contact route.
+5. If confirm-gated club admin tools are wanted for the coach, build them on the existing service functions only.

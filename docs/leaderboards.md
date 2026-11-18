@@ -68,7 +68,7 @@ Only exact matches, never the test center's 2 % suggestion tolerance (a 1,960 m 
     "U16" is treated as 15, the oldest it could be). Both are claims, not proof — Concept2's date of birth is itself self-entered.
   - Not known, or not agreed to be shown → the athlete is on the Overall boards only. The band is not stored on the public row at all unless the
     athlete chose to show it.
-- **Clubs** are a name and a join code; being in one is an opt-in and the code is shown once. A club board is the same board filtered to members.
+- **Clubs** moved to session 27 (`docs/clubs.md`): roles, invitations, junior clubs and more. The public board's `club` filter now matches **only public adult clubs and only members who ticked "show my public results" there**, so it can't be used to enumerate a private or junior club. (Session 26's join-code clubs were migrated; see `docs/clubs.md` §12.)
 - No gender categories (out of scope).
 
 ### Young athletes
@@ -144,7 +144,7 @@ Counted in the database, so they hold across replicas: 20 publications per athle
 - **Owned** (`OwnedStrict`, forced RLS, one owner): `leaderboard_settings` (consent, attestations, display defaults), `result_publications`
   (the private snapshot). Excluded from the personal export.
 - **Shared** (no owner column; the runtime role `catch_api` has direct grants, the `authenticated` role has none; every query goes through
-  `leaderboard_store` in a fresh session outside any owner's context): `public_athletes`, `public_entries`, `clubs`, `club_members`,
+  `leaderboard_store` in a fresh session outside any owner's context): `public_athletes`, `public_entries`,
   `moderation_events`, `result_reports`, `appeals`. The public row carries only the allowlisted public fields plus internal keys that are never
   serialized (athlete key, provider ids, age years for the youth boards).
 - Publishing writes the shared row, then the owned snapshot; if the second fails the first is removed (it was never confirmed to the athlete).
@@ -153,7 +153,7 @@ Counted in the database, so they hold across replicas: 20 publications per athle
 
 ## 11. Retention and deletion
 
-Deleting an account removes the athlete's public rows, club memberships, appeals and the owned snapshot (cascade). The moderation log is kept
+Deleting an account removes the athlete's public rows, appeals and the owned snapshot (cascade). The moderation log is kept
 but detached from the person (`subject_owner_id`/`actor_id` nulled): a moderation decision must remain explainable. Reports the user made lose
 their reporter id.
 

@@ -84,10 +84,18 @@ dates, dates of birth and every health or training metric stay in the owner's pr
 write (the log: INSERT/SELECT, plus UPDATE on the two person-reference columns so account deletion can detach the person). A moderator's closure survives withdraw and opt-out (the entry is kept as a tombstone), so it can't be undone by republishing. Moderators are `CATCH_MODERATOR_IDS` (a server secret). Rate limits that matter (publishing, reports, appeals) are counted in the database. On account
 deletion the public rows go, and the audit log is kept with the person detached.
 
+## Clubs (session 27)
+
+Full model in `docs/clubs.md`. In short: club rows are readable only by that club's members, enforced by RLS policies on `authenticated` (so a bug in a query can't leak another club) and by the service's own role checks; a member's
+workouts and health data are never copied into a club (a member's own request computes an integer from their own data); members are addressed by a per-club keyed reference, not an account id; invite tokens are random, stored only as a
+hash and carried in the URL fragment; reports are invisible to the club's staff; every staff or moderator decision needs a reason and lands in an append-only audit log; a club never loses its owner (a trigger hands it to an adult
+member); junior clubs are private, unlisted, coach-approved, link-free and logo-free. The club tools are read-only and athlete-only; there is no club write tool. Age is self-declared and no safeguarding review has happened.
+
 ## Known gaps
 
 - (Session 26) The shared leaderboard tables' grants, forced-RLS policies and append-only log are written and have `tests/pg` expectations, but were not run against a real Supabase stack here.
 
+- (Session 27) The club RLS policies, helper functions and the account-deletion trigger were run on a local `supabase start` stack (not a hosted project). Age and guardian consent are self-declared; no safeguarding or legal review has happened (`docs/clubs.md` §14).
 - The USDA client still sends its key as a query parameter (`usda_client.py`); the log filter now scrubs it from
   records, but moving it to a header would be cleaner.
 - (Session 25) Source credentials are now per-user rows sealed like AI keys (`provider_connections`). A personal install's `.env` Garmin key / Concept2 token
