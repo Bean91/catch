@@ -106,6 +106,16 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return input.athlete_id ? "Read a public athlete profile" : "Read your public profile";
     case "get_verified_results":
       return "Read your leaderboard-eligible results";
+    case "get_my_clubs":
+      return "Read your clubs";
+    case "get_club":
+      return "Read a club";
+    case "get_club_calendar":
+      return "Read the club calendar";
+    case "get_club_challenges":
+      return input.challenge_id !== undefined ? "Read a club challenge" : "Read club challenges";
+    case "get_club_leaderboard":
+      return input.board ? `Read the club ${input.board} board` : "Read the club board";
     default:
       return name;
   }

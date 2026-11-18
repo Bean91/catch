@@ -1,6 +1,8 @@
 # MCP server
 
-> **Session 26:** three read-only leaderboard tools were added (`get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`; 61 tools total). They return public
+> **Session 27:** five read-only club tools were added (`get_my_clubs`, `get_club`, `get_club_calendar`, `get_club_challenges`, `get_club_leaderboard`; 66 tools total). They call the same service as the app, as the signed-in athlete, so club roles, membership and (on Postgres) row-level security apply to them exactly as they do to the person: they show only what a member sees. There are deliberately no club write tools (creating, inviting, approving, removing, posting and moderating are the person's own act in the app), and a coach-role device token reaches none of them. A club's *coach* role is unrelated to a coach *device token*.
+>
+> **Session 26:** three read-only leaderboard tools were added (`get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`; 61 tools total at that point). They return public
 > information only (what an athlete chose to publish, through the same serializer the app uses) plus the caller's own results with their verification state. They are athlete-only (a
 > coach token is refused) and return `{"available": false}` on a personal install. There are **no** publish or unpublish tools: putting a result on a public board needs the athlete's own
 > confirmed action in the app (docs/leaderboards.md).
@@ -34,7 +36,7 @@ are labelled; `get_route` never returns coordinates; weather is context, not a c
 (session 22) the workout library, technique notes and coach feedback — `search_workout_library`/
 `get_workout_template`/`create_workout_template`/`update_workout_template`, `get_technique_notes`/
 `add_technique_note`, `get_coach_feedback`/`add_coach_feedback`, (session 25) `get_connected_providers`/`get_sync_status`/`sync_provider`, (session 26)
-`get_leaderboards`/`get_public_athlete_profile`/`get_verified_results` — 61 tools
+`get_leaderboards`/`get_public_athlete_profile`/`get_verified_results`, then the five club reads — 66 tools
 total, plus 3 prompts (`daily_check_in`, `weekly_review`, `training_review`) — to
 Claude Desktop (or any MCP client) over two transports:
 

@@ -48,6 +48,10 @@ def build_server(backend: ToolBackend) -> MCPServer:
             "Leaderboards (public deployment only, read-only): get_leaderboards, get_public_athlete_profile and "
             "get_verified_results. Only verified results are ranked; \"verified\" means the source can be authenticated, not that Catch "
             "vouches for the athlete. Publishing or taking down a result is the athlete's own confirmed act in the app. "
+            "Clubs (public deployment only, read-only): get_my_clubs, get_club, get_club_calendar, get_club_challenges and get_club_leaderboard "
+            "show only what a member of the club sees (handles, published posts, planned team sessions, participation counts, challenge standings); "
+            "never another member's training or health data. Creating, joining, approving, removing, posting and moderating are the person's own "
+            "acts in the app: no club write tool exists, and club permissions apply to these tools exactly as they do in the app. "
             "Every write previews first; pass confirm=true only after the athlete has agreed."
         ),
     )
@@ -641,6 +645,31 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def get_verified_results(board: Optional[str] = None, state: Optional[Literal["verified", "provider_linked", "unverified"]] = None) -> dict:
         """Your own leaderboard-eligible erg results with their verification state. Read-only; publishing happens in the app."""
         return await _call("get_verified_results", board=board, state=state)
+
+    @mcp.tool()
+    async def get_my_clubs() -> dict:
+        """The clubs you belong to, your role in each, and any join requests still waiting. Read-only; public deployment only."""
+        return await _call("get_my_clubs")
+
+    @mcp.tool()
+    async def get_club(club_id: str) -> dict:
+        """One of your clubs: description, rules, member handles and roles, latest published announcements. Never members' training or health data."""
+        return await _call("get_club", club_id=club_id)
+
+    @mcp.tool()
+    async def get_club_calendar(club_id: str, start: Optional[str] = None, end: Optional[str] = None, include_summary: Optional[bool] = None) -> dict:
+        """A club's planned team sessions (a plan, never a completed workout) with participation counts; include_summary adds aggregate team totals."""
+        return await _call("get_club_calendar", club_id=club_id, start=start, end=end, include_summary=include_summary)
+
+    @mcp.tool()
+    async def get_club_challenges(club_id: str, challenge_id: Optional[int] = None) -> dict:
+        """A club's challenges; with challenge_id, the plain-words rules and ranked standings. Capped by design; never ranks weight, calories or recovery."""
+        return await _call("get_club_challenges", club_id=club_id, challenge_id=challenge_id)
+
+    @mcp.tool()
+    async def get_club_leaderboard(club_id: str, board: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min", "60min"]] = None) -> dict:
+        """A club's results board: results members chose to share with the club. Only verified results are ranked."""
+        return await _call("get_club_leaderboard", club_id=club_id, board=board)
 
     @mcp.prompt()
     def daily_check_in() -> str:

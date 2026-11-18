@@ -128,6 +128,11 @@ def _tool_label(name: str, args: dict) -> str:
         "get_leaderboards": f"Read the {args.get('board')} leaderboard" if args.get("board") else "Read the leaderboards",
         "get_public_athlete_profile": "Read a public athlete profile" if args.get("athlete_id") else "Read your public profile",
         "get_verified_results": "Read your leaderboard-eligible results",
+        "get_my_clubs": "Read your clubs",
+        "get_club": "Read a club",
+        "get_club_calendar": "Read the club calendar",
+        "get_club_challenges": "Read a club challenge" if args.get("challenge_id") is not None else "Read club challenges",
+        "get_club_leaderboard": f"Read the club {args.get('board')} board" if args.get("board") else "Read the club board",
     }
     return labels.get(name, name)
 
