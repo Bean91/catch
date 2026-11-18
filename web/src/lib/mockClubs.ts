@@ -71,7 +71,7 @@ function challengeRow(id: number, title: string, metric: ClubChallengeRow["metri
     id, title, description: null, metric, sport: "rowing", start: plus(-7), end: plus(21), goal, status: "active", phase: "open", participants: 3, joined: false, my_value: null,
     can_join: true, can_approve: false, rules: [
       "Distance counts up to 100 km in total.", "No more than 30 km a day and 150 km a week can count, so training harder than that earns nothing extra.",
-      "Only rowing sessions count.", "Only activities recorded by a connected source (Garmin, Concept2, Whoop) count: typed-in or edited results don't. Each activity counts once, for one account.",
+      "Only rowing sessions count.", "Only activities recorded by a connected source (Garmin, Concept2, Whoop) count; results typed into Catch don't, and a Concept2 result must be flagged verified by Concept2. Garmin and Whoop don't say whether a workout was entered by hand, so Catch can't tell. Each activity counts once, for one account.",
       "Equal scores share a rank (1, 2, 2, 4). There is no hidden tie-break.", "Joining is open until the end date. Standings settle 2 days after the end, then freeze.",
       "Nothing about weight, calories, recovery or sleep is used or shown.",
     ],

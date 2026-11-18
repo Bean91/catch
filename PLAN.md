@@ -3766,6 +3766,8 @@ Session 17 (pieces) and the calendar is Session 21, so this is recorded as **Ses
 
 ## Bugs found while building (fixed, with regression tests unless noted)
 
+0. **Found in review, before reporting:** challenges said "typed-in results don't count" but a hand-typed entry on the *provider* side counted. A Concept2 result now needs Concept2's `verified` flag (test added); Garmin and Whoop give no such signal, so the rule text, `docs/clubs.md` and this plan now say plainly that manual entries there aren't detected.
+
 1. **The card grid overflowed at 390px on the Examples tab**: an example's long ladder signature (`1x240s/r60+…`) had no
    break point and a grid item won't shrink below its content. Caught by the spec's own overflow assertion; cards now
    `min-w-0 break-words` and a signature over 28 characters is left to the detail page.
@@ -4215,7 +4217,7 @@ Confirm Concept2's `verified` semantics on a live account; check Concept2's curr
 **Numbering note.** The brief called itself "session 22"; PLAN.md's own Session 22 is the workout library, so the real number is 27. It said to use "the existing Supabase Auth, database, leaderboard and privacy systems" — it did: accounts and tenancy from session 24,
 the leaderboards' eligibility/verification/ranking/age constants from 26, and the same moderator list. Session 26's join-code `clubs`/`club_members` were **replaced** (decision 1), not built alongside.
 
-## Decisions (the user chose the first four; the rest are mine)
+## Decisions (the user chose the first three; the rest are mine)
 
 1. **Replace and migrate** session 26's clubs: one concept of a club. Rows were migrated (non-destructively, see below); the old `/api/leaderboards/clubs` routes are gone and the public board's club filter was rewired.
 2. **Announcements only**, no member comments (a smaller abuse surface for juniors). No direct messages either, by the brief.
@@ -4253,9 +4255,9 @@ Running the same flows on **real Postgres** found most of these; SQLite alone wo
 
 ## Verification
 
-- `uv run ruff check .` clean. `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` — **1821 passed, 3 skipped**. The same suite against **real PostgreSQL** (`CATCH_TEST_PG_URL`) — **1823 passed, 1 skipped**.
+- `uv run ruff check .` clean. `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` — **1822 passed, 3 skipped**. The same suite against **real PostgreSQL** (`CATCH_TEST_PG_URL`) — **1823 passed, 1 skipped** (run before the final one-test addition).
 - **`tests/pg` on a local `supabase start` stack: 77 passed, 1 skipped**, including `compare_metadata` ≡ the hand-written `0006` DDL (partial indexes and composite FKs included), the per-table policy counts, `test_clubs.py` (29: RLS with separate identities, every actor/target combination through both the Python matrix and the SQL predicates, junior rules, publish gating, challenge write rules, claims, audit immutability, the backfill) and `test_clubs_api.py` (7 end-to-end flows on the real runtime path).
-- New SQLite-suite tests: `tests/analytics/test_clubs.py` + `test_challenges.py` (146), `tests/test_clubs_schema.py` (vocab = CHECK constraints; no health column), `tests/tenancy/test_clubs_api.py` (52: roles, invites, junior rules, cross-club isolation, challenge scoring and claims, a privacy sentinel, reports/moderation, deletion), `test_clubs_tools.py`, `tests/coach/test_club_tools.py`.
+- New SQLite-suite tests: `tests/analytics/test_clubs.py` + `test_challenges.py` (146), `tests/test_clubs_schema.py` (vocab = CHECK constraints; no health column), `tests/tenancy/test_clubs_api.py` (53: roles, invites, junior rules, cross-club isolation, challenge scoring and claims, a privacy sentinel, reports/moderation, deletion), `test_clubs_tools.py`, `tests/coach/test_club_tools.py`.
 - Web: `tsc -b`, oxlint (only the existing `gymSync.ts` warnings), `npm test` 80, `npm run build` initial JS **221.9 KB gzip of 250**, Playwright `CI=1` **237 passed / 8 skipped** (29 new tests × both mobile projects + 5 desktop), `test:public` 16 passed.
 - Everything used synthetic data; no live provider, hosted Supabase project, or real minor was involved.
 
@@ -4270,6 +4272,8 @@ DB (`0006`): reshaped `clubs`/`club_members`; `club_profiles`, `club_member_pref
 - No push notifications for invites/approvals/announcements; no member comments; no direct messages (deliberately); no moderator contact route beyond the report form; no retention period for the audit log or reports.
 - The RLS and trigger were exercised on a **local** stack, not a hosted Supabase project.
 - A junior club needs a **coach** before it can admit anyone (the owner can't approve a young athlete); the UI says so, but a one-person junior club sits idle until a coach joins by invite.
+- **Manual entries made on the provider side (Garmin Connect, Whoop) are not detected** and count within the daily/weekly caps; a hand-typed Concept2 logbook entry is excluded (no `verified` flag, whose live semantics are still unconfirmed). The rule text users see says so.
+- Score and result *values* are made honest by the service, not by RLS: `authenticated` can write its own entry/result/participation values, so `catch` must stay off Supabase's Data API (added to `public-setup.md` and `security.md`).
 - The claim table protects only activities with a provider id; two Catch accounts can't otherwise be told apart.
 - Pending-approval re-entry window: leaving and rejoining within 14 days of an approval needs no new approval.
 - The logo path is not exercised against a real browser upload end-to-end (the blob/`img` flow is covered by the mock and the API test).

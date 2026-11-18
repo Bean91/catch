@@ -653,6 +653,17 @@ def test_challenge_scoring_end_to_end_with_ranking_ties_and_exclusions(env):
     assert call(env, DAVE, "GET", f"/{cid}/challenges", 200).json()["challenges"][0]["participants"] == 4
 
 
+def test_a_hand_typed_concept2_result_does_not_count_but_a_verified_one_does(env):
+    cid = adult_club(env)
+    ch = challenge(env, CAROL, cid, goal=60000)
+    activity(env, DAVE, "concept2", "typed-by-hand", 0, distance=20000, account="31", verified=False)    # no `verified` flag: typed into the logbook
+    activity(env, DAVE, "concept2", "from-the-pm5", 1, distance=8000, account="31", verified=True)
+    activity(env, DAVE, "garmin", "watch", 2, distance=5000)
+    assert call(env, DAVE, "POST", f"/{cid}/challenges/{ch}/join", 200).json()["value"] == "13.0 km"   # 8 + 5; the 20 km typed result adds nothing
+    rules = call(env, DAVE, "GET", f"/{cid}/challenges/{ch}", 200).json()["rules"]
+    assert any("flagged verified by Concept2" in r and "Garmin and Whoop don't say" in r for r in rules)   # the sentence users see matches what the code does
+
+
 def test_the_same_activity_cannot_count_for_two_accounts(env):
     cid = adult_club(env)
     ch = challenge(env, CAROL, cid, goal=60000)

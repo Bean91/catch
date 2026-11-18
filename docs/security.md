@@ -89,7 +89,7 @@ deletion the public rows go, and the audit log is kept with the person detached.
 Full model in `docs/clubs.md`. In short: club rows are readable only by that club's members, enforced by RLS policies on `authenticated` (so a bug in a query can't leak another club) and by the service's own role checks; a member's
 workouts and health data are never copied into a club (a member's own request computes an integer from their own data); members are addressed by a per-club keyed reference, not an account id; invite tokens are random, stored only as a
 hash and carried in the URL fragment; reports are invisible to the club's staff; every staff or moderator decision needs a reason and lands in an append-only audit log; a club never loses its owner (a trigger hands it to an adult
-member); junior clubs are private, unlisted, coach-approved, link-free and logo-free. The club tools are read-only and athlete-only; there is no club write tool. Age is self-declared and no safeguarding review has happened.
+member); junior clubs are private, unlisted, coach-approved, link-free and logo-free. Because `authenticated` can write its own challenge entry, shared result and participation values (the service, not RLS, makes them honest), `catch` must never be added to Supabase's exposed schemas. Manual entries made on the Garmin or Whoop side aren't detectable and count within the caps; unverified Concept2 results don't count. The club tools are read-only and athlete-only; there is no club write tool. Age is self-declared and no safeguarding review has happened.
 
 ## Known gaps
 

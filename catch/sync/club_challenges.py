@@ -4,7 +4,7 @@ A member's standing is computed HERE, as them, from their own activities (which 
 `club_challenge_entries` as a single integer. Other members see that integer and the member's handle, never an activity. The browser can't
 post a score: no endpoint accepts one.
 
-What counts: activities recorded by a connected source (Garmin, Concept2, Whoop). Typed-in work (the in-app strength logger, pieces) never counts,
+What counts: activities recorded by a connected source (Garmin, Concept2, Whoop) — a Concept2 result must also carry Concept2's own `verified` flag. Typed-in work in Catch (the in-app strength logger, pieces) never counts,
 and neither does anything the member excluded from their totals. Sport comes from the provider's own record, not a label the member can edit. One real
 activity can count for one account: `club_challenge_claims` (a keyed hash, global primary key) makes a second account's claim on it fail, and that
 account's score is recomputed without it."""
@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from catch.analytics import challenges as ch
+from catch.analytics import verification as vf
 from catch.analytics import clubs as c
 from catch.analytics import leaderboards as lb
 from catch.core.models import Activity, CanonicalActivity, ClubChallenge, ClubChallengeClaim, ClubChallengeEntry, ClubMember
@@ -55,7 +56,10 @@ def member_activities(session: Session, spec: ch.ChallengeSpec) -> list[dict]:
     secret = svc._secret()
     out = []
     for k in canon:
-        provider = sorted([a for a in members.get(k.id, []) if a.source in PROVIDERS], key=lambda a: (_PREFERRED[a.source], str(a.external_id)))
+        # A Concept2 result must carry Concept2's own `verified` flag (what separates a PM5/ErgData result from one typed into the logbook by hand).
+        # Garmin and Whoop don't tell Catch whether a workout was entered by hand, so a manual entry there can't be detected (docs/clubs.md §5, §14).
+        provider = sorted([a for a in members.get(k.id, []) if a.source in PROVIDERS and (a.source != "concept2" or vf.concept2_meta(a)["verified"] is True)],
+                          key=lambda a: (_PREFERRED[a.source], str(a.external_id)))
         first = provider[0] if provider else None
         board = None
         for a in provider:

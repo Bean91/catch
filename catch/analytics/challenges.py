@@ -165,7 +165,7 @@ def describe(spec: ChallengeSpec) -> list[str]:
     sport = "Only rowing sessions count." if spec.sport == "rowing" else "Any recorded sport counts."
     rules += [
         sport,
-        "Only activities recorded by a connected source (Garmin, Concept2, Whoop) count: typed-in or edited results don't. Each activity counts once, for one account.",
+        "Only activities recorded by a connected source (Garmin, Concept2, Whoop) count; results typed into Catch don't, and a Concept2 result must be flagged verified by Concept2. Garmin and Whoop don't say whether a workout was entered by hand, so Catch can't tell. Each activity counts once, for one account.",
         "Equal scores share a rank (1, 2, 2, 4). There is no hidden tie-break.",
         f"Joining is open until the end date. Standings settle {GRACE_DAYS} days after the end, then freeze.",
         "Nothing about weight, calories, recovery or sleep is used or shown.",

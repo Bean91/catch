@@ -19,6 +19,8 @@ Steps marked ⚠ could not be tested from the development machine and are listed
    and `anon` has no privileges on it. (If you disable the Data API entirely, nothing changes for Catch.)
 9. **Database → Extensions**: only `pg_cron` and `pg_net` are needed, and only for the scheduled tick (§5). Enable nothing else.
 
+> **Never add `catch` to Supabase's "Exposed schemas" (Data API / PostgREST).** Session 27's club tables are writable by `authenticated` under row-level policies that check *who* may write, not that a score or result value is honest (the service computes those), so the app role must remain the only way in.
+
 ## 2. Roles and migrations (one source of truth: Alembic)
 
 The schema is changed **only** by the Alembic revisions in `migrations/` — never in the dashboard. Run them with an admin URL from a trusted machine:
