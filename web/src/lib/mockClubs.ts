@@ -1,7 +1,7 @@
 // Fixtures for the clubs UI (?mock=1). In-memory, per page load. This file stands in for the server, so it fabricates the `capabilities` and
 // approval rules the REAL server decides; the production browser bundle never computes any of that.
 //   ?mock=1&role=athlete|coach|admin|owner   your role in "River Rowing Club" (default admin)
-//   &junior=1[&jrole=athlete|coach|owner]    adds "Junior Squad", a junior club (default role athlete)
+//   &junior=1[&jrole=athlete|coach|admin|owner]    adds "Junior Squad", a junior club (default role athlete)
 //   &noprofile=1                             you have no club profile yet
 import type {
   ClubModDetail, ClubModReport, Club, ClubAuditEvent, ClubAudience, ClubBoard, ClubChallengeDetail, ClubChallengeRow, ClubInvite, ClubInvitePreview, ClubJoinRequestRow, ClubMember, ClubMyRequest, ClubPost, ClubProfile,
@@ -27,8 +27,8 @@ function caps(role: ClubRole | null, audience: ClubAudience): Record<string, boo
     view: true, edit_club: admin, edit_logo: admin, delete_club: role === "owner", transfer_ownership: role === "owner", set_roles: admin, remove_member: staff,
     see_requests: staff, see_audit: staff, post: staff, take_down_post: staff, delete_post: admin, hide_result: staff, join_challenge: true, link_workout: true,
     share_result: true, report: true, block: true, leave: role !== "owner",
-    publish_directly: audience === "junior" ? role === "coach" : staff,
-    decide_athlete_requests: audience === "junior" ? role === "coach" : staff, decide_coach_requests: admin,
+    publish_directly: audience === "junior" ? role === "coach" || role === "owner" : staff,
+    decide_athlete_requests: audience === "junior" ? role === "coach" || role === "owner" : staff, decide_coach_requests: admin,
     create_athlete_invite: staff, create_coach_invite: admin,
   };
 }
@@ -119,17 +119,18 @@ function seedJunior(): ClubData {
   const role = JUNIOR_ROLE;
   const club = baseClub("junior", "Junior Squad", "junior", role, {
     description: "Under-19 squad. Everyone here is approved by a coach.", rules: "Be kind. Row hard. Respect your coach. Nothing leaves the club.", member_count: 9,
-    pending: role === "coach" ? { requests: 1, posts: 1 } : undefined, my_prefs: { include_public_results: false, share_numbers: false, rules_accepted: true },
+    pending: role === "coach" || role === "owner" ? { requests: 1, posts: 1 } : undefined, my_prefs: { include_public_results: false, share_numbers: false, rules_accepted: true },
   });
   const members = [member("j-owner", "Pat Owner", "owner", role === "owner"), member("j-coach", "Coach Dana", "coach", role === "coach"), member("j-1", "Kit Junior", "athlete"), member("j-2", "Lou Junior", "athlete")];
   if (role === "athlete") members.push(member("j-me", "You Junior", "athlete", true));
-  const pendingPost: ClubPost = { id: 2, title: "Regatta weekend", body: "Saturday, 8am at the boathouse. Parent forms due Friday.", status: "pending", author: "Pat Owner", created_at: new Date().toISOString(), can_approve: role === "coach", decision_reason: null };
+  if (role === "admin") members.push(member("j-me", "You Admin", "admin", true));
+  const pendingPost: ClubPost = { id: 2, title: "Regatta weekend", body: "Saturday, 8am at the boathouse. Parent forms due Friday.", status: "pending", author: "Pat Owner", created_at: new Date().toISOString(), can_approve: role === "coach" || role === "owner", decision_reason: null };
   return {
     club, members, rules: club.rules ?? "",
     posts: [{ id: 1, title: "Welcome to the squad", body: "Practice is Tuesday and Thursday at 6am.", status: "published", author: "Coach Dana", created_at: new Date().toISOString(), can_approve: false, decision_reason: null }, ...(role === "athlete" ? [] : [pendingPost])],
     sessions: [{ id: 1, title: "Technique row", type: "on_water", date: plus(2), start_time: "06:00", duration_min: 75, distance_m: null, description: null, status: "published", participants: 3, i_took_part: false, can_approve: false }],
     challenges: [challengeRow(1, "Squad Cup", "sessions", 8, { standings: [standing(1, "Kit Junior", "6 sessions", 6), standing(2, "Lou Junior", "5 sessions", 5)], rules: ["Sessions count up to 8.", "A session must last at least 20 minutes to count.", "Equal scores share a rank (1, 2, 2, 4). There is no hidden tie-break.", "Nothing about weight, calories, recovery or sleep is used or shown."] })],
-    requests: [{ request_id: 1, handle: "Rae Hopeful", role: "athlete", age_class: "youth", message: null, guardian_consent: true, created_at: new Date().toISOString(), can_decide: role === "coach" }],
+    requests: [{ request_id: 1, handle: "Rae Hopeful", role: "athlete", age_class: "youth", message: null, guardian_consent: true, created_at: new Date().toISOString(), can_decide: role === "coach" || role === "owner" }],
     invites: [], audit: [], board: { board_key: "2000m", board_label: "2,000 m", note: "Only verified results are ranked.", ranked: [], unverified: [] },
   };
 }
@@ -344,12 +345,11 @@ export function mockWithdraw(requestId: number) {
 export function mockPosts(id: string): ClubPost[] {
   const d = need(id);
   const staff = STAFF.includes(roleOf(d));
-  return d.posts.filter((p) => staff || p.status === "published").map((p) => ({ ...p, can_approve: p.status === "pending" && roleOf(d) === "coach" && d.club.audience === "junior" ? true : p.status === "pending" && d.club.audience === "adult" && staff }));
+  return d.posts.filter((p) => staff || p.status === "published").map((p) => ({ ...p, can_approve: p.status === "pending" && (roleOf(d) === "coach" || roleOf(d) === "owner") && d.club.audience === "junior" ? true : p.status === "pending" && d.club.audience === "adult" && staff }));
 }
 
 export function mockPost(id: string, title: string, body: string) {
   const d = need(id);
-  if (d.club.audience === "junior" && /www\.|https?:/.test(`${title} ${body}`)) throw new Error("a junior club's posts can't contain web addresses");
   if (!title.trim() || !body.trim()) throw new Error("a title is 1-80 characters");
   const status = liveStatus(d);
   d.posts.unshift({ id: nextId++, title: title.trim(), body: body.trim(), status, author: "You Rower", created_at: new Date().toISOString(), can_approve: false, decision_reason: null });

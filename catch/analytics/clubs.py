@@ -19,6 +19,7 @@ from catch.analytics import leaderboards as lb
 
 ROLES = ("owner", "admin", "coach", "athlete")
 STAFF_ROLES = ("owner", "admin", "coach")
+JUNIOR_COACH_ROLES = ("owner", "coach")  # a junior club's owner is automatically a coach for approvals and direct posting; an admin is not
 ADMIN_ROLES = ("owner", "admin")
 AUDIENCES = ("adult", "junior")
 VISIBILITIES = ("public", "private")
@@ -79,18 +80,18 @@ def can_manage_member(actor: Optional[str], target_role: str, *, same_person: bo
 
 def may_decide_request(actor: Optional[str], audience: str, request_role: str) -> bool:
     """Mirrors catch_club.may_decide_request. A coach candidate is vetted by owner/admin; in a junior club an athlete is admitted
-    ONLY by a coach (the owner and admins can't), elsewhere by any staff."""
+    by a coach or by the owner (who counts as a coach there, session 27 follow-up), not by an admin, elsewhere by any staff."""
     if request_role == "coach":
         return actor in ADMIN_ROLES
     if audience == "junior":
-        return actor == "coach"
+        return actor in JUNIOR_COACH_ROLES
     return actor in STAFF_ROLES
 
 
 def may_publish(actor: Optional[str], audience: str) -> bool:
-    """Mirrors catch_club.may_publish: whether a post by `actor` goes out immediately. In a junior club only a coach's does."""
+    """Mirrors catch_club.may_publish: whether a post by `actor` goes out immediately. In a junior club only a coach's (or the owner's) does."""
     if audience == "junior":
-        return actor == "coach"
+        return actor in JUNIOR_COACH_ROLES
     return actor in STAFF_ROLES
 
 
@@ -220,8 +221,6 @@ def validate_post(title: str, body: str, audience: str) -> tuple[str, str]:
         raise ValueError(f"a title is 1-{TITLE_MAX} characters")
     if not (1 <= len(body) <= BODY_MAX):
         raise ValueError(f"a post is 1-{BODY_MAX} characters")
-    if audience == "junior" and (has_link(title) or has_link(body)):
-        raise ValueError("a junior club's posts can't contain web addresses")  # nothing leads young members off the app
     return title, body
 
 

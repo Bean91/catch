@@ -18,10 +18,10 @@ identity**, and says so; the rules below limit what a wrong declaration can reac
 |---|---|---|
 | members | adults only | young athletes; staff are adults |
 | visibility | public (listed in Discover, members-only inside) or private | **always private**, never listed |
-| how people join | open, by request, or by invite link | **request only**, by invitation, **a coach approves every young member** |
-| posts, sessions, challenges | any staff publishes directly | **only a coach's go out directly**; anyone else's wait for a coach |
-| logo | optional (admins) | **not allowed** |
-| web links in text | allowed | **refused** in posts, descriptions, rules, notes |
+| how people join | open, by request, or by invite link | **request only**, by invitation, **a coach approves every young member** (the owner counts as a coach here: *session 27 follow-up*) |
+| posts, sessions, challenges | any staff publishes directly | **only a coach's or the owner's go out directly**; an admin's wait for a coach (or the owner) |
+| logo | optional (admins) | optional (admins), visible to members only (the club is private) |
+| web links in text | allowed | **allowed in posts and sessions**; still refused in the club description, location and rules |
 | tighter challenge caps | — | yes (§5) |
 
 A young athlete can exist **only** inside a junior club; an adult can hold any role in an adult club and owner/admin/coach in a junior one, never "athlete" in a junior one.
@@ -95,7 +95,7 @@ A member **explicitly shares** an exact 500/1,000/2,000/5,000/6,000 m or 30/60-m
 
 ## 7. Announcements and approval
 
-Staff post announcements; there are **no member comments and no direct messages** in this session (§14). In a junior club a post by anyone who isn't a coach is held *pending* and is invisible to athletes until a coach approves it; the same applies to sessions and challenges. A coach's own posts publish directly, are reportable and are audit-logged. Approving needs the right to publish *in that club* (junior: coach), declining needs a reason, and any staff member can take a published post down with a reason.
+Staff post announcements; there are **no member comments and no direct messages** in this session (§14). In a junior club a post by anyone who isn't a coach or the owner is held *pending* and is invisible to athletes until a coach approves it; the same applies to sessions and challenges. A coach's own posts publish directly, are reportable and are audit-logged. Approving needs the right to publish *in that club* (junior: coach or owner), declining needs a reason, and any staff member can take a published post down with a reason.
 
 ## 8. What is Public, Club-only, Private
 
@@ -164,6 +164,6 @@ a Sidebar entry and a Settings card on the public build (no bottom-nav slot; the
 - The challenge caps and the 13/16 thresholds are unreviewed constants.
 - **Manual entries made on the provider side (Garmin Connect, Whoop) are not detected** and can count toward a challenge, within the per-day and per-week caps; a hand-typed Concept2 logbook entry is excluded because it lacks Concept2's `verified` flag. This is why challenges are capped and have no prizes: the worst a manual entry buys is the cap.
 - No push notifications for invites, approvals or announcements (they appear in the app only); no member comments; no direct messages (deliberately); no club-level finalizer job (freezing is computed from dates). The claim table stops one provider activity counting for two Catch accounts, but only for activities that have a provider id: two accounts can't be told apart by anything else.
-- A club needs at least one **coach** before a junior club can admit anyone (the owner can't). The UI says so, but a one-person junior club will sit idle until a coach joins by invite.
+- In a junior club **the owner counts as a coach** for admitting young athletes and for posting without waiting (migration `0007`). An admin does not. This means a one-adult junior club works; it also means the "coach approves" safeguard can be one person, the owner. Web links in a junior club's posts and a logo were allowed at the operator's request; links in its description/rules and member-to-member messaging are still not.
 - A moderator contact route other than the report form, and a response-time promise, are not built.
 - Verified against synthetic data on a local Supabase stack; no hosted project, real provider or real minors were involved.

@@ -547,7 +547,7 @@ def decide_request(session: Session, club_id: str, request_id: int, *, approve: 
     if r is None or r.club_id != club_id or r.status != "pending":
         raise ClubError("Not found.", 404)
     if not c.may_decide_request(mine.role, club.audience, r.role):
-        raise ClubError("In a junior club only a coach admits a young athlete; only an owner or admin admits a coach." if club.audience == "junior" or r.role == "coach"
+        raise ClubError("In a junior club only a coach or the owner admits a young athlete; only an owner or admin admits a coach." if club.audience == "junior" or r.role == "coach"
                         else "Your role can't decide this request.", 403)
     reason_v = _value(c.validate_reason, reason, required=not approve)
     r.status, r.decided_by, r.decision_reason, r.decided_at = ("approved" if approve else "rejected"), me(), reason_v or None, _now()
@@ -632,8 +632,6 @@ _IMAGE_MAGIC = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1
 
 def put_logo(session: Session, club_id: str, content_type: str, data: bytes) -> dict:
     club, _ = require_member(session, club_id, "edit_logo")
-    if club.audience == "junior":
-        raise ClubError("A junior club can't have a logo or photo.", 403)
     if content_type not in _IMAGE_MAGIC or not any(data.startswith(m) for m in _IMAGE_MAGIC[content_type]):
         raise ClubError("Use a JPEG, PNG or WebP image.")
     if len(data) > c.LOGO_MAX_BYTES:

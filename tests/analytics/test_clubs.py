@@ -60,8 +60,8 @@ def test_nobody_manages_themselves():
     # adult clubs: any staff admits an athlete; only owner/admin vets a coach
     ("owner", "adult", "athlete", True), ("admin", "adult", "athlete", True), ("coach", "adult", "athlete", True), ("athlete", "adult", "athlete", False),
     ("owner", "adult", "coach", True), ("admin", "adult", "coach", True), ("coach", "adult", "coach", False),
-    # junior clubs: ONLY a coach admits a young athlete; owner and admin cannot
-    ("coach", "junior", "athlete", True), ("owner", "junior", "athlete", False), ("admin", "junior", "athlete", False), ("athlete", "junior", "athlete", False),
+    # junior clubs: a coach or the owner (a coach there) admits a young athlete; an admin cannot
+    ("coach", "junior", "athlete", True), ("owner", "junior", "athlete", True), ("admin", "junior", "athlete", False), ("athlete", "junior", "athlete", False),
     ("owner", "junior", "coach", True), ("admin", "junior", "coach", True), ("coach", "junior", "coach", False),
 ])
 def test_who_decides_a_join_request(actor, audience, req_role, expected):
@@ -70,7 +70,7 @@ def test_who_decides_a_join_request(actor, audience, req_role, expected):
 
 @pytest.mark.parametrize("actor,audience,publishes", [
     ("owner", "adult", True), ("admin", "adult", True), ("coach", "adult", True), ("athlete", "adult", False),
-    ("owner", "junior", False), ("admin", "junior", False), ("coach", "junior", True), ("athlete", "junior", False),
+    ("owner", "junior", True), ("admin", "junior", False), ("coach", "junior", True), ("athlete", "junior", False),
 ])
 def test_who_publishes_directly_and_whose_post_waits(actor, audience, publishes):
     assert c.may_publish(actor, audience) is publishes
@@ -90,8 +90,9 @@ def test_capabilities_give_an_athlete_nothing_administrative_and_the_owner_every
     assert athlete["view"] and athlete["report"] and athlete["block"] and athlete["join_challenge"] and athlete["leave"]
     owner = c.capabilities("owner", "adult")
     assert owner["delete_club"] and owner["transfer_ownership"] and not owner["leave"]  # the owner transfers first
-    assert not c.capabilities("owner", "junior")["publish_directly"] and c.capabilities("coach", "junior")["publish_directly"]
-    assert not c.capabilities("owner", "junior")["decide_athlete_requests"] and c.capabilities("coach", "junior")["decide_athlete_requests"]
+    assert c.capabilities("owner", "junior")["publish_directly"] and c.capabilities("coach", "junior")["publish_directly"]
+    assert not c.capabilities("admin", "junior")["publish_directly"] and not c.capabilities("admin", "junior")["decide_athlete_requests"]
+    assert c.capabilities("owner", "junior")["decide_athlete_requests"] and c.capabilities("coach", "junior")["decide_athlete_requests"]
     assert not any(c.capabilities(None, "adult").values())  # a non-member can do nothing
 
 
@@ -159,11 +160,10 @@ def test_a_junior_clubs_text_may_not_lead_anywhere_off_the_app():
     assert fields(audience="adult", rules="Read the guide at www.example.com").rules  # adults are trusted with a link
 
 
-def test_posts_are_length_checked_and_junior_posts_carry_no_links():
+def test_posts_are_length_checked_and_a_junior_post_may_carry_a_link():
     assert c.validate_post("  Practice   moved ", "Meet at 6.", "adult") == ("Practice moved", "Meet at 6.")
     assert c.validate_post("Results", "See https://example.com/results", "adult")
-    with pytest.raises(ValueError, match="web addresses"):
-        c.validate_post("Results", "See https://example.com/results", "junior")
+    assert c.validate_post("Results", "See https://example.com/results", "junior")
     with pytest.raises(ValueError):
         c.validate_post("", "body", "adult")
     with pytest.raises(ValueError):

@@ -173,6 +173,9 @@ def test_the_age_and_junior_rules_are_check_constraints_not_just_code(env):
     with admin.connect() as conn:
         with pytest.raises(DBAPIError):  # a junior club must be private and request-only
             conn.execute(text("INSERT INTO catch.clubs (club_id, name, name_ci, visibility, audience, join_policy, status, has_logo, created_at) VALUES ('j2','j2','j2','public','junior','open','active',false,now())"))
+    with admin.begin() as conn:  # but a private, request-only junior club may have a logo (0007)
+        conn.execute(text("INSERT INTO catch.clubs (club_id, name, name_ci, visibility, audience, join_policy, status, has_logo, created_at) VALUES ('j3','j3','j3','private','junior','request','active',true,now())"))
+        conn.execute(text("DELETE FROM catch.clubs WHERE club_id = 'j3'"))
 
 
 def test_there_is_exactly_one_active_owner_and_audience_cannot_change(env):
@@ -349,12 +352,13 @@ def test_the_junior_club_rules_hold_at_the_database(env):
     denied(runtime, other, REQ.format(extra="", extra_v=""), c=cid, u=other, r="athlete", s="approved", i=inv_a)
     denied(runtime, adult, REQ.format(extra="", extra_v=""), c=cid, u=adult, r="athlete", s="pending", i=inv_a)        # an adult isn't an athlete here
     denied(runtime, kid, REQ.format(extra="", extra_v=""), c=cid, u=kid, r="coach", s="pending", i=inv_c)              # and a young person is never staff
-    # only a COACH approves an athlete: the owner and an admin cannot
+    # a COACH or the OWNER (a coach in a junior club) approves an athlete; an admin cannot
     decide = "UPDATE club_join_requests SET status = 'approved', decided_by = :d WHERE owner_id = :k"
-    assert run(runtime, u["own"], decide, d=u["own"], k=kid) == 0
     assert run(runtime, u["adm"], decide, d=u["adm"], k=kid) == 0
-    assert run(runtime, u["coa"], decide, d=u["coa"], k=kid) == 1
+    assert run(runtime, u["own"], decide, d=u["own"], k=kid) == 1
     assert _join(runtime, kid, cid, "athlete", "junior") == 1
+    assert _request(runtime, other, cid, inv_a) == 1
+    assert run(runtime, u["coa"], decide, d=u["coa"], k=other) == 1
     assert run(runtime, kid, "UPDATE club_members SET role = 'coach' WHERE owner_id = :u", u=kid) == 0     # nobody promotes themselves
     # an adult can join as a coach: by invite, approved by an owner/admin (not a coach)
     assert _request(runtime, adult, cid, inv_c, "coach") == 1
@@ -392,23 +396,22 @@ def _post_denied(runtime, uid, cid, status, table="club_announcements"):
 
 
 @pytest.mark.parametrize("table", ["club_announcements", "club_sessions"])
-def test_in_a_junior_club_only_a_coach_publishes_and_anyone_elses_post_waits(env, table):
+def test_in_a_junior_club_only_a_coach_or_the_owner_publishes_and_anyone_elses_post_waits(env, table):
     admin, runtime = env
     cid, u = team(admin, audience="junior")
-    _post_denied(runtime, u["own"], cid, "published", table)
-    assert _post(runtime, u["own"], cid, "pending", table) == 1
+    assert _post(runtime, u["own"], cid, "published", table) == 1                         # the owner is a coach here
     assert _post(runtime, u["adm"], cid, "pending", table) == 1
-    _post_denied(runtime, u["adm"], cid, "published", table)
+    _post_denied(runtime, u["adm"], cid, "published", table)                              # an admin is not
     assert _post(runtime, u["coa"], cid, "published", table) == 1                         # a coach's own post goes straight out
     _post_denied(runtime, u["ath"], cid, "pending", table)                                # athletes post nothing
-    assert run(runtime, u["ath"], f"SELECT count(*) FROM {table}") == [(1,)]              # pending ones are invisible to athletes...
+    assert run(runtime, u["ath"], f"SELECT count(*) FROM {table}") == [(2,)]              # pending ones are invisible to athletes...
     assert run(runtime, u["adm"], f"SELECT count(*) FROM {table}") == [(3,)]              # ...and visible to staff
     approve = f"UPDATE {table} SET status = 'published' WHERE club_id = :c AND status = 'pending'"
-    denied(runtime, u["own"], approve, c=cid)                                             # the owner can't publish what isn't theirs to publish here
-    assert run(runtime, u["coa"], approve, c=cid) == 2
+    denied(runtime, u["adm"], approve, c=cid)                                             # an admin can't publish what isn't theirs to publish here
+    assert run(runtime, u["own"], approve, c=cid) == 1
     assert run(runtime, u["ath"], f"SELECT count(*) FROM {table}") == [(3,)]
     down = "hidden" if table == "club_announcements" else "cancelled"
-    assert run(runtime, u["own"], f"UPDATE {table} SET status = '{down}' WHERE club_id = :c", c=cid) == 3  # any staff can take a post down
+    assert run(runtime, u["adm"], f"UPDATE {table} SET status = '{down}' WHERE club_id = :c", c=cid) == 3  # any staff can take a post down
 
 
 def test_in_an_adult_club_any_staff_publishes_directly(env):

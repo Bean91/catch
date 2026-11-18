@@ -4234,7 +4234,7 @@ the leaderboards' eligibility/verification/ranking/age constants from 26, and th
 13. **Invites** are random, stored only as a hash, shown once, 1–30 days, revocable, optionally use-limited, carried in the URL **fragment**; uses are *counted from join requests* (no counter to drift). A removed member is a tombstone and can't rejoin.
 14. **Reports are invisible to club staff**; three distinct reporters auto-hide an announcement (nothing else auto-acts: a few accounts could otherwise silence a club). Platform moderators can suspend a club but not one they belong to.
 15. **Members are addressed by a per-club keyed `member_ref`**, never an account id, so a response in one club can't identify the same person in another.
-16. **Logo** in a small `club_logos` table (≤256 KB, client-resized), fetched with the bearer header and shown from a blob URL; not allowed for junior clubs. No new Storage bucket policy.
+16. **Logo** in a small `club_logos` table (≤256 KB, client-resized), fetched with the bearer header and shown from a blob URL; allowed for junior clubs since the follow-up below. No new Storage bucket policy.
 17. **Migration backfill is non-destructive**: members map `public_id → owner_id`; the creator (else the longest-standing member) becomes owner; the old code becomes a 30-day revocable invite; a leaderboard **youth** member is *not* carried into an adult club and is recorded in `club_audit` rather than silently dropped. I couldn't confirm no real rows exist (the last session left a local dump), hence the care.
 
 ## Bugs found while building (fixed, with regression tests unless noted)
@@ -4271,7 +4271,7 @@ DB (`0006`): reshaped `clubs`/`club_members`; `club_profiles`, `club_member_pref
 - The challenge caps and the 13/16 thresholds are unreviewed constants.
 - No push notifications for invites/approvals/announcements; no member comments; no direct messages (deliberately); no moderator contact route beyond the report form; no retention period for the audit log or reports.
 - The RLS and trigger were exercised on a **local** stack, not a hosted Supabase project.
-- A junior club needs a **coach** before it can admit anyone (the owner can't approve a young athlete); the UI says so, but a one-person junior club sits idle until a coach joins by invite.
+- In a junior club the **owner counts as a coach** (follow-up, migration `0007`), so one adult can run it; the "a coach approves" safeguard can therefore be just the owner.
 - **Manual entries made on the provider side (Garmin Connect, Whoop) are not detected** and count within the daily/weekly caps; a hand-typed Concept2 logbook entry is excluded (no `verified` flag, whose live semantics are still unconfirmed). The rule text users see says so.
 - Score and result *values* are made honest by the service, not by RLS: `authenticated` can write its own entry/result/participation values, so `catch` must stay off Supabase's Data API (added to `public-setup.md` and `security.md`).
 - The claim table protects only activities with a provider id; two Catch accounts can't otherwise be told apart.
@@ -4289,3 +4289,15 @@ DB (`0006`): reshaped `clubs`/`club_members`; `club_profiles`, `club_member_pref
 3. Decide the retention period for `club_audit` and `club_reports` and a guardian-consent mechanism, then update `docs/clubs.md` §12/§14.
 4. A kill switch for junior clubs, and a moderator contact route.
 5. If confirm-gated club admin tools are wanted for the coach, build them on the existing service functions only.
+
+### Session 27 follow-up (clubs): owner = coach in a junior club, logos and post links allowed
+
+Found when the operator tried a junior club with one adult and one under-19 account: the owner could not approve the young account and could not become a coach (a person has one role, and the owner role only moves by transfer). Decisions, in the operator's words:
+"make it so the owner is automatically a coach too" and junior clubs may have "logos" and "web links in posts".
+
+- **Owner as coach (junior clubs only):** `catch_club.may_decide_request` (young athletes) and `catch_club.may_publish` (and so who approves a held post) accept `owner` as well as `coach`; mirrored by `JUNIOR_COACH_ROLES` in `analytics/clubs.py`. An admin is still not a coach. The owner is an adult by the existing CHECK, so no young member gains this power. Adult clubs unchanged.
+- **Logo:** `ck_clubs_junior_is_private` no longer requires `has_logo = false`; the service and web no longer refuse a junior club's logo. The club is private, so only members see it.
+- **Links:** allowed in a junior club's announcements and sessions; still refused in its description, location and rules (the operator named posts).
+- **Migration `0007`** (0006 untouched): two `CREATE OR REPLACE FUNCTION`s and the CHECK; no table, policy or grant, so `POLICY_COUNTS` is unchanged. Downgrade restores the strict bodies and refuses while a junior club has a logo.
+- **Tests:** the table-driven matrix, API and Postgres tests flipped for the owner; an admin-in-a-junior-club helper keeps the strict case (held post, no approval, cannot admit) covered; Playwright mock gained `jrole=admin`.
+- **Risk to say plainly:** with one person able to be both owner and the only coach, the junior "coach approval" is a single adult's decision. That is the operator's call; the safeguarding review is still a launch blocker.

@@ -74,8 +74,8 @@ export function CreateClubSheet({ open, onOpenChange, onCreated }: Base & { onCr
       </Field>
       {junior ? (
         <p data-testid="junior-explainer" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
-          A junior club is always private and unlisted. Young members join only by invitation and a <strong>coach approves each one</strong>; staff are adults; posts, sessions and challenges
-          not written by a coach wait for a coach's approval; there are no logos or photos and no web links.
+          A junior club is always private and unlisted. Young members join only by invitation and <strong>a coach approves each one</strong> (as the owner, you count as a coach); staff are adults;
+          posts, sessions and challenges not written by a coach or the owner wait for a coach's approval.
         </p>
       ) : (
         <>
@@ -170,7 +170,7 @@ export function InviteSheet({ open, onOpenChange, club }: Base & { club: Club })
     setLink(`${window.location.origin}/clubs/join#${inv.token}`);
   });
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) setLink(null); onOpenChange(o); }} testId="invite-sheet" title="Invite someone" description={club.audience === "junior" ? "A link only gets someone to the join form. A coach still approves every young member." : "Anyone with the link can ask to join (or join, if this club admits by link) until it expires. You can revoke it any time."}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) setLink(null); onOpenChange(o); }} testId="invite-sheet" title="Invite someone" description={club.audience === "junior" ? "A link only gets someone to the join form. A coach or the owner still approves every young member." : "Anyone with the link can ask to join (or join, if this club admits by link) until it expires. You can revoke it any time."}>
       {link ? (
         <>
           <p role="status" className="text-sm text-text-secondary">Copy this link now: it's shown once and only a fingerprint of it is stored.</p>

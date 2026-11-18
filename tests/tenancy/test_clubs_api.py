@@ -102,6 +102,16 @@ def junior_club(env):
     return cid
 
 
+def junior_admin(env, cid):
+    """Bob, an adult, joins the junior club as a coach (the owner vets him) and is made an admin: staff, but not a coach."""
+    profile(env, BOB, "Bob Admin")
+    assert join(env, BOB, invite(env, ALICE, cid, "coach")["token"]).json()["status"] == "requested"
+    rid = next(r["request_id"] for r in call(env, ALICE, "GET", f"/{cid}/requests", 200).json()["requests"] if r["handle"] == "Bob Admin")
+    call(env, ALICE, "POST", f"/{cid}/requests/{rid}/decide", 200, json={"approve": True})
+    call(env, BOB, "GET", "/mine", 200)   # approval completes the join as them
+    call(env, ALICE, "PUT", f"/{cid}/members/{ref_of(env, ALICE, cid, 'Bob Admin')}/role", 200, json={"role": "admin"})
+
+
 def admit_youth(env, cid, sub):
     tok = invite(env, CAROL, cid)["token"]
     assert join(env, sub, tok).json()["status"] == "requested"
@@ -406,9 +416,7 @@ def test_a_young_person_can_only_join_a_junior_club_by_invitation_and_a_coach_ap
     assert join(env, DAVE, tok).json()["status"] == "requested"
     rid = call(env, CAROL, "GET", f"/{cid}/requests", 200).json()["requests"][0]
     assert rid["age_class"] == "youth" and rid["can_decide"] is True
-    r = call(env, ALICE, "POST", f"/{cid}/requests/{rid['request_id']}/decide", json={"approve": True})
-    assert r.status_code == 403 and "only a coach" in r.json()["detail"]    # the owner can't admit a young athlete
-    call(env, CAROL, "POST", f"/{cid}/requests/{rid['request_id']}/decide", 200, json={"approve": True})
+    call(env, ALICE, "POST", f"/{cid}/requests/{rid['request_id']}/decide", 200, json={"approve": True})   # the owner is a coach here too
     assert call(env, DAVE, "GET", "/mine", 200).json()["clubs"][0]["my_role"] == "athlete"
     assert call(env, DAVE, "GET", f"/{cid}/requests").status_code == 403
 
@@ -439,38 +447,44 @@ def test_under_sixteen_needs_a_guardian_on_file_before_a_junior_club(env):
     assert shown["guardian_consent"] is True    # the coach can see consent is recorded
 
 
-def test_a_junior_club_has_no_logo_and_a_junior_posts_carry_no_links(env):
+def test_a_junior_club_may_have_a_logo_and_links_in_posts_but_not_in_its_description(env):
     cid = junior_club(env)
     png = b"\x89PNG\r\n\x1a\n" + b"x" * 100
     r = env.c.put(f"/api/clubs/{cid}/logo", headers={**bearer(ALICE), "content-type": "image/png"}, content=png)
-    assert r.status_code == 403
-    r = call(env, CAROL, "POST", f"/{cid}/announcements", json={"title": "Practice", "body": "See www.example.com for the plan"})
-    assert r.status_code == 400 and "web addresses" in r.json()["detail"]
+    assert r.status_code == 200 and call(env, ALICE, "GET", f"/{cid}", 200).json()["has_logo"] is True
+    assert env.c.get(f"/api/clubs/{cid}/logo", headers=bearer(CAROL)).status_code == 200               # members see it
+    assert env.c.get(f"/api/clubs/{cid}/logo", headers=bearer(DAVE)).status_code == 404                # an outsider (not yet admitted) does not
+    call(env, CAROL, "POST", f"/{cid}/announcements", 200, json={"title": "Practice", "body": "See www.example.com for the plan"})
     assert call(env, ALICE, "POST", "", 400, json={"name": "Junior Two", "audience": "junior", "description": "visit www.example.com"})
 
 
-def test_every_junior_post_not_written_by_a_coach_waits_for_a_coach(env):
+def test_every_junior_post_not_written_by_a_coach_or_the_owner_waits_for_a_coach(env):
     cid = junior_club(env)
+    junior_admin(env, cid)
     admit_youth(env, cid, DAVE)
-    mine = call(env, ALICE, "POST", f"/{cid}/announcements", 200, json={"title": "Regatta", "body": "Saturday, 8am."}).json()
+    mine = call(env, BOB, "POST", f"/{cid}/announcements", 200, json={"title": "Regatta", "body": "Saturday, 8am."}).json()
     assert mine["status"] == "pending" and "coach approves" in mine["message"]
     coach = call(env, CAROL, "POST", f"/{cid}/announcements", 200, json={"title": "Practice", "body": "Tuesday, 6am."}).json()
     assert coach["status"] == "published"                                           # a coach's own post goes straight out
-    assert [a["title"] for a in call(env, DAVE, "GET", f"/{cid}/announcements", 200).json()["announcements"]] == ["Practice"]   # the athlete sees only the published one
-    staff_view = call(env, ALICE, "GET", f"/{cid}/announcements", 200).json()["announcements"]
+    owner = call(env, ALICE, "POST", f"/{cid}/announcements", 200, json={"title": "Kit", "body": "Bring a bottle."}).json()
+    assert owner["status"] == "published"                                           # and so does the owner's: the owner is a coach here
+    assert {a["title"] for a in call(env, DAVE, "GET", f"/{cid}/announcements", 200).json()["announcements"]} == {"Practice", "Kit"}
+    staff_view = call(env, CAROL, "GET", f"/{cid}/announcements", 200).json()["announcements"]
     pending = next(a for a in staff_view if a["status"] == "pending")
-    assert pending["can_approve"] is False                                          # the owner can't approve her own post
-    assert call(env, ALICE, "POST", f"/{cid}/posts/announcement/{pending['id']}/decide", json={"action": "approve"}).status_code == 403
+    assert pending["can_approve"] is True
+    assert call(env, BOB, "GET", f"/{cid}/announcements", 200).json()["announcements"][0]["can_approve"] is False   # an admin can't approve, even a post of their own
+    assert call(env, BOB, "POST", f"/{cid}/posts/announcement/{pending['id']}/decide", json={"action": "approve"}).status_code == 403
     assert call(env, DAVE, "POST", f"/{cid}/posts/announcement/{pending['id']}/decide", json={"action": "approve"}).status_code == 403
-    call(env, CAROL, "POST", f"/{cid}/posts/announcement/{pending['id']}/decide", 200, json={"action": "approve"})
-    assert {a["title"] for a in call(env, DAVE, "GET", f"/{cid}/announcements", 200).json()["announcements"]} == {"Practice", "Regatta"}
+    call(env, ALICE, "POST", f"/{cid}/posts/announcement/{pending['id']}/decide", 200, json={"action": "approve"})   # the owner approves
+    assert {a["title"] for a in call(env, DAVE, "GET", f"/{cid}/announcements", 200).json()["announcements"]} == {"Practice", "Regatta", "Kit"}
     assert call(env, CAROL, "POST", f"/{cid}/announcements", 200, json={"title": "T", "body": "B"})
     assert call(env, DAVE, "POST", f"/{cid}/announcements", 403, json={"title": "Hi", "body": "I can post?"})
 
 
 def test_a_rejection_needs_a_reason_and_is_recorded(env):
     cid = junior_club(env)
-    p = call(env, ALICE, "POST", f"/{cid}/announcements", 200, json={"title": "Party", "body": "Pizza after."}).json()["id"]
+    junior_admin(env, cid)
+    p = call(env, BOB, "POST", f"/{cid}/announcements", 200, json={"title": "Party", "body": "Pizza after."}).json()["id"]
     assert call(env, CAROL, "POST", f"/{cid}/posts/announcement/{p}/decide", json={"action": "reject"}).status_code == 400
     call(env, CAROL, "POST", f"/{cid}/posts/announcement/{p}/decide", 200, json={"action": "reject", "reason": "Not appropriate for this club"})
     log = call(env, CAROL, "GET", f"/{cid}/audit", 200).json()["events"]
@@ -554,8 +568,9 @@ def test_a_team_summary_is_aggregate_only_and_hides_a_total_until_three_members_
 
 def test_a_junior_clubs_team_session_waits_for_a_coach(env):
     cid = junior_club(env)
+    junior_admin(env, cid)
     admit_youth(env, cid, DAVE)
-    r = call(env, ALICE, "POST", f"/{cid}/sessions", 200, json={"title": "Erg test", "session_type": "test", "date": date.today().isoformat()}).json()
+    r = call(env, BOB, "POST", f"/{cid}/sessions", 200, json={"title": "Erg test", "session_type": "test", "date": date.today().isoformat()}).json()
     assert r["status"] == "pending"
     assert call(env, DAVE, "GET", f"/{cid}/calendar", 200).json()["sessions"] == []
     call(env, CAROL, "POST", f"/{cid}/posts/session/{r['id']}/decide", 200, json={"action": "approve"})
@@ -750,9 +765,10 @@ def test_consistency_rewards_regularity_and_an_excused_week_is_not_a_penalty(env
 
 def test_a_junior_challenge_waits_for_a_coach_and_has_tighter_limits(env):
     cid = junior_club(env)
+    junior_admin(env, cid)
     admit_youth(env, cid, DAVE)
     start, end = date.today().isoformat(), (date.today() + timedelta(days=13)).isoformat()
-    r = call(env, ALICE, "POST", f"/{cid}/challenges", 200, json={"title": "Squad Cup", "metric": "time", "goal": 4 * 3600, "start": start, "end": end}).json()
+    r = call(env, BOB, "POST", f"/{cid}/challenges", 200, json={"title": "Squad Cup", "metric": "time", "goal": 4 * 3600, "start": start, "end": end}).json()
     assert r["status"] == "pending" and call(env, DAVE, "GET", f"/{cid}/challenges", 200).json()["challenges"] == []
     assert call(env, CAROL, "POST", f"/{cid}/challenges", 400, json={"title": "Too Much", "metric": "time", "goal": 40 * 3600, "start": start, "end": end}).json()["detail"].count("8 hours a week")
     call(env, CAROL, "POST", f"/{cid}/posts/challenge/{r['id']}/decide", 200, json={"action": "approve"})

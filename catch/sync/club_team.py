@@ -89,7 +89,7 @@ def decide_post(session: Session, club_id: str, kind: str, post_id: int, action:
         if post.status != "pending":
             raise ClubError("That isn't waiting for approval.", 409)
         if not c.may_approve_post(m.role, club.audience):
-            raise ClubError("In a junior club only a coach approves a post.", 403)
+            raise ClubError("In a junior club only a coach or the owner approves a post.", 403)
         post.status, post.decided_by = live, me()
     elif action == "reject":
         if post.status != "pending":

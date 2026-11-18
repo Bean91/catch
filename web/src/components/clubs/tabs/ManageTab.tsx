@@ -71,7 +71,7 @@ export function ManageTab({ club }: { club: Club }) {
                     <button type="button" className={btn} onClick={() => setDeclining(r.request_id)} data-testid="request-decline">Decline</button>
                   </div>
                 ) : (
-                  <p data-testid="request-needs-coach" className="mt-2 text-xs text-text-tertiary">{r.role === "coach" ? "Only an owner or admin can approve a coach." : "In a junior club only a coach approves a young member."}</p>
+                  <p data-testid="request-needs-coach" className="mt-2 text-xs text-text-tertiary">{r.role === "coach" ? "Only an owner or admin can approve a coach." : "In a junior club only a coach or the owner approves a young member."}</p>
                 )}
               </li>
             ))}
@@ -106,18 +106,14 @@ export function ManageTab({ club }: { club: Club }) {
               </div>
             )}
             <div className="flex justify-end"><button type="button" className={btnPrimary} onClick={() => save.mutate()} disabled={save.isPending} data-testid="edit-save">Save details</button></div>
-            {club.audience === "adult" ? (
-              <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-                <label className={`${btn} inline-flex cursor-pointer items-center`}>
-                  {club.has_logo ? "Replace logo" : "Add a logo"}
-                  <input type="file" accept="image/*" className="sr-only" data-testid="logo-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) logo.mutate(f); e.currentTarget.value = ""; }} />
-                </label>
-                {club.has_logo && <button type="button" className={btn} onClick={() => rmLogo.mutate()} data-testid="logo-remove">Remove logo</button>}
-                <span className="text-xs text-text-tertiary">A small image is enough. Anyone who can see this club can see it.</span>
-              </div>
-            ) : (
-              <p className="border-t border-border pt-3 text-xs text-text-tertiary" data-testid="no-logo-note">A junior club can't have a logo or photos.</p>
-            )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+              <label className={`${btn} inline-flex cursor-pointer items-center`}>
+                {club.has_logo ? "Replace logo" : "Add a logo"}
+                <input type="file" accept="image/*" className="sr-only" data-testid="logo-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) logo.mutate(f); e.currentTarget.value = ""; }} />
+              </label>
+              {club.has_logo && <button type="button" className={btn} onClick={() => rmLogo.mutate()} data-testid="logo-remove">Remove logo</button>}
+              <span className="text-xs text-text-tertiary">A small image is enough. Anyone who can see this club can see it.</span>
+            </div>
           </div>
         </Card>
       )}

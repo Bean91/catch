@@ -103,7 +103,7 @@ export function ClubPage() {
         </div>
       </header>
       {c.status === "suspended" && <p role="status" data-testid="club-suspended" className="rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-sm text-band-red-text">A platform moderator has paused this club while they review reports. You can still read it.</p>}
-      {c.audience === "junior" && isMember && <p data-testid="junior-note" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-secondary">Junior club: members are under 19 and approved by a coach; staff are adults. Posts wait for a coach's approval, and there are no web links, logos or private messages here.</p>}
+      {c.audience === "junior" && isMember && <p data-testid="junior-note" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-secondary">Junior club: members are under 19 and approved by a coach or the owner; staff are adults. Posts from anyone else wait for a coach's approval, and there are no private messages here.</p>}
       {!isMember ? (
         <PublicView club={c} />
       ) : (

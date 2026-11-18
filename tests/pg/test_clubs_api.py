@@ -154,8 +154,9 @@ def test_a_member_of_one_club_reaches_nothing_in_another_on_the_real_database(en
 # ---------------------------------------------------------------- junior clubs
 
 def test_the_junior_rules_hold_end_to_end_on_the_real_database(env):
-    owner, coach, kid, adult = people(env, "jo", "jc", "jk", "ja")
+    owner, coach, kid, adult, adm = people(env, "jo", "jc", "jk", "ja", "jx")
     owner.profile("PgJrOwner")
+    adm.profile("PgJrAdmin")
     coach.profile("PgJrCoach")
     kid.profile("PgKid", "U17")
     adult.profile("PgAdultAthlete")
@@ -165,21 +166,27 @@ def test_the_junior_rules_hold_end_to_end_on_the_real_database(env):
     owner.call("POST", f"/{cid}/requests/{rid}/decide", 200, json={"approve": True})
     assert coach.call("GET", "/mine", 200).json()["clubs"][0]["my_role"] == "coach"     # the applicant completes the join as themselves
 
-    # a young person asks; the owner can't admit them, the coach can; an adult can't be an athlete; and none of it is visible beforehand
+    assert adm.join(owner.invite(cid, "coach")).json()["status"] == "requested"
+    rid = next(r["request_id"] for r in owner.call("GET", f"/{cid}/requests", 200).json()["requests"] if r["handle"] == "PgJrAdmin")
+    owner.call("POST", f"/{cid}/requests/{rid}/decide", 200, json={"approve": True})
+    adm.call("GET", "/mine", 200)
+    owner.call("PUT", f"/{cid}/members/{owner.ref(cid, 'PgJrAdmin')}/role", 200, json={"role": "admin"})   # staff, but not a coach
+
+    # a young person asks; the owner (a coach here) or the coach can admit them, an admin can't; an adult can't be an athlete; and none of it is visible beforehand
     assert kid.call("GET", f"/{cid}").status_code == 404 and adult.call("GET", f"/{cid}").status_code == 404
     assert adult.call("POST", "/join", 403, json={"token": coach.invite(cid), "accept_rules": True})
     assert kid.join(coach.invite(cid)).json()["status"] == "requested"
     kid_req = coach.call("GET", f"/{cid}/requests", 200).json()["requests"][0]["request_id"]
-    assert owner.call("POST", f"/{cid}/requests/{kid_req}/decide", 403, json={"approve": True})
-    coach.call("POST", f"/{cid}/requests/{kid_req}/decide", 200, json={"approve": True})
+    assert adm.call("POST", f"/{cid}/requests/{kid_req}/decide", 403, json={"approve": True})
+    owner.call("POST", f"/{cid}/requests/{kid_req}/decide", 200, json={"approve": True})
     assert kid.call("GET", "/mine", 200).json()["clubs"][0]["my_role"] == "athlete"
 
-    # posts: the owner's wait for a coach, the coach's don't; the athlete sees only what's published
-    held = owner.call("POST", f"/{cid}/announcements", 200, json={"title": "Regatta", "body": "Saturday"}).json()
+    # posts: an admin's wait for a coach (or the owner), the coach's and owner's don't; the athlete sees only what's published
+    held = adm.call("POST", f"/{cid}/announcements", 200, json={"title": "Regatta", "body": "Saturday"}).json()
     assert held["status"] == "pending"
     coach.call("POST", f"/{cid}/announcements", 200, json={"title": "Practice", "body": "Tuesday"})
     assert [a["title"] for a in kid.call("GET", f"/{cid}/announcements", 200).json()["announcements"]] == ["Practice"]
-    assert owner.call("POST", f"/{cid}/posts/announcement/{held['id']}/decide", 403, json={"action": "approve"})
+    assert adm.call("POST", f"/{cid}/posts/announcement/{held['id']}/decide", 403, json={"action": "approve"})
     coach.call("POST", f"/{cid}/posts/announcement/{held['id']}/decide", 200, json={"action": "approve"})
     assert {a["title"] for a in kid.call("GET", f"/{cid}/announcements", 200).json()["announcements"]} == {"Practice", "Regatta"}
     assert kid.call("POST", f"/{cid}/announcements", 403, json={"title": "Me", "body": "Hi"})

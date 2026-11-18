@@ -1505,7 +1505,7 @@ class Club(SQLModel, table=True):
         CheckConstraint("audience IN ('adult','junior')", name="ck_clubs_audience"),
         CheckConstraint("join_policy IN ('open','request','invite')", name="ck_clubs_join_policy"),
         CheckConstraint("status IN ('active','suspended')", name="ck_clubs_status"),
-        CheckConstraint("audience = 'adult' OR (visibility = 'private' AND join_policy = 'request' AND has_logo = false)", name="ck_clubs_junior_is_private"),
+        CheckConstraint("audience = 'adult' OR (visibility = 'private' AND join_policy = 'request')", name="ck_clubs_junior_is_private"),
         CheckConstraint("join_policy <> 'open' OR visibility = 'public'", name="ck_clubs_open_is_public"),
     )
 

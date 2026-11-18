@@ -324,7 +324,7 @@ test("a young athlete sees only published posts, no controls, and is told how th
   await page.goto("/clubs?mock=1&junior=1&jrole=athlete");
   await openClub(page, "Junior Squad");
   await expect(page.getByTestId("junior-badge").first()).toBeVisible();
-  await expect(page.getByTestId("junior-note")).toContainText("no web links, logos or private messages");
+  await expect(page.getByTestId("junior-note")).toContainText("no private messages");
   await tab(page, "news");
   await expect(page.getByTestId("post-row")).toHaveCount(1);
   await expect(page.getByTestId("post-row")).toContainText("Welcome to the squad");
@@ -334,13 +334,13 @@ test("a young athlete sees only published posts, no controls, and is told how th
   await noHorizontalOverflow(page);
 });
 
-test("in a junior club the owner's post waits for a coach, and only a coach can approve it", async ({ page }) => {
-  await page.goto("/clubs?mock=1&junior=1&jrole=owner");
+test("in a junior club an admin's post waits for a coach, and an admin can't approve it", async ({ page }) => {
+  await page.goto("/clubs?mock=1&junior=1&jrole=admin");
   await openClub(page, "Junior Squad");
   await tab(page, "news");
   const held = page.getByTestId("post-row").filter({ hasText: "Regatta weekend" });
   await expect(held.getByTestId("post-status")).toContainText("Waiting for a coach");
-  await expect(held.getByTestId("post-approve")).toHaveCount(0); // the owner can't approve
+  await expect(held.getByTestId("post-approve")).toHaveCount(0); // an admin can't approve
   await page.getByTestId("news-new").tap();
   const sheet = page.getByTestId("post-sheet");
   await expect(sheet).toContainText("A coach approves it before members see it");
@@ -351,19 +351,23 @@ test("in a junior club the owner's post waits for a coach, and only a coach can 
   await expect(sheet.getByTestId("post-pending")).toContainText("coach approves a post before members see it");
 });
 
-test("a junior club's posts carry no web links", async ({ page }) => {
-  await page.goto("/clubs?mock=1&junior=1&jrole=coach");
+test("the owner of a junior club counts as a coach: their post goes out and they approve a held one", async ({ page }) => {
+  await page.goto("/clubs?mock=1&junior=1&jrole=owner");
   await openClub(page, "Junior Squad");
   await tab(page, "news");
   await page.getByTestId("news-new").tap();
   const sheet = page.getByTestId("post-sheet");
-  await sheet.getByTestId("post-title").fill("Look");
-  await sheet.getByTestId("post-body").fill("See www.example.com for details");
+  await sheet.getByTestId("post-title").fill("Kit list");
+  await sheet.getByTestId("post-body").fill("Bring a water bottle. See www.example.com");
   await sheet.getByTestId("post-submit").tap();
-  await expect(sheet.getByRole("alert")).toContainText("can't contain web addresses");
+  await expect(sheet.getByTestId("post-pending")).toHaveCount(0);
+  await expect(page.getByTestId("post-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("post-row").filter({ hasText: "Kit list" }).getByTestId("post-status")).toHaveCount(0); // published, links allowed
+  await page.getByTestId("post-row").filter({ hasText: "Regatta weekend" }).getByTestId("post-approve").tap();
+  await expect(page.getByTestId("post-row").filter({ hasText: "Regatta weekend" }).getByTestId("post-status")).toHaveCount(0);
 });
 
-test("a coach approves a held post and a young member's request; the owner is told only a coach can", async ({ page }) => {
+test("a coach approves a held post and a young member's request", async ({ page }) => {
   await page.goto("/clubs?mock=1&junior=1&jrole=coach");
   await openClub(page, "Junior Squad");
   await tab(page, "news");
@@ -378,14 +382,23 @@ test("a coach approves a held post and a young member's request; the owner is to
   await expect(page.getByTestId("request-row")).toHaveCount(0);
 });
 
-test("an owner who isn't a coach cannot decide a young athlete's request", async ({ page }) => {
+test("an owner approves a young athlete's request, and can add a logo to a junior club", async ({ page }) => {
   await page.goto("/clubs?mock=1&junior=1&jrole=owner");
   await openClub(page, "Junior Squad");
   await tab(page, "manage");
+  await expect(page.getByTestId("logo-input")).toHaveCount(1);
   const req = page.getByTestId("request-row").filter({ hasText: "Rae Hopeful" });
-  await expect(req.getByTestId("request-needs-coach")).toContainText("only a coach approves a young member");
+  await req.getByTestId("request-approve").tap();
+  await expect(page.getByTestId("request-row")).toHaveCount(0);
+});
+
+test("an admin of a junior club cannot decide a young athlete's request", async ({ page }) => {
+  await page.goto("/clubs?mock=1&junior=1&jrole=admin");
+  await openClub(page, "Junior Squad");
+  await tab(page, "manage");
+  const req = page.getByTestId("request-row").filter({ hasText: "Rae Hopeful" });
+  await expect(req.getByTestId("request-needs-coach")).toContainText("only a coach or the owner approves a young member");
   await expect(req.getByTestId("request-approve")).toHaveCount(0);
-  await expect(page.getByTestId("no-logo-note")).toContainText("can't have a logo or photos"); // an owner can edit the club, but not add a logo to a junior one
 });
 
 test("starting a junior club explains the rules and fixes the settings", async ({ page }) => {
