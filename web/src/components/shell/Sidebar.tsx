@@ -37,8 +37,8 @@ export function Sidebar() {
   const { logout, status } = useAuth();
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col justify-between border-r border-border px-4 py-5 lg:flex">
-      <div>
+    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border px-4 py-5 lg:flex">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <span className="font-mono-nums block px-2 text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
         <ul className="mt-6 flex flex-col gap-1">
           {items.map(({ to, label, Icon }) => (
@@ -60,7 +60,7 @@ export function Sidebar() {
         </ul>
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex shrink-0 flex-col gap-1 border-t border-border pt-2">
         <button
           type="button"
           onClick={toggle}

@@ -58,3 +58,14 @@ test("desktop: ownership transfer previews before it changes anything", async ({
   await page.getByTestId("transfer-confirm").click();
   await expect(page.getByTestId("club-header")).toContainText("you are Admin");
 });
+
+test("desktop: on a short window the sidebar's nav scrolls and Log out stays reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto("/?mock=1");
+  const logout = page.getByRole("button", { name: "Log out" });
+  await expect(logout).toBeInViewport();
+  await expect(page.getByRole("button", { name: /theme/i })).toBeInViewport();
+  await page.getByRole("link", { name: "Settings" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("link", { name: "Settings" })).toBeVisible();
+  await expect(logout).toBeInViewport();
+});
