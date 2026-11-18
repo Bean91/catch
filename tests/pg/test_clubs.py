@@ -551,6 +551,35 @@ def test_blocks_are_private_to_their_owner(env):
     denied(runtime, b, "INSERT INTO club_blocks (owner_id, blocked_owner_id, created_at) VALUES (:a, :b, now())", a=a, b=b)
 
 
+# ---------------------------------------------------------------- the Python matrix and the SQL predicates say the same thing
+
+@pytest.mark.parametrize("audience", ["adult", "junior"])
+def test_the_python_permission_matrix_equals_the_sql_predicates_for_every_combination(env, audience):
+    import itertools
+
+    from catch.analytics import clubs as c
+
+    admin, _ = env
+    cid, u = team(admin, audience=audience)
+    outsider = users(admin, "out")["out"]
+    actors = {"owner": u["own"], "admin": u["adm"], "coach": u["coa"], "athlete": u["ath"], None: outsider}
+    roster = {"owner": u["own"], "admin": u["adm"], "coach": u["coa"], "athlete": u["ath"]}
+    with admin.connect() as conn:
+        def sql(expr, **p):
+            return conn.execute(text(f"SELECT {expr}"), {"c": cid, **p}).scalar()
+
+        for (arole, auid), new_role in itertools.product(actors.items(), c.ROLES):
+            assert sql("catch_club.can_assign_role(:c, :a, :r)", a=auid, r=new_role) is c.can_assign_role(arole, new_role), (arole, new_role)
+        for (arole, auid), (trole, tuid) in itertools.product(actors.items(), roster.items()):
+            assert sql("catch_club.can_manage_member(:c, :a, :t, :r)", a=auid, t=tuid, r=trole) is c.can_manage_member(arole, trole, same_person=auid == tuid), (arole, trole)
+        for (arole, auid), req in itertools.product(actors.items(), c.INVITE_ROLES):
+            assert sql("catch_club.may_decide_request(:c, :a, :r)", a=auid, r=req) is c.may_decide_request(arole, audience, req), (arole, req)
+        for arole, auid in actors.items():
+            assert sql("catch_club.may_publish(:c, :a)", a=auid) is c.may_publish(arole, audience), arole
+            assert sql("catch_club.is_staff(:c, :a)", a=auid) is (arole in c.STAFF_ROLES), arole
+            assert sql("catch_club.is_admin(:c, :a)", a=auid) is (arole in c.ADMIN_ROLES), arole
+
+
 # ---------------------------------------------------------------- grants and the migration itself
 
 def test_the_grants_are_what_the_design_says(admin):
