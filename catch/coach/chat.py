@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 import time
 
-from catch.coach import cost, limits, memory
+from catch.coach import ai_sharing, confirmation, cost, limits, memory
 from catch.coach import settings as coach_settings_module
 from catch.coach import tools as tools_module
 from catch.coach.providers import registry
@@ -198,6 +198,10 @@ async def run_turn(session: Session, conversation_id: int, user_text: str, owner
 
 
 async def _run_turn(session: Session, conversation_id: int, user_text: str, owner_id: str) -> AsyncIterator[dict]:
+    if not ai_sharing.has_consented(session):
+        # Nothing about this person leaves Catch for an AI provider until they have read what is sent and agreed (docs/ai-data-sharing.md).
+        yield {"type": "consent_required", "message": "Before the coach can answer, choose what you're happy to share with your AI provider (Settings → Privacy → AI sharing)."}
+        return
     prefs = coach_settings_module.get_coach_settings(session, owner_id)
     cap = prefs["daily_cap_usd"]
     token_cap = prefs["daily_token_cap"]
@@ -233,12 +237,16 @@ async def _run_turn(session: Session, conversation_id: int, user_text: str, owne
 
     history = _load_history(session, conversation_id)
     user_blocks = [{"type": "text", "text": user_text}]
-    _save_message(session, conversation_id, "user", user_blocks)
+    athlete_message = _save_message(session, conversation_id, "user", user_blocks)
     history.append({"role": "user", "blocks": user_blocks})
+
+    def confirmation_check(name: str, args: dict) -> bool:
+        # Honour confirm=true only for a call this athlete saw previewed in an EARLIER turn (see coach/confirmation.py).
+        return confirmation.preview_exists(session, conversation_id, name, args, before_message_id=athlete_message.id)
 
     system_blocks = [
         {"text": load_system_prompt(), "cache": True},
-        {"text": memory.memory_block(session), "cache": False},
+        {"text": memory.memory_block(session, allowed=ai_sharing.enabled_categories(session)), "cache": False},
     ]
 
     deadline = time.monotonic() + limits.TURN_WALL_CLOCK_S
@@ -313,7 +321,7 @@ async def _run_turn(session: Session, conversation_id: int, user_text: str, owne
                 "label": _tool_label(call["name"], call["input"]),
             }
             try:
-                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": athlete_for(owner_id), "via": "ai_coach"})
+                output = tools_module.call_tool(session, call["name"], call["input"], ctx={"conversation_id": conversation_id, "principal": athlete_for(owner_id), "via": "ai_coach", "confirmation_check": confirmation_check})
                 is_error = False
             except Exception as exc:  # noqa: BLE001 — surfaced to the model as a tool error, not raised
                 output = {"error": redact(str(exc))}

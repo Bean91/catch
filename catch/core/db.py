@@ -128,6 +128,9 @@ _NEW_COLUMNS = {
         # Session 22 (see PLAN.md): nullable only. NULL role = athlete.
         "role": "TEXT",
         "display_name": "TEXT",
+        # Session 28: scope ("read"/"write"; NULL = write, as before) and expiry.
+        "scope": "TEXT",
+        "expires_at": "TEXT",  # SQLite stores datetimes as text; Postgres gets the real type from migration 0008
     },
     "planned_workouts": {
         "template_id": "INTEGER",

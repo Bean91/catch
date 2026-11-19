@@ -29,4 +29,4 @@ def _usage(when):
 def test_the_tick_knows_the_retention_job():
     from catch.api import routes_internal
 
-    assert "retention" in routes_internal.JOBS and set(routes_internal.JOBS) == set(routes_internal._WORK)
+    assert "retention" in routes_internal.JOBS and callable(routes_internal._retention_work)

@@ -114,7 +114,7 @@ async def _tool_principal(request: Request, db: Session) -> Principal:
             if resolved is not None:
                 tenant.set_owner(resolved.owner_id)
                 await run_in_threadpool(device_tokens.touch, db, resolved)
-                return principal_from_token(hash_token(raw), resolved.role, resolved.display_name, resolved.owner_id)
+                return principal_from_token(hash_token(raw), resolved.role, resolved.display_name, resolved.owner_id, resolved.scope)
         raise HTTPException(status_code=401, detail="Not authenticated")
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if verify_session_cookie(cookie):
@@ -124,10 +124,13 @@ async def _tool_principal(request: Request, db: Session) -> Principal:
         raw_token = auth_header[len("bearer ") :].strip()
         if raw_token:
             row = db.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
-            if row is not None:
-                row.last_used_at = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
+            expires = row.expires_at if row is not None else None
+            expired = expires is not None and (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) <= now
+            if row is not None and not expired:
+                row.last_used_at = now
                 db.commit()
-                return principal_from_token(row.token_hash, row.role, row.display_name)
+                return principal_from_token(row.token_hash, row.role, row.display_name, scope=row.scope)
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 

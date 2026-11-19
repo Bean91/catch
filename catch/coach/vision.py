@@ -7,6 +7,7 @@ from __future__ import annotations
 from catch.core.tenant import current_owner
 from sqlmodel import Session
 
+from catch.coach import ai_sharing
 from catch.coach import cost as cost_module
 from catch.coach import limits
 from catch.coach import settings as coach_settings_module
@@ -28,7 +29,9 @@ async def vision_available(session: Session, owner_id: str | None = None) -> dic
     spec = registry.SPECS[provider_id]
     available = configured and bool(model) and spec.capabilities.vision
     reason = None
-    if not configured:
+    if "photos" not in ai_sharing.enabled_categories(session):
+        available, reason = False, "sharing_off"  # the person hasn't agreed to send photos to their provider
+    elif not configured:
         reason = "not_configured"
     elif not model:
         reason = "no_model"
@@ -39,6 +42,8 @@ async def vision_available(session: Session, owner_id: str | None = None) -> dic
 
 async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: str | None = None) -> tuple[dict, float | None]:
     owner_id = owner_id or current_owner()
+    if "photos" not in ai_sharing.enabled_categories(session):
+        raise VisionError("Photo reading is switched off: it sends the photo to your AI provider. Turn on \"Photos you ask the coach to read\" in Settings → Privacy → AI sharing.")
     try:
         limits.check_rate(owner_id, "vision")
     except limits.LimitExceeded as exc:

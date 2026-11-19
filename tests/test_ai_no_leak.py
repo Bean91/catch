@@ -90,7 +90,7 @@ def test_chat_passes_tools_no_credentials(session, monkeypatch):
         return [e async for e in chat.run_turn(session, conv.id, "hi")]
 
     asyncio.run(go())
-    assert seen and set(seen[0]) == {"conversation_id", "principal", "via"}
+    assert seen and set(seen[0]) == {"conversation_id", "principal", "via", "confirmation_check"}
     assert KEY not in json.dumps(seen, default=str)
 
 

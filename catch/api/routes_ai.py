@@ -202,3 +202,38 @@ def get_usage(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db)
         "provider_balance": None,
         "source": "recorded_by_catch",
     }
+
+
+# --- What is shared with the AI provider (session 28; docs/ai-data-sharing.md) --------------------------------------------------
+
+
+class SharingBody(BaseModel):
+    acknowledge: bool = False
+    categories: dict[str, bool] = {}
+    age_band: str | None = None
+    guardian_ack: bool = False
+
+
+@router.get("/api/ai/sharing")
+def get_sharing(db: Session = Depends(get_db)):
+    from catch.coach import ai_sharing
+
+    return ai_sharing.state(db)
+
+
+@router.put("/api/ai/sharing")
+def put_sharing(body: SharingBody, db: Session = Depends(get_db)):
+    from catch.coach import ai_sharing
+
+    try:
+        return ai_sharing.update(db, acknowledge=body.acknowledge, categories=body.categories, age_band=body.age_band, guardian_ack=body.guardian_ack)
+    except ai_sharing.SharingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.delete("/api/ai/sharing")
+def withdraw_sharing(db: Session = Depends(get_db)):
+    """Withdraw consent: every category off and the AI refuses until it is given again."""
+    from catch.coach import ai_sharing
+
+    return ai_sharing.revoke(db)

@@ -82,7 +82,7 @@ def test_old_shape_api_tokens_and_planned_workouts_gain_the_new_columns_idempote
         conn.exec_driver_sql("DROP TABLE planned_workouts")
         conn.exec_driver_sql("CREATE TABLE planned_workouts (id INTEGER PRIMARY KEY, owner_id TEXT, date DATE, session_type TEXT, title TEXT)")
         stmts = db_module._add_column_statements(inspect(conn), {t: db_module._NEW_COLUMNS[t] for t in ("api_tokens", "planned_workouts")})
-        assert sorted(s.split()[5] for s in stmts) == ["display_name", "role", "template_id"]
+        assert sorted(s.split()[5] for s in stmts) == ["display_name", "expires_at", "role", "scope", "template_id"]
         for s in stmts:
             conn.exec_driver_sql(s)
             str(text(s).compile(dialect=postgresql.dialect()))

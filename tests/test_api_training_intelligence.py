@@ -443,7 +443,7 @@ def test_coach_tools_expose_all_seven_and_delegate_correctly(session):
     assert "recommendations" in recs
     if recs["recommendations"]:
         rec_id = recs["recommendations"][0]["id"]
-        rated = call_tool(session, "rate_recommendation", {"id": rec_id, "rating": "useful"})
+        rated = call_tool(session, "rate_recommendation", {"id": rec_id, "rating": "useful", "confirm": True})
         assert rated["rating"] == "useful"
 
 

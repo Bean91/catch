@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import secrets
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from sqlmodel import Session, select
 
 from catch.api.ratelimit import rate_limit, throttle
@@ -242,31 +242,57 @@ def daily_usage(db: Session = Depends(get_db), owner_id: str = Depends(current_o
 def list_tokens(db: Session = Depends(get_db)):
     rows = db.exec(select(ApiToken)).all()
     return [
-        {"id": r.id, "name": r.name, "role": r.role or ATHLETE_ROLE, "display_name": r.display_name, "created_at": r.created_at, "last_used_at": r.last_used_at}
+        {"id": r.id, "name": r.name, "role": r.role or ATHLETE_ROLE, "display_name": r.display_name, "created_at": r.created_at, "last_used_at": r.last_used_at,
+         "scope": r.scope or "write", "expires_at": r.expires_at}
         for r in rows
     ]
 
 
+MAX_ACTIVE_TOKENS = 10
+DEFAULT_TOKEN_DAYS = 90
+
+
 class TokenRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=80)
     role: str = ATHLETE_ROLE
-    display_name: str | None = None
+    display_name: str | None = Field(default=None, max_length=80)
+    # Least privilege by default: an athlete's token can only read ("write" adds the confirm-gated writes); a coach token exists to add
+    # feedback, so it defaults to write — and is already limited to the five coaching tools by its role.
+    scope: str | None = None
+    expires_in_days: int = Field(default=DEFAULT_TOKEN_DAYS, ge=1, le=365)
 
 
 @coach_router.post("/api/coach/tokens", dependencies=[rate_limit("token")])
 def create_token(body: TokenRequest, db: Session = Depends(get_db)):
     if body.role not in (ATHLETE_ROLE, COACH_ROLE):
         raise HTTPException(status_code=422, detail="role must be 'athlete' or 'coach'")
+    scope = body.scope or ("write" if body.role == COACH_ROLE else "read")
+    if scope not in ("read", "write"):
+        raise HTTPException(status_code=422, detail="scope must be 'read' or 'write'")
+    now = datetime.now(timezone.utc)
+    live = [t for t in db.exec(select(ApiToken)).all() if t.expires_at is None or (t.expires_at if t.expires_at.tzinfo else t.expires_at.replace(tzinfo=timezone.utc)) > now]
+    if len(live) >= MAX_ACTIVE_TOKENS:
+        raise HTTPException(status_code=409, detail=f"You already have {MAX_ACTIVE_TOKENS} active tokens. Revoke one first.")
     raw_token = secrets.token_urlsafe(32)
     row = ApiToken(
-        name=body.name, token_hash=hash_token(raw_token), role=None if body.role == ATHLETE_ROLE else body.role,
-        display_name=(body.display_name or "").strip() or None,
+        name=body.name.strip(), token_hash=hash_token(raw_token), role=None if body.role == ATHLETE_ROLE else body.role,
+        display_name=(body.display_name or "").strip() or None, scope=scope, expires_at=now + timedelta(days=body.expires_in_days),
     )
     db.add(row)
     db.commit()
     db.refresh(row)
     # The raw token is returned exactly once, here — only its hash is ever stored.
-    return {"id": row.id, "name": row.name, "role": body.role, "display_name": row.display_name, "token": raw_token, "created_at": row.created_at}
+    return {"id": row.id, "name": row.name, "role": body.role, "display_name": row.display_name, "token": raw_token, "created_at": row.created_at, "scope": row.scope, "expires_at": row.expires_at}
+
+
+@coach_router.delete("/api/coach/tokens", dependencies=[rate_limit("token")])
+def delete_all_tokens(db: Session = Depends(get_db)):
+    """Revoke every device token at once (the Privacy page, and 'sign out everywhere')."""
+    rows = db.exec(select(ApiToken)).all()
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return {"revoked": len(rows)}
 
 
 @coach_router.delete("/api/coach/tokens/{token_id}", dependencies=[rate_limit("token")])

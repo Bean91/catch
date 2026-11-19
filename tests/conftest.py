@@ -260,3 +260,28 @@ def _reset_rate_limit_windows():
     yield
     limits._windows.clear()
     limits._daily.clear()
+
+
+@pytest.fixture(autouse=True)
+def _tools_accept_a_missing_principal_in_unit_tests(monkeypatch):
+    """Production call_tool refuses a call that carries no caller identity (session 28). Most tool unit tests call it directly with
+    no transport around them, so they run with that guard off; tests/coach/test_tool_safety.py turns it back on."""
+    from catch.coach import tools
+
+    monkeypatch.setattr(tools, "STRICT_PRINCIPAL", False)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "real_ai_sharing: run with the real AI-sharing consent rules instead of the allow-everything test default")
+
+
+@pytest.fixture(autouse=True)
+def _ai_sharing_allows_everything_unless_the_test_is_about_it(request, monkeypatch):
+    """Session 28: with no consent row Catch refuses every AI path. Nearly every coach/tool test is about something else, so they run
+    as a person who has consented to everything; tests that exercise the consent rules opt out with @pytest.mark.real_ai_sharing."""
+    if request.node.get_closest_marker("real_ai_sharing"):
+        return
+    from catch.coach import ai_sharing
+
+    monkeypatch.setattr(ai_sharing, "enabled_categories", lambda session: set(ai_sharing.CATEGORIES))
+    monkeypatch.setattr(ai_sharing, "has_consented", lambda session: True)

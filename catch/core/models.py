@@ -421,6 +421,45 @@ class ApiToken(OwnedStrict, SQLModel, table=True):
     # token, restricted to the library/technique-note/feedback tools (catch/core/principal.py).
     role: Optional[str] = None
     display_name: Optional[str] = None
+    # Session 28: what the token may do ("read" = the read tools only, "write" = reads plus the confirm-gated writes; NULL = a
+    # token minted before scopes existed, treated as "write" so nothing already in use stops working) and when it stops working.
+    scope: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
+class ToolCallLog(OwnedStrict, SQLModel, table=True):
+    """Session 28: one row per tool call that writes, is denied or fails, and per MCP/REST call of any kind — who called (the
+    transport and principal kind), what (the tool), whether it was a write and confirmed, and the outcome. Never the arguments or
+    the result: only a hash of the arguments, enough to recognise a repeat, not to read what was asked. Pruned after 90 days."""
+
+    __tablename__ = "tool_call_log"
+
+    owner_id: str = owner_field()
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tool: str
+    via: str  # ai_coach | mcp | rest | other
+    principal_kind: str  # athlete | coach | viewer | none
+    is_write: bool = False
+    confirmed: bool = False
+    outcome: str  # ok | preview | error | denied | downgraded
+    args_hash: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class AiSharingSettings(OwnedStrict, SQLModel, table=True):
+    """Session 28: what this person has agreed to send to their AI provider (docs/ai-data-sharing.md). Absent row = nothing
+    agreed: no AI call is made and no tool result is handed to a model until `consented_at` is set. `categories_json` is
+    {category: bool}; every category starts off."""
+
+    __tablename__ = "ai_sharing_settings"
+
+    owner_id: str = owner_field(primary_key=True)
+    consent_version: int = 0
+    consented_at: Optional[datetime] = None
+    categories_json: str = "{}"
+    age_band: Optional[str] = None  # the existing optional band (adult/u19…u14), never a date of birth
+    guardian_ack_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 class CoachCredential(OwnedStrict, SQLModel, table=True):

@@ -110,14 +110,13 @@ def _retention_work() -> None:
     account_store.prune_global()  # global tables: idempotent, so running it once per user is harmless
 
 
-_WORK = {"sync": _sync_work, "notifications": _notification_work, "retention": _retention_work}
-
-
 @router.post("/tick/{job}")
 def tick(job: str):
     if job not in JOBS:
         raise HTTPException(status_code=404, detail=f"Unknown job: {job}")
-    return run_for_each_user(job, _WORK[job])
+    # Looked up by name at call time (not bound in a dict at import) so a test can substitute one job's work.
+    work = {"sync": "_sync_work", "notifications": "_notification_work", "retention": "_retention_work"}[job]
+    return run_for_each_user(job, globals()[work])
 
 
 @router.get("/db-check")

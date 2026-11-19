@@ -10,6 +10,7 @@ code (the library/technique-note/feedback tools) treats "unknown" as the most re
 never as the athlete. Every visibility and ownership rule is a function here, so the service
 layer, the tool layer and the tests share one code path."""
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -43,6 +44,8 @@ class Principal:
     # Whose training record this principal acts on: the athlete's own id, or — for a coach token — the athlete
     # who minted it. Transports set the request's tenant from this, never from anything the caller sends.
     owner_id: str = OWNER_ID
+    # "write" = every tool the role may use; "read" = only tools that don't write (a device token minted read-only, session 28).
+    scope: str = "write"
 
     @property
     def is_athlete(self) -> bool:
@@ -63,15 +66,14 @@ def coach_principal(key: object, display_name: Optional[str], owner_id: str = OW
 
 
 def principal_from_token(
-    token_hash: str, role: Optional[str], display_name: Optional[str], owner_id: str = OWNER_ID
+    token_hash: str, role: Optional[str], display_name: Optional[str], owner_id: str = OWNER_ID, scope: Optional[str] = None
 ) -> Principal:
     """A coach's identity is a prefix of the token's own hash — random, unique per token and never
     reused. Keying it on `ApiToken.id` would be a bug: SQLite hands a deleted newest row's id to
     the next insert, so a freshly minted coach token would inherit a revoked coach's authorship
     (and the right to edit and delete their feedback)."""
-    if role == COACH_ROLE:
-        return coach_principal(token_hash[:16], display_name, owner_id)
-    return athlete_for(owner_id)
+    base = coach_principal(token_hash[:16], display_name, owner_id) if role == COACH_ROLE else athlete_for(owner_id)
+    return dataclasses.replace(base, scope="read") if scope == "read" else base
 
 
 def principal_from(ctx: Optional[dict[str, Any]]) -> Principal:

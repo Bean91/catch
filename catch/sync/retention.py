@@ -5,6 +5,7 @@ everything else is kept until the person deletes it (Privacy center) or their ac
     ai_usage_events      400 days  (the spend caps read today; a year of history is plenty for the usage page)
     merge_log            400 days
     match_decisions      400 days
+    tool_call_log        90 days   (an audit of recent outside-client activity, not a history)
 
 Runs per user inside the tick (public) or the scheduler (personal). Idempotent and cheap."""
 
@@ -15,13 +16,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete as sa_delete
 from sqlmodel import Session
 
-from catch.core.models import AiUsageEvent, MatchDecision, MergeLog, NotificationLog
+from catch.core.models import AiUsageEvent, MatchDecision, MergeLog, NotificationLog, ToolCallLog
 
 RULES = (
     (NotificationLog, "sent_at", 90),
     (AiUsageEvent, "created_at", 400),
     (MergeLog, "created_at", 400),
     (MatchDecision, "created_at", 400),
+    (ToolCallLog, "created_at", 90),
 )
 
 

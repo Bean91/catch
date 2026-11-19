@@ -22,23 +22,29 @@ class ResolvedToken:
     owner_id: str
     role: Optional[str]
     display_name: Optional[str]
+    scope: Optional[str] = None
 
 
 def resolve(session: Session, token_hash: str) -> ResolvedToken | None:
     with tenant.system():
         if tenant_hooks.uses_rls(session.get_bind()):
             row = session.connection().execute(
-                text("SELECT token_id, owner_id, role, display_name FROM catch_private.resolve_api_token(:h)"),
+                text("SELECT token_id, owner_id, role, display_name, scope, expires_at FROM catch_private.resolve_api_token(:h)"),
                 {"h": token_hash},
             ).first()
             session.rollback()
         else:
             row = session.exec(
-                select(ApiToken.id, ApiToken.owner_id, ApiToken.role, ApiToken.display_name)
+                select(ApiToken.id, ApiToken.owner_id, ApiToken.role, ApiToken.display_name, ApiToken.scope, ApiToken.expires_at)
                 .where(ApiToken.token_hash == token_hash)
                 .execution_options(tenant_unscoped=True)
             ).first()
-    return ResolvedToken(row[0], row[1], row[2], row[3]) if row else None
+    if row is None:
+        return None
+    expires = row[5]
+    if expires is not None and (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) <= datetime.now(timezone.utc):
+        return None  # an expired token is no token
+    return ResolvedToken(row[0], row[1], row[2], row[3], row[4])
 
 
 def touch(session: Session, resolved: ResolvedToken) -> None:

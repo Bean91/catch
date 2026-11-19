@@ -491,9 +491,8 @@ def test_the_audit_log_is_append_only_for_everyone_the_app_runs_as(env):
     assert run(runtime, u["ath"], "SELECT count(*) FROM club_audit") == [(1,)]  # ...and they can read just that, not the staff's entries
     denied(runtime, u["own"], "UPDATE club_audit SET reason_text = 'edited'")
     denied(runtime, u["own"], "DELETE FROM club_audit")
-    with runtime.connect() as conn:                                        # the bare runtime role, as account deletion uses it
-        with pytest.raises(DBAPIError):
-            conn.execute(text("DELETE FROM catch.club_audit"))
+    with runtime.begin() as conn:                                          # the bare runtime role, as account deletion uses it
+        assert conn.execute(text("DELETE FROM catch.club_audit")).rowcount == 0   # recent rows survive (only expired ones can go: test_retention.py)
     with runtime.begin() as conn:
         conn.execute(text("UPDATE catch.club_audit SET actor_id = NULL WHERE actor_id = :a"), {"a": u["coa"]})   # detaching a deleted person is allowed
     with runtime.connect() as conn:
@@ -601,7 +600,9 @@ def test_the_grants_are_what_the_design_says(admin):
             assert not priv("anon", t, "SELECT") and not priv("service_role", t, "SELECT"), t
             assert priv("catch_api", t, "SELECT"), t
         assert not priv("authenticated", "club_audit", "UPDATE") and not priv("authenticated", "club_audit", "DELETE")
-        assert not priv("catch_api", "club_audit", "DELETE")
+        # Session 28 (migration 0008): catch_api may DELETE, but its only DELETE policy is limited by the database to rows older
+        # than the 24-month retention period — tests/pg/test_retention.py proves a recent row can't be removed.
+        assert priv("catch_api", "club_audit", "DELETE")
         assert not priv("authenticated", "club_invites", "DELETE") and not priv("authenticated", "club_reports", "UPDATE")
         for f in ("catch_club.is_member(text, text)", "catch_club.invite_preview(text)", "catch_club.transfer_ownership(text, text)"):
             assert fn("authenticated", f) and fn("catch_api", f), f

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from catch.coach import ai_sharing, audit, untrusted
 from catch.core.tenant import current_owner
 import json
 import re
@@ -20,7 +21,7 @@ from catch.api import (
     routes_training_intelligence,
     routes_wellness,
 )
-from catch.core.models import Activity, DailyScore, Food
+from catch.core.models import Activity, DailyScore, Food, Note
 from catch.core.principal import Principal, may_call_tool
 from catch.core.settings_store import get_settings
 from catch.coach import memory
@@ -380,12 +381,14 @@ def _get_muscle_readiness(session: Session, args: dict, ctx: dict) -> dict:
     return gym.muscle_readiness(session)
 
 
-def _log_food(session: Session, args: dict, ctx: dict) -> dict:
+def _resolve_food(session: Session, args: dict) -> tuple[int | None, dict | None]:
     """Task Part B.8. Resolves a food three ways, in order: an explicit `food_id` (the
     athlete/model picked one from a previous ambiguous response, or already knows it);
     `barcode` (same lookup_or_fetch_barcode the scanner uses); `description` (a free-text
     search). A description match that isn't a single confident hit returns `candidates`
-    instead of guessing which one the athlete meant — call again with the right `food_id`."""
+    instead of guessing which one the athlete meant — call again with the right `food_id`.
+
+    Read-only apart from caching a looked-up food, so a preview can run it. Returns (food_id, None) or (None, an early result)."""
     from catch.sync import nutrition as nutrition_module
 
     food_id = args.get("food_id")
@@ -395,7 +398,7 @@ def _log_food(session: Session, args: dict, ctx: dict) -> dict:
         if barcode:
             food = nutrition_module.lookup_or_fetch_barcode(session, barcode)
             if food is None:
-                return {"logged": False, "message": f"No food found for barcode {barcode}. It can be added manually in the app."}
+                return None, {"logged": False, "message": f"No food found for barcode {barcode}. It can be added manually in the app."}
             food_id = food.id
         elif description:
             # One call per tool use, never as-you-type — unlike the search box's debounced
@@ -404,9 +407,9 @@ def _log_food(session: Session, args: dict, ctx: dict) -> dict:
             # tool opts in on the athlete's behalf.
             matches = nutrition_module.search_foods(session, description, limit=5, include_off=True)
             if not matches:
-                return {"logged": False, "message": f"No food found matching '{description}'. Try a more specific description."}
+                return None, {"logged": False, "message": f"No food found matching '{description}'. Try a more specific description."}
             if len(matches) > 1:
-                return {
+                return None, {
                     "logged": False,
                     "ambiguous": True,
                     "candidates": [{"food_id": m["id"], "name": m["name"], "brand": m["brand"]} for m in matches],
@@ -415,6 +418,15 @@ def _log_food(session: Session, args: dict, ctx: dict) -> dict:
             food_id = matches[0]["id"]
         else:
             raise ValueError("Provide a description, a barcode, or a food_id.")
+    return food_id, None
+
+
+def _log_food(session: Session, args: dict, ctx: dict) -> dict:
+    from catch.sync import nutrition as nutrition_module
+
+    food_id, early = _resolve_food(session, args)
+    if early is not None:
+        return early
 
     row = nutrition_module.create_food_log(
         session,
@@ -1595,15 +1607,173 @@ def ollama_tool_schemas() -> list[dict]:
     ]
 
 
+# --- Previews for the writes that save immediately (CENTRALLY_GATED) -----------------------------------------------------------
+# Each validates what the real call would validate and returns what would be saved, writing nothing, so a preview is never a
+# promise the confirmed call then breaks.
+
+
+def _need_text(value: Any, what: str, limit: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{what} is required.")
+    if len(value) > limit:
+        raise ValueError(f"{what} is too long (at most {limit} characters).")
+    return value.strip()
+
+
+def _preview_add_note(session: Session, args: dict, ctx: dict) -> dict:
+    day = _parse_date(args.get("date"))
+    if day is None:
+        raise ValueError("date is required (YYYY-MM-DD).")
+    rpe = args.get("rpe")
+    if rpe is not None and not (0 <= int(rpe) <= 10):
+        raise ValueError("rpe must be between 0 and 10")
+    return {"date": day.isoformat(), "text": _need_text(args.get("text"), "text", 4000), "rpe": rpe, "replaces_existing_note": session.exec(select(Note).where(Note.date == day)).first() is not None}
+
+
+def _preview_log_food(session: Session, args: dict, ctx: dict) -> dict | None:
+    if float(args.get("quantity", 0) or 0) <= 0:
+        raise ValueError("quantity must be greater than zero.")
+    food_id, early = _resolve_food(session, args)
+    if early is not None:
+        return early  # not found / ambiguous: nothing to confirm yet, and nothing was written
+    food = session.get(Food, food_id)
+    return {"food": food.name, "brand": getattr(food, "brand", None), "quantity": float(args["quantity"]), "unit": args.get("unit", "g"), "meal": args.get("meal")}
+
+
+def _preview_rename(session: Session, args: dict, ctx: dict) -> dict:
+    return {"id": int(args["id"]), "new_title": _need_text(args.get("title"), "title", 200)}
+
+
+def _preview_tag(session: Session, args: dict, ctx: dict) -> dict:
+    tags = args.get("tags")
+    if not isinstance(tags, list) or len(tags) > 20 or any(not isinstance(t, str) or not t.strip() or len(t) > 40 for t in tags):
+        raise ValueError("tags must be a list of up to 20 short strings.")
+    return {"id": int(args["id"]), "new_tags": tags}
+
+
+def _preview_rate(session: Session, args: dict, ctx: dict) -> dict:
+    if args.get("rating") not in ("useful", "not_useful"):
+        raise ValueError("rating must be 'useful' or 'not_useful'.")
+    return {"id": int(args["id"]), "rating": args["rating"]}
+
+
+def _preview_pacing(session: Session, args: dict, ctx: dict) -> dict:
+    body = routes_tests.PacingPlanRequest(
+        test_type=args["test_type"], goal_time_s=float(args["goal_time_s"]), style=args["style"],
+        distance_m=args.get("distance_m"), save_to_next_event=False,
+    )
+    plan = routes_tests.make_pacing_plan(body=body, db=session)
+    return {"plan": plan, "would_save_to_next_event": bool(args.get("save_to_next_event", True))}
+
+
+def _preview_remember(session: Session, args: dict, ctx: dict) -> dict:
+    if args.get("category") not in ("injury", "schedule", "equipment", "preference", "other"):
+        raise ValueError("category must be one of ['equipment', 'injury', 'other', 'preference', 'schedule']")
+    return {"category": args["category"], "text": _need_text(args.get("text"), "text", memory.MAX_FACT_CHARS), "valid_until": args.get("valid_until")}
+
+
+def _preview_goal(session: Session, args: dict, ctx: dict) -> dict:
+    if args.get("status") not in (None, "active", "done", "abandoned"):
+        raise ValueError("status must be active, done or abandoned.")
+    _parse_date(args.get("target_date"))
+    return {"id": args.get("id"), "text": _need_text(args.get("text"), "text", 500), "target_date": args.get("target_date"), "status": args.get("status", "active")}
+
+
+def _preview_forget(session: Session, args: dict, ctx: dict) -> dict:
+    model, item_id = memory._parse_ref(str(args.get("ref", "")))
+    row = session.get(model, item_id)
+    if row is None:
+        raise ValueError(f"Nothing is stored under '{args['ref']}'.")
+    return {"ref": args["ref"], "text": getattr(row, "text", None) or getattr(row, "name", None)}
+
+
+_PREVIEWS = {
+    "add_note": _preview_add_note, "log_food": _preview_log_food, "rename_activity": _preview_rename, "tag_activity": _preview_tag,
+    "rate_recommendation": _preview_rate, "make_pacing_plan": _preview_pacing, "remember": _preview_remember, "set_goal": _preview_goal,
+    "forget": _preview_forget,
+}
+
+
+_CONFIRM_PROP = {
+    "type": "boolean",
+    "description": "Leave unset to get a preview (nothing is saved). Pass true only after the athlete has seen the preview and agreed, with the same arguments.",
+}
+for _name in ("add_note", "log_food", "rename_activity", "tag_activity", "rate_recommendation", "make_pacing_plan", "remember", "set_goal"):
+    TOOLS[_name]["input_schema"]["properties"].setdefault("confirm", _CONFIRM_PROP)
+
+# Writes whose handlers save immediately. They are held for a preview here, in the one shared entry point, so no transport (in-app
+# coach, MCP, REST) can reach them without it. `forget` is gated only for the refs its own handler doesn't already preview.
+CENTRALLY_GATED = frozenset({"add_note", "log_food", "rename_activity", "tag_activity", "rate_recommendation", "make_pacing_plan", "remember", "set_goal"})
+
+# Tests call tools without a principal; production callers always pass one. Missing = refused, not "trusted internal caller".
+STRICT_PRINCIPAL = True
+
+
+def _is_early_result(name: str, shown: dict | None) -> bool:
+    """log_food's resolution can answer 'not found' or 'which one?' instead of a preview; that is passed through untouched."""
+    return name == "log_food" and isinstance(shown, dict) and "logged" in shown
+
+
+def _needs_central_gate(name: str, args: dict) -> bool:
+    if name in CENTRALLY_GATED:
+        return True
+    return name == "forget" and not str(args.get("ref", "")).startswith("event:")
+
+
+MODEL_BOUND_VIA = frozenset({"ai_coach", "mcp"})  # the paths whose results go to an AI provider
+
+
 def call_tool(session: Session, name: str, args: dict, ctx: dict | None = None) -> dict:
     spec = TOOLS.get(name)
     if spec is None:
         raise ValueError(f"Unknown tool '{name}'")
     ctx = ctx or {}
     principal = ctx.get("principal")
-    # Every transport that knows its caller passes it; a coach-role caller reaches only the coaching
-    # tools (checked here so no transport can forget to). No principal = the older internal callers.
-    if isinstance(principal, Principal) and not may_call_tool(principal, name):
-        raise ValueError(f"This token's role can't use '{name}'")
-    result = spec["fn"](session, args, ctx)
-    return jsonable_encoder(result)
+    args = dict(args or {})
+    if "confirm" in args and args["confirm"] is not True:
+        args["confirm"] = False  # "true", 1, "yes" are not confirmation: only the boolean is
+    is_write = bool(spec.get("write"))
+    if not isinstance(principal, Principal):
+        if STRICT_PRINCIPAL:
+            raise ValueError("No caller identity was supplied for this tool call")  # fail closed: never "an unknown caller is fine"
+    elif not may_call_tool(principal, name) or (is_write and principal.scope == "read"):
+        audit.record(session, name=name, args=args, ctx=ctx, is_write=is_write, confirmed=False, outcome="denied")
+        raise ValueError(f"This token's role or scope can't use '{name}'" if principal.scope == "read" else f"This token's role can't use '{name}'")
+    via = ctx.get("via")
+
+    # What the person has agreed to send to an AI: reads on a model-bound path return a fixed "switched off" answer instead of data.
+    if not is_write and via in MODEL_BOUND_VIA:
+        refusal = ai_sharing.tool_decision(session, name)
+        if refusal is not None:
+            audit.record(session, name=name, args=args, ctx=ctx, is_write=False, confirmed=False, outcome="denied")
+            return refusal
+
+    downgraded = False
+    if is_write and args.get("confirm") is True and via == "ai_coach":
+        checker = ctx.get("confirmation_check")
+        if checker is None or not checker(name, args):
+            args["confirm"] = False
+            downgraded = True
+    try:
+        if is_write and _needs_central_gate(name, args) and args.get("confirm") is not True:
+            shown = _PREVIEWS[name](session, args, ctx)
+            result: dict = shown if _is_early_result(name, shown) else {
+                "saved": False,
+                "preview": shown,
+                "message": "Preview only — nothing was saved. Show the athlete exactly what will be saved and ask them to confirm; "
+                "when they agree, call again with confirm=true and the same arguments.",
+            }
+        else:
+            result = spec["fn"](session, args, ctx)
+        result = jsonable_encoder(result)
+    except Exception:
+        audit.record(session, name=name, args=args, ctx=ctx, is_write=is_write, confirmed=args.get("confirm") is True, outcome="error")
+        raise
+    previewed = isinstance(result, dict) and result.get("saved") is False and "preview" in result
+    audit.record(
+        session, name=name, args=args, ctx=ctx, is_write=is_write, confirmed=args.get("confirm") is True and not previewed,
+        outcome="downgraded" if downgraded else "preview" if previewed else "ok",
+    )
+    if downgraded and isinstance(result, dict):
+        result["confirmation_note"] = "Not saved: this needs the athlete's confirmation in a new message, after they have seen this preview."
+    return untrusted.protect(result)

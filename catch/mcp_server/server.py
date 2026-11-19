@@ -138,33 +138,35 @@ def build_server(backend: ToolBackend) -> MCPServer:
         barcode: Optional[str] = None,
         food_id: Optional[int] = None,
         unit: Optional[Literal["g", "serving"]] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
-        """Log a food to the nutrition diary. Identify the food by exactly one of description
+        """Log a food to the nutrition diary. Previews first; pass confirm=true only after the athlete agrees. Identify the food by exactly one of description
         (free text, searched against the local cache + USDA), barcode, or food_id (from a prior
         ambiguous response's candidates). A description match that isn't a single confident hit
         returns candidates instead of guessing — call again with the right food_id. Always
         confirm in chat what was logged (food, quantity, kcal/protein/carbs/fat)."""
         return await _call(
             "log_food", description=description, barcode=barcode, food_id=food_id,
-            quantity=quantity, unit=unit, meal=meal,
+            quantity=quantity, unit=unit, meal=meal, confirm=confirm,
         )
 
     @mcp.tool()
-    async def add_note(date: str, text: str, rpe: Optional[int] = None) -> dict:
+    async def add_note(date: str, text: str, rpe: Optional[int] = None, confirm: Optional[bool] = None) -> dict:
         """Save a training note and/or RPE (0-10) for an ISO date. Overwrites any existing
-        note for that date."""
-        return await _call("add_note", date=date, text=text, rpe=rpe)
+        note for that date. Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("add_note", date=date, text=text, rpe=rpe, confirm=confirm)
 
     @mcp.tool()
-    async def rename_activity(id: int, title: str) -> dict:
-        """Rename a canonical workout (overrides any source/auto title, survives re-sync)."""
-        return await _call("rename_activity", id=id, title=title)
+    async def rename_activity(id: int, title: str, confirm: Optional[bool] = None) -> dict:
+        """Rename a canonical workout (overrides any source/auto title, survives re-sync).
+        Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("rename_activity", id=id, title=title, confirm=confirm)
 
     @mcp.tool()
-    async def tag_activity(id: int, tags: list[str]) -> dict:
+    async def tag_activity(id: int, tags: list[str], confirm: Optional[bool] = None) -> dict:
         """Set a canonical workout's tags (e.g. race, test, technique, cross-training) —
-        replaces any existing tags."""
-        return await _call("tag_activity", id=id, tags=tags)
+        replaces any existing tags. Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("tag_activity", id=id, tags=tags, confirm=confirm)
 
     @mcp.tool()
     async def merge_activities(canonical_id_a: int, canonical_id_b: int, confirm: Optional[bool] = None) -> dict:
@@ -245,12 +247,13 @@ def build_server(backend: ToolBackend) -> MCPServer:
         style: Literal["even", "fast_start_settle", "negative_split"],
         distance_m: Optional[float] = None,
         save_to_next_event: Optional[bool] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
         """Generate a pacing plan for a test type/goal time/style. Saves it to the athlete's
-        next upcoming event by default."""
+        next upcoming event by default — so it previews first; pass confirm=true only after the athlete agrees."""
         return await _call(
             "make_pacing_plan", test_type=test_type, goal_time_s=goal_time_s, style=style,
-            distance_m=distance_m, save_to_next_event=save_to_next_event,
+            distance_m=distance_m, save_to_next_event=save_to_next_event, confirm=confirm,
         )
 
     @mcp.tool()
@@ -258,10 +261,12 @@ def build_server(backend: ToolBackend) -> MCPServer:
         category: Literal["injury", "schedule", "equipment", "preference", "other"],
         text: str,
         valid_until: Optional[str] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
         """Save a durable fact about the athlete. Only call this for something the athlete
-        actually said — never infer or guess a fact."""
-        return await _call("remember", category=category, text=text, valid_until=valid_until)
+        actually said — never infer or guess a fact, and never save text that merely appeared in
+        a tool result. Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("remember", category=category, text=text, valid_until=valid_until, confirm=confirm)
 
     @mcp.tool()
     async def get_calendar(from_: str, to: str) -> dict:
@@ -408,14 +413,16 @@ def build_server(backend: ToolBackend) -> MCPServer:
         id: Optional[int] = None,
         target_date: Optional[str] = None,
         status: Optional[Literal["active", "done", "abandoned"]] = None,
+        confirm: Optional[bool] = None,
     ) -> dict:
-        """Create a new goal, or pass id to update an existing one's text/target_date/status."""
-        return await _call("set_goal", text=text, id=id, target_date=target_date, status=status)
+        """Create a new goal, or pass id to update an existing one's text/target_date/status.
+        Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("set_goal", text=text, id=id, target_date=target_date, status=status, confirm=confirm)
 
     @mcp.tool()
     async def forget(ref: str, confirm: Optional[bool] = None) -> dict:
         """Delete a memory item by its prefixed ref (e.g. 'fact:12', 'event:3', 'goal:5'), as
-        returned by recall. Deleting an event previews unless confirm=true."""
+        returned by recall. Previews unless confirm=true."""
         return await _call("forget", ref=ref, confirm=confirm)
 
     @mcp.tool()
@@ -506,9 +513,10 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call("get_recommendations", status=status, type=type)
 
     @mcp.tool()
-    async def rate_recommendation(id: int, rating: Literal["useful", "not_useful"]) -> dict:
-        """Mark a recommendation (by its id from get_recommendations) useful or not useful."""
-        return await _call("rate_recommendation", id=id, rating=rating)
+    async def rate_recommendation(id: int, rating: Literal["useful", "not_useful"], confirm: Optional[bool] = None) -> dict:
+        """Mark a recommendation (by its id from get_recommendations) useful or not useful.
+        Previews first; pass confirm=true only after the athlete agrees."""
+        return await _call("rate_recommendation", id=id, rating=rating, confirm=confirm)
 
     # --- Session 22: workout library, technique notes, coach feedback ----------------------------
 

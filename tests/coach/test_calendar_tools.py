@@ -120,8 +120,8 @@ def test_forget_event_detaches_references_after_confirm(session):
 
 
 def test_forget_for_a_fact_is_unchanged(session):
-    fact = tools.call_tool(session, "remember", {"category": "other", "text": "x"})
-    assert tools.call_tool(session, "forget", {"ref": fact["ref"]}) == {"deleted": True}
+    fact = tools.call_tool(session, "remember", {"category": "other", "text": "x", "confirm": True})
+    assert tools.call_tool(session, "forget", {"ref": fact["ref"], "confirm": True}) == {"deleted": True}
 
 
 def test_read_tools_return_planned_and_completed_separately(session):

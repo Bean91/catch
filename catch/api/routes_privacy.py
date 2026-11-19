@@ -33,6 +33,17 @@ def get_summary(db: Session = Depends(get_db)):
     return privacy.summary(db)
 
 
+@router.get("/api/privacy/tool-calls")
+def tool_calls(limit: int = 100, db: Session = Depends(get_db)):
+    """What outside clients (MCP, REST) and the in-app coach's writes have done through the tool layer — never the arguments or results."""
+    from sqlmodel import select
+
+    from catch.core.models import ToolCallLog
+
+    rows = db.exec(select(ToolCallLog).order_by(ToolCallLog.id.desc()).limit(max(1, min(limit, 500)))).all()  # type: ignore[attr-defined]
+    return [{"tool": r.tool, "via": r.via, "as": r.principal_kind, "write": r.is_write, "confirmed": r.confirmed, "outcome": r.outcome, "at": r.created_at} for r in rows]
+
+
 @router.get("/api/privacy/export", dependencies=[rate_limit("export")])
 def export_everything(owner_id: str = Depends(current_owner_id)):
     try:

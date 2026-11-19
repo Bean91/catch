@@ -41,7 +41,7 @@ def test_get_wellness_caps_and_downsamples_a_wide_range(session):
 def test_add_note_then_get_load_is_consistent(session):
     session.add(DailyWellness(date=date.today(), resting_hr=50))
     session.commit()
-    tools.call_tool(session, "add_note", {"date": date.today().isoformat(), "text": "felt good", "rpe": 4})
+    tools.call_tool(session, "add_note", {"date": date.today().isoformat(), "text": "felt good", "rpe": 4, "confirm": True})
     out = tools.call_tool(session, "get_load", {})
     assert out["date"] == date.today().isoformat()
     assert "band" in out["load"]
@@ -74,7 +74,7 @@ def test_get_nutrition_defaults_to_trailing_week(session):
 
 def test_log_food_by_explicit_food_id(session):
     food = _seed_oats(session)
-    out = tools.call_tool(session, "log_food", {"food_id": food.id, "quantity": 1, "unit": "serving", "meal": "breakfast"})
+    out = tools.call_tool(session, "log_food", {"food_id": food.id, "quantity": 1, "unit": "serving", "meal": "breakfast", "confirm": True})
     assert out["logged"] is True
     assert out["food"] == "Oats"
     assert out["kcal"] == 150.0  # 40g serving * 375 kcal/100g
@@ -82,7 +82,7 @@ def test_log_food_by_explicit_food_id(session):
 
 def test_log_food_by_description_single_match_logs_directly(session):
     _seed_oats(session)
-    out = tools.call_tool(session, "log_food", {"description": "Oats", "quantity": 50, "unit": "g", "meal": "breakfast"})
+    out = tools.call_tool(session, "log_food", {"description": "Oats", "quantity": 50, "unit": "g", "meal": "breakfast", "confirm": True})
     assert out["logged"] is True
     assert out["food"] == "Oats"
 
@@ -177,9 +177,9 @@ def test_rename_and_tag_activity(session):
     run_matching(session)
     session.refresh(activity)
 
-    renamed = tools.call_tool(session, "rename_activity", {"id": activity.canonical_id, "title": "Leg day"})
+    renamed = tools.call_tool(session, "rename_activity", {"id": activity.canonical_id, "title": "Leg day", "confirm": True})
     assert renamed["title"] == "Leg day"
-    tagged = tools.call_tool(session, "tag_activity", {"id": activity.canonical_id, "tags": ["cross-training"]})
+    tagged = tools.call_tool(session, "tag_activity", {"id": activity.canonical_id, "tags": ["cross-training"], "confirm": True})
     assert tagged["tags"] == ["cross-training"]
 
 
@@ -256,13 +256,13 @@ def test_predict_2k_insufficient_data(session):
 
 
 def test_memory_tools_remember_recall_forget(session):
-    fact = tools.call_tool(session, "remember", {"category": "injury", "text": "sore lower back"})
+    fact = tools.call_tool(session, "remember", {"category": "injury", "text": "sore lower back", "confirm": True})
     assert fact["ref"].startswith("fact:")
 
     results = tools.call_tool(session, "recall", {"query": "back"})["results"]
     assert any(r["text"] == "sore lower back" for r in results)
 
-    out = tools.call_tool(session, "forget", {"ref": fact["ref"]})
+    out = tools.call_tool(session, "forget", {"ref": fact["ref"], "confirm": True})
     assert out["deleted"] is True
     assert tools.call_tool(session, "recall", {"query": "back"})["results"] == []
 
@@ -476,7 +476,7 @@ def test_make_pacing_plan_saves_to_next_event_by_default(session):
     session.add(event)
     session.commit()
 
-    out = tools.call_tool(session, "make_pacing_plan", {"test_type": "2000m", "goal_time_s": 400.0, "style": "even"})
+    out = tools.call_tool(session, "make_pacing_plan", {"test_type": "2000m", "goal_time_s": 400.0, "style": "even", "confirm": True})
     assert out["saved_to_event"]["id"] == event.id
     session.refresh(event)
     assert event.plan_json is not None
