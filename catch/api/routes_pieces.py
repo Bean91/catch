@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from catch.analytics.piece import PIECE_TYPES, default_splits, parse_splits_paste
+from catch.core import uploads
 from catch.api.deps import get_db, require_auth
 from catch.core.owner import current_owner_id
 from catch.coach.piece_vision import PieceVisionError, estimate_piece_photo
@@ -167,6 +168,8 @@ async def photo_estimate(canonical_id: int, photo: UploadFile = File(...), db: S
     if photo.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
     image_bytes = await photo.read()
+    if uploads.sniff_image(image_bytes) != photo.content_type:
+        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image")
     try:
         return await estimate_piece_photo(db, image_bytes, photo.content_type, owner_id)
     except PieceVisionError as exc:
@@ -239,6 +242,8 @@ async def upload_photo(piece_id: int, photo: UploadFile = File(...), db: Session
     if photo.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
     image_bytes = await photo.read()
+    if uploads.sniff_image(image_bytes) != photo.content_type:
+        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image")
     piece_sync.attach_photo(db, piece_id, image_bytes, photo.content_type)
     return {"has_photo": True}
 

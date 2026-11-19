@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from catch.core import uploads
+from catch.api.ratelimit import rate_limit
 from catch.api.deps import get_db, require_auth
 from catch.core.owner import current_owner_id
 from catch.coach.nutrition_vision import NutritionVisionError, estimate_meal_photo
@@ -27,7 +29,7 @@ def _validate_meal(meal: str) -> None:
 # --- Barcode + search ------------------------------------------------------------------
 
 
-@router.get("/api/nutrition/barcode/{barcode}")
+@router.get("/api/nutrition/barcode/{barcode}", dependencies=[rate_limit("lookup")])
 def get_barcode(barcode: str, db: Session = Depends(get_db)):
     food = nutrition.lookup_or_fetch_barcode(db, barcode)
     if food is None:
@@ -35,7 +37,7 @@ def get_barcode(barcode: str, db: Session = Depends(get_db)):
     return {"found": True, **nutrition.food_dict(food)}
 
 
-@router.get("/api/nutrition/search")
+@router.get("/api/nutrition/search", dependencies=[rate_limit("lookup")])
 def search_foods(q: str = Query(..., min_length=1), include_off: bool = Query(False), db: Session = Depends(get_db)):
     return {"results": nutrition.search_foods(db, q, include_off=include_off)}
 
@@ -241,11 +243,13 @@ def get_week_summary(from_: date = Query(..., alias="from"), to: date = Query(..
 # --- Photo estimate (task Part B.4) -----------------------------------------------------
 
 
-@router.post("/api/nutrition/photo-estimate")
+@router.post("/api/nutrition/photo-estimate", dependencies=[rate_limit("vision")])
 async def post_photo_estimate(photo: UploadFile = File(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     if photo.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
     image_bytes = await photo.read()
+    if uploads.sniff_image(image_bytes) != photo.content_type:
+        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image")
     try:
         result = await estimate_meal_photo(db, image_bytes, photo.content_type, owner_id)
     except NutritionVisionError as exc:

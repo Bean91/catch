@@ -138,13 +138,13 @@ def test_photo_upload_download_and_delete(client, session):
     ).json()["piece"]
     piece_id = created["id"]
 
-    upload = client.post(f"/api/pieces/{piece_id}/photo", files={"photo": ("pm5.jpg", b"fake-jpeg-bytes", "image/jpeg")})
+    upload = client.post(f"/api/pieces/{piece_id}/photo", files={"photo": ("pm5.jpg", b"\xff\xd8\xfffake-jpeg-bytes", "image/jpeg")})
     assert upload.status_code == 200
     assert upload.json()["has_photo"] is True
 
     fetched = client.get(f"/api/pieces/{piece_id}/photo")
     assert fetched.status_code == 200
-    assert fetched.content == b"fake-jpeg-bytes"
+    assert fetched.content == b"\xff\xd8\xfffake-jpeg-bytes"
     assert fetched.headers["content-type"] == "image/jpeg"
 
     listed = client.get(f"/api/activities/{activity.canonical_id}/pieces").json()["pieces"]

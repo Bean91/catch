@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -117,20 +116,20 @@ from catch.core.redact import install_log_filter  # noqa: E402
 
 install_log_filter()
 
-app = FastAPI(title="Catch", lifespan=lifespan)
-
-_KEY_ROUTES = ("/api/ai/", "/api/coach/key")
-
+# The interactive docs and the schema list every route (including /internal/*); a public deployment has no reason to publish them.
+app = FastAPI(title="Catch", lifespan=lifespan, **({"docs_url": None, "redoc_url": None, "openapi_url": None} if tenant.is_public() else {}))
 
 @app.exception_handler(RequestValidationError)
 async def _validation_errors(request: Request, exc: RequestValidationError):
-    """FastAPI's default 422 echoes each offending `input`. On the routes that carry a provider
-    API key that would hand the submitted secret back in an error body (and into any log or proxy
-    that records it), so those responses drop `input` and `ctx`."""
-    if request.url.path.startswith(_KEY_ROUTES):
-        errors = [{"type": e.get("type"), "loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
-        return JSONResponse(status_code=422, content={"detail": errors})
-    return await request_validation_exception_handler(request, exc)
+    """FastAPI's default 422 echoes each offending `input` — the raw submitted value. That is a secret on a credential route
+    (a mistyped field name hands the key straight back, and into any log or proxy that records responses), a health value or
+    a private note elsewhere. No route needs the echo, so every 422 drops `input` and `ctx`."""
+    errors = [{"type": e.get("type"), "loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+from catch.core.uploads import BodyLimitMiddleware  # noqa: E402
+
+app.add_middleware(BodyLimitMiddleware)
 
 if tenant.is_public():
     from catch.api.security_headers import SecurityHeadersMiddleware, csp_for_static

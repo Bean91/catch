@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
+from catch.api.ratelimit import rate_limit
 from catch.api.deps import get_db, require_auth
 from catch.core.models import SyncState
 from catch.sync import connections
@@ -11,7 +12,7 @@ from catch.sync.scheduler import SOURCES, run_sync
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-@router.post("/api/sync/{source}")
+@router.post("/api/sync/{source}", dependencies=[rate_limit("admin")])
 def trigger_sync(source: str):
     if source not in SOURCES:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")

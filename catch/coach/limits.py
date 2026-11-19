@@ -33,7 +33,7 @@ BUCKET_LIMITS = {
     "push": 10,
     "lookup": 30,
     "weather": 6,
-    "callback": 20,
+    "callback": 60,  # keyed per source address, unauthenticated
     "internal": 30,
     "export": 2,
 }

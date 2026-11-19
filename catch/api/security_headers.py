@@ -13,6 +13,7 @@ from pathlib import Path
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+NO_STORE_PREFIXES = ("/api/", "/auth/", "/oauth/", "/internal/", "/mcp")
 _INLINE_SCRIPT = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S | re.I)
 
 
@@ -57,6 +58,8 @@ class SecurityHeadersMiddleware:
             (b"permissions-policy", b"camera=(self), geolocation=(), microphone=()"),
             (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
             (b"x-frame-options", b"DENY"),
+            (b"cross-origin-opener-policy", b"same-origin"),
+            (b"cross-origin-resource-policy", b"same-origin"),
         ]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -64,10 +67,18 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
+        path = scope.get("path", "")
+        # Health, sync, nutrition, credentials: nothing under these prefixes may sit in a browser or proxy HTTP cache.
+        # (The service worker's own offline copy is a separate, explicit store that the sign-out wipe clears.)
+        uncacheable = path.startswith(NO_STORE_PREFIXES)
+
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 present = {k.lower() for k, _ in message.get("headers", [])}
-                message["headers"] = list(message.get("headers", [])) + [(k, v) for k, v in self.headers if k not in present]
+                extra = [(k, v) for k, v in self.headers if k not in present]
+                if uncacheable and b"cache-control" not in present:
+                    extra += [(b"cache-control", b"no-store"), (b"pragma", b"no-cache")]
+                message["headers"] = list(message.get("headers", [])) + extra
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

@@ -397,7 +397,7 @@ def test_photo_estimate_without_a_configured_key_returns_422(client):
     _login(client)
     resp = client.post(
         "/api/nutrition/photo-estimate",
-        files={"photo": ("meal.jpg", b"fake-bytes", "image/jpeg")},
+        files={"photo": ("meal.jpg", b"\xff\xd8\xfffake-bytes", "image/jpeg")},
     )
     assert resp.status_code == 422
     assert "Anthropic key" in resp.json()["detail"]

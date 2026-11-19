@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import threading
 import time
 
 from cryptography.hazmat.primitives import hashes
@@ -64,16 +65,35 @@ def verify(cookie: str | None, provider: str, state: str | None, *, now: float |
     if not cookie or not state or "." not in cookie:
         raise OAuthStateError("Invalid or missing OAuth state.")
     body, signature = cookie.rsplit(".", 1)
-    if not any(hmac.compare_digest(_sign(key, body), signature) for key in _keys()):
+    # compare_digest raises TypeError on non-ASCII `str`s; encode so a crafted cookie is a clean refusal, never a 500.
+    if not any(hmac.compare_digest(_sign(key, body).encode(), signature.encode("utf-8", "replace")) for key in _keys()):
         raise OAuthStateError("Invalid or missing OAuth state.")
     try:
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
         owner, prov, nonce, exp = payload["o"], payload["p"], payload["n"], int(payload["e"])
     except (ValueError, KeyError, TypeError):
         raise OAuthStateError("Invalid or missing OAuth state.") from None
-    if prov != provider or exp < (now if now is not None else time.time()) or not secrets.compare_digest(str(nonce), state):
+    if prov != provider or exp < (now if now is not None else time.time()) or not secrets.compare_digest(str(nonce).encode(), state.encode("utf-8", "replace")):
         raise OAuthStateError("Invalid or missing OAuth state.")
+    _consume(str(nonce), exp, now if now is not None else time.time())
     return owner
+
+
+_consumed: dict[str, int] = {}
+_consumed_lock = threading.Lock()
+
+
+def _consume(nonce: str, exp: int, now: float) -> None:
+    """A state cookie works once. Per replica (a flow starts and finishes on one browser within ten minutes, so it normally
+    lands on the replica that issued it), bounded and self-pruning."""
+    with _consumed_lock:
+        for key in [k for k, e in _consumed.items() if e < now]:
+            del _consumed[key]
+        if nonce in _consumed:
+            raise OAuthStateError("Invalid or missing OAuth state.")
+        if len(_consumed) > 5000:
+            _consumed.clear()
+        _consumed[nonce] = exp
 
 
 def cookie_kwargs() -> dict:

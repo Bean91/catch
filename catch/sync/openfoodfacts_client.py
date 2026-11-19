@@ -8,8 +8,10 @@ import httpx
 logger = logging.getLogger("catch.nutrition.off")
 
 BASE_URL = "https://world.openfoodfacts.org"
-# OFF asks every app to identify itself — docs/nutrition-endpoints.md.
-USER_AGENT = "Catch/1.0 (ben1kiev@gmail.com)"
+# OFF asks every app to identify itself — docs/nutrition-endpoints.md. Deliberately generic: no person's address belongs in a
+# header sent on every lookup, least of all on a deployment with many users. If OFF ever rate-limits this agent, the operator
+# adds their own contact here.
+USER_AGENT = "Catch/1.0 (self-hosted rowing training app)"
 _FIELDS = "product_name,brands,serving_size,serving_quantity,nutrition_data_per,nutriments"
 _SEARCH_FIELDS = "code,product_name,brands,serving_size,serving_quantity,nutrition_data_per,nutriments"
 

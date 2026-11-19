@@ -446,3 +446,15 @@ def test_a_withings_data_call_status_other_than_401_or_601_is_a_plain_error_not_
         withings_client._check_status({"status": 401}, "getmeas")
     with pytest.raises(ProviderRateLimited):
         withings_client._check_status({"status": 601}, "getmeas")
+
+
+def test_oauth_state_is_single_use_and_survives_hostile_input():
+    nonce = oauth_state.new_nonce("withings")
+    cookie = oauth_state.make("alice", "withings", nonce, now=1000.0)
+    assert oauth_state.verify(cookie, "withings", nonce, now=1001.0) == "alice"
+    with pytest.raises(oauth_state.OAuthStateError):  # replaying the same cookie + state
+        oauth_state.verify(cookie, "withings", nonce, now=1002.0)
+    fresh = oauth_state.make("alice", "withings", "abcdefgh", now=1000.0)
+    for bad_cookie, bad_state in [("é.ü", "abcdefgh"), (fresh, "ünïcode✓"), (fresh.replace(".", ".é"), "abcdefgh"), ("." * 5, "x")]:
+        with pytest.raises(oauth_state.OAuthStateError):  # a clean refusal, never a TypeError/500
+            oauth_state.verify(bad_cookie, "withings", bad_state, now=1001.0)

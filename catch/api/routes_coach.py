@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, SecretStr
 from sqlmodel import Session, select
 
+from catch.api.ratelimit import rate_limit, throttle
 from catch.api.deps import get_db, hash_token, require_auth, require_tool_auth_allow_coach
 from catch.api.sse import stream_until_disconnected
 from catch.coach import chat
@@ -58,6 +59,7 @@ def call_tool_endpoint(
     db: Session = Depends(get_db),
     principal: Principal = Depends(require_tool_auth_allow_coach),
 ):
+    throttle("tool")  # after authentication, so the key is the caller's own owner id
     if name not in tools_module.TOOLS:
         raise HTTPException(status_code=404, detail=f"Unknown tool '{name}'")
     if not may_call_tool(principal, name):
@@ -169,7 +171,7 @@ def post_message(conversation_id: int, body: MessageRequest, request: Request, d
 # --- Models / settings / credentials -------------------------------------------------------
 
 
-@coach_router.get("/api/coach/models")
+@coach_router.get("/api/coach/models", dependencies=[rate_limit("admin")])
 async def list_models(provider: str | None = Query(None), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     prefs = coach_settings_module.get_coach_settings(db, owner_id)
     chosen = provider or prefs["provider"]
@@ -204,7 +206,7 @@ class ApiKeyRequest(BaseModel):
     api_key: SecretStr
 
 
-@coach_router.post("/api/coach/key")
+@coach_router.post("/api/coach/key", dependencies=[rate_limit("admin")])
 def set_anthropic_key(body: ApiKeyRequest, db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     """Legacy Anthropic-only alias of PUT /api/ai/providers/anthropic/key (without validation)."""
     key = body.api_key.get_secret_value().strip()
@@ -214,13 +216,13 @@ def set_anthropic_key(body: ApiKeyRequest, db: Session = Depends(get_db), owner_
     return _compat_key_info(db, owner_id)
 
 
-@coach_router.delete("/api/coach/key")
+@coach_router.delete("/api/coach/key", dependencies=[rate_limit("admin")])
 def delete_anthropic_key(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     coach_settings_module.delete_credential(db, "anthropic", owner_id)
     return {"ok": True}
 
 
-@coach_router.post("/api/coach/test-connection")
+@coach_router.post("/api/coach/test-connection", dependencies=[rate_limit("admin")])
 async def test_connection(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     prefs = coach_settings_module.get_coach_settings(db, owner_id)
     provider = _build_or_400(db, owner_id, prefs["provider"])
@@ -251,7 +253,7 @@ class TokenRequest(BaseModel):
     display_name: str | None = None
 
 
-@coach_router.post("/api/coach/tokens")
+@coach_router.post("/api/coach/tokens", dependencies=[rate_limit("token")])
 def create_token(body: TokenRequest, db: Session = Depends(get_db)):
     if body.role not in (ATHLETE_ROLE, COACH_ROLE):
         raise HTTPException(status_code=422, detail="role must be 'athlete' or 'coach'")
@@ -267,7 +269,7 @@ def create_token(body: TokenRequest, db: Session = Depends(get_db)):
     return {"id": row.id, "name": row.name, "role": body.role, "display_name": row.display_name, "token": raw_token, "created_at": row.created_at}
 
 
-@coach_router.delete("/api/coach/tokens/{token_id}")
+@coach_router.delete("/api/coach/tokens/{token_id}", dependencies=[rate_limit("token")])
 def delete_token(token_id: int, db: Session = Depends(get_db)):
     row = db.get(ApiToken, token_id)
     if row is None:

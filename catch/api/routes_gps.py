@@ -30,6 +30,7 @@ from catch.analytics.gps import (
     likely_rowing,
     pace_for,
 )
+from catch.api.ratelimit import rate_limit
 from catch.api.deps import get_db, require_auth
 from catch.core.models import Activity, ActivityTrack, CanonicalActivity, Route
 from catch.core.settings_store import get_settings
@@ -239,7 +240,7 @@ def get_weather(canonical_id: int, db: Session = Depends(get_db)):
     return build_weather(db, canonical_id)
 
 
-@router.post("/api/activities/{canonical_id}/weather/refresh")
+@router.post("/api/activities/{canonical_id}/weather/refresh", dependencies=[rate_limit("weather")])
 def refresh_weather(canonical_id: int, db: Session = Depends(get_db)):
     _, activity, row, reason = track_member(db, canonical_id)
     if row is None:

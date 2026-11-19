@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, SecretStr
 from sqlmodel import Session
 
+from catch.api.ratelimit import rate_limit
 from catch.api.deps import get_db, require_auth
 from catch.coach import limits
 from catch.core import oauth_state, tenant
@@ -132,7 +133,7 @@ def disconnect(provider: str, db: Session = Depends(get_db)):
 callback_router = APIRouter()  # deliberately unauthenticated: identity comes from the signed state cookie, never from a body or query
 
 
-@callback_router.get("/auth/{provider}/callback")
+@callback_router.get("/auth/{provider}/callback", dependencies=[rate_limit("callback", by="ip")])
 def oauth_callback(
     provider: str,
     request: Request,

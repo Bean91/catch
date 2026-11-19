@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlmodel import Session, select
 
+from catch.api.ratelimit import rate_limit
 from catch.core import db as db_module
 from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
@@ -36,7 +37,7 @@ def require_tick_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
 
 
-router = APIRouter(prefix="/internal", dependencies=[Depends(require_tick_secret)])
+router = APIRouter(prefix="/internal", dependencies=[rate_limit("internal", by="ip"), Depends(require_tick_secret)])  # throttled first, so guessing the secret is metered
 
 
 def user_ids() -> list[str]:

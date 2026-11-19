@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from catch.analytics import clubs as c
-from catch.core import secret_store, tenant
+from catch.core import secret_store, tenant, uploads
 from catch.core.models import (
     Club, ClubAnnouncement, ClubAudit, ClubBlock, ClubChallenge, ClubInvite, ClubJoinRequest, ClubMember,
     ClubMemberPrefs, ClubProfile, ClubReport, ClubResult, ClubSession,
@@ -632,7 +632,7 @@ _IMAGE_MAGIC = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1
 
 def put_logo(session: Session, club_id: str, content_type: str, data: bytes) -> dict:
     club, _ = require_member(session, club_id, "edit_logo")
-    if content_type not in _IMAGE_MAGIC or not any(data.startswith(m) for m in _IMAGE_MAGIC[content_type]):
+    if content_type not in _IMAGE_MAGIC or uploads.sniff_image(data) != content_type:
         raise ClubError("Use a JPEG, PNG or WebP image.")
     if len(data) > c.LOGO_MAX_BYTES:
         raise ClubError("That image is too big. Logos are at most 256 KB.", 413)

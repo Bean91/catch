@@ -15,3 +15,11 @@ tests/
 docs/
 *.db
 *.db-*
+*.dump
+*.sql
+.playwright-mcp/
+.claude/
+PLAN.md
+CLAUDE.md
+DESIGN.md
+web/tests/
