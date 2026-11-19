@@ -4375,3 +4375,63 @@ backup + log retention written down, `/internal/tick/retention` scheduled, `CATC
 ## Next steps
 
 Confirm-card UI for the coach; `raw_json` ingest allowlist; per-workout delete; shared rate-limit store; real-client OAuth verification; envelope encryption (KMS) for the master key; retention decisions from counsel.
+
+
+# Session 29: deploying the public build (FastAPI Cloud + Supabase) — IN PROGRESS
+
+**Numbering note.** The brief carried no number; the last was 28. Scope: deployment and operations only — no product features.
+
+## Status (as of this entry): local preparation done and verified; **nothing has been run on the hosted Supabase project or FastAPI Cloud yet**
+
+The live steps need inputs only the owner can give (see "Needs the owner"). Everything below was verified on the throwaway local Supabase stack
+(`/Users/benkiev/supabase-catch-test`), never on production.
+
+## Decisions (the user chose these)
+
+1. The security-findings deploy gate is treated as **cleared by the owner** (F-38's `catch_api` password rotation and the §7 checklist are the owner's to confirm; not verified here).
+2. Scheduling = Supabase `pg_cron` + `pg_net` calling `/internal/tick/*` (FastAPI Cloud documents no scheduler; researched, not assumed).
+3. The owner sets FastAPI Cloud secrets; I run deploy, health checks and the smoke test.
+4. Not done on purpose: a `/api/ready` endpoint (the approved plan listed one). `/api/health` stays dependency-free so a database outage cannot make the platform restart-loop the app;
+   the deep check is the already-authenticated `/internal/db-check`, now extended with the schema revision. Revisit if the platform adds a configurable health probe.
+
+## Platform facts (official docs, read this session)
+
+FastAPI Cloud: `fastapi deploy` rolls out gradually (old + new run together; a failed verification keeps the last good deploy); secrets can only be marked at creation; an env change redeploys
+unless "Save only"; `fastapi cloud logs`; redeploy/rollback are dashboard-only (the rollback page is labelled "Coming soon"); **no cron/scheduled jobs or background workers documented**; request timeout,
+SSE, egress IP/IPv6, body-size limits not documented. Hobby: scale-to-zero, ≤ 3 replicas, 0.1 vCPU / 500 MiB, 1 custom domain, 1-day log retention. Supabase: direct connections are IPv6-only (use the pooler);
+backups only on paid plans; "Restore to new project" starts the clone's `pg_cron` jobs immediately (deactivate them at once).
+
+## Changes (all with tests)
+
+- `core/startup_checks.py`: a public deployment now refuses to start unless `CATCH_BASE_URL` is a public https URL (it is the MCP host allowlist and OAuth issuer — left at the default every
+  public-host request was a 421), the pool mode is valid, and port 6543 is not paired with `session` mode; warns (does not refuse) when `CATCH_TICK_SECRET` is unset or `catch/api/static/index.html` is missing.
+  `CATCH_ALLOW_LOCAL_BASE_URL=1` (loud warning) exists only for rehearsals against the local stack.
+- `core/db_pg.py`/`tenant_hooks.py`: 10 s connect timeout, 60 s `statement_timeout` per transaction (`SET LOCAL` semantics, safe behind the transaction pooler), `schema_revision()` surfaced by
+  `/internal/db-check` (the runtime role cannot read the version table, so it reports `null` there), and `catch db current` (admin URL) as the authoritative applied-vs-expected check; a test pins the expected
+  revision to the real migration head.
+- `core/redact.py`: the configured secrets (tick secret, master keys, DB password) are **pinned** outside the 64-entry rotating registry (a review caught that registering them in it would evict them within hours).
+  `SUPABASE_SECRET_KEY` is deliberately not registered (exactly one module may read it; its `sb_secret_` shape is pattern-scrubbed).
+- `mcp_server/http_app.py`: stateless + JSON responses on a public deployment (no in-memory `Mcp-Session-Id` to lose across replicas / scale-to-zero); the Pi keeps the SDK default.
+- `main.py`: `internal/`, `.well-known/`, `mcp/` typos 404 instead of returning the SPA; `/oauth/consent` stays a client route.
+- `docs/operations.md` (new): deploy order, env table, connection budget (1+2 per replica × ≤ 3 = 9), cron SQL for all three ticks (retention SQL did not exist), delivery semantics, backup/restore, rollback, rotation per secret,
+  outage behaviour, monitoring, MCP. `.env.example` gained `SUPABASE_JWT_AUDIENCE`.
+- `scripts/smoke_public.py`: the deployed-app smoke test (disposable users created/deleted through GoTrue admin; reads only env vars).
+
+## Verified locally (not on production)
+
+- Full suites: `CATCH_DEPLOYMENT=personal pytest --ignore=tests/pg` (2076+ passed), `tests/pg` on the local stack (93 passed), web vitest 82 passed, ruff clean.
+- The real app in public mode against the local stack + the smoke script: 35/35 checks (health, SPA + nested route, security headers, no docs, 401s, `/internal` auth, sign-in, JWT, persistence, two-user isolation
+  incl. 404-not-403, device token mint, MCP 401/initialize/tools/list(66)/read call/read-scope write refused, 120 requests × 40 concurrent all 200, sign-out revokes, account deletion).
+- Concurrency: 40 workers × 5 transactions through a 1+2 pool all finish and leave nothing checked out or idle-in-transaction (`tests/pg/test_runtime.py`).
+- **Migration failure drill:** a deliberately failing revision `0099` (creates a table, then `1/0`) run with `catch db upgrade`: the whole batch rolled back (Postgres transactional DDL — `alembic_version` stayed `0008`, the
+  table did not exist); `catch db upgrade 0008` + `catch db current` confirm. Alembic's `transaction_per_migration` is off, so a multi-revision upgrade is atomic.
+- Backup/restore: `tests/pg/test_migrations.py::test_backup_and_restore_keeps_rows_policies_and_isolation` (pg_dump → drop → pg_restore, rows + policies + isolation).
+
+## Needs the owner (nothing below has been done)
+
+1. The production project ref + plan tier; `DATABASE_ADMIN_URL` exported in the shell; the owner runs `fastapi cloud env set` for the secrets (list in docs/operations.md).
+2. Confirm F-38's `catch_api` password was rotated and the Supabase log review done.
+3. A Pi URL for the "still operational" check. Whether the real `claude.ai Catch` connector in the owner's session points at the Pi or the cloud app was not checked.
+4. Part F asks for OAuth-compatible MCP auth; it is still **off** (device bearer tokens only). Turning on `CATCH_MCP_OAUTH_ENABLED=1` and verifying it with a real client is an owner decision.
+5. Caveats for the live smoke: admin-created users skip the real sign-up + confirmation-email path (depends on SMTP); `/internal/tick/notifications` runs the real job for **every** production user; the client IP the app sees
+   behind FastAPI Cloud's proxy (F-30: one shared `/internal` rate-limit bucket) must be recorded.

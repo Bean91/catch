@@ -34,7 +34,15 @@ def _transport_security() -> TransportSecuritySettings:
     return TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=hosts, allowed_origins=origins)
 
 
-_mcp_asgi_app = mcp_server.streamable_http_app(streamable_http_path="/", transport_security=_transport_security())
+# A public deployment scales to zero and runs several replicas; a stateful session lives in one process's memory, so a client's
+# Mcp-Session-Id would be unknown to the next request. Every tool call is self-contained (auth is per request), so stateless
+# plain-JSON responses lose nothing there. The Pi keeps the SDK's default.
+_mcp_asgi_app = mcp_server.streamable_http_app(
+    streamable_http_path="/",
+    transport_security=_transport_security(),
+    stateless_http=settings.is_public,
+    json_response=settings.is_public,
+)
 
 
 class _BearerAuthMiddleware:

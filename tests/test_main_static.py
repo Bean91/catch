@@ -37,3 +37,20 @@ def test_no_cache_headers_only_for_sw_index_and_version(tmp_path):
     assert main._no_cache_headers_for(tmp_path / "index.html") == {"Cache-Control": "no-cache"}
     assert main._no_cache_headers_for(tmp_path / "version.json") == {"Cache-Control": "no-cache"}
     assert main._no_cache_headers_for(tmp_path / "assets" / "index-abc123.js") is None
+
+
+def test_operator_and_wellknown_typos_are_404_not_the_spa(tmp_path, monkeypatch):
+    import pytest
+    from fastapi.testclient import TestClient
+
+    if not any(getattr(r, "path", "") == "/{full_path:path}" for r in main.app.routes):
+        pytest.skip("the SPA catch-all is only registered when catch/api/static exists at import")
+    static_dir = tmp_path / "static"
+    (static_dir / "assets").mkdir(parents=True)
+    (static_dir / "index.html").write_text("<html>spa</html>")
+    monkeypatch.setattr(main, "_STATIC_DIR", static_dir.resolve())
+    client = TestClient(main.app)
+    for path in ("/internal/nope", "/.well-known/nope", "/api/nope", "/auth/nope"):
+        assert client.get(path).status_code == 404, path
+    assert client.get("/oauth/consent").status_code == 200  # a real client-side route
+    assert "spa" in client.get("/clubs/3/calendar").text

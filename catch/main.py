@@ -47,6 +47,7 @@ from catch.core.db import init_db
 from catch.sync.scheduler import start_scheduler, stop_scheduler
 
 _STATIC_DIR = (Path(__file__).resolve().parent / "api" / "static").resolve()
+_NON_SPA_PREFIXES = ("api/", "auth/", "internal/", ".well-known/", "mcp/")  # not "oauth/": the SPA owns /oauth/consent
 
 
 def safe_static_file(full_path: str) -> Path | None:
@@ -92,6 +93,10 @@ async def lifespan(app: FastAPI):
 
         enforce_public_config(settings)
         _check_public_runtime()
+        from catch.core.startup_checks import warnings as startup_warnings
+
+        for message in startup_warnings(settings, _STATIC_DIR / "index.html"):
+            logging.getLogger("catch").warning(message)
     start_scheduler()  # a no-op in a public deployment
     if settings.mcp_http_enabled:
         # Mounted sub-apps don't get their own lifespan from the parent ASGI app, so the MCP
@@ -114,9 +119,10 @@ async def lifespan(app: FastAPI):
 # extra INFO lines/day straight onto the Pi's SD card the moment anything upstream (a future
 # dependency, a debugging session) ever does call basicConfig() and raises the root level.
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
-from catch.core.redact import install_log_filter  # noqa: E402
+from catch.core.redact import install_log_filter, register_env_secrets  # noqa: E402
 
 install_log_filter()
+register_env_secrets(settings)
 
 # The interactive docs and the schema list every route (including /internal/*); a public deployment has no reason to publish them.
 app = FastAPI(title="Catch", lifespan=lifespan, **({"docs_url": None, "redoc_url": None, "openapi_url": None} if tenant.is_public() else {}))
@@ -230,8 +236,9 @@ if _STATIC_DIR.is_dir():
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
         # A typo'd /api/ or /auth/ path must 404, not fall through to index.html with a 200 —
-        # that would mask a broken route behind what looks like a working page load.
-        if full_path.startswith("api/") or full_path.startswith("auth/"):
+        # that would mask a broken route behind what looks like a working page load. Same for the
+        # operator, well-known and MCP namespaces, which no client-side route uses.
+        if full_path.startswith(_NON_SPA_PREFIXES):
             raise HTTPException(status_code=404)
         safe = safe_static_file(full_path)
         target = safe if safe is not None else _STATIC_DIR / "index.html"

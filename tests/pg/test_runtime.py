@@ -27,6 +27,7 @@ def app(clean, runtime, monkeypatch):
     from catch.core import db as db_module
 
     monkeypatch.setattr(tenant, "is_public", lambda: True)
+    monkeypatch.setenv("CATCH_ALLOW_LOCAL_BASE_URL", "1")  # the local stack is http://localhost; the base-URL rule has its own tests
     saved = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_publishable_key", "supabase_secret_key", "supabase_session_check_ttl", "tick_secret", "ollama_enabled")}
     for key, value in {
         "deployment": "public", "supabase_url": API_URL, "supabase_publishable_key": PUBLISHABLE,
@@ -348,3 +349,65 @@ def _refresh(user) -> str:
     from tests.pg.conftest import _post
 
     return _post("/auth/v1/token?grant_type=refresh_token", {"refresh_token": user.refresh_token})["access_token"]
+
+
+def test_the_runtime_role_reports_the_applied_schema_revision(migrated):
+    from catch.core import db_pg
+
+    eng = db_pg.build_pg_engine(runtime_url())
+    try:
+        report = db_pg.schema_revision(eng)
+    finally:
+        eng.dispose()
+    assert report["schema_expected"] == db_pg.EXPECTED_SCHEMA_REVISION
+    # None = the role can't read the version table (reported as unknown, never as a failure); otherwise it must be the head.
+    assert report["schema_revision"] in (None, db_pg.EXPECTED_SCHEMA_REVISION)
+    assert report["schema_current"] in (None, True)
+
+
+def test_every_transaction_carries_a_statement_timeout_and_a_connect_timeout(migrated):
+    from catch.core import db_pg, tenant_hooks
+
+    eng = db_pg.build_pg_engine(runtime_url())
+    try:
+        u = signup("stmt-timeout")
+        with tenant.use_owner(u.id), Session(eng) as s:
+            assert s.execute(text("SELECT current_setting('statement_timeout')")).scalar() == "1min"
+        with tenant.system_detached(), Session(eng) as s:
+            assert s.execute(text("SELECT current_setting('statement_timeout')")).scalar() == "1min"
+        assert tenant_hooks.STATEMENT_TIMEOUT_MS == "60000"
+    finally:
+        eng.dispose()
+
+
+def test_a_burst_of_concurrent_requests_through_the_small_pool_never_exhausts_connections(migrated):
+    """The deployed pool is 1 + 2 overflow per replica. 40 threads x 5 transactions must all finish (waiting for a slot, not
+    failing) and leave no connection checked out or idle in a transaction afterwards."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from catch.core import db_pg
+    from catch.core.models import Note
+
+    eng = db_pg.build_pg_engine(runtime_url(), pool_size=1)
+    try:
+        users = [signup(f"burst-{i}") for i in range(4)]
+
+        def work(i: int) -> int:
+            u = users[i % len(users)]
+            seen = 0
+            for k in range(5):
+                with tenant.use_owner(u.id), Session(eng) as s:
+                    s.add(Note(date=date(2026, 11, 1 + k), text=f"{i}:{k}"))
+                    s.commit()
+                    seen += len(s.execute(select(Note)).scalars().all()) > 0
+            return seen
+
+        with ThreadPoolExecutor(max_workers=40) as pool:
+            assert sum(pool.map(work, range(40))) == 200
+        assert eng.pool.checkedout() == 0
+        with eng.connect() as conn:
+            idle = conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE usename = 'catch_api' AND state = 'idle in transaction'")).scalar()
+            conn.rollback()
+        assert idle == 0
+    finally:
+        eng.dispose()

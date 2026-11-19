@@ -27,8 +27,13 @@ def public_mode():
     # Suite defaults for two session-28 rules that nearly every moderation test is not about; tests/tenancy/test_moderation_controls.py
     # turns them back on. (Moderators need an aal2 session; a report only counts towards an auto-hide from a week-old account.)
     object.__setattr__(config.settings, "moderator_require_aal2", False)
+    from catch.core import startup_checks
     from catch.sync import account_store
 
+    # The suite's base URL is http://localhost on purpose (a real https one would make the OAuth state cookie Secure), which the
+    # public startup guard rightly refuses; tests/test_startup_checks.py covers that rule itself.
+    saved_base_url_check = startup_checks._base_url_problems
+    startup_checks._base_url_problems = lambda _url: []
     saved_min_age = account_store.MIN_REPORTER_AGE_DAYS
     account_store.MIN_REPORTER_AGE_DAYS = 0
     supabase_auth.jwks_cache = supabase_auth.JwksCache(fetch=kit.jwks)
@@ -37,6 +42,7 @@ def public_mode():
     try:
         yield
     finally:
+        startup_checks._base_url_problems = saved_base_url_check
         account_store.MIN_REPORTER_AGE_DAYS = saved_min_age
         tenant.is_public = real_is_public
         for k, v in previous.items():

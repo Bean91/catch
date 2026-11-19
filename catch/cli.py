@@ -174,6 +174,26 @@ def cmd_db_check(args: argparse.Namespace) -> None:
     print("ok")
 
 
+def cmd_db_current(args: argparse.Namespace) -> None:
+    """Applied vs expected migration revision, read with the admin URL (the runtime role cannot read the version table). Run it
+    after `db upgrade` and before `fastapi deploy`: code newer than the database otherwise shows up only as runtime errors."""
+    import os
+
+    from catch.core import db_pg
+
+    if not os.environ.get("DATABASE_ADMIN_URL"):
+        raise SystemExit("Set DATABASE_ADMIN_URL.")
+    engine = db_pg.build_pg_engine(os.environ["DATABASE_ADMIN_URL"], rls=False)
+    try:
+        applied = db_pg.applied_revision(engine)
+    finally:
+        engine.dispose()
+    print(f"applied: {applied}\nexpected by this code: {db_pg.EXPECTED_SCHEMA_REVISION}")
+    if applied != db_pg.EXPECTED_SCHEMA_REVISION:
+        raise SystemExit("MISMATCH: run `catch db upgrade` before deploying this build" if applied else "no migration applied")
+    print("ok")
+
+
 def cmd_db_seed(args: argparse.Namespace) -> None:
     """Global reference rows (the exercise library, example templates) for a public database — run with the
     admin URL, since the runtime role can't write rows with no owner."""
@@ -330,6 +350,7 @@ def main() -> None:
     up.add_argument("revision", nargs="?", default="head")
     up.set_defaults(func=cmd_db_upgrade)
     db_sub.add_parser("check", help="Role, SSL and row-level-security probe over the runtime connection").set_defaults(func=cmd_db_check)
+    db_sub.add_parser("current", help="Applied vs expected migration revision (needs DATABASE_ADMIN_URL)").set_defaults(func=cmd_db_current)
     db_sub.add_parser("seed", help="Seed global reference data (needs DATABASE_ADMIN_URL)").set_defaults(func=cmd_db_seed)
 
     secrets_parser = sub.add_parser("secrets", help="Master-key rotation for sealed credentials (docs/security.md)")

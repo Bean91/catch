@@ -172,6 +172,11 @@ def _before_flush(session: Session, flush_context, instances) -> None:
                     raise TenantViolation(f"{type(obj).__name__} belongs to a different owner than this request")
 
 
+# A runaway query holds one of very few pooled connections; bounded per transaction (SET LOCAL semantics, so it is safe behind
+# Supavisor's transaction pooler, which rejects startup parameters). Generous: nothing in the app runs a single statement this long.
+STATEMENT_TIMEOUT_MS = "60000"
+
+
 def claims_json(owner: str) -> str:
     return json.dumps({"sub": owner, "role": "authenticated", "aud": "authenticated"})
 
@@ -182,7 +187,9 @@ def _after_begin(session: Session, transaction, connection) -> None:
     owner = tenant.owner_or_none()
     if owner is None:
         if tenant.in_system_context():
-            connection.exec_driver_sql("SELECT set_config('search_path', 'catch, public', true)")
+            connection.exec_driver_sql(
+                "SELECT set_config('search_path', 'catch, public', true), set_config('statement_timeout', %s, true)", (STATEMENT_TIMEOUT_MS,)
+            )
             return
         raise NoTenantContext("transaction begun with no authenticated owner")
     connection.exec_driver_sql("SET LOCAL ROLE authenticated")
@@ -190,8 +197,8 @@ def _after_begin(session: Session, transaction, connection) -> None:
     # (pg_get_functiondef on the real Supabase stack); both are set so either reader sees the owner.
     connection.exec_driver_sql(
         "SELECT set_config('request.jwt.claims', %s, true), set_config('request.jwt.claim.sub', %s, true),"
-        " set_config('search_path', 'catch, public', true)",
-        (claims_json(owner), owner),
+        " set_config('search_path', 'catch, public', true), set_config('statement_timeout', %s, true)",
+        (claims_json(owner), owner, STATEMENT_TIMEOUT_MS),
     )
 
 

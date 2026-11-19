@@ -29,6 +29,9 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 _lock = threading.Lock()
 _registered: OrderedDict[str, None] = OrderedDict()
+# The secrets this process was *configured* with never fall out: they share nothing with the rotating, per-user entries above
+# (which evict oldest-first and would otherwise push a long-lived deployment secret out within hours).
+_pinned: set[str] = set()
 # Rotating tokens (Whoop's access token changes hourly) register a new secret each time; the oldest
 # fall out so the set — scanned on every log record — stays small.
 _MAX_REGISTERED = 64
@@ -44,15 +47,38 @@ def register_secret(value: str | None) -> None:
                 _registered.popitem(last=False)
 
 
+def pin_secret(value: str | None) -> None:
+    if value and len(value) >= _MIN_REGISTERED_LEN:
+        with _lock:
+            _pinned.add(value)
+
+
+def register_env_secrets(settings) -> None:
+    """The secrets this process was *configured* with (not just ones it later decrypts), so a bare value that lands in a log line
+    or exception text is caught even when it has no recognisable shape. The Supabase secret key is deliberately absent: exactly one module
+    may read it (tests/tenancy/test_structure.py), and its `sb_secret_` shape is already scrubbed by pattern."""
+    from urllib.parse import urlsplit
+
+    values = [settings.tick_secret, settings.secrets_master_key, getattr(settings, "vapid_private_key", "")]
+    values += [p.strip() for p in settings.secrets_master_key_previous.split(",")]
+    try:
+        values.append(urlsplit(settings.database_url).password)
+    except ValueError:
+        pass
+    for value in values:
+        pin_secret(value)
+
+
 def forget_secret(value: str | None) -> None:
     with _lock:
         _registered.pop(value or "", None)
+        _pinned.discard(value or "")
 
 
 def redact(text: object) -> str:
     out = str(text)
     with _lock:
-        known = sorted(_registered, key=len, reverse=True)
+        known = sorted({*_registered, *_pinned}, key=len, reverse=True)
     for secret in known:
         if secret in out:
             out = out.replace(secret, "[redacted]")

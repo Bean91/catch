@@ -31,7 +31,7 @@ def normalize_url(url: str) -> str:
 
 
 def build_pg_engine(url: str, *, pool_mode: str = "session", pool_size: int = 1, rls: bool = True) -> Engine:
-    connect_args: dict = {}
+    connect_args: dict = {"connect_timeout": 10}  # libpq-side, so it is not a startup parameter the transaction pooler could reject
     kwargs: dict = {"pool_pre_ping": True}
     if pool_mode == "transaction":
         # Supavisor transaction mode (6543): no prepared statements, and the pooler already pools.
@@ -42,6 +42,31 @@ def build_pg_engine(url: str, *, pool_mode: str = "session", pool_size: int = 1,
     engine = create_engine(normalize_url(url), connect_args=connect_args, **kwargs)
     engine.catch_rls = rls  # read by tenant_hooks._after_begin
     return engine
+
+
+# The newest Alembic revision this code expects (migrations/versions/*.py). The deployed app cannot import alembic (it is in the
+# laptop-only `public` extra), so tests/test_startup_checks.py pins this to the real head.
+EXPECTED_SCHEMA_REVISION = "0008"
+
+
+def applied_revision(engine: Engine) -> str | None:
+    """Raises if the role cannot read the version table — `catch db current` runs this with the admin URL."""
+    with engine.connect() as conn:
+        value = conn.exec_driver_sql("SELECT version_num FROM catch.alembic_version").scalar()
+        conn.rollback()
+    return value
+
+
+def schema_revision(engine: Engine) -> dict:
+    """The applied migration revision, for /internal/db-check: code newer than the database is otherwise only discovered as
+    runtime errors. The runtime role normally cannot read the version table (it has no grant on it, deliberately), so `None` means
+    "unknown", not "nothing applied"; `catch db current` is the authoritative check, run with the admin URL."""
+    applied = None
+    try:
+        applied = applied_revision(engine)
+    except Exception:  # noqa: BLE001 — a permission error on the version table is reported as unknown, not as a failure
+        pass
+    return {"schema_revision": applied, "schema_expected": EXPECTED_SCHEMA_REVISION, "schema_current": applied == EXPECTED_SCHEMA_REVISION if applied else None}
 
 
 def role_report(engine: Engine) -> dict:
