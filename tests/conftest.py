@@ -247,3 +247,14 @@ def client(session, monkeypatch):
     with TestClient(main_module.app) as c:
         yield c
     main_module.app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_windows():
+    """The limiter is process-global and keyed by owner id, and the tests all act as the same few owner ids, so a fast run
+    could cross a per-minute ceiling (the club bucket's 60) because of *other* tests' requests."""
+    from catch.coach import limits
+
+    limits._windows.clear()
+    yield
+    limits._windows.clear()

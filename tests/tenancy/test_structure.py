@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_TABLES = {"user_profiles", "weather_cells"}  # no owner column by design (see docs/public-architecture.md §2)
 # Session 26: what other signed-in users may see, plus the moderation trail. Reachable only by the runtime role through
 # catch.sync.leaderboard_store (docs/leaderboards.md); the authenticated role has no grant on any of them.
+SESSION28_GLOBAL = {"deleted_accounts"}  # migration 0008, catch_api-only like the leaderboard globals
 LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "moderation_events", "result_reports", "appeals"}
 # Session 27: membership-scoped club tables (clubs/club_members began in 0005 and were reshaped in 0006). Unlike the leaderboard tables these are
 # granted to `authenticated` behind RLS policies that call the catch_club.* predicates (docs/clubs.md); none carries a per-owner key by design.
@@ -42,7 +43,7 @@ def _classes(marker):
 def test_every_table_is_owned_shared_or_explicitly_global():
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
     assert not set(owned) & set(shared)
-    unclassified = set(SQLModel.metadata.tables) - set(owned) - set(shared) - GLOBAL_TABLES - LEADERBOARD_GLOBAL - CLUB_SCOPED
+    unclassified = set(SQLModel.metadata.tables) - set(owned) - set(shared) - GLOBAL_TABLES - LEADERBOARD_GLOBAL - CLUB_SCOPED - SESSION28_GLOBAL
     assert not unclassified, f"tables with no tenant classification: {sorted(unclassified)}"
 
 
@@ -63,7 +64,7 @@ GLOBAL_KEYS = {
 
 def test_every_unique_key_and_primary_key_is_per_owner():
     for name, table in SQLModel.metadata.tables.items():
-        if name in GLOBAL_TABLES or name in LEADERBOARD_GLOBAL or name in CLUB_SCOPED:
+        if name in GLOBAL_TABLES or name in LEADERBOARD_GLOBAL or name in CLUB_SCOPED or name in SESSION28_GLOBAL:
             continue
         pk = [c.name for c in table.primary_key.columns]
         fk_cols = {c.name for c in table.columns if any(f.column.table.name != "user_profiles" for f in c.foreign_keys)}
@@ -82,6 +83,15 @@ def test_the_leaderboard_global_tables_match_the_migration():
         assert name in SQLModel.metadata.tables and name not in {*_classes(OwnedStrict), *_classes(OwnedOrShared)}, name
 
 
+def test_the_session_28_tables_match_the_migration_and_are_classified():
+    mig8 = _migration("0008_security_review")
+    assert set(mig8.GLOBAL) == SESSION28_GLOBAL
+    for name in SESSION28_GLOBAL:
+        assert name in SQLModel.metadata.tables and name not in {*_classes(OwnedStrict), *_classes(OwnedOrShared)}, name
+    for name in mig8.TABLES:
+        assert name in {*_classes(OwnedStrict)}, name
+
+
 def test_the_club_tables_match_the_migration_and_are_not_owned():
     mig6 = _migration("0006_clubs")
     assert set(mig6.GLOBAL) == CLUB_SCOPED and set(mig6.TABLES) == {"club_blocks"}
@@ -92,7 +102,7 @@ def test_the_club_tables_match_the_migration_and_are_not_owned():
 
 def test_migration_0002_covers_exactly_the_tables_the_models_declare():
     m = _migration("0002_security")
-    later = set(_migration("0004_provider_connections").TABLES) | set(_migration("0005_leaderboards").TABLES) | set(_migration("0006_clubs").TABLES)  # tables added after 0002's frozen list, each with its own RLS
+    later = set(_migration("0004_provider_connections").TABLES) | set(_migration("0005_leaderboards").TABLES) | set(_migration("0006_clubs").TABLES) | set(_migration("0008_security_review").TABLES)  # tables added after 0002's frozen list, each with its own RLS
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
     assert set(m.OWNED) | later == set(owned) and set(m.SHARED) == set(shared)
     assert not set(m.OWNED) & later
@@ -104,8 +114,8 @@ def test_migration_0002_covers_exactly_the_tables_the_models_declare():
 
 def test_the_baseline_snapshot_creates_every_table_and_only_those():
     sql = (ROOT / "migrations" / "versions" / "0001_baseline.sql").read_text()
-    mig4, mig5, mig6 = _migration("0004_provider_connections"), _migration("0005_leaderboards"), _migration("0006_clubs")
-    later = set(mig4.TABLES) | set(mig5.TABLES) | set(mig5.GLOBAL) | set(mig6.TABLES) | set(mig6.GLOBAL)
+    mig4, mig5, mig6, mig8 = _migration("0004_provider_connections"), _migration("0005_leaderboards"), _migration("0006_clubs"), _migration("0008_security_review")
+    later = set(mig4.TABLES) | set(mig5.TABLES) | set(mig5.GLOBAL) | set(mig6.TABLES) | set(mig6.GLOBAL) | set(mig8.TABLES) | set(mig8.GLOBAL)
     assert set(re.findall(r"^CREATE TABLE (\w+) \(", sql, flags=re.M)) | later == set(SQLModel.metadata.tables)
 
 

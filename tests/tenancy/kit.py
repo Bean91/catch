@@ -44,6 +44,7 @@ def mint(
     extra: dict | None = None,
     drop: tuple[str, ...] = (),
     email: str = "user@example.com",
+    amr_age: int | None = 5,
 ) -> str:
     now = int(time.time())
     claims: dict[str, Any] = {
@@ -54,6 +55,8 @@ def mint(
         "email": email,
         "session_id": session_id or str(uuid.uuid5(uuid.NAMESPACE_URL, sub)),
         "aal": "aal1",
+        # GoTrue stamps the moment of the real sign-in here and keeps it across refreshes (unlike `iat`).
+        **({"amr": [{"method": "password", "timestamp": now - amr_age}]} if amr_age is not None else {}),
         "is_anonymous": False,
         "iat": now,
         "exp": now + expires_in,

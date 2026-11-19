@@ -1861,6 +1861,16 @@ class Appeal(SQLModel, table=True):
     resolved_at: Optional[datetime] = None
 
 
+class DeletedAccount(SQLModel, table=True):
+    """Tombstone written (global, catch_api-only) just before the auth user is deleted, so a still-valid access token
+    can never re-create the profile that account deletion just removed. Holds nothing but the opaque id and a time."""
+
+    __tablename__ = "deleted_accounts"
+
+    user_id: str = Field(primary_key=True)
+    deleted_at: datetime = Field(default_factory=_utcnow)
+
+
 from catch.core import tenant_hooks as _tenant_hooks  # noqa: E402
 
 _tenant_hooks.install()

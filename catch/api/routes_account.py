@@ -13,16 +13,20 @@ from sqlmodel import Session, SQLModel, delete
 
 from catch.api import deps
 from catch.api.deps import get_db, require_auth
+from catch.coach import limits
 from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
 from catch.core.models import UserProfile
 from catch.core.redact import redact
 from catch.core.tenant import OwnedOrShared, OwnedStrict
-from catch.sync import club_store, leaderboard_store
+from catch.sync import account_store, club_store, leaderboard_store
 
 logger = logging.getLogger("catch.account")
 router = APIRouter(dependencies=[Depends(require_auth)])
 BUCKET = "piece-photos"
+# Deleting an account is irreversible, so a long-lived (silently refreshed) token is not enough on its own: the person must
+# have actually signed in recently. `amr[].timestamp` is that moment (it survives refresh; `iat` does not).
+RECENT_SIGN_IN_SECONDS = 600
 
 
 class DeleteAccount(BaseModel):
@@ -62,13 +66,19 @@ def purge_storage(access_token: str, owner: str) -> int:
             removed += len(names)
 
 
+def delete_global_rows(owner: str) -> None:
+    """What the user left in tables no owner filter reaches: public leaderboard rows go, club ownership is handed on,
+    reports/appeals/audit rows are detached from the person. Idempotent, and run BEFORE the auth user is deleted:
+    once that succeeds the person can no longer sign in to retry, so nothing may be left that only a retry could clean."""
+    leaderboard_store.delete_owner_data(owner)
+    club_store.delete_owner_data(owner)  # ownership succession, then their own club rows; what they wrote stays, detached from them
+
+
 def delete_user_rows(db: Session) -> None:
     """Service-layer deletion of everything the user owns. On Postgres deleting the profile is enough (every
     owned table cascades from it); on SQLite there is no cascade, so each table is cleared through the
     tenant-scoped ORM."""
     owner = tenant.current_owner()
-    leaderboard_store.delete_owner_data(owner)  # global leaderboard rows carry no cascade-safe owner scoping on every path
-    club_store.delete_owner_data(owner)  # ownership succession, then their own club rows; what they wrote stays, detached from them
     if tenant_hooks.uses_rls(db.get_bind()):
         db.exec(delete(UserProfile).where(UserProfile.id == owner))  # type: ignore[call-overload]
     else:
@@ -94,16 +104,30 @@ def admin_delete_auth_user(owner: str) -> None:
     )
     if resp.status_code not in (200, 204, 404):
         logger.warning("auth admin delete failed: %s %s", resp.status_code, redact(resp.text[:200]))
-        raise HTTPException(status_code=502, detail="Could not delete the sign-in account; nothing else was changed — try again")
+        raise HTTPException(status_code=502, detail="Could not delete the sign-in account; your public posts and files were already removed — try again")
+
+
+def _require_recent_sign_in(claims) -> None:
+    from catch.core import supabase_auth  # public-only module: a personal install never imports it
+
+    age = supabase_auth.seconds_since_sign_in(claims)
+    if age is None or age > RECENT_SIGN_IN_SECONDS:
+        raise HTTPException(status_code=403, detail="reauth_required")
 
 
 @router.delete("/api/account")
 def delete_account(body: DeleteAccount, request: Request, db: Session = Depends(get_db)):
     if not tenant.is_public():
         raise HTTPException(status_code=404, detail="Not available on a personal install")
+    owner = tenant.current_owner()
+    try:
+        limits.check_rate(owner, "account")
+    except limits.LimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=exc.message) from None
     if body.confirm != "DELETE":
         raise HTTPException(status_code=400, detail='Send {"confirm": "DELETE"} to delete this account')
-    owner = tenant.current_owner()
+    claims = request.state.claims
+    _require_recent_sign_in(claims)
     token = request.headers["authorization"][len("bearer ") :].strip()
     try:
         removed = purge_storage(token, owner)
@@ -113,9 +137,19 @@ def delete_account(body: DeleteAccount, request: Request, db: Session = Depends(
     from catch.sync import connections
 
     connections.revoke_all_for_account_deletion(db)
-    # The auth user goes first: it is the step that can fail for a reason outside our database, and once it is
-    # gone the cascade removes the profile and every owned row (and the user's sessions stop validating).
-    admin_delete_auth_user(owner)
-    delete_user_rows(db)
+    delete_global_rows(owner)
+    # The tombstone goes down before the auth user does: from the moment GoTrue deletes it, a token that is still
+    # inside its signature lifetime must not be able to re-create the profile. If GoTrue refuses, the tombstone is lifted
+    # so the person (still signed in, still existing) can simply try again — every step above is idempotent.
+    account_store.mark_deleted(owner)
+    try:
+        admin_delete_auth_user(owner)
+    except HTTPException:
+        account_store.unmark_deleted(owner)
+        raise
+    from catch.core import supabase_auth
+
+    supabase_auth.liveness.mark_dead(claims.session_id)
+    delete_user_rows(db)  # a no-op on Postgres (the auth deletion already cascaded); the table-by-table clear on SQLite
     deps._profiles_known.discard(owner)
     return {"deleted": True, "files_removed": removed}

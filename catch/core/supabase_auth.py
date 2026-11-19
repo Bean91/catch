@@ -37,6 +37,9 @@ class Claims:
     email: Optional[str]
     aal: Optional[str]
     exp: int
+    # (method, unix timestamp) of each way this session was authenticated. GoTrue sets the timestamp when the
+    # person actually signed in and keeps it across token refreshes, unlike `iat`, which every refresh renews.
+    amr: tuple = ()
 
 
 def issuer() -> str:
@@ -135,7 +138,24 @@ def verify_access_token(token: str) -> Claims:
         email=payload.get("email"),
         aal=payload.get("aal"),
         exp=int(payload["exp"]),
+        amr=_amr(payload.get("amr")),
     )
+
+
+def _amr(raw: Any) -> tuple:
+    out = []
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict) and isinstance(item.get("method"), str) and isinstance(item.get("timestamp"), (int, float)):
+            out.append((item["method"], int(item["timestamp"])))
+    return tuple(out)
+
+
+def seconds_since_sign_in(claims: Claims, *, now: Optional[float] = None) -> Optional[float]:
+    """Age of the most recent real authentication on this session, or None when the token doesn't say."""
+    stamps = [ts for _, ts in claims.amr]
+    if not stamps:
+        return None
+    return (time.time() if now is None else now) - max(stamps)
 
 
 # --- revocation ---------------------------------------------------------------------------------------------------
@@ -157,6 +177,11 @@ class SessionLiveness:
         with self._lock:
             self._alive.clear()
             self._dead.clear()
+
+    def mark_dead(self, session_id: str) -> None:
+        with self._lock:
+            self._dead.add(session_id)
+            self._alive.pop(session_id, None)
 
     def check(self, session_id: str, query: Callable[[str], bool]) -> bool:
         ttl = config.settings.supabase_session_check_ttl

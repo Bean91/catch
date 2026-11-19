@@ -46,6 +46,13 @@ def ensure_profile(claims) -> None:
     if claims.sub in _profiles_known:
         return
     from catch.core.models import UserProfile
+    from catch.core.supabase_auth import AuthError
+    from catch.sync import account_store
+
+    # A token that outlives its account (still unexpired, session cache not yet expired on this replica) must not
+    # quietly re-create the profile that deletion just removed.
+    if account_store.is_deleted(claims.sub):
+        raise AuthError("This account has been deleted")
 
     with tenant.use_owner(claims.sub), Session(engine) as session:
         if session.get(UserProfile, claims.sub) is None:
