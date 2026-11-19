@@ -167,3 +167,11 @@ a Sidebar entry and a Settings card on the public build (no bottom-nav slot; the
 - In a junior club **the owner counts as a coach** for admitting young athletes and for posting without waiting (migration `0007`). An admin does not. This means a one-adult junior club works; it also means the "coach approves" safeguard can be one person, the owner. Web links in a junior club's posts and a logo were allowed at the operator's request; links in its description/rules and member-to-member messaging are still not.
 - A moderator contact route other than the report form, and a response-time promise, are not built.
 - Verified against synthetic data on a local Supabase stack; no hosted project, real provider or real minors were involved.
+
+
+## 15. Session 28 additions
+
+Reports count towards an automatic hide only from accounts at least **7 days old** (a moderator still sees every report). Platform moderators can **restrict** one social capability of one
+account (`publish`, `clubs`, `posting`) with a mandatory reason; the person sees the reason, that "a platform moderator" decided it, and can appeal once (a different moderator reviews) — it never
+limits their own data, download or deletion. Moderator detail reads are logged (`moderator_access_log`) and moderator routes require an `aal2` session. Resolved club reports are pruned after 12 months and
+the club audit trail after 24 (the database refuses to delete a newer audit row). A junior-club kill switch and safeguarding review remain unbuilt.

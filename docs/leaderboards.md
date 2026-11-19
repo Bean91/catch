@@ -163,3 +163,9 @@ REST: `/api/leaderboards/*` and `/api/moderation/*` (above). Coach/MCP, read-onl
 `get_public_athlete_profile`, `get_verified_results`. There are deliberately **no** publish/unpublish tools: confirmation is the athlete's own
 act in the app (the endpoint demands `confirm` and the preview hash). Web: `/leaderboards`, `/leaderboards/athletes/:id`,
 `/settings/leaderboards`, `/settings/moderation`.
+
+
+## 13. Session 28 additions
+
+A `publish` restriction (placed by a platform moderator, with a reason the athlete can see and appeal) blocks publishing results; it does not touch their private data. Only reports from accounts at least 7 days
+old count towards the three-report automatic hide. Moderator decisions and detail reads are recorded in append-only logs; retention of `moderation_events` is an open question for counsel.

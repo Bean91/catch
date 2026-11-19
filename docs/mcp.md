@@ -181,3 +181,29 @@ and `forget` of an `event:<id>` all **preview unless `confirm=true`**: the first
 unless `confirm=true`**, same convention as the calendar writes. Private notes and feedback are returned only to the
 athlete's own principal; a coach token never receives them. Catch can't measure technique, so none of these tools scores
 or rates it. See [library.md](library.md).
+
+
+## Scopes, expiry and OAuth (session 28)
+
+**Device tokens** now have a *scope* (`read` = only tools that don't write; `write` = also the confirm-gated writes; an athlete token created from the
+app defaults to `read`, a coach token to `write` but is limited to its five tools), a **90-day expiry** (1–365 selectable), and at most **10 active**
+per person. "End all app access" (Settings → Privacy, and "sign out of all devices") revokes every token and OAuth grant at once. Every call through
+`/mcp` or `POST /api/coach/tools/*` is recorded in the tool-call log (tool, door, write/confirmed/outcome, argument hash — never content), shown under
+Settings → Privacy → Recent activity by apps. Reads obey the AI-sharing switches (docs/ai-data-sharing.md): a category the person hasn't allowed answers
+"sharing is switched off".
+
+**OAuth 2.1 for `/mcp`** (public deployment; `CATCH_MCP_OAUTH_ENABLED=1` plus `CATCH_MCP_HTTP_ENABLED=1`; **off by default; verified against a synthetic
+client only — never a real Claude Desktop/Claude.ai connector**). Built on the installed MCP SDK's `OAuthAuthorizationServerProvider` (`mcp` 2.3.0), so the
+SDK supplies the metadata documents, dynamic client registration (RFC 7591), `/authorize`, `/token`, `/revoke` and PKCE verification; Catch supplies
+storage and consent (`catch/mcp_server/oauth.py`, `catch/api/routes_oauth.py`, `web/src/pages/OAuthConsent.tsx`).
+
+Endpoints (same origin as the app): `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource/mcp`, `POST /register`, `GET /authorize`,
+`POST /token`, `POST /revoke`; a `/mcp` call with no valid token gets `401` with `WWW-Authenticate: Bearer resource_metadata="…"`. Flow: the client registers
+(public client, https or loopback-http redirect URIs, ≤ 5, no fragments, no secret; throttled and capped) → `/authorize` redirects the person to
+`/oauth/consent` on Catch, where the **signed-in** person sees who is asking and what for, may grant less (write is optional and implies read), and
+approves or cancels → one-time 60 s code → `/token` (S256 PKCE mandatory, exact redirect URI, same client) → opaque tokens stored only as SHA-256.
+
+Lifetimes: access 1 h; refresh rotates on every use, 30 d, absolute 90 d; **presenting an already-rotated refresh token revokes the whole grant**. A grant is
+bound to the `/mcp` resource (a token for another resource is refused). Scopes: `catch:read`, `catch:write`. Nothing reaches credentials, AI keys, account
+deletion or club/leaderboard writes. The person lists and ends grants in Settings → Privacy → Connected apps. Why the SDK path rather than Supabase's OAuth
+server: the latter is beta, off on the local stack, its tokens are full user sessions (they'd work on every `/api` route) and it has no custom read/write scopes.

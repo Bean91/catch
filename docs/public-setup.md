@@ -118,3 +118,21 @@ CATCH_TEST_PG_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgre
 ```
 Browser end to end (a real browser, the real CSP, real confirmation and recovery emails): set `site_url`/`additional_redirect_urls` to `http://127.0.0.1:8799`, `enable_confirmations = true`, `[auth.rate_limit] email_sent` high, mailpit on; build the web app with the public flags pointing at the local stack; then `cd web && npm run test:live` (see `web/playwright.live.config.ts`).
 For the pooler test, enable `[db.pooler]` in `supabase/config.toml` and set `CATCH_TEST_SUPABASE_POOLER_URL=postgresql://postgres.pooler-dev:postgres@127.0.0.1:54329/postgres`.
+
+
+## 7. Session 28 operator checklist (before real users)
+
+Required settings the app now enforces at startup (it refuses to start otherwise): `CATCH_OLLAMA_ENABLED=0`; `CATCH_SECRETS_MASTER_KEY` set, ≥ 32 characters (the
+Pi-only `CATCH_FERNET_KEY` fallback is not accepted); `CATCH_TICK_SECRET` (if used) ≥ 32 characters. Run `catch db upgrade` for migration **0008**.
+
+New or changed settings: `CATCH_MODERATOR_REQUIRE_AAL2=1` (default; moderators must have completed MFA — enable TOTP in Supabase and enrol the moderator accounts);
+`CATCH_MCP_OAUTH_ENABLED=0` (keep off until verified with a real client; needs `CATCH_MCP_HTTP_ENABLED=1`). Schedule a third tick job:
+`POST /internal/tick/retention` once a day (same bearer secret as the others) — it prunes notification/tool-call/usage logs and expired club reports/audit rows.
+
+Supabase dashboard (the local stack's config is weaker than these on purpose; see the table in `docs/security.md`): minimum password length ≥ 12 and character
+requirements; leaked-password protection if the plan has it; **Secure password change on**; **MFA (TOTP) enabled**; sign-up/sign-in/recovery rate limits tightened and
+CAPTCHA on; *Redirect URLs* exactly the app URL; confirm email on. Check and write down: database backup / PITR retention (what survives an account deletion and for how
+long — the deletion policy draft needs this number), Auth log retention, FastAPI Cloud log retention and whether OAuth callback `?code=` appears in request logs.
+
+Operator duties the code can't do: legal review of `docs/legal/*` before launch; the contact/controller details those drafts leave blank; a process for the safeguarding concerns
+and data-subject requests the drafts mention; run `catch secrets status` after any key change; keep `.github/workflows/security.yml` green (gitleaks, pip-audit, npm audit).
