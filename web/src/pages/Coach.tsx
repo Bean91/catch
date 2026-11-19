@@ -20,7 +20,7 @@ import { Timeline } from "../components/coach/Timeline";
 const MORNING_BRIEF_PROMPT =
   "Give me my morning brief — how's recovery and strain looking today, and what should today's training look like?";
 
-type Notice = { kind: "error" | "cap" | "provider" | "setup"; message: string; switchTo?: CoachProviderName[] };
+type Notice = { kind: "error" | "cap" | "provider" | "setup" | "consent"; message: string; switchTo?: CoachProviderName[] };
 
 const PROVIDER_LABEL: Record<CoachProviderName, string> = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini", ollama: "Ollama" };
 
@@ -136,6 +136,9 @@ export function CoachPage() {
         } else if (event.type === "ai_not_configured") {
           flushText();
           setNotice({ kind: "setup", message: event.message, switchTo: event.switch_to });
+        } else if (event.type === "consent_required") {
+          flushText();
+          setNotice({ kind: "consent", message: event.message });
         } else if (event.type === "rate_limited") {
           flushText();
           setNotice({ kind: "cap", message: event.message });
@@ -234,6 +237,11 @@ export function CoachPage() {
             {(notice.kind === "setup" || notice.kind === "error" || notice.kind === "provider") && (
               <Link to="/settings/ai" className="inline-flex min-h-9 items-center font-medium text-accent hover:underline">
                 AI providers
+              </Link>
+            )}
+            {notice.kind === "consent" && (
+              <Link to="/settings/privacy" data-testid="coach-consent-link" className="inline-flex min-h-9 items-center font-medium text-accent hover:underline">
+                Choose what to share
               </Link>
             )}
           </span>

@@ -61,6 +61,8 @@ const PRECACHE_URLS = ${JSON.stringify(precache)};
 // client's actual freshness signals (online-ness, build version). Serving either from a
 // stale cache, even as an offline fallback, would make both silently lie.
 const NEVER_CACHE = ['/api/health', '/version.json'];
+// Offline copies are for the data screens only. Credentials, tokens, exports and account/privacy responses are never kept on the device.
+const NEVER_CACHE_PREFIXES = ['/api/privacy/', '/api/account', '/api/coach/tokens', '/api/ai/', '/api/connections', '/api/oauth', '/auth/'];
 
 self.addEventListener('install', (event) => {
   // Reload-on-tap is now driven by version.json (above), not by "is a worker waiting" — so
@@ -117,7 +119,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (NEVER_CACHE.includes(url.pathname)) {
+  if (NEVER_CACHE.includes(url.pathname) || NEVER_CACHE_PREFIXES.some((p) => url.pathname.startsWith(p))) {
     event.respondWith(fetch(req));
     return;
   }
@@ -209,6 +211,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    fs: { allow: ['..'] }, // the legal drafts are read from ../docs/legal
     proxy: {
       '/api': `http://localhost:${catchPort()}`,
       '/auth': `http://localhost:${catchPort()}`,

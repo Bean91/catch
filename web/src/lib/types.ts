@@ -1043,6 +1043,7 @@ export type CoachEvent =
   | { type: "error"; message: string; kind?: AiErrorKind; switch_to?: CoachProviderName[] }
   | { type: "ai_not_configured"; message: string; provider: CoachProviderName; switch_to: CoachProviderName[] }
   | { type: "rate_limited"; message: string; retry_after_s: number }
+  | { type: "consent_required"; message: string }
   | { type: "provider_unavailable"; message: string; can_switch_to: CoachProviderName[] }
   | { type: "cap_reached"; reason?: "usd" | "tokens"; daily_spend_usd?: number; daily_cap_usd?: number; daily_tokens?: number; daily_token_cap?: number };
 

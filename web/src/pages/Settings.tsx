@@ -112,6 +112,19 @@ export function SettingsPage() {
         </Card>
       )}
 
+      <Card
+        title="Privacy"
+        action={
+          <Link to="/settings/privacy" data-testid="settings-privacy" className="text-sm font-medium text-accent hover:underline">
+            Open
+          </Link>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          What the AI may see, what's public, apps connected to your data, download everything, delete selected data or your account.
+        </p>
+      </Card>
+
       {(isPublic || isMock) && (
         <Card
           title="Leaderboards"

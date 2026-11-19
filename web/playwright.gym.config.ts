@@ -60,6 +60,7 @@ export default defineConfig({
     timeout: 20_000,
     env: {
       CATCH_ENV: "test",
+      CATCH_DEPLOYMENT: "personal", // a disposable personal instance: never inherit a developer .env that says "public"
       CATCH_PORT: String(PORT),
       CATCH_DB_PATH: dbPath,
       CATCH_BASE_URL: `http://127.0.0.1:${PORT}`,

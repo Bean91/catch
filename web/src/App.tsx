@@ -23,6 +23,8 @@ const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.Bod
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
 const NutritionPage = lazy(() => import("./pages/Nutrition").then((m) => ({ default: m.NutritionPage })));
 const ConnectionsPage = lazy(() => import("./pages/Connections").then((m) => ({ default: m.ConnectionsPage })));
+const LegalPage = lazy(() => import("./pages/Legal").then((m) => ({ default: m.LegalPage })));
+const PrivacyPage = lazy(() => import("./pages/Privacy").then((m) => ({ default: m.PrivacyPage })));
 const AiProvidersPage = lazy(() => import("./pages/AiProviders").then((m) => ({ default: m.AiProvidersPage })));
 const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 const MemoryPage = lazy(() => import("./pages/Memory").then((m) => ({ default: m.MemoryPage })));
@@ -117,6 +119,9 @@ export function App() {
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/ai" element={<AiProvidersPage />} />
+          <Route path="/settings/privacy" element={<PrivacyPage />} />
+          <Route path="/legal" element={<LegalPage />} />
+          <Route path="/legal/:doc" element={<LegalPage />} />
           <Route path="/settings/connections" element={<ConnectionsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/status" element={<StatusPage />} />

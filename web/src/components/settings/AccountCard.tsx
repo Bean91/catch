@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { deleteAccount } from "../../lib/api";
+import { ApiError, deleteAccount } from "../../lib/api";
+import { revokeAllDeviceTokens } from "../../lib/privacy";
 import { useAuth } from "../../lib/auth";
 import { Card } from "../ui/Card";
 
@@ -11,7 +12,13 @@ export function AccountCard() {
   const { email, logout } = useAuth();
   const [confirm, setConfirm] = useState(false);
   const [typed, setTyped] = useState("");
-  const everywhere = useMutation({ mutationFn: () => logout(true) });
+  // Apps connected with a device token aren't tied to this sign-in, so "all devices" ends them first, while this session can still ask.
+  const everywhere = useMutation({
+    mutationFn: async () => {
+      await revokeAllDeviceTokens().catch(() => undefined);
+      await logout(true);
+    },
+  });
   const remove = useMutation({
     mutationFn: async () => {
       await deleteAccount();
@@ -38,8 +45,10 @@ export function AccountCard() {
         {confirm && (
           <div className="flex flex-col gap-2 rounded-md border border-band-red p-3" role="alertdialog" aria-label="Delete account">
             <p className="text-sm text-text-secondary">
-              This permanently deletes your account and everything in it — workouts, wellness, nutrition, notes, check-ins, coach conversations,
-              stored photos and any AI keys you saved. It cannot be undone. Type <span className="font-mono-nums text-text-primary">DELETE</span> to confirm.
+              This permanently deletes your account and the data you own — workouts, wellness, nutrition, notes, check-ins, coach conversations,
+              stored photos, saved AI keys and connected-source credentials — and ends any app access. It cannot be undone. Kept after deletion: a moderation
+              decision about a published result stays on record (no longer linked to you), and what you posted in a club stays with the club without your name.
+              Data you already sent to an AI provider, and your grants at Garmin, Withings and Concept2 (which can't be ended from here), are outside Catch's control. Type <span className="font-mono-nums text-text-primary">DELETE</span> to confirm.
             </p>
             <input
               aria-label="Type DELETE to confirm"
@@ -47,7 +56,17 @@ export function AccountCard() {
               onChange={(e) => setTyped(e.target.value)}
               className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-text-primary outline-none focus-visible:border-accent"
             />
-            {remove.isError && <p className="text-sm text-band-red">Could not delete the account. Nothing else was changed — try again.</p>}
+            {remove.isError && remove.error instanceof ApiError && remove.error.status === 403 && remove.error.message === "reauth_required" && (
+              <div className="flex flex-col gap-2" data-testid="reauth-required">
+                <p className="text-sm text-band-red-text">
+                  For your safety, deleting an account needs a recent sign-in. Sign out, sign back in, and come straight back here.
+                </p>
+                <div><button type="button" className={btn} onClick={() => logout(false)}>Sign out and sign in again</button></div>
+              </div>
+            )}
+            {remove.isError && !(remove.error instanceof ApiError && remove.error.message === "reauth_required") && (
+              <p className="text-sm text-band-red">Could not delete the account. Some of your public posts and files may already have been removed — try again.</p>
+            )}
             <div className="flex gap-2">
               <button type="button" className={btn} onClick={() => { setConfirm(false); setTyped(""); }}>
                 Cancel

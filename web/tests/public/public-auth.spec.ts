@@ -162,3 +162,23 @@ test("deleting the account needs the typed confirmation, calls the API once, and
   await expect(page.getByLabel("Email")).toBeVisible({ timeout: 10_000 });
   expect(deleted).toBe(1);
 });
+
+test("an old sign-in is asked to sign in again before an account can be deleted, and nothing is signed out until then", async ({ page }) => {
+  await mockBackend(page);
+  let attempts = 0;
+  await page.route("**/api/account", (route) => {
+    if (route.request().method() === "DELETE") attempts += 1;
+    return json(route, 403, { detail: "reauth_required" });
+  });
+  await page.route("**/api/settings", (route) => json(route, 200, mockSettings()));
+  await signIn(page);
+  await expect(page.getByLabel("Email")).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Delete account…" }).click();
+  await page.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await page.getByRole("button", { name: "Delete everything" }).click();
+  await expect(page.getByTestId("reauth-required")).toContainText("recent sign-in");
+  await expect(page.getByRole("button", { name: "Sign out and sign in again" })).toBeVisible();
+  expect(attempts).toBe(1);
+  await expect(page.getByLabel("Email")).toHaveCount(0); // still signed in: the refusal changed nothing
+});

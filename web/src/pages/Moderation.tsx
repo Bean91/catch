@@ -5,6 +5,7 @@ import { fetchModQueue, moderateLbEntry, resolveLbAppeal } from "../lib/api";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ClubModeration } from "../components/clubs/ClubModeration";
+import { AccountRestrictions } from "../components/clubs/AccountRestrictions";
 
 const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 
@@ -76,6 +77,7 @@ export function ModerationPage() {
         </>
       )}
       {q.data && <ClubModeration />}
+      {q.data && <AccountRestrictions />}
     </div>
   );
 }
