@@ -4465,3 +4465,18 @@ the connector showed "Couldn't register with Catch's sign-in service". Replaying
 `Requested scopes are not valid`. So the endpoint works and rejects clients that ask for scopes Catch doesn't offer; claude.ai's real payload was not visible (the platform log keeps the status line, not the body).
 Added `catch.oauth` logging of the server's own error code + description for any rejected `/register`/`/authorize`/`/token`/`/revoke` (never the request or a token), redeployed, and removed the two test clients the replay created.
 **Next:** retry Connect in claude.ai, read the `oauth /register rejected: …` line in `fastapi cloud logs`, fix the specific rule.
+
+## Production smoke test (2026-11-19, after the OAuth/Whoop fixes)
+
+`scripts/smoke_public.py` against `https://catch.openoted.com` with disposable users created and deleted through GoTrue admin: **35/35 passed** — health, SPA + nested route, security headers, no API docs, 401s, `/internal/db-check`
+(unprivileged role, SSL, both RLS probes), `/internal` auth, sign-in, JWT, persisted write, two-user isolation (404 not 403), device-token mint, MCP 401/initialize/tools/list (66, stateless across requests)/read call,
+read-scope write refused, 120 requests × 40 concurrent all 200 (≈ 3.8 s), sign-out revokes an unexpired token, account deletion (step-up, Auth user gone, old token rejected, other user untouched).
+Caveats: users were admin-created (the sign-up and confirmation-email path, which depends on SMTP, was not exercised); the MCP write control returned the AI-sharing "unavailable" reply because a new account has consented to nothing (session 28), which
+is correct but means no write was actually executed; provider connects and BYOK AI were not tested (no sandbox credentials); the Pi check was dropped by the owner (it is being wiped).
+
+## Fixes found by the live run
+
+- **claude.ai OAuth:** it registers as a *confidential* client (asks for a secret); Catch refused anything but `none`, so `POST /register` was a 400 on every attempt. Now registered as a public PKCE client and the 201 says `none`/no secret (RFC 7591 §3.2.1);
+  S256 PKCE and the redirect rules are unchanged. A real claude.ai connect (consent screen + a tool call) has not yet been confirmed.
+- **Whoop "isn't available on this server":** the running app saw `WHOOP_CLIENT_SECRET` as empty although the env listing showed `[secret]`. Found with the new `GET /internal/config-check` (set/unset per setting, redirect-URI match; never a value).
+  Fix is the owner's: delete and re-create the secret. `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are also unset in production (no push).

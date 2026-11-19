@@ -6,7 +6,7 @@ deletion is itself one of the checks). Reads everything from the environment and
   SMOKE_BASE_URL          https://<host>            the deployed app
   SMOKE_SUPABASE_URL      https://<ref>.supabase.co
   SMOKE_PUBLISHABLE_KEY   sb_publishable_…
-  SMOKE_SECRET_KEY        sb_secret_…               creates/deletes the disposable users only
+  SMOKE_SECRET_KEY        sb_secret_…               creates/deletes the disposable users only (or SMOKE_SECRET_KEY_FILE=<path to a file holding it>)
   CATCH_TICK_SECRET       the app's tick secret     /internal checks (optional: those checks are skipped without it)
 
 Run:  uv run python scripts/smoke_public.py          Exit code 0 = every non-skipped check passed.
@@ -29,6 +29,9 @@ BASE = os.environ.get("SMOKE_BASE_URL", "").rstrip("/")
 SB = os.environ.get("SMOKE_SUPABASE_URL", "").rstrip("/")
 PUB = os.environ.get("SMOKE_PUBLISHABLE_KEY", "")
 SEC = os.environ.get("SMOKE_SECRET_KEY", "")
+_key_file = os.environ.get("SMOKE_SECRET_KEY_FILE", "")
+if not SEC and _key_file:  # a file the operator wrote themselves (chmod 600), so the key never appears in a command line or transcript
+    SEC = open(os.path.expanduser(_key_file)).read().strip()
 TICK = os.environ.get("CATCH_TICK_SECRET", "")
 
 results: list[tuple[str, str, str]] = []  # (status, name, detail)
@@ -93,8 +96,10 @@ def mcp_result(resp: httpx.Response) -> dict:
 
 
 def main() -> int:
-    for name in ("SMOKE_BASE_URL", "SMOKE_SUPABASE_URL", "SMOKE_PUBLISHABLE_KEY", "SMOKE_SECRET_KEY"):
+    for name in ("SMOKE_BASE_URL", "SMOKE_SUPABASE_URL", "SMOKE_PUBLISHABLE_KEY"):
         need(name)
+    if not SEC:
+        raise SystemExit("Set SMOKE_SECRET_KEY or SMOKE_SECRET_KEY_FILE (see the module docstring)")
     if ("localhost" in BASE or "127.0.0.1" in BASE) and os.environ.get("SMOKE_ALLOW_LOCAL") != "1":
         raise SystemExit("SMOKE_BASE_URL is a loopback address; set SMOKE_ALLOW_LOCAL=1 to test a local instance")
     a, b = User("a"), User("b")
