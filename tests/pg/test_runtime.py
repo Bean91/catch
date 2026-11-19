@@ -299,3 +299,52 @@ def test_a_coach_turn_runs_for_two_real_users_and_holds_no_transaction_while_the
         assert app.get(f"/api/coach/conversations/{conv['id']}", headers=b.headers).status_code == 404
     finally:
         registry.build_provider = real_build
+
+
+def test_a_token_cannot_bring_a_deleted_account_back_even_while_another_replica_still_trusts_its_session(app, admin, monkeypatch):
+    """The 15 s liveness cache is the window: a replica that cached "session alive" before the deletion keeps accepting the
+    token. Production TTL here, not the suite's 0.0 — the tombstone is what stops the profile being re-created."""
+    import time
+
+    from catch.api import deps
+
+    object.__setattr__(config.settings, "supabase_session_check_ttl", 15.0)
+    u = signup("resurrect")
+    assert app.get("/api/me", headers=u.headers).status_code == 200
+    claims = supabase_auth.verify_access_token(u.access_token)
+    assert app.request("DELETE", "/api/account", headers=u.headers, json={"confirm": "DELETE"}).status_code == 200
+    # Another replica: it cached "alive" before the deletion and has no profile cached.
+    supabase_auth.liveness.reset()
+    supabase_auth.liveness._alive[claims.session_id] = time.monotonic()
+    deps._profiles_known.clear()
+    assert app.get("/api/me", headers=u.headers).status_code == 401
+    with admin.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM catch.user_profiles WHERE id = :i"), {"i": u.id}).scalar() == 0
+        assert conn.execute(text("SELECT count(*) FROM catch.deleted_accounts WHERE user_id = :i"), {"i": u.id}).scalar() == 1
+
+
+def test_an_old_sign_in_cannot_delete_the_account_but_a_fresh_one_can(app, admin):
+    """Real GoTrue tokens: `amr[].timestamp` is the sign-in moment and survives a refresh; `iat` does not."""
+    import base64
+
+    u = signup("stepup")
+    refreshed = _refresh(u)
+    payload = json.loads(base64.urlsafe_b64decode(refreshed.split(".")[1] + "=="))
+    assert payload["amr"][0]["timestamp"] <= payload["iat"]
+    # Age the sign-in: the suite can't wait ten minutes, so shrink the window instead of faking a token.
+    from catch.api import routes_account
+
+    original = routes_account.RECENT_SIGN_IN_SECONDS
+    try:
+        routes_account.RECENT_SIGN_IN_SECONDS = -1
+        denied = app.request("DELETE", "/api/account", headers={"authorization": f"Bearer {refreshed}"}, json={"confirm": "DELETE"})
+        assert denied.status_code == 403 and denied.json()["detail"] == "reauth_required"
+    finally:
+        routes_account.RECENT_SIGN_IN_SECONDS = original
+    assert app.request("DELETE", "/api/account", headers={"authorization": f"Bearer {refreshed}"}, json={"confirm": "DELETE"}).status_code == 200
+
+
+def _refresh(user) -> str:
+    from tests.pg.conftest import _post
+
+    return _post("/auth/v1/token?grant_type=refresh_token", {"refresh_token": user.refresh_token})["access_token"]
