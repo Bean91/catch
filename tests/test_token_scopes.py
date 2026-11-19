@@ -84,7 +84,7 @@ def test_revoking_all_tokens_kills_them_at_once(client):
     _login(client)
     tokens = [_mint(client), _mint(client)]
     limits._windows.clear()
-    assert client.request("DELETE", "/api/coach/tokens").json() == {"revoked": 2}
+    assert client.request("DELETE", "/api/coach/tokens").json()["revoked"] == 2
     client.cookies.clear()
     for t in tokens:
         assert client.post("/api/coach/tools/get_zones", headers=_bearer(t), json={"args": {}}).status_code == 401

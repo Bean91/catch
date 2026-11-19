@@ -128,6 +128,7 @@ ALLOWED_RAW_SQL = {
     "catch/api/routes_internal.py",  # SECURITY DEFINER user list
     "catch/sync/lease.py",  # the advisory lock behind the per-(user, job) claim
     "catch/sync/account_store.py",  # session 28: catch_private.account_age_days (SECURITY DEFINER; user_profiles has no grant for catch_api)
+    "catch/mcp_server/oauth.py",  # session 28: catch_private.resolve_oauth_code/token (SECURITY DEFINER lookups before an owner is known)
     "catch/sync/club_store.py",  # session 27: catch_club.transfer_ownership (SECURITY DEFINER; re-checks the caller is the owner)
 }
 
