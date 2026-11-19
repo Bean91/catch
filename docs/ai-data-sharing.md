@@ -13,12 +13,12 @@ token). A declared age band of u19…u14 requires `guardian_ack` before any heal
 |---|---|---|
 | In-app chat | `chat._run_turn` | `consent_required` event; the provider is never resolved |
 | System-prompt memory block | `memory.memory_block(allowed=…)` | sections for disabled categories are omitted (events/goals/facts, check-in/niggle, illness, recommendation) |
-| Tool reads on a model-bound path (`via` = `ai_coach` or `mcp`) | `tools.call_tool` | the result is replaced by `{"unavailable": true, "reason": "sharing_disabled", …}`; the denial is audited |
+| Tool calls — reads **and writes** — on a model-bound path (`via` = `ai_coach` or `mcp`; a device token is always `mcp`, decided by the credential) | `tools.call_tool` | the result is replaced by `{"unavailable": true, "reason": "sharing_disabled", …}`; the denial is audited |
 | Photo features | `vision.run_vision` / `vision_available` | `VisionError` / `reason: "sharing_off"`; the image is never sent |
 | Direct REST tool calls (`via` = `rest`) | not gated | the person's own API client, not a model |
 
 `TOOL_CATEGORY` classifies every tool (a test fails if a tool is missing); `None` = no personal data (connection status, other people's public
-leaderboard/club information). Writes are not blocked by category (they carry what the person typed and are preview-then-confirm).
+leaderboard/club information). Mixed payloads are trimmed (`ai_sharing.limit_result`: `get_today` drops check-in and upcoming events, workouts drop notes/RPE when those categories are off; `get_trends` over a `checkin_*` metric is refused), and `scrub_history` re-applies the rules to stored tool results every time a conversation is replayed.
 
 **Payloads** (`coach/providers/*`, `coach/vision.py`): chat = system prompt + memory block + history (≈ 60k tokens, `limits.trim_history`) + tool schemas;
 vision = a fixed system prompt, one line of user text and the image bytes. Credentials, account ids, emails, device tokens and raw GPS coordinates are

@@ -68,6 +68,7 @@ def _athlete(owner: str) -> Optional[dict]:
 
 
 def update_settings(session: Session, body: dict) -> dict:
+    _not_restricted("publish")
     """Display choices and attestations. Opting in/out are their own calls below."""
     row = settings_row(session)
     if "date_precision" in body and body["date_precision"] is not None:
@@ -123,6 +124,7 @@ def _write_athlete(owner: str, body: dict, existing: Optional[dict]) -> dict:
 
 
 def opt_in(session: Session, body: dict) -> dict:
+    _not_restricted("publish")
     """Requires the athlete's explicit confirmation, a display choice, and the age attestation that applies."""
     if body.get("confirm") is not True:
         raise LeaderboardError("Confirm that you want to appear on public leaderboards.")
@@ -449,6 +451,7 @@ def publish(session: Session, ref: dict, prefs: dict, *, confirm: bool, preview_
 
 
 def update_publication(session: Session, entry_id: str, body: dict) -> dict:
+    _not_restricted("publish")
     pub = session.exec(select(ResultPublication).where(ResultPublication.entry_id == entry_id, ResultPublication.withdrawn_at.is_(None))).first()  # type: ignore[union-attr]
     if pub is None:
         raise LeaderboardError("Not found.", 404)

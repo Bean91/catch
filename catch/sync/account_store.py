@@ -64,10 +64,11 @@ def iter_global_rows(owner_id: str, table: str, batch: int = 200):
     """This person's rows in one global table, in batches (bounded memory)."""
     cls = _table_class(table)
     column = getattr(cls, OWNER_COLUMN[table])
+    # Fetched inside the store context and yielded outside it (a context manager held across a yield breaks under StreamingResponse).
+    # One person's rows in one table are small, so a full fetch is bounded.
     with store() as s:
-        stmt = select(cls).where(column == owner_id).execution_options(yield_per=batch)
-        for row in s.scalars(stmt):
-            yield row
+        rows = list(s.scalars(select(cls).where(column == owner_id)))
+    yield from rows
 
 
 def exposure(owner_id: str) -> dict:
@@ -98,11 +99,17 @@ def prune_global(now=None) -> dict:
     from catch.core.models import ClubAudit, ClubReport
 
     now = now or datetime.now(timezone.utc)
+    from sqlalchemy import func
+
+    from catch.core.models import OAuthClient
+
     with store() as s:
+        # Dynamic client registration is unauthenticated, so abandoned registrations are dropped: nothing used in 30 days.
+        clients = s.execute(sa_delete(OAuthClient).where(func.coalesce(OAuthClient.last_used_at, OAuthClient.created_at) < now - timedelta(days=30))).rowcount or 0
         reports = s.execute(sa_delete(ClubReport).where(ClubReport.status != "open", ClubReport.created_at < now - timedelta(days=365))).rowcount or 0
         audit = s.execute(sa_delete(ClubAudit).where(ClubAudit.created_at < now - timedelta(days=730))).rowcount or 0
         s.commit()
-    return {"club_reports": reports, "club_audit": audit}
+    return {"club_reports": reports, "club_audit": audit, "oauth_clients": clients}
 
 
 def account_age_days(owner_id: str, session=None) -> int | None:

@@ -235,14 +235,14 @@ async def _run_turn(session: Session, conversation_id: int, user_text: str, owne
         }
         return
 
-    history = _load_history(session, conversation_id)
+    history = ai_sharing.scrub_history(session, _load_history(session, conversation_id))
     user_blocks = [{"type": "text", "text": user_text}]
     athlete_message = _save_message(session, conversation_id, "user", user_blocks)
     history.append({"role": "user", "blocks": user_blocks})
 
     def confirmation_check(name: str, args: dict) -> bool:
         # Honour confirm=true only for a call this athlete saw previewed in an EARLIER turn (see coach/confirmation.py).
-        return confirmation.preview_exists(session, conversation_id, name, args, before_message_id=athlete_message.id)
+        return confirmation.is_affirmation(user_text) and confirmation.preview_exists(session, conversation_id, name, args, before_message_id=athlete_message.id)
 
     system_blocks = [
         {"text": load_system_prompt(), "cache": True},

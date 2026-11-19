@@ -79,3 +79,9 @@ def test_outbound_base_url_private_allowed_only_when_asked():
         netguard.validate_outbound_base_url("ftp://example.com", allow_private=True)
     with pytest.raises(netguard.UnsafeUrl):
         netguard.validate_outbound_base_url("http://u:p@example.com", allow_private=True)
+
+
+@pytest.mark.parametrize("url", ["https://x\t.push.apple.com/a", "https://web.push.apple.com/a\nb", "https://web.push.apple.com/a b", "https://web.push.apple.com/é", "https://web.push.apple.com/a\x00"])
+def test_control_and_non_ascii_characters_are_refused(url):
+    with pytest.raises(netguard.UnsafeUrl):
+        netguard.validate_push_endpoint(url)

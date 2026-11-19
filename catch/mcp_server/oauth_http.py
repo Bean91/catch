@@ -8,7 +8,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from catch.coach import limits
 
-_BUCKETS = {"/register": "oauth_register", "/token": "callback", "/authorize": "callback", "/revoke": "callback"}
+_BUCKETS = {"/register": "oauth_register", "/token": "oauth_token", "/authorize": "oauth_token", "/revoke": "oauth_token"}
 
 
 class OAuthThrottleMiddleware:

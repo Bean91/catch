@@ -47,6 +47,18 @@ def list_tools(principal: Principal = Depends(require_tool_auth_allow_coach)):
     return [t for t in schemas if may_call_tool(principal, t["name"])]
 
 
+def _via(request: Request) -> str:
+    """Which door a tool call came through. A device token (anything that isn't the web app's own cookie or Supabase JWT) is an outside client —
+    its results go to a model — so that is decided by the credential, never by a header the caller could simply omit. The MCP stdio
+    bridge's `X-Catch-Client: mcp` only adds to it."""
+    if request.headers.get("x-catch-client") == "mcp":
+        return "mcp"
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer ") and header[7:].strip().count(".") != 2:
+        return "mcp"  # a device token: no dots, unlike a JWT
+    return "rest"
+
+
 class ToolCallRequest(BaseModel):
     args: dict = {}
 
@@ -65,7 +77,7 @@ def call_tool_endpoint(
     if not may_call_tool(principal, name):
         raise HTTPException(status_code=403, detail=f"This token's role can't use '{name}'")
     try:
-        return tools_module.call_tool(db, name, body.args, ctx={"principal": principal, "via": "mcp" if request.headers.get("x-catch-client") == "mcp" else "rest"})
+        return tools_module.call_tool(db, name, body.args, ctx={"principal": principal, "via": _via(request)})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

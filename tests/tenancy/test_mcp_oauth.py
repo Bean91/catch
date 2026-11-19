@@ -401,3 +401,39 @@ def test_a_public_app_with_the_flags_on_serves_the_metadata_and_challenges_unaut
     assert "catch:read" in meta and "catch:write" in meta
     assert resource.startswith("https://catch.test/mcp") and "https://catch.test/" in resource
     assert challenge.startswith('401 Bearer resource_metadata="https://catch.test/.well-known/oauth-protected-resource/mcp"')
+
+
+def test_two_requests_racing_with_one_refresh_token_cannot_both_win(env):
+    client, tok = full_flow(env)
+    a = oauth.load_refresh(client, tok["refresh_token"])
+    b = oauth.load_refresh(client, tok["refresh_token"])  # both read it before either rotated it
+    assert a is not None and b is not None and not a.replayed and not b.replayed
+    oauth.exchange_refresh(a, [])
+    with pytest.raises(oauth._Fail):
+        oauth.exchange_refresh(b, [])
+
+
+def test_abandoned_registrations_codes_and_ended_grants_are_pruned(env):
+    from catch.core.models import OAuthAuthCode, OAuthClient
+    from catch.sync import account_store, retention
+    from catch.sync.leaderboard_store import store
+
+    stale = register(env, client_name="Stale").json()["client_id"]
+    fresh = register(env, client_name="Fresh").json()["client_id"]
+    with store() as s:
+        row = s.get(OAuthClient, stale)
+        row.created_at = datetime.now(timezone.utc) - timedelta(days=45)
+        s.commit()
+    start(env, fresh, pkce()[1])  # an authorize request marks it in use
+    assert account_store.prune_global()["oauth_clients"] == 1
+    with store() as s:
+        assert s.get(OAuthClient, stale) is None and s.get(OAuthClient, fresh) is not None
+    _, tok = full_flow(env)
+    with tenant.use_owner(ALICE), Session(env.engine) as s:
+        s.add(OAuthAuthCode(code_hash="x", client_id="c", redirect_uri=REDIRECT, code_challenge="ch", scopes="catch:read", expires_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
+        g = s.exec(select(OAuthGrant)).first()
+        g.revoked_at = datetime.now(timezone.utc) - timedelta(days=40)
+        s.add(g)
+        s.commit()
+        removed = retention.prune_owner(s)
+    assert removed["oauth_auth_codes"] == 1 and removed["oauth_grants"] == 1

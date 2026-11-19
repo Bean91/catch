@@ -6,7 +6,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from catch.core import config, tenant
 from catch.core.models import ModeratorAccess, ModerationAction
@@ -144,3 +144,30 @@ def test_a_restricted_account_cannot_publish_but_can_still_delete_everything_it_
     assert exc.value.status == 403
     done = env.c.request("DELETE", "/api/privacy/data/notes_checkins", headers=bearer(ALICE), json={"confirm": True})
     assert done.status_code == 200
+
+
+def test_a_restriction_covers_every_way_in_not_just_the_front_door(env):
+    from catch.sync import club_challenges, club_team, clubs
+    from catch.sync import leaderboards as lb
+
+    restrict(env, scope="publish")
+    restrict(env, scope="posting")
+    restrict(env, scope="clubs")
+    with tenant.use_owner(ALICE), Session(env.engine) as s:
+        for call, exc in [
+            (lambda: lb.update_settings(s, {}), lb.LeaderboardError),
+            (lambda: lb.opt_in(s, {}), lb.LeaderboardError),
+            (lambda: lb.update_publication(s, "e1", {"note": "new note"}), lb.LeaderboardError),
+            (lambda: clubs.create_club(s, name="x"), clubs.ClubError),
+            (lambda: clubs.join(s, club_id="c"), clubs.ClubError),
+            (lambda: club_team.post_announcement(s, "c", "t", "b"), clubs.ClubError),
+            (lambda: club_team.create_session(s, "c", title="t", session_type="water", on=__import__("datetime").date.today()), clubs.ClubError),
+            (lambda: club_team.share_result(s, "c", {}, note="hi"), clubs.ClubError),
+            (lambda: club_challenges.create_challenge(s, "c", title="t", metric="m", start=__import__("datetime").date.today(), end=__import__("datetime").date.today()), clubs.ClubError),
+            (lambda: club_challenges.join_challenge(s, "c", 1), clubs.ClubError),
+        ]:
+            with pytest.raises(exc) as e:
+                call()
+            assert e.value.status == 403
+        # taking your own things down is never blocked
+        assert lb.opt_out(s, {"confirm": True}) is not None

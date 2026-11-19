@@ -151,3 +151,35 @@ def test_privacy_routes_need_a_signed_in_user(pub_client):
     assert pub_client.get("/api/privacy/summary").status_code == 401
     assert pub_client.get("/api/privacy/export").status_code == 401
     assert pub_client.request("DELETE", "/api/privacy/data/notes_checkins", json={"confirm": True}).status_code == 401
+
+
+def test_a_large_export_streams_to_the_end_with_every_table_footer_and_a_valid_gzip(pub_client, pub_engine, monkeypatch):
+    """The first version held the owner context across a yield, which broke as soon as output exceeded one buffer (~64 KB) — tiny
+    test rows hid it. Make every row heavy so the stream is forced through many chunks."""
+    _seed(pub_engine, kit.ALICE)
+    pub_client.get("/api/me", headers=A)
+    real_row = privacy._row
+
+    def fat(obj, table, owner_id=None):
+        row = real_row(obj, table, owner_id)
+        row["_padding"] = __import__("base64").b64encode(__import__("os").urandom(30_000)).decode()  # incompressible, so output really crosses buffers
+        return row
+
+    monkeypatch.setattr(privacy, "_row", fat)
+    resp = pub_client.get("/api/privacy/export", headers=A)
+    assert resp.status_code == 200 and len(resp.content) > 60_000
+    lines = _lines(resp)  # gunzip + parse: a truncated stream (no trailer) would raise here
+    assert "footer" in lines[-1] and lines[-1]["footer"]["counts"]["notes"] == 1
+
+
+def test_other_peoples_account_ids_are_not_in_your_export(pub_client, pub_engine):
+    from catch.core.models import ModerationEvent
+    from catch.sync.leaderboard_store import store
+
+    pub_client.get("/api/me", headers=A)
+    mod = "99999999-9999-4999-8999-999999999999"
+    with store() as s:
+        s.add(ModerationEvent(entry_id="e1", subject_owner_id=kit.ALICE, from_status="active", to_status="hidden", actor_kind="moderator", actor_id=mod, reason_code="x", reason_text="why"))
+        s.commit()
+    raw = gzip.decompress(pub_client.get("/api/privacy/export", headers=A).content).decode()
+    assert mod not in raw and "someone else (a moderator or club staff member)" in raw

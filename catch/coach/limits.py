@@ -33,6 +33,7 @@ BUCKET_LIMITS = {
     "push": 10,
     "lookup": 30,
     "weather": 6,
+    "oauth_token": 120,  # /authorize, /token, /revoke: per source address, apart from the provider callbacks so one cannot starve the other
     "oauth_register": 10,  # dynamic client registration is unauthenticated: keep it slow, per source address
     "callback": 60,  # keyed per source address, unauthenticated
     "internal": 30,

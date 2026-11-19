@@ -146,6 +146,40 @@ def test_only_a_matching_real_preview_counts(session, variant):
     assert not confirmation.preview_exists(session, conv, "remember", {**args, "confirm": True}, before_message_id=now)
 
 
+def test_a_preview_older_than_the_athletes_previous_message_no_longer_counts(session):
+    conv = _conv(session)
+    args = {"category": "other", "text": "x"}
+    _preview_blocks(session, conv, args)  # an invisible injected preview…
+    _msg(session, conv, "user", [{"type": "text", "text": "thanks, what about tomorrow?"}])  # …the athlete moves on…
+    _msg(session, conv, "assistant", [{"type": "text", "text": "Tomorrow is a rest day."}])
+    now = _msg(session, conv, "user", [{"type": "text", "text": "ok great"}])  # …and a later, innocent "ok" must not resurrect it
+    assert not confirmation.preview_exists(session, conv, "remember", {**args, "confirm": True}, before_message_id=now)
+
+
+@pytest.mark.parametrize("reply, ok", [
+    ("yes", True), ("Yes please, save it", True), ("go ahead", True), ("ok", True), ("sounds good!", True),
+    ("thanks, what about tomorrow?", False), ("what's my recovery", False), ("no", False), ("don't save that", False),
+    ("yes but change the date", False), ("cancel", False), ("", False), ("yes " + "x" * 200, False),
+])
+def test_only_a_reply_that_reads_as_agreement_counts(reply, ok):
+    assert confirmation.is_affirmation(reply) is ok
+
+
+def test_the_two_turn_trick_is_downgraded_in_the_real_chat_loop(session, monkeypatch):
+    conv = _conv(session)
+    args = {"category": "injury", "text": "left knee niggle"}
+    _run(session, monkeypatch, conv, "my knee hurts", Scripted([
+        [{"type": "tool_call", "id": "p", "name": "remember", "input": args}, {"type": "stop", "stop_reason": "tool_use"}],
+        [{"type": "text_delta", "text": "Noted."}, {"type": "stop", "stop_reason": "end_turn"}],
+    ]))
+    # The athlete changes the subject; the model (steered) tries to confirm anyway.
+    _run(session, monkeypatch, conv, "thanks, what about tomorrow?", Scripted([
+        [{"type": "tool_call", "id": "q", "name": "remember", "input": {**args, "confirm": True}}, {"type": "stop", "stop_reason": "tool_use"}],
+        [{"type": "text_delta", "text": "Done."}, {"type": "stop", "stop_reason": "end_turn"}],
+    ]))
+    assert session.exec(select(AthleteFact)).all() == []
+
+
 def test_the_fingerprint_ignores_confirm_and_key_order():
     a = confirmation.fingerprint("remember", {"text": "x", "category": "other"})
     assert a == confirmation.fingerprint("remember", {"category": "other", "text": "x", "confirm": True})

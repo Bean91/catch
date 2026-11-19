@@ -38,6 +38,8 @@ WITHHELD_COLUMNS = {
     "ai_credentials": {"key_enc"},
     "provider_connections": {"access_enc", "refresh_enc", "credential_enc"},
     "api_tokens": {"token_hash"},
+    "oauth_grants": {"access_hash", "refresh_hash", "prev_refresh_hash"},
+    "oauth_auth_codes": {"code_hash"},
     "push_subscriptions": {"endpoint", "p256dh", "auth"},
 }
 
@@ -78,9 +80,19 @@ def _encode(value: Any) -> Any:
     return value
 
 
-def _row(obj: Any, table: str) -> dict:
+# Columns that name someone ELSE (a moderator, club staff, a decider): other people's account ids don't belong in your export, and a
+# platform moderator is deliberately anonymous ("a platform moderator"). Left as they are when they name the exporting person.
+OTHER_PERSON_COLUMNS = {"actor_id", "resolved_by", "decided_by", "set_by", "lifted_by", "created_by"}
+
+
+def _row(obj: Any, table: str, owner_id: str | None = None) -> dict:
     drop = WITHHELD_COLUMNS.get(table, set())
-    return {c.name: _encode(getattr(obj, c.key if hasattr(c, "key") else c.name, None)) for c in obj.__table__.columns if c.name not in drop}
+    out = {c.name: _encode(getattr(obj, c.key if hasattr(c, "key") else c.name, None)) for c in obj.__table__.columns if c.name not in drop}
+    if owner_id is not None:
+        for name in OTHER_PERSON_COLUMNS & out.keys():
+            if out[name] not in (None, owner_id):
+                out[name] = "someone else (a moderator or club staff member)"
+    return out
 
 
 def iter_export(owner_id: str, *, now: datetime | None = None) -> Iterator[bytes]:
@@ -94,7 +106,9 @@ def iter_export(owner_id: str, *, now: datetime | None = None) -> Iterator[bytes
     started = (now or datetime.now(timezone.utc)).isoformat()
     chunk = emit({"manifest": {"format": FORMAT, "kind": "catch-account-export", "created": started, "owner": owner_id, "note": "One JSON object per line: {table,row}. Binary columns are base64. Secrets are withheld (see 'withheld')."}})
     yield chunk
-    with tenant.use_owner(owner_id), Session(db_module.engine) as session:
+    # The owner context is entered only around each query's *execution*, never across a `yield`: StreamingResponse resumes this generator
+    # in a fresh copy of the request context on every chunk, and a ContextVar token can't be reset from a different context.
+    with Session(db_module.engine) as session:
         for cls in owned_classes():
             table = cls.__tablename__
             if table in EXPORT_SKIPPED:
@@ -104,7 +118,9 @@ def iter_export(owner_id: str, *, now: datetime | None = None) -> Iterator[bytes
                 stmt = stmt.where(cls.owner_id == owner_id)  # type: ignore[attr-defined]  # not the shared reference rows
             n = 0
             buffer = b""
-            for obj in session.scalars(stmt.execution_options(yield_per=200)):
+            with tenant.use_owner(owner_id):
+                result = session.scalars(stmt.execution_options(yield_per=200))
+            for obj in result:
                 buffer += emit({"table": table, "row": _row(obj, table)})
                 n += 1
                 if len(buffer) > 64 * 1024:
@@ -117,7 +133,7 @@ def iter_export(owner_id: str, *, now: datetime | None = None) -> Iterator[bytes
         n = 0
         buffer = b""
         for obj in account_store.iter_global_rows(owner_id, table):
-            buffer += emit({"table": table, "row": _row(obj, table), "scope": "shared-with-others"})
+            buffer += emit({"table": table, "row": _row(obj, table, owner_id), "scope": "shared-with-others"})
             n += 1
             if len(buffer) > 64 * 1024:
                 yield buffer

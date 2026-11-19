@@ -47,7 +47,8 @@ def _host_allowed(host: str) -> bool:
 
 
 def validate_push_endpoint(url: str) -> str:
-    if not isinstance(url, str) or not url or len(url) > MAX_ENDPOINT_CHARS:
+    if not isinstance(url, str) or not url or len(url) > MAX_ENDPOINT_CHARS or any(ord(ch) <= 32 or ord(ch) >= 127 for ch in url):
+        # urlsplit silently strips tab/CR/LF, so such a URL would validate here and then fail inside httpx; refuse every control/space/non-ASCII character.
         raise UnsafeUrl("Not a valid push endpoint")
     try:
         parts = urlsplit(url)
@@ -75,8 +76,8 @@ def _is_ip_literal(host: str) -> bool:
 
 
 def resolves_public(host: str, *, resolver=socket.getaddrinfo) -> bool:
-    """Defence in depth at send time (the allowlist is the primary control): every address the
-    name resolves to must be public. Fails closed when the name doesn't resolve."""
+    """A resolver-level check for callers that need one (the Ollama base URL on a deployment that allows it). The push path does not use it:
+    its allowlist of fixed push-service host suffixes is the control there. Every address the name resolves to must be public; fails closed."""
     try:
         infos = resolver(host, 443, type=socket.SOCK_STREAM)
     except OSError:

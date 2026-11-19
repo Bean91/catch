@@ -158,11 +158,13 @@ instructions. The defence is layered and **does not rely on the model behaving**
 1. *Labelling* (`coach/untrusted.py`, applied in the shared `call_tool` so MCP and REST get it too): hidden/reordering characters are
    stripped, our delimiter neutralised, lengths capped, and every tool result names its free-text fields. The coach's system prompt says
    such text is data. This is defence in depth only.
-2. *Gating:* every write previews first and `confirm` must be the boolean `true`. Ten tools used to save immediately; all now go
+2. *Gating:* every write previews first and `confirm` must be the boolean `true`. Eight tools used to save immediately (plus `forget` of a fact/goal); all now go
    through one gate with validating previews. A call carrying no caller identity is refused.
-3. *Server-side confirmation for the in-app coach:* `confirm=true` is honoured only for a call whose identical preview appeared in an
-   **earlier** turn followed by a new athlete message (`coach/confirmation.py`). An injected "preview and confirm in one turn" is
-   downgraded to a preview. Tested end to end with a scripted model reading a poisoned workout title.
+3. *Server-side confirmation for the in-app coach:* `confirm=true` is honoured only for a call whose identical preview came from the
+   **immediately preceding** turn and only when the athlete's reply reads as agreement — short, affirmative, no negation or change of subject
+   (`coach/confirmation.py`; an English-wording heuristic, anything else just previews again). An injected "preview and confirm in one turn", or a
+   confirm after an unrelated message, is downgraded to a preview. Tested end to end with a scripted model reading a poisoned workout title.
+   It cannot prove the athlete *saw* the preview; a confirm card in the UI would.
 4. *Scopes and consent:* device tokens and OAuth grants are `read` or `write`; `write` still needs the confirm; no tool reaches credentials,
    AI keys, account deletion, or club/leaderboard writes (none exist); no tool takes SQL, code or a URL.
 5. *Audit:* `tool_call_log` records tool, door, write/confirmed/outcome and an argument hash — never arguments or results.
@@ -176,7 +178,9 @@ default for exactly this reason.
 
 Nothing until the person has acknowledged the disclosure, and each of seven categories starts off (`coach/ai_sharing.py`,
 `ai_sharing_settings`). Enforcement is in the service layer on the shared tool path, the chat loop, the system-prompt memory block and
-the photo features — not in the prompt. A category that is off yields a fixed "sharing disabled" answer. A person who declares an age
+the photo features — not in the prompt. A category that is off yields a fixed "sharing disabled" answer — for writes as well as reads, tools whose payload mixes categories lose the parts
+that are off, check-in trend metrics are refused, whether a call is "model-bound" is decided by the credential (any device token is an outside client; a header
+can't opt out), and stored tool results are scrubbed every time history is replayed. A person who declares an age
 under 19 needs a guardian tick before any health category can be enabled. `docs/ai-data-sharing.md` lists exactly what each path sends.
 
 ## Device tokens and MCP OAuth

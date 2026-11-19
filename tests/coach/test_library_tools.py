@@ -256,8 +256,9 @@ def test_cookie_login_is_the_athlete_on_the_tool_endpoint(client, session):
 def test_rest_write_attributes_via_header(client, session, tokens):
     r = client.post("/api/coach/tools/add_coach_feedback", json={"args": {"text": "hello", "confirm": True}}, headers={**tokens["coach"], "X-Catch-Client": "mcp"})
     assert r.json()["feedback"]["created_via"] == "mcp"
+    # A device token with no header is STILL an outside client (decided by the credential, not a header the caller can omit).
     r = client.post("/api/coach/tools/add_coach_feedback", json={"args": {"text": "hello 2", "confirm": True}}, headers=tokens["coach"])
-    assert r.json()["feedback"]["created_via"] == "rest"
+    assert r.json()["feedback"]["created_via"] == "mcp"
 
 
 def test_no_route_hands_a_coach_token_athlete_data_by_accident(client, tokens):

@@ -82,7 +82,7 @@ def send_to_subscription(sub: PushSubscription, payload: dict) -> tuple[bool, bo
     )
     try:
         resp = httpx.post(sub.endpoint, content=encrypted, headers=headers, timeout=10.0)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         # Only the exception's type: its text can quote the request URL, and a push endpoint's path is a bearer-style
         # capability (anyone holding it can push to that device).
         logger.warning("push send failed (network, %s) for subscription id=%s", type(exc).__name__, sub.id)

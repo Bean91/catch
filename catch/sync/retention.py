@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete as sa_delete
 from sqlmodel import Session
 
-from catch.core.models import AiUsageEvent, MatchDecision, MergeLog, NotificationLog, ToolCallLog
+from catch.core.models import AiUsageEvent, MatchDecision, MergeLog, NotificationLog, OAuthAuthCode, OAuthGrant, ToolCallLog
 
 RULES = (
     (NotificationLog, "sent_at", 90),
@@ -24,6 +24,7 @@ RULES = (
     (MergeLog, "created_at", 400),
     (MatchDecision, "created_at", 400),
     (ToolCallLog, "created_at", 90),
+    (OAuthAuthCode, "expires_at", 0),  # an expired authorization code is just garbage
 )
 
 
@@ -32,5 +33,8 @@ def prune_owner(session: Session, now: datetime | None = None) -> dict:
     removed = {}
     for cls, column, days in RULES:
         removed[cls.__tablename__] = session.execute(sa_delete(cls).where(getattr(cls, column) < now - timedelta(days=days))).rowcount or 0
+    # Grants that ended (revoked or past their absolute lifetime) more than 30 days ago.
+    cutoff = now - timedelta(days=30)
+    removed["oauth_grants"] = session.execute(sa_delete(OAuthGrant).where((OAuthGrant.revoked_at < cutoff) | (OAuthGrant.absolute_expires_at < cutoff))).rowcount or 0
     session.commit()
     return removed

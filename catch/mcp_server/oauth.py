@@ -33,6 +33,7 @@ from mcp.server.auth.provider import (
     AccessToken, AuthorizationCode, AuthorizationParams, AuthorizeError, RefreshToken, RegistrationError, TokenError, construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import text
 from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
@@ -167,6 +168,17 @@ def _client_info(session: Session, client_id: str) -> OAuthClientInformationFull
         return OAuthClientInformationFull.model_validate_json(row.client_json) if row else None
 
 
+def _touch_client(client_id: str) -> None:
+    """Mark a registered client as in use, so retention can drop abandoned registrations (an unauthenticated endpoint creates them)."""
+    from catch.sync.leaderboard_store import store
+
+    with store() as s:
+        row = s.get(OAuthClient, client_id)
+        if row is not None:
+            row.last_used_at = _now()
+            s.commit()
+
+
 def create_code(session: Session, *, client_id: str, redirect_uri: str, explicit: bool, challenge: str, scopes: list[str], resource: Optional[str]) -> str:
     """Called under the approving person's own context. Returns the raw code (shown once, in the redirect)."""
     if len(session.exec(select(OAuthGrant).where(OAuthGrant.revoked_at.is_(None), OAuthGrant.absolute_expires_at > _now())).all()) >= MAX_ACTIVE_GRANTS:  # type: ignore[union-attr]
@@ -216,7 +228,9 @@ def exchange_code(code: AuthorizationCode) -> OAuthToken:
         row = s.exec(select(OAuthAuthCode).where(OAuthAuthCode.code_hash == _hash(code.code))).first()
         if row is None:  # already used: a code works once
             raise _Fail("invalid_grant", "Authorization code was already used or has expired.")
-        s.delete(row)
+        # Delete by id and require that THIS statement removed it: two concurrent redemptions of one code must not both win.
+        if s.execute(sa_delete(OAuthAuthCode).where(OAuthAuthCode.id == row.id)).rowcount != 1:
+            raise _Fail("invalid_grant", "Authorization code was already used or has expired.")
         now = _now()
         grant = OAuthGrant(grant_id=str(uuid.uuid4()), client_id=code.client_id, scopes=" ".join(code.scopes), resource=code.resource, access_hash="", access_expires_at=now,
                            refresh_hash="", refresh_expires_at=now, absolute_expires_at=now + timedelta(days=ABSOLUTE_TTL_DAYS))
@@ -256,9 +270,11 @@ def load_refresh(client_id: str, token: str) -> Optional[CatchRefreshToken]:
 
 def exchange_refresh(token: CatchRefreshToken, scopes: list[str]) -> OAuthToken:
     with tenant.use_owner(token.subject or ""), Session(db_module.engine) as s:
-        g = s.get(OAuthGrant, tenant.pk(token.grant_id))
+        g = s.get(OAuthGrant, tenant.pk(token.grant_id), with_for_update=True)  # serialise concurrent refreshes of one grant (a no-op on SQLite)
         if g is None or g.revoked_at is not None:
             raise _Fail("invalid_grant", "This authorization has been revoked.")
+        if g.refresh_hash != _hash(token.token) and not token.replayed:
+            raise _Fail("invalid_grant", "This refresh token was already used.")  # another request rotated it first
         if token.replayed:
             g.revoked_at = _now()  # a rotated-out refresh token came back: someone is replaying a stolen copy, so end the whole grant
             s.add(g)
@@ -377,6 +393,7 @@ class CatchOAuthProvider:
             raise RegistrationError(exc.error, exc.description) from None  # type: ignore[arg-type]
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        await run_in_threadpool(_touch_client, client.client_id or "")
         scopes = params.scopes or ["catch:read"]
         if any(s not in SCOPES for s in scopes):
             raise AuthorizeError("invalid_scope", f"Supported scopes: {' '.join(SCOPES)}")

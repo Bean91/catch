@@ -113,6 +113,60 @@ def tool_decision(session: Session, name: str) -> dict | None:
     }
 
 
+# Tools whose payload mixes categories: the part that belongs to another category is removed when that one is off.
+_NOTE_KEYS = {"notes", "rpe", "day_note"}
+_MIXED = {
+    "get_today": {"notes_checkins": {"checkin"}, "calendar_library": {"upcoming_events", "next_event", "next_race"}},
+    "list_workouts": {"notes_checkins": _NOTE_KEYS},
+    "get_workout": {"notes_checkins": _NOTE_KEYS},
+}
+
+
+def _strip(value, keys: set[str]):
+    if isinstance(value, dict):
+        return {k: _strip(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip(v, keys) for v in value]
+    return value
+
+
+def arg_decision(session: Session, name: str, args: dict) -> dict | None:
+    """Refuse by arguments: a trend over a check-in metric is notes-and-check-ins data even though get_trends is a wellness tool."""
+    if name == "get_trends" and str(args.get("metric", "")).startswith("checkin_") and "notes_checkins" not in enabled_categories(session):
+        return tool_decision(session, "add_note")  # same category, same message
+    return None
+
+
+def limit_result(session: Session, name: str, result):
+    """Drop the parts of a result that belong to categories the person has not allowed."""
+    rules = _MIXED.get(name)
+    if not rules:
+        return result
+    enabled = enabled_categories(session)
+    drop: set[str] = set()
+    for category, keys in rules.items():
+        if category not in enabled:
+            drop |= keys
+    return _strip(result, drop) if drop else result
+
+
+def scrub_history(session: Session, history: list[dict]) -> list[dict]:
+    """Earlier tool results are re-sent every turn. When a category has since been switched off (or consent withdrawn), replace what that
+    category's tools returned with the same fixed notice, so turning something off really stops it reaching the provider."""
+    names = {b["id"]: b["name"] for m in history for b in m.get("blocks", []) if b.get("type") == "tool_call"}
+    out = []
+    for m in history:
+        blocks = []
+        for b in m.get("blocks", []):
+            if b.get("type") == "tool_result" and names.get(b.get("id")):
+                refusal = tool_decision(session, names[b["id"]])
+                if refusal is not None:
+                    b = {**b, "output": refusal, "is_error": False}
+            blocks.append(b)
+        out.append({**m, "blocks": blocks})
+    return out
+
+
 def state(session: Session) -> dict:
     row = _row(session)
     enabled = enabled_categories(session)

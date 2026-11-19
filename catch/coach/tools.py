@@ -174,6 +174,7 @@ def _merge_activities(session: Session, args: dict, ctx: dict) -> dict:
 
     if not args.get("confirm"):
         return {
+            "saved": False,  # (so the in-app confirmation gate recognises it as a preview)
             "preview": True,
             "message": "Merging will combine these into one canonical activity. Call again with confirm=true to proceed.",
             "a": {"canonical_id": canonical_id_a, "source": member_a.source, "start": member_a.start.isoformat() if member_a.start else None, "duration": member_a.duration},
@@ -1741,11 +1742,12 @@ def call_tool(session: Session, name: str, args: dict, ctx: dict | None = None) 
         raise ValueError(f"This token's role or scope can't use '{name}'" if principal.scope == "read" else f"This token's role can't use '{name}'")
     via = ctx.get("via")
 
-    # What the person has agreed to send to an AI: reads on a model-bound path return a fixed "switched off" answer instead of data.
-    if not is_write and via in MODEL_BOUND_VIA:
-        refusal = ai_sharing.tool_decision(session, name)
+    # What the person has agreed to send to an AI: a tool on a model-bound path answers "switched off" instead of data. Writes are gated too —
+    # their previews and results echo stored data (forget/update previews show the current text), so a category that is off is off.
+    if via in MODEL_BOUND_VIA:
+        refusal = ai_sharing.tool_decision(session, name) or ai_sharing.arg_decision(session, name, args)
         if refusal is not None:
-            audit.record(session, name=name, args=args, ctx=ctx, is_write=False, confirmed=False, outcome="denied")
+            audit.record(session, name=name, args=args, ctx=ctx, is_write=is_write, confirmed=False, outcome="denied")
             return refusal
 
     downgraded = False
@@ -1774,6 +1776,8 @@ def call_tool(session: Session, name: str, args: dict, ctx: dict | None = None) 
         session, name=name, args=args, ctx=ctx, is_write=is_write, confirmed=args.get("confirm") is True and not previewed,
         outcome="downgraded" if downgraded else "preview" if previewed else "ok",
     )
+    if via in MODEL_BOUND_VIA:
+        result = ai_sharing.limit_result(session, name, result)  # a tool that mixes categories loses the parts that are off
     if downgraded and isinstance(result, dict):
         result["confirmation_note"] = "Not saved: this needs the athlete's confirmation in a new message, after they have seen this preview."
     return untrusted.protect(result)

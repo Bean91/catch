@@ -115,6 +115,9 @@ def decide_post(session: Session, club_id: str, kind: str, post_id: int, action:
 
 def create_session(session: Session, club_id: str, *, title: str, session_type: str, on: date, start_time: Optional[str] = None, duration_min: Optional[int] = None,
                    distance_m: Optional[int] = None, description: Optional[str] = None) -> dict:
+    from catch.sync.clubs import _not_restricted
+
+    _not_restricted("posting")
     club, m = require_member(session, club_id, "post")
     title = _value(c.validate_post, title, "x", club.audience)[0]
     description = _value(c.validate_post, title, description, club.audience)[1] if (description or "").strip() else None
@@ -207,6 +210,9 @@ def team_summary(session: Session, club_id: str, start: Optional[date] = None, e
 # ---------------------------------------------------------------- shared results and the club leaderboard
 
 def share_result(session: Session, club_id: str, ref: dict, note: Optional[str] = None) -> dict:
+    from catch.sync.clubs import _not_restricted
+
+    _not_restricted("posting")
     """Explicitly share one exact-distance/time result with this club. Built from the leaderboards' own eligibility and verification, so a club
     board can never rank something the public boards wouldn't, and 'verified' means exactly what it means there."""
     club, m = require_member(session, club_id, "share_result")

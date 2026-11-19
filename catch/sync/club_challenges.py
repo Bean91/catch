@@ -139,6 +139,9 @@ def refresh_my_scores(session: Session) -> int:
 def create_challenge(session: Session, club_id: str, *, title: str, metric: str, start: date, end: date, goal: Optional[int] = None, description: Optional[str] = None,
                      sport: str = "rowing", target_per_week: Optional[int] = None, day_cap_m: Optional[int] = None, day_cap_s: Optional[int] = None,
                      min_session_s: Optional[int] = None) -> dict:
+    from catch.sync.clubs import _not_restricted
+
+    _not_restricted("posting")
     club, m = require_member(session, club_id, "post")
     title_v = _value(c.validate_post, title, "x", club.audience)[0]
     desc = _value(c.validate_post, title, description, club.audience)[1] if (description or "").strip() else None
@@ -224,6 +227,9 @@ def get_challenge(session: Session, club_id: str, challenge_id: int) -> dict:
 # ---------------------------------------------------------------- joining, leaving, excusing a week
 
 def join_challenge(session: Session, club_id: str, challenge_id: int) -> dict:
+    from catch.sync.clubs import _not_restricted
+
+    _not_restricted("posting")
     club, m = require_member(session, club_id, "join_challenge")
     row = session.get(ClubChallenge, challenge_id)
     if row is None or row.club_id != club_id or row.status != "active":
