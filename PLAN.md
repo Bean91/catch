@@ -4381,7 +4381,7 @@ Confirm-card UI for the coach; `raw_json` ingest allowlist; per-workout delete; 
 
 **Numbering note.** The brief carried no number; the last was 28. Scope: deployment and operations only — no product features.
 
-## Status (as of this entry): local preparation done and verified; **nothing has been run on the hosted Supabase project or FastAPI Cloud yet**
+## Status: local preparation done; live read-only verification of the already-deployed app done (below); the authenticated smoke test is waiting on the owner exporting the Supabase secret key
 
 The live steps need inputs only the owner can give (see "Needs the owner"). Everything below was verified on the throwaway local Supabase stack
 (`/Users/benkiev/supabase-catch-test`), never on production.
@@ -4435,3 +4435,25 @@ backups only on paid plans; "Restore to new project" starts the clone's `pg_cron
 4. Part F asks for OAuth-compatible MCP auth; it is still **off** (device bearer tokens only). Turning on `CATCH_MCP_OAUTH_ENABLED=1` and verifying it with a real client is an owner decision.
 5. Caveats for the live smoke: admin-created users skip the real sign-up + confirmation-email path (depends on SMTP); `/internal/tick/notifications` runs the real job for **every** production user; the client IP the app sees
    behind FastAPI Cloud's proxy (F-30: one shared `/internal` rate-limit bucket) must be recorded.
+
+## Live findings (production, `https://catch.openoted.com`, Supabase project "Catch" in us-east-2, read-only except the cron edit)
+
+The owner had already deployed the app, set the secrets, applied migrations and created the cron jobs before this session's live part. Verified, not assumed:
+
+- The admin URL in the shell targets the "Catch" project (ref matches `SUPABASE_URL`). `catch db current`: applied 0008 = expected 0008. 5 auth users = 5 profiles.
+- `/api/health` 200; `GET /` and a nested route (`/clubs/1/calendar`) 200 — **the gitignored frontend does upload with `fastapi deploy`** (the open ⚠ in public-setup §4.5 is resolved).
+- `/internal/db-check` from inside FastAPI Cloud: role `catch_api`, not superuser, no BYPASSRLS, SSL on, both RLS probes true, session-mode pooler (`aws-1-us-east-2.pooler.supabase.com:5432`) — **the pooler is reachable from FastAPI Cloud** and a custom role works through it.
+- `pg_cron`, `pg_net`, Vault enabled; jobs `catch-sync` (7,37), `catch-notify` (*/10), `catch-retention` (17 3) exist, are active, read the secret from Vault (no literal secret in the SQL) and fire on schedule
+  (`cron.job_run_details` all `succeeded`; notify answers 200).
+- The sync tick takes longer than pg_net's default 5 s wait, so `net._http_response` showed a timeout every run; the app log shows the tick continuing (Withings and Concept2 calls) well after that, so work completes.
+  **Edited the three cron commands to add `timeout_milliseconds := 60000`** (the only production write so far; reversible with `cron.alter_job`).
+- App logs (`fastapi cloud logs`, 1000 lines ≈ 24 h): no JWT, `sb_secret_` or database-URL strings; **no OAuth callback request lines appeared in the window, so the `?code=` question is still unanswered** (needs one real connect).
+  The app sees real source addresses (several distinct /16s plus pg_net's AWS IPv6), but a large share (`104.28.x.x`) is in Cloudflare's range, so per-IP buckets for unauthenticated routes are shared per edge address for traffic that arrives through it (F-30 narrowed, not closed).
+- MCP/OAuth is **enabled in the cloud env** (`CATCH_MCP_OAUTH_ENABLED=1`, set by the owner after this session's plan). Live: `/mcp/` without a token → 401 with the RFC 9728 `WWW-Authenticate` pointing at the protected-resource document; authorization-server metadata (S256 only, scopes `catch:read`/`catch:write`)
+  and resource metadata are served; a wrong `Host` is rejected (403); `/internal` with a wrong secret 401. **Not yet exercised with a real client** — that run is still the blocker for calling Part F done.
+- Backups: `supabase backups list` shows none and `pitr_enabled=false` → the project looks like it is on the Free plan, which has no automated backups. Until it is upgraded, `pg_dump -n catch -Fc` from a machine the owner controls is the only recovery path (docs/operations.md §4). Not yet run against production.
+
+## Still to do
+
+1. Authenticated smoke test on production (needs `SMOKE_SECRET_KEY` exported by the owner; disposable users only). 2. A real-client MCP OAuth run (owner). 3. A production `pg_dump` + restore into the local stack. 4. Pi health check (needs its URL).
+5. CLAUDE.md paragraph and the docs/public-setup.md ⚠ items once 1–3 are done.
