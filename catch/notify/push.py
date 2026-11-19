@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 from sqlmodel import Session, select
 
+from catch.core import netguard
 from catch.core.config import settings
 from catch.core.models import NotificationLog, PushSubscription
 
@@ -59,6 +60,13 @@ def send_to_subscription(sub: PushSubscription, payload: dict) -> tuple[bool, bo
     is at fault."""
     if not settings.vapid_private_key or not settings.vapid_public_key:
         raise PushNotConfigured("VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set in .env")
+    # A row written before endpoints were validated (or by a bug) is never sent to: the endpoint
+    # is an attacker-chosen URL until proven otherwise, and httpx does not follow redirects by default.
+    try:
+        netguard.validate_push_endpoint(sub.endpoint)
+    except netguard.UnsafeUrl:
+        logger.warning("refusing push to a non-push-service endpoint for subscription id=%s", sub.id)
+        return False, True
     body = json.dumps(payload).encode()
     encrypted = _encrypt(body, sub.p256dh, sub.auth)
     headers = _vapid_headers(sub.endpoint)

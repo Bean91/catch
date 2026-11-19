@@ -166,7 +166,7 @@ def test_the_real_tick_for_fresh_accounts_runs_clean_and_raises_no_alert(pub_cli
     monkeypatch.setattr(healthchecks, "ping_sync_ok", lambda *a, **k: sent.append(("ping", a)))
     for headers in (A, B):
         assert pub_client.get("/api/me", headers=headers).status_code == 200  # creates the profiles
-    tick = {"authorization": "Bearer tick-secret-for-tests"}
+    tick = {"authorization": "Bearer tick-secret-for-tests-0123456789abcdefg"}
     for _ in range(4):  # past the 3-failures threshold a broken source would alert on
         for job in ("sync", "notifications"):
             out = pub_client.post(f"/internal/tick/{job}", headers=tick).json()

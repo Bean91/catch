@@ -27,10 +27,10 @@ def app(clean, runtime, monkeypatch):
     from catch.core import db as db_module
 
     monkeypatch.setattr(tenant, "is_public", lambda: True)
-    saved = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_publishable_key", "supabase_secret_key", "supabase_session_check_ttl", "tick_secret")}
+    saved = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_publishable_key", "supabase_secret_key", "supabase_session_check_ttl", "tick_secret", "ollama_enabled")}
     for key, value in {
         "deployment": "public", "supabase_url": API_URL, "supabase_publishable_key": PUBLISHABLE,
-        "supabase_secret_key": SECRET, "supabase_session_check_ttl": 0.0, "tick_secret": "tick-secret-for-tests",
+        "supabase_secret_key": SECRET, "supabase_session_check_ttl": 0.0, "tick_secret": "tick-secret-for-tests-0123456789abcdefg", "ollama_enabled": False,
     }.items():
         object.__setattr__(config.settings, key, value)
     monkeypatch.setattr(db_module, "engine", runtime)
@@ -166,7 +166,7 @@ def test_the_tick_walks_every_user_under_their_own_identity_and_leases_prevent_d
     a, b = signup("tick-a"), signup("tick-b")
     seen = []
     monkeypatch.setattr(ri, "_sync_work", lambda: seen.append(tenant.current_owner()))
-    def tick(secret="tick-secret-for-tests"):
+    def tick(secret="tick-secret-for-tests-0123456789abcdefg"):
         return app.post("/internal/tick/sync", headers={"authorization": f"Bearer {secret}"})
     assert tick("wrong").status_code == 401
     assert app.post("/internal/tick/sync").status_code == 401

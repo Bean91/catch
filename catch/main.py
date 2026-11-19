@@ -87,6 +87,9 @@ def _check_public_runtime() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     if tenant.is_public():
+        from catch.core.startup_checks import enforce_public_config
+
+        enforce_public_config(settings)
         _check_public_runtime()
     start_scheduler()  # a no-op in a public deployment
     if settings.mcp_http_enabled:

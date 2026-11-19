@@ -21,7 +21,7 @@ from tests.tenancy import kit
 from tests.tenancy.conftest import bearer
 
 A, B = bearer(kit.ALICE), bearer(kit.BOB)
-TICK = {"authorization": "Bearer tick-secret-for-tests"}
+TICK = {"authorization": "Bearer tick-secret-for-tests-0123456789abcdefg"}
 
 
 def _jwt() -> str:

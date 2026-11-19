@@ -39,7 +39,7 @@ def test_subscribe_then_list_then_unsubscribe(client):
     resp = client.post(
         "/api/push/subscribe",
         json={
-            "endpoint": "https://push.example.com/abc",
+            "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
             "keys": {"p256dh": "p256dh-value", "auth": "auth-value"},
             "label": "My iPhone",
         },
@@ -54,11 +54,11 @@ def test_subscribe_then_list_then_unsubscribe(client):
     # Re-subscribing the same endpoint updates in place, not a duplicate row.
     client.post(
         "/api/push/subscribe",
-        json={"endpoint": "https://push.example.com/abc", "keys": {"p256dh": "new-p256dh", "auth": "new-auth"}, "label": "My iPhone"},
+        json={"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "new-p256dh", "auth": "new-auth"}, "label": "My iPhone"},
     )
     assert len(client.get("/api/push/subscriptions").json()) == 1
 
-    resp = client.request("DELETE", "/api/push/subscribe", json={"endpoint": "https://push.example.com/abc"})
+    resp = client.request("DELETE", "/api/push/subscribe", json={"endpoint": "https://fcm.googleapis.com/fcm/send/abc"})
     assert resp.status_code == 200
     assert client.get("/api/push/subscriptions").json() == []
 
@@ -69,7 +69,7 @@ def test_send_test_push_prunes_on_410_and_reports_failure(client, monkeypatch):
 
     sub = client.post(
         "/api/push/subscribe",
-        json={"endpoint": "https://push.example.com/gone", "keys": {"p256dh": "a", "auth": "b"}},
+        json={"endpoint": "https://fcm.googleapis.com/fcm/send/gone", "keys": {"p256dh": "a", "auth": "b"}},
     ).json()
 
     # send_to_subscription itself is round-trip-tested against real crypto in
@@ -93,7 +93,7 @@ def test_send_test_push_unconfigured_returns_503(client, monkeypatch):
     monkeypatch.setattr(push_module, "settings", dataclasses.replace(push_module.settings, vapid_private_key=""))
     sub = client.post(
         "/api/push/subscribe",
-        json={"endpoint": "https://push.example.com/x", "keys": {"p256dh": "a", "auth": "b"}},
+        json={"endpoint": "https://fcm.googleapis.com/fcm/send/x", "keys": {"p256dh": "a", "auth": "b"}},
     ).json()
 
     resp = client.post("/api/push/test", json={"subscription_id": sub["id"]})
@@ -104,3 +104,40 @@ def test_send_test_push_unknown_subscription_404s(client):
     _login(client)
     resp = client.post("/api/push/test", json={"subscription_id": 999})
     assert resp.status_code == 404
+
+
+def test_subscribe_refuses_endpoints_that_are_not_push_services(client):
+    _login(client)
+    for url in ["http://fcm.googleapis.com/x", "https://169.254.169.254/latest", "https://127.0.0.1/x", "https://evil.example.com/x"]:
+        resp = client.post("/api/push/subscribe", json={"endpoint": url, "keys": {"p256dh": "a", "auth": "b"}})
+        assert resp.status_code == 400, url
+    assert client.get("/api/push/subscriptions").json() == []
+
+
+def test_subscriptions_per_user_are_capped(client):
+    _login(client)
+    import catch.api.routes_push as routes_push
+    from catch.coach import limits
+
+    limits.BUCKET_LIMITS["push"] = 1000
+    try:
+        for i in range(routes_push.MAX_SUBSCRIPTIONS_PER_USER):
+            ok = client.post("/api/push/subscribe", json={"endpoint": f"https://fcm.googleapis.com/fcm/send/{i}", "keys": {"p256dh": "a", "auth": "b"}})
+            assert ok.status_code == 200
+        over = client.post("/api/push/subscribe", json={"endpoint": "https://fcm.googleapis.com/fcm/send/over", "keys": {"p256dh": "a", "auth": "b"}})
+        assert over.status_code == 409
+    finally:
+        limits.BUCKET_LIMITS["push"] = 10
+
+
+def test_push_routes_are_throttled(client):
+    _login(client)
+    from catch.coach import limits
+
+    limits._windows.clear()
+    codes = [
+        client.post("/api/push/subscribe", json={"endpoint": "https://fcm.googleapis.com/fcm/send/t", "keys": {"p256dh": "a", "auth": "b"}}).status_code
+        for _ in range(12)
+    ]
+    assert 429 in codes
+    limits._windows.clear()

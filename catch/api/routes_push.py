@@ -7,11 +7,24 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from catch.api.deps import get_db, require_auth
+from catch.coach import limits
+from catch.core import netguard
 from catch.core.config import settings
+from catch.core.owner import current_owner_id
 from catch.core.models import NotificationLog, PushSubscription
 from catch.notify import push
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+MAX_SUBSCRIPTIONS_PER_USER = 10
+MAX_FIELD_CHARS = 256
+
+
+def _throttle(owner_id: str) -> None:
+    try:
+        limits.check_rate(owner_id, "push")
+    except limits.LimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=exc.message) from None
 
 
 class SubscribeKeys(BaseModel):
@@ -45,9 +58,18 @@ def vapid_public_key():
 
 
 @router.post("/api/push/subscribe")
-def subscribe(body: SubscribeRequest = Body(...), db: Session = Depends(get_db)):
+def subscribe(body: SubscribeRequest = Body(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    _throttle(owner_id)
+    try:
+        netguard.validate_push_endpoint(body.endpoint)
+    except netguard.UnsafeUrl as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    if max(len(body.keys.p256dh), len(body.keys.auth)) > MAX_FIELD_CHARS or len(body.label or "") > 80 or len(body.user_agent or "") > 300:
+        raise HTTPException(status_code=400, detail="Subscription fields are too long")
     row = db.exec(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint)).first()
     if row is None:
+        if len(db.exec(select(PushSubscription)).all()) >= MAX_SUBSCRIPTIONS_PER_USER:
+            raise HTTPException(status_code=409, detail="Too many devices are registered. Remove one first.")
         row = PushSubscription(endpoint=body.endpoint, p256dh=body.keys.p256dh, auth=body.keys.auth)
         db.add(row)
     else:
@@ -79,7 +101,8 @@ def list_subscriptions(db: Session = Depends(get_db)):
 
 
 @router.post("/api/push/test")
-def send_test(body: TestSendRequest = Body(...), db: Session = Depends(get_db)):
+def send_test(body: TestSendRequest = Body(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+    _throttle(owner_id)
     sub = db.get(PushSubscription, body.subscription_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="No such subscription")

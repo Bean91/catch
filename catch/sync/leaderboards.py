@@ -13,7 +13,7 @@ from sqlmodel import Session, func, select
 
 from catch.analytics import leaderboards as lb
 from catch.analytics import verification as vf
-from catch.core import config, tenant
+from catch.core import config, secret_store, tenant
 from catch.core.models import Activity, CanonicalActivity, LeaderboardSettings, Piece, ProviderConnection, ResultPublication
 from catch.sync import leaderboard_store as store
 
@@ -405,7 +405,7 @@ def publish(session: Session, ref: dict, prefs: dict, *, confirm: bool, preview_
     else:
         provider, provider_user_id = "catch_piece", owner
     verified_account = r["meta"].get("user_id") if prep["verification"] == "verified" else None
-    key = lb.athlete_key(config.settings.secrets_master_key or config.settings.fernet_key or "catch-leaderboards", "concept2" if verified_account else None, verified_account, owner)
+    key = lb.athlete_key(secret_store.master_secret(), "concept2" if verified_account else None, verified_account, owner)
     age_years, adult_band, age_source = prep["age"]
     if e["age_label"] is None:
         age_years, adult_band = None, None  # an age the athlete didn't agree to show is not stored on the public row at all

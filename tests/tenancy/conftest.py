@@ -18,11 +18,12 @@ def public_mode():
 
     real_is_public = tenant.is_public
     tenant.is_public = lambda: True
-    previous = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_session_check_ttl", "tick_secret")}
+    previous = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_session_check_ttl", "tick_secret", "ollama_enabled")}
     object.__setattr__(config.settings, "deployment", "public")
     object.__setattr__(config.settings, "supabase_url", kit.SUPABASE_URL)
     object.__setattr__(config.settings, "supabase_session_check_ttl", 0.0)
-    object.__setattr__(config.settings, "tick_secret", "tick-secret-for-tests")
+    object.__setattr__(config.settings, "tick_secret", "tick-secret-for-tests-0123456789abcdefg")
+    object.__setattr__(config.settings, "ollama_enabled", False)  # the public startup guard requires it
     supabase_auth.jwks_cache = supabase_auth.JwksCache(fetch=kit.jwks)
     supabase_auth.liveness.reset()
     deps._profiles_known.clear()

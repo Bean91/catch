@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
 from catch.analytics import clubs as c
-from catch.core import config, tenant
+from catch.core import secret_store, tenant
 from catch.core.models import (
     Club, ClubAnnouncement, ClubAudit, ClubBlock, ClubChallenge, ClubInvite, ClubJoinRequest, ClubMember,
     ClubMemberPrefs, ClubProfile, ClubReport, ClubResult, ClubSession,
@@ -56,7 +56,7 @@ def me() -> str:
 
 
 def _secret() -> str:
-    return config.settings.secrets_master_key or config.settings.fernet_key or "catch-clubs"
+    return secret_store.master_secret()
 
 
 def member_ref(club_id: str, owner_id: str) -> str:

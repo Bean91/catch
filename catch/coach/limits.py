@@ -19,6 +19,26 @@ HISTORY_TOKEN_BUDGET = 60_000  # approximate; chars / 4
 TURN_WALL_CLOCK_S = 240.0
 
 
+# Per-minute ceilings by bucket. Sensitive, rarely-repeated actions get a deliberately low one
+# (a person doesn't delete an account, mint a token or export their data several times a minute).
+BUCKET_LIMITS = {
+    "vision": VISION_REQUESTS_PER_MINUTE,
+    "admin": ADMIN_REQUESTS_PER_MINUTE,
+    "leaderboard": 30,
+    "report": 5,
+    "club": 60,
+    "account": 3,
+    "token": 6,
+    "tool": 60,
+    "push": 10,
+    "lookup": 30,
+    "weather": 6,
+    "callback": 20,
+    "internal": 30,
+    "export": 2,
+}
+
+
 class LimitExceeded(Exception):
     def __init__(self, message: str, retry_after_s: int = 0):
         super().__init__(message)
@@ -40,7 +60,7 @@ def _now() -> float:
 
 
 def check_rate(owner_id: str, bucket: str = "chat") -> None:
-    limit = {"vision": VISION_REQUESTS_PER_MINUTE, "admin": ADMIN_REQUESTS_PER_MINUTE, "leaderboard": 30, "report": 5, "club": 60}.get(bucket, REQUESTS_PER_MINUTE)
+    limit = BUCKET_LIMITS.get(bucket, REQUESTS_PER_MINUTE)
     now = _now()
     with _lock:
         window = _windows[(owner_id, bucket)]

@@ -47,6 +47,15 @@ def _masters() -> list[tuple[str, bytes]]:
     return masters
 
 
+def master_secret() -> str:
+    """The current master as a string, for the few keyed hashes (member refs, athlete keys) that
+    use it directly. No built-in fallback: a hardcoded key would make those hashes predictable."""
+    secret = settings.secrets_master_key or settings.fernet_key
+    if not secret:
+        raise SecretStoreError("No secrets master key is configured (CATCH_SECRETS_MASTER_KEY)")
+    return secret
+
+
 def _derive(master: bytes, owner_id: str, purpose: str = AI_PURPOSE) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=owner_id.encode(), info=f"catch/{purpose}/v1".encode()).derive(master)
 
