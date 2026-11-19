@@ -630,6 +630,20 @@ provider-sourced activities, give one activity to one account (`club_challenge_c
 `clubs-desktop.spec.ts`. Tests: `tests/analytics/test_clubs.py`/`test_challenges.py`, `tests/test_clubs_schema.py`, `tests/tenancy/test_clubs_api.py`/`test_clubs_tools.py`, `tests/coach/test_club_tools.py`, and on a local Supabase stack `tests/pg/test_clubs.py`
 (RLS with separate identities) and `test_clubs_api.py` (the API on the real runtime path). Verified against synthetic data and a local `supabase start` stack only.
 
+Session 28 (security and privacy review — see PLAN.md, `docs/security-findings.md`, `docs/data-inventory.md`, `docs/security.md` "Session 28", DESIGN.md "Privacy center…"; the brief carried no number).
+**No new product features; hardening, controls and drafts.** `call_tool` (`coach/tools.py`) is the one gate: a call with no caller identity is refused (`STRICT_PRINCIPAL`; tests turn it off via conftest), `confirm` must be the boolean `true`,
+the eight formerly-immediate writes (+ `forget` of facts/goals) preview first through `_PREVIEWS`, scope `read` blocks writes, model-bound calls (`via` = `ai_coach`/`mcp`; a device token is always `mcp`, decided by the credential in
+`routes_coach._via`) obey `coach/ai_sharing.py` (consent + seven categories, all off; writes gated too; `limit_result` trims mixed payloads; `scrub_history` on replay), results pass `coach/untrusted.py` (sanitise + `_untrusted_fields`),
+and every outside/denied/write call lands in `tool_call_log` (`coach/audit.py`; hash only). The in-app coach honours `confirm=true` only via `coach/confirmation.py` (preview from the immediately preceding turn + an agreeing reply).
+Tests turn consent on for everything except `@pytest.mark.real_ai_sharing`. Edge: `core/netguard.py` (push endpoints: https + fixed push-service hosts, checked at subscribe and send), `core/startup_checks.py` (public refuses to start with Ollama on / weak master or tick secret),
+`core/uploads.py` (ASGI body limits + magic bytes), `api/ratelimit.py` + new `coach/limits.py` buckets (`BUCKET_LIMITS`; `/internal` throttled before the secret compare), every 422 drops `input`, `no-store` under `/api`, no API docs on public.
+Deletion (`routes_account.py`): recent sign-in via JWT `amr` timestamp, app-side cleanup before the auth delete, `deleted_accounts` tombstone (`sync/account_store.py`). Privacy center: `sync/privacy.py` (streamed export — **never hold a context manager across a `yield`**, category deletes),
+`api/routes_privacy.py`, `sync/retention.py` (+ `/internal/tick/retention`), web `pages/Privacy.tsx`. Device tokens: scope + 90-day expiry + cap 10 + revoke-all. Moderation: `sync/restrictions.py` (publish/clubs/posting; enforced in `leaderboards.py`, `clubs.py`, `club_team.py`, `club_challenges.py`),
+append-only `moderation_actions`/`moderator_access_log`, `aal2` for moderators (`CATCH_MODERATOR_REQUIRE_AAL2`), reports count only from accounts ≥ 7 days (`account_store.eligible_reporters`). Secrets: `catch secrets status|rotate` (`sync/secret_rotation.py`), no hardcoded HMAC keys.
+MCP OAuth 2.1 (`mcp_server/oauth.py` on the SDK's provider interface, consent in `api/routes_oauth.py` + `pages/OAuthConsent.tsx`; **off by default, verified only against a synthetic client**). Migration `0008` holds all new schema (global tables → `SESSION28_GLOBAL` in `tests/tenancy/test_structure.py`;
+new raw-SQL modules must be added to `ALLOWED_RAW_SQL`). CI: `security.yml` (gitleaks, pip-audit, npm audit), `.gitleaks.toml`, `SECURITY.md`. **Legal documents in `docs/legal/` are drafts with no legal review — never describe them as compliant.**
+Tests: `tests/tenancy/test_{route_auth_coverage,idor_sweep,privacy,account_deletion,hardening,log_hygiene,moderation_controls,mcp_oauth}.py`, `tests/coach/test_{tool_safety,ai_sharing}.py`, `tests/pg/test_{rls_all_tables,moderation,oauth,retention}.py`. Tool count unchanged (66).
+
 ## Commands
 
 - `uv sync` — install deps
@@ -643,6 +657,7 @@ provider-sourced activities, give one activity to one account (`club_challenge_c
   connection); `uv run catch export-personal --out f.jsonl.gz` (on the Pi) and `import-personal --file f --user-id <uuid> [--dry-run]` — docs/personal-to-public.md
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
+- `uv run catch secrets status` / `secrets rotate [--dry-run]` — master-key rotation: re-seal every stored credential under the current `CATCH_SECRETS_MASTER_KEY` (docs/security.md)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)
 - `uv run uvicorn catch.main:app --reload --port $CATCH_PORT` — dev server (port comes from `.env`)

@@ -483,6 +483,20 @@ News, Calendar, Challenges, Board, Members, Manage), `/clubs/:id/challenges/:cid
 - **Reporting** says who sees it before you send it: "A platform moderator reviews every report. The club's staff are not told who reported."
 - Playwright: `web/tests/touch/clubs.spec.ts` (both mobile projects, no horizontal overflow, sheets clear of the bottom nav, every junior state) and `clubs-desktop.spec.ts` (desktop-mouse).
 
+## Privacy center, consent and legal drafts (session 28)
+
+- **One page, plain words, no dark patterns.** `/settings/privacy` (no nav slot — reached from a "Privacy" card on Settings, like Status/Connections). Sections in order of urgency: moderation notices (only when one exists), AI sharing, what other people can see,
+  connected apps, download, delete by category, account. Each says what it does and what it can't undo, in sentences, not legalese.
+- **Consent is a choice, never a default.** AI sharing opens with the acknowledgement box; until it is ticked every switch is disabled. Every category starts **Off** and reads "On"/"Off" as a word inside a `role="switch"` (colour is never the only signal). The primary
+  button is "Save my choice (everything stays off)" — declining is a first-class outcome. Withdrawing is one tap and says what it does. A declared age under 19 reveals the guardian tick *in place*, even when the server refused the band, so the person can fix it without losing their choice; the server's own sentence appears in a `role="alert"` line.
+- **The coach says why it is quiet.** With no consent the coach shows a notice with one link ("Choose what to share"), not an error. A category that is off is reported to the coach as switched off, and the coach is told to say so rather than guess — so the athlete sees "that's switched off in Privacy", never a silent gap.
+- **Destructive actions are two-step and itemised.** Each delete category shows its row count and what it removes and what it doesn't ("The workouts themselves stay"); the confirm row is a `role="alertdialog"`. Account deletion's copy is *the actual behaviour*: what goes, what stays and why (moderation decisions without your name, club posts without your name), what Catch can't undo (data already sent to an AI provider; Withings/Concept2/Garmin grants), and a plain re-sign-in prompt when the server asks for a recent sign-in.
+- **App access is listed, not hidden.** Device tokens and OAuth grants appear with "read only" / "can propose changes (you confirm each)", last used and expiry, and a single "End access" tap; below them, "Recent activity by apps" shows tool, door and whether anything changed — never content.
+- **The OAuth consent page names the asker and the destination.** "{app} wants to connect…", "you'll be sent to {host}", write as an *optional* checkbox that starts unticked, and a stale link is explained, not blank.
+- **Legal drafts are rendered, never styled as final.** `/legal/:doc` shows a red-bordered "DRAFT — NOT LEGALLY REVIEWED" banner from the document itself, in the same Card language, with a tiny in-house Markdown renderer that builds React nodes (no HTML strings, no dependency). Tables scroll inside themselves (`overflow-x-auto`) so a wide table never widens the page at 390 px.
+- **Moderator tools stay narrow.** Account restrictions show ids and reasons only, a mandatory reason field on every action, and an expandable action log; the person sees "a platform moderator decided this", the reason, and one Appeal box.
+- Playwright: `web/tests/touch/privacy.spec.ts` (both mobile projects: defaults off, acknowledge-first, guardian tick, two-step delete, app access, consent page, stale link, legal drafts, no horizontal overflow) and `privacy-desktop.spec.ts`; `web/tests/public/public-auth.spec.ts` covers the re-sign-in prompt.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

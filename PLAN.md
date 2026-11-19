@@ -4301,3 +4301,77 @@ Found when the operator tried a junior club with one adult and one under-19 acco
 - **Migration `0007`** (0006 untouched): two `CREATE OR REPLACE FUNCTION`s and the CHECK; no table, policy or grant, so `POLICY_COUNTS` is unchanged. Downgrade restores the strict bodies and refuses while a junior club has a logo.
 - **Tests:** the table-driven matrix, API and Postgres tests flipped for the owner; an admin-in-a-junior-club helper keeps the strict case (held post, no approval, cannot admit) covered; Playwright mock gained `jrole=admin`.
 - **Risk to say plainly:** with one person able to be both owner and the only coach, the junior "coach approval" is a single adult's decision. That is the operator's call; the safeguarding review is still a launch blocker.
+
+
+# Session 28: security and privacy review, and the fixes it called for
+
+**Numbering note.** The brief carried no session number; the last was 27, so this is the 28th. Scope: Parts A–G of the brief (data inventory; authn/authz; secrets;
+privacy controls; AI/MCP safety; moderation; legal drafts) — no new product features. Nothing was deployed. The findings register is `docs/security-findings.md`
+(37 rows: 0 Critical, 4 High — 3 Fixed, 1 Mitigated with a residual the owner must accept); the data held is `docs/data-inventory.md`; the written policies are
+**drafts that have had no legal review** (`docs/legal/`).
+
+## Decisions (the user chose the first three; the rest are mine)
+
+1. **CI scanners:** gitleaks (container, full history) + pip-audit + npm audit as CI-only tooling. Nothing ships to the Pi or runtime.
+2. **MCP OAuth 2.1: build it** (I had recommended scoped tokens instead). Read-only checks first, as planned: the installed `mcp` SDK (2.3.0) ships
+   `OAuthAuthorizationServerProvider` and route builders, so Catch implements the *provider* (storage + consent) rather than hand-writing RFC 8414/7591/9728/7009.
+   Supabase's OAuth server was rejected: the local GoTrue (v2.198.0) has it off, it is beta, its tokens are full user sessions (they would work on every `/api` route) and
+   it has no custom read/write scopes. Behind `CATCH_MCP_OAUTH_ENABLED` (default off) because **no real client was ever run against it**.
+3. **AI sharing: consent gate + per-category switches**, enforced in the service layer, every category off by default.
+4. Account-deletion step-up uses the JWT `amr[].timestamp` (the sign-in moment — it survives refresh; `iat` doesn't, checked on a real token), not `iat`.
+5. Minors' defaults need no new age collection: every AI category starts off for everyone; an optional existing age band (never a date of birth) with a guardian tick gates health categories.
+6. Rate limits stay in-process (no new infra); the limitation is documented rather than hidden.
+7. A new migration `0008` carries all session-28 schema; it has not been applied anywhere but the local stack.
+
+## Bugs found while building (fixed, with regression tests unless noted)
+
+1. `ensure_profile` re-created a deleted account's profile from a still-valid token (15 s liveness cache) — tombstone + session marked dead.
+2. Push `endpoint` was an SSRF (see F-01). 3. Ollama could be enabled on a public deployment (F-03).
+4. The 422 handler echoed submitted input on credential routes (F-12a). 5. The OAuth state cookie raised a 500 on non-ASCII input.
+6. A process-global rate limiter keyed by the tests' fixed owner ids made a fast full run flaky (the club bucket) — reset per test.
+7. The gym Playwright backend inherited a developer `.env` saying `public` — pinned to a personal deployment.
+8. **Found by an independent review of my own diff, after I had marked things Fixed:** the export crashed on real accounts (context held across `yield`), the AI-sharing
+   gate had holes (writes, mixed-category payloads, a client-controlled "model-bound" header, replayed history), the in-app confirm accepted any later message,
+   restrictions covered only four entry points, the export carried other people's ids, OAuth redeem/refresh races, `merge_activities` unconfirmable, and a push URL with a
+   tab raised out of the notify loop (F-25…F-32). Two claims in the register were wrong until then; they are corrected, not erased.
+
+## Verification
+
+* `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` — **2064 passed, 3 skipped** (was 1822 at session 27); `uv run ruff check .` clean.
+* `tests/pg` on the throwaway local Supabase stack (real GoTrue, real roles) — **90 passed, 1 skipped**: migrations, forced RLS on **every** strictly owned table with two real
+  identities and the ORM filter out of the picture (read/update/delete/forge/re-assign; `anon`, `service_role`, `catch_api`, `PUBLIC` hold nothing), the definer functions, append-only
+  moderation tables, the age-limited audit DELETE policy, OAuth storage, real account deletion incl. the 15 s-TTL resurrection case, step-up with real tokens.
+* Web: Vitest 80, typecheck/lint clean, initial JS **222.1 KB gzip** (budget 250); Playwright touch **257 passed, 8 skipped**, public 18, service-worker update 4, offline gym 1.
+* `pip-audit` and `npm audit` on today's locks: no known vulnerabilities. gitleaks over all history: clean (a real-looking key under `tests/` still fails — checked).
+* Not run, stated plainly: a hosted Supabase/FastAPI Cloud; any live provider call; real GoTrue MFA; MCP OAuth with a real client; the whole suite on Postgres
+  (`CATCH_TEST_PG_URL`); the Postgres refresh-token row lock under load.
+
+## Added
+
+* **Migration 0008:** `deleted_accounts`, `account_restrictions`, `moderation_actions`, `moderator_access_log`, `oauth_clients` (global, `catch_api` only; the two audit tables append-only);
+  `tool_call_log`, `ai_sharing_settings`, `oauth_auth_codes`, `oauth_grants` (owned, forced RLS); `api_tokens.scope/expires_at`; definer functions `resolve_api_token` (replaced),
+  `account_age_days`, `resolve_oauth_code/token`; an age-limited DELETE policy on `club_audit`.
+* **Backend:** `core/{netguard,startup_checks,uploads}.py`; `api/{ratelimit,routes_privacy,routes_oauth}.py`; `sync/{privacy,restrictions,account_store,retention,secret_rotation}.py`;
+  `coach/{untrusted,confirmation,ai_sharing,audit}.py`; `mcp_server/{oauth,oauth_http}.py`; `catch secrets status|rotate`; `/internal/tick/retention`. `call_tool` is now the one gate:
+  identity fail-closed, strict boolean confirm, central previews, sharing categories, mixed-payload trimming, untrusted-text labelling, audit.
+* **Web:** `pages/Privacy.tsx` (+`components/privacy/*`), `pages/OAuthConsent.tsx`, `pages/Legal.tsx` + `lib/miniMarkdown.tsx`, `components/clubs/AccountRestrictions.tsx`, `lib/privacy.ts`/`mockPrivacy.ts`.
+* **Docs:** `data-inventory.md`, `security-findings.md`, `ai-data-sharing.md`, `legal/*` (7 drafts), `security.md` (session-28 section), `mcp.md` (scopes/OAuth), `public-setup.md` §7 checklist.
+* **CI:** `security.yml`, `dependabot.yml`, `.gitleaks.toml`, `SECURITY.md`, pinned actions + read-only token, `make audit`. Tool count unchanged (66).
+
+## Not done / limitations
+
+* MCP OAuth and the moderator `aal2` gate are **unverified against real systems** (synthetic client / synthetic tokens). Keep `CATCH_MCP_OAUTH_ENABLED=0`.
+* MCP/REST write confirmation is client-mediated (F-02 residual); the in-app confirm is a wording heuristic and can't prove the athlete saw the preview — a confirm card would.
+* `activities.raw_json` still stores each provider's whole record (F-13). No per-workout delete UI (F-15). No chat-retention setting, and no retention limit set for moderation records (F-16).
+* Rate limits are per replica; IP-keyed ones assume the platform presents real client addresses (F-30). Platform retention (backups, auth/request logs) is unknown (F-21).
+* The legal documents are drafts (F-18). No safeguarding review. Junior-club kill switch not built.
+
+## Blockers (for opening it to users)
+
+1. Legal review of `docs/legal/*` and the operator/controller details they leave blank. 2. The operator checklist in `docs/public-setup.md` §7 (Supabase password/MFA/CAPTCHA/redirect settings,
+backup + log retention written down, `/internal/tick/retention` scheduled, `CATCH_OLLAMA_ENABLED=0`, master key ≥ 32 chars). 3. The owner explicitly accepting F-02's residual.
+4. Running MCP OAuth against a real client before enabling it, and a real-MFA run for moderators.
+
+## Next steps
+
+Confirm-card UI for the coach; `raw_json` ingest allowlist; per-workout delete; shared rate-limit store; real-client OAuth verification; envelope encryption (KMS) for the master key; retention decisions from counsel.
