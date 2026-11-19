@@ -42,3 +42,29 @@ def test_public_mcp_is_stateless_json_and_the_pi_keeps_sdk_defaults():
     # Scale-to-zero + several replicas: an in-memory Mcp-Session-Id would be unknown to the next request.
     assert _stateless_flags("public") == "True True"
     assert _stateless_flags("personal") == "False False"
+
+
+def test_a_rejected_oauth_request_logs_the_servers_error_description(caplog):
+    import asyncio
+    import logging
+
+    from starlette.responses import JSONResponse
+
+    from catch.mcp_server.oauth_http import OAuthThrottleMiddleware
+
+    async def app(scope, receive, send):
+        await JSONResponse({"error": "invalid_client_metadata", "error_description": "Requested scopes are not valid: profile"}, status_code=400)(scope, receive, send)
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return {"type": "http.request"}
+
+    scope = {"type": "http", "path": "/register", "client": ("203.0.113.9", 1), "headers": []}
+    with caplog.at_level(logging.WARNING, logger="catch.oauth"):
+        asyncio.run(OAuthThrottleMiddleware(app)(scope, receive, send))
+    assert sent[0]["status"] == 400  # the response itself is untouched
+    assert any("invalid_client_metadata" in r.getMessage() and "profile" in r.getMessage() for r in caplog.records)

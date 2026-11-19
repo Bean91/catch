@@ -4457,3 +4457,11 @@ The owner had already deployed the app, set the secrets, applied migrations and 
 
 1. Authenticated smoke test on production (needs `SMOKE_SECRET_KEY` exported by the owner; disposable users only). 2. A real-client MCP OAuth run (owner). 3. A production `pg_dump` + restore into the local stack. 4. Pi health check (needs its URL).
 5. CLAUDE.md paragraph and the docs/public-setup.md ⚠ items once 1–3 are done.
+
+## MCP OAuth with claude.ai (live attempt, 2026-11-19)
+
+Claude.ai (source addresses in Anthropic's range) fetched `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server` (both 200), then `POST /register` returned **400** five times, so
+the connector showed "Couldn't register with Catch's sign-in service". Replaying a typical Claude-style registration against production: scope omitted → 201 (default `catch:read`); both Catch scopes → 201; `openid profile email` → 400
+`Requested scopes are not valid`. So the endpoint works and rejects clients that ask for scopes Catch doesn't offer; claude.ai's real payload was not visible (the platform log keeps the status line, not the body).
+Added `catch.oauth` logging of the server's own error code + description for any rejected `/register`/`/authorize`/`/token`/`/revoke` (never the request or a token), redeployed, and removed the two test clients the replay created.
+**Next:** retry Connect in claude.ai, read the `oauth /register rejected: …` line in `fastapi cloud logs`, fix the specific rule.
