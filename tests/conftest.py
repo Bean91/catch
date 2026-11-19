@@ -256,5 +256,7 @@ def _reset_rate_limit_windows():
     from catch.coach import limits
 
     limits._windows.clear()
+    limits._daily.clear()
     yield
     limits._windows.clear()
+    limits._daily.clear()

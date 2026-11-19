@@ -71,6 +71,22 @@ def check_rate(owner_id: str, bucket: str = "chat") -> None:
         window.append(now)
 
 
+_daily: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+
+def check_daily(owner_id: str, bucket: str, limit: int) -> None:
+    """A rolling 24 h ceiling (export, mainly). Per replica and reset by a restart, like everything here; the per-minute bucket
+    beside it keeps a burst from getting that far."""
+    now = _now()
+    with _lock:
+        window = _daily[(owner_id, bucket)]
+        while window and now - window[0] > 86400:
+            window.popleft()
+        if len(window) >= limit:
+            raise LimitExceeded("You've reached today's limit for this. Try again tomorrow.", int(86400 - (now - window[0])) + 1)
+        window.append(now)
+
+
 def active_streams(owner_id: str) -> int:
     now = _now()
     with _lock:

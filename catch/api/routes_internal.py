@@ -25,7 +25,7 @@ from catch.sync import lease
 
 logger = logging.getLogger("catch.tick")
 TICK_BUDGET_S = 240.0  # stop starting new users after this long; the ones left run on the next tick
-JOBS = ("sync", "notifications")
+JOBS = ("sync", "notifications", "retention")
 
 
 def require_tick_secret(request: Request) -> None:
@@ -102,11 +102,22 @@ def _notification_work() -> None:
     check_notifications()
 
 
+def _retention_work() -> None:
+    from catch.sync import account_store, retention
+
+    with Session(db_module.engine) as session:
+        retention.prune_owner(session)
+    account_store.prune_global()  # global tables: idempotent, so running it once per user is harmless
+
+
+_WORK = {"sync": _sync_work, "notifications": _notification_work, "retention": _retention_work}
+
+
 @router.post("/tick/{job}")
 def tick(job: str):
     if job not in JOBS:
         raise HTTPException(status_code=404, detail=f"Unknown job: {job}")
-    return run_for_each_user(job, _sync_work if job == "sync" else _notification_work)
+    return run_for_each_user(job, _WORK[job])
 
 
 @router.get("/db-check")

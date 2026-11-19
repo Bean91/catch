@@ -19,6 +19,8 @@ depends_on = None
 TABLES: tuple = ()  # owned (owner_id + forced RLS)
 GLOBAL = ("deleted_accounts",)  # catch_api only
 TS = "TIMESTAMP WITH TIME ZONE"
+POLICY_COUNT_DELTAS = {"club_audit": 1}  # tests/pg/test_migrations.py adds these to the counts it derives from earlier revisions
+AUDIT_RETENTION = "24 months"
 
 
 def _global_grants(t: str) -> None:
@@ -40,8 +42,14 @@ def upgrade() -> None:
     )""")
     for t in GLOBAL:
         _global_grants(t)
+    # Retention for the club audit trail. The table stays append-only for anything recent: the one DELETE policy is limited by the
+    # database itself to rows older than the retention period, so even a bug in the pruning job cannot remove a recent entry.
+    op.execute("GRANT DELETE ON catch.club_audit TO catch_api")
+    op.execute(f"CREATE POLICY club_audit_expire ON catch.club_audit FOR DELETE TO catch_api USING (created_at < now() - interval '{AUDIT_RETENTION}')")
 
 
 def downgrade() -> None:
+    op.execute("DROP POLICY IF EXISTS club_audit_expire ON catch.club_audit")
+    op.execute("REVOKE DELETE ON catch.club_audit FROM catch_api")
     for t in reversed(GLOBAL):
         op.execute(f"DROP TABLE IF EXISTS catch.{t}")

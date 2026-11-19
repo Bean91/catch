@@ -32,6 +32,7 @@ from catch.api import (
     routes_notes,
     routes_nutrition,
     routes_pieces,
+    routes_privacy,
     routes_push,
     routes_status,
     routes_sync,
@@ -158,6 +159,7 @@ app.include_router(routes_auth.router)
 app.include_router(routes_connections.router)
 app.include_router(routes_connections.callback_router)
 app.include_router(routes_account.router)
+app.include_router(routes_privacy.router)
 app.include_router(routes_internal.router)
 app.include_router(routes_wellness.router)
 app.include_router(routes_activities.router)

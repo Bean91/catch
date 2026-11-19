@@ -53,7 +53,12 @@ def test_every_table_has_forced_rls_and_a_policy_per_command(migrated, admin):
     spec.loader.exec_module(mig6)
     # moderation_events: append-only (select, insert, and a column-limited update that detaches a deleted person). Club tables carry
     # their `authenticated` policies plus catch_api's; the migration module is the single statement of both (club_audit is append-only too).
+    spec8 = importlib.util.spec_from_file_location("mig0008", ROOT / "migrations" / "versions" / "0008_security_review.py")
+    mig8 = importlib.util.module_from_spec(spec8)
+    spec8.loader.exec_module(mig8)
     expected = {"weather_cells": 2, "moderation_events": 3, **mig6.POLICY_COUNTS}
+    for table, delta in mig8.POLICY_COUNT_DELTAS.items():
+        expected[table] = expected.get(table, 4) + delta  # session 28: the retention policy on club_audit
     for name, rls, forced, policies in rows:
         assert rls and forced, f"{name}: RLS not enabled and forced"
         assert policies == expected.get(name, 4), f"{name}: {policies} policies"

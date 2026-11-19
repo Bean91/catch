@@ -268,6 +268,16 @@ def check_notifications() -> None:
                 logger.exception("notification check failed: %s", name)
 
 
+def run_retention() -> None:
+    from sqlmodel import Session
+
+    from catch.core import db as db_module
+    from catch.sync import retention
+
+    with Session(db_module.engine) as session:
+        retention.prune_owner(session)
+
+
 def start_scheduler() -> BackgroundScheduler | None:
     if tenant.is_public():
         # A scale-to-zero replica is not a scheduler and N replicas would run every job N times: scheduled work
@@ -294,6 +304,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         id="notifications",
         replace_existing=True,
     )
+    scheduler.add_job(run_retention, trigger=IntervalTrigger(hours=24, jitter=1800), id="retention", replace_existing=True)
     scheduler.start()
     _scheduler = scheduler
     return scheduler
