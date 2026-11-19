@@ -5,8 +5,8 @@ reading the code, plus tests run against the real routes, a throwaway local Supa
 fixtures. **Not** reviewed or run: a hosted Supabase project, FastAPI Cloud's runtime and logs, real provider accounts, a real MCP client, real
 GoTrue MFA (the local stack has it off). "Fixed" means the code change and a test exist; it is a statement about the code, not a guarantee.
 
-**Counts:** Critical **0** · High **4** (3 Fixed, 1 Mitigated with a residual the owner must accept) · Medium **12** (10 Fixed or Mitigated; 2 Open: F-14 pending a real-client run, F-17 operator action) · Low/Info **21** (10 Fixed, 3 Accepted, 6 Open, 2 Info). Five of these (F-25…F-32) were found by an independent review of this session's own diff after the first "Fixed" claims; two of them showed claims in this register to have been wrong, and are corrected below.
-No Critical finding was identified. That is a statement about what was reviewed above, not a claim that none exists.
+**Counts:** Critical **1** (F-38, an operator error found in the live site after the review; code guards added, operator rotation still required) · High **4** (3 Fixed, 1 Mitigated with a residual the owner must accept) · Medium **12** (10 Fixed or Mitigated; 2 Open: F-14 pending a real-client run, F-17 operator action) · Low/Info **21** (10 Fixed, 3 Accepted, 6 Open, 2 Info). Five of these (F-25…F-32) were found by an independent review of this session's own diff after the first "Fixed" claims; two of them showed claims in this register to have been wrong, and are corrected below.
+No Critical finding was identified *by reading the code*; F-38 was found afterwards by inspecting the deployed bundle. That is a statement about what was reviewed, not a claim that none exists.
 
 Status vocabulary: **Fixed** (change + test) · **Mitigated** (reduced, residual stated) · **Accepted** (known, deliberate) · **Open** (not done; owner/next step stated).
 
@@ -16,6 +16,12 @@ Do **not** deploy publicly until: every Critical/High above is Fixed, or Mitigat
 only one — read it); the operator checklist in `docs/public-setup.md` has been done (Supabase settings, MFA for moderators, backups/log retention
 checked); and the legal drafts in `docs/legal/` have had legal review. *Nothing was deployed in this session.* MCP OAuth stays **off**
 (`CATCH_MCP_OAUTH_ENABLED=0`) until it has been run against a real client.
+
+## Critical
+
+| ID | Finding | Remediation | Status |
+|---|---|---|---|
+| F-38 | The deployed frontend bundle at the production host contained a PostgreSQL connection string for the `catch_api` role, password included. `VITE_SUPABASE_URL` had been given a database URL at build time, so the value was compiled into a publicly downloadable file (it also made sign-in impossible: the auth URL became `<db url>/auth/v1`, no request was sent, and the UI blamed the password). | Code: `vite.config.ts` refuses to build when any `VITE_*` value holds a database URL or secret key, or when `VITE_SUPABASE_URL` is not `https://<ref>.supabase.co` (loopback allowed for tests); `web/scripts/check-build-secrets.mjs` scans the built output (CI and `make check-frontend`); sign-in now says "can't reach the sign-in service" when no response came back. **Operator, not done by code:** rotate the `catch_api` password, update `DATABASE_URL`, rebuild and redeploy, review Supabase connection logs; treat user data as possibly exposed until the logs say otherwise. | Code guards Fixed; credential rotation **Open until the owner confirms** |
 
 ## High
 

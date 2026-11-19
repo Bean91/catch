@@ -50,6 +50,8 @@ jobs:
       - run: npm run build
       - name: The built bundle must not contain a Supabase secret (service-role) key
         run: "! grep -rIl -e 'sb_secret_' -e 'service_role' ../catch/api/static"
+      - name: The built bundle must not contain a database URL or secret key (checked by name, never printed)
+        run: npm run check:build-secrets
       - name: Syntax-check the generated service worker
         # Nothing else exercises sw.js's template-string-generated JS before it ships — a
         # syntax error in vite.config.ts's serviceWorkerPlugin would otherwise only surface

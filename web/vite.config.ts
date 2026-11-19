@@ -200,8 +200,34 @@ function catchPort(): number {
   return 8000
 }
 
+// A VITE_* value is compiled into JavaScript anyone can download. A database URL or a secret key pasted into the wrong
+// variable once shipped a Postgres password in a public bundle, so refuse to build rather than publish it.
+function publicEnvGuardPlugin(): Plugin {
+  return {
+    name: 'catch-public-env-guard',
+    configResolved(config) {
+      const problems: string[] = []
+      for (const [key, value] of Object.entries(config.env)) {
+        if (!key.startsWith('VITE_') || typeof value !== 'string') continue
+        if (/postgres(ql)?(\+\w+)?:\/\//i.test(value)) problems.push(`${key} holds a database connection string`)
+        if (/sb_secret_|service_role/.test(value)) problems.push(`${key} holds a Supabase secret key`)
+      }
+      const url = String(config.env.VITE_SUPABASE_URL ?? '')
+      if (config.env.VITE_CATCH_DEPLOYMENT === 'public') {
+        if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(url)) {
+          problems.push('VITE_SUPABASE_URL must look like https://<project-ref>.supabase.co')
+        }
+        if (!config.env.VITE_SUPABASE_PUBLISHABLE_KEY) problems.push('VITE_SUPABASE_PUBLISHABLE_KEY is empty')
+      }
+      if (problems.length) {
+        throw new Error(`Refusing to build: ${problems.join('; ')}. Values are not shown here on purpose.`)
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), serviceWorkerPlugin()],
+  plugins: [react(), tailwindcss(), serviceWorkerPlugin(), publicEnvGuardPlugin()],
   define: {
     __BUILD_ID__: JSON.stringify(BUILD_ID),
     __COMMIT__: JSON.stringify(COMMIT),

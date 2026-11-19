@@ -17,6 +17,7 @@ check-frontend:
 	cd web && npm run test
 	cd web && npm run build
 	! grep -rIl -e 'sb_secret_' -e 'service_role' catch/api/static
+	cd web && npm run check:build-secrets
 	node --check catch/api/static/sw.js
 	cd web && npm run check:bundle-size
 	cd web && CI=1 npx playwright test

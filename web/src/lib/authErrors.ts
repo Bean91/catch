@@ -11,6 +11,12 @@ export function describeAuthError(err: unknown, context: "signin" | "signup" | "
   if (code === "user_already_exists" || code === "email_exists") {
     return "Could not create the account. If you already have one, sign in or reset your password.";
   }
+  // No error code and no HTTP status (or a 5xx) means the request never got a real answer from Supabase — a network
+  // failure or a build with a wrong Supabase URL. Blaming the password here sends people round in circles.
+  const status = e?.status ?? 0;
+  if (e && typeof e === "object" && !code && (status === 0 || status >= 500)) {
+    return "Can't reach the sign-in service. Check your connection and try again. If it keeps happening, the site may be misconfigured.";
+  }
   if (context === "signin") return "Incorrect email or password.";
   if (context === "signup") return "Could not create the account. Check the details and try again.";
   if (context === "update") return "Could not update the password. The link may have expired — request a new one.";

@@ -16,7 +16,8 @@
     "test:gym": "playwright test -c playwright.gym.config.ts",
     "test:public": "playwright test -c playwright.public.config.ts",
     "test:live": "playwright test -c playwright.live.config.ts",
-    "check:bundle-size": "node scripts/check-bundle-size.mjs"
+    "check:bundle-size": "node scripts/check-bundle-size.mjs",
+    "check:build-secrets": "node scripts/check-build-secrets.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

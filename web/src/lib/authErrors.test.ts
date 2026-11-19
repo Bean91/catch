@@ -17,6 +17,19 @@ describe("describeAuthError", () => {
   });
 });
 
+describe("describeAuthError when Supabase was never reached", () => {
+  it("does not blame the password", () => {
+    const msg = "Can't reach the sign-in service";
+    expect(describeAuthError(new TypeError("Failed to fetch"), "signin")).toMatch(msg);
+    expect(describeAuthError({ name: "AuthRetryableFetchError", status: 0 }, "signin")).toMatch(msg);
+    expect(describeAuthError({ status: 503 }, "signin")).toMatch(msg);
+  });
+  it("still says incorrect for a real credentials failure", () => {
+    expect(describeAuthError({ code: "invalid_credentials", status: 400 }, "signin")).toBe("Incorrect email or password.");
+    expect(describeAuthError({ status: 400 }, "signin")).toBe("Incorrect email or password.");
+  });
+});
+
 describe("passwordProblem", () => {
   it("requires 8 characters", () => {
     expect(passwordProblem("short")).not.toBeNull();
