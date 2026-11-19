@@ -55,7 +55,13 @@ class _BearerAuthMiddleware:
         token = auth_header[len("bearer ") :].strip() if auth_header.lower().startswith("bearer ") else ""
         principal = self._principal_for(token) if token else None
         if principal is None:
-            response = JSONResponse({"detail": "Not authenticated"}, status_code=401)
+            challenge = {}
+            if settings.mcp_oauth_enabled:
+                # RFC 9728: tell an MCP client where to find the authorization server's metadata.
+                from catch.mcp_server import oauth
+
+                challenge = {"WWW-Authenticate": f'Bearer resource_metadata="{oauth.issuer_url()}/.well-known/oauth-protected-resource/mcp"'}
+            response = JSONResponse({"detail": "Not authenticated"}, status_code=401, headers=challenge)
             await response(scope, receive, send)
             return
         # Scoped to this request; reset in `finally` so a later request can never inherit it.
@@ -70,10 +76,14 @@ class _BearerAuthMiddleware:
         token_hash = hash_token(raw_token)
         with get_session() as session:
             resolved = device_tokens.resolve(session, token_hash)
-            if resolved is None:
-                return None
-            device_tokens.touch(session, resolved)
-            return principal_from_token(token_hash, resolved.role, resolved.display_name, resolved.owner_id)
+            if resolved is not None:
+                device_tokens.touch(session, resolved)
+                return principal_from_token(token_hash, resolved.role, resolved.display_name, resolved.owner_id, resolved.scope)
+        if settings.mcp_oauth_enabled:
+            from catch.mcp_server import oauth
+
+            return oauth.access_principal(raw_token)  # an OAuth access token: revocation, expiry and resource binding are checked there
+        return None
 
 
 def mounted_mcp_app() -> ASGIApp:

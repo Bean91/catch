@@ -292,7 +292,14 @@ def delete_all_tokens(db: Session = Depends(get_db)):
     for row in rows:
         db.delete(row)
     db.commit()
-    return {"revoked": len(rows)}
+    from catch.core import tenant
+
+    grants = 0
+    if tenant.is_public():
+        from catch.mcp_server import oauth
+
+        grants = oauth.revoke_all(db)  # apps connected over OAuth end with the tokens: "end all app access" means all of it
+    return {"revoked": len(rows), "grants_revoked": grants}
 
 
 @coach_router.delete("/api/coach/tokens/{token_id}", dependencies=[rate_limit("token")])

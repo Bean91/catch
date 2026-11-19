@@ -83,6 +83,7 @@ class Settings:
     tick_secret: str
     moderator_ids: str
     moderator_require_aal2: bool
+    mcp_oauth_enabled: bool
 
     @property
     def is_public(self) -> bool:
@@ -155,6 +156,8 @@ def load_settings() -> Settings:
         moderator_ids=_get("CATCH_MODERATOR_IDS"),
         # Moderators must have completed a second factor on this session (Supabase MFA must be enabled for them). Default on.
         moderator_require_aal2=_get("CATCH_MODERATOR_REQUIRE_AAL2", "1") == "1",
+        # MCP OAuth 2.1 for the /mcp mount (public deployment only; needs CATCH_MCP_HTTP_ENABLED=1). Off until verified against a real client.
+        mcp_oauth_enabled=_get("CATCH_MCP_OAUTH_ENABLED", "0") == "1",
     )
 
 

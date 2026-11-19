@@ -60,6 +60,8 @@ test("an app's access can be ended, and the export is offered", async ({ page })
   await expect(page.getByTestId("connected-apps")).toContainText("Laptop (Claude Desktop)");
   await expect(page.getByTestId("connected-apps")).toContainText("read only");
   await page.getByTestId("revoke-token-1").tap();
+  await expect(page.getByTestId("connected-apps")).not.toContainText("Laptop (Claude Desktop)");
+  await page.getByTestId("end-grant-g1").tap();
   await expect(page.getByTestId("connected-apps")).toContainText("No apps are connected.");
   await expect(page.getByTestId("export-button")).toBeVisible();
   await expect(page.getByTestId("visibility-card")).toContainText("2 published results");
@@ -76,4 +78,27 @@ test("the legal drafts open, say they are drafts, and fit the screen", async ({ 
   await page.getByRole("link", { name: "Provider integrations" }).tap();
   await expect(page.getByRole("heading", { name: /Provider integrations/ })).toBeVisible();
   await noHorizontalOverflow(page);
+});
+
+test("an app asks to connect: the person sees who and what, and nothing is granted until Allow", async ({ page }) => {
+  await page.goto("/oauth/consent?mock=1&req=mock");
+  const consent = page.getByTestId("oauth-consent");
+  await expect(consent).toContainText("Claude Desktop");
+  await expect(consent).toContainText("claude.ai");
+  await expect(page.getByTestId("consent-write")).not.toBeChecked();
+  await noHorizontalOverflow(page);
+  await page.getByTestId("consent-deny").tap();
+  await expect(page).toHaveURL(/denied=1/);
+});
+
+test("a stale consent link is explained and grants nothing", async ({ page }) => {
+  await page.goto("/oauth/consent?mock=1");
+  await expect(page.getByTestId("consent-invalid")).toContainText("isn't valid any more");
+});
+
+test("an OAuth-connected app is listed in Privacy and its access can be ended", async ({ page }) => {
+  await page.goto("/settings/privacy?mock=1");
+  await expect(page.getByTestId("oauth-grants")).toContainText("Claude Desktop");
+  await page.getByTestId("end-grant-g1").tap();
+  await expect(page.getByTestId("oauth-grants")).not.toContainText("Claude Desktop");
 });

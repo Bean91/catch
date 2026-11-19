@@ -77,4 +77,16 @@ export async function downloadExport(): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+export type OauthGrant = { grant_id: string; client_name: string; scopes: string[]; created_at: string; last_used_at: string | null; expires_at: string };
+export type ConsentRequest = { client_name: string; redirect_host: string | null; scopes: { scope: string; text: string }[] };
+
+// 404 = this deployment hasn't enabled MCP OAuth, which just means there are none to list.
+export const fetchOauthGrants = (): Promise<OauthGrant[]> =>
+  isMock ? mockPrivacy.grants() : call<{ grants: OauthGrant[] }>("/api/oauth/grants").then((r) => r.grants).catch((e) => (e instanceof ApiError && e.status === 404 ? [] : Promise.reject(e)));
+export const endOauthGrant = (id: string): Promise<{ ok: boolean }> => (isMock ? mockPrivacy.endGrant(id) : call(`/api/oauth/grants/${id}`, { method: "DELETE" }));
+export const fetchConsentRequest = (req: string): Promise<ConsentRequest> =>
+  isMock ? mockPrivacy.consent() : call(`/api/oauth/authorization-request?req=${encodeURIComponent(req)}`);
+export const decideConsent = (req: string, approve: boolean, scopes: string[]): Promise<{ redirect_url: string }> =>
+  isMock ? mockPrivacy.decide(approve) : call("/api/oauth/authorize", json("POST", { req, approve, scopes }));
+
 export const YOUTH_BANDS = ["u19", "u18", "u17", "u16", "u15", "u14"];

@@ -31,6 +31,7 @@ from catch.api import (
     routes_illness,
     routes_notes,
     routes_nutrition,
+    routes_oauth,
     routes_pieces,
     routes_privacy,
     routes_push,
@@ -160,6 +161,7 @@ app.include_router(routes_connections.router)
 app.include_router(routes_connections.callback_router)
 app.include_router(routes_account.router)
 app.include_router(routes_privacy.router)
+app.include_router(routes_oauth.router)
 app.include_router(routes_internal.router)
 app.include_router(routes_wellness.router)
 app.include_router(routes_activities.router)
@@ -192,6 +194,25 @@ app.include_router(routes_clubs.router)
 def health():
     return {"ok": True}
 
+
+if settings.mcp_oauth_enabled and tenant.is_public() and settings.mcp_http_enabled:
+    # MCP OAuth 2.1 (session 28): the SDK's authorization-server routes (metadata, /authorize, /token, /register, /revoke) built on
+    # Catch's provider, plus the protected-resource metadata for /mcp. Registered ahead of the SPA catch-all, like /mcp itself.
+    from mcp.server.auth.routes import create_auth_routes, create_protected_resource_routes
+    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+    from pydantic import AnyHttpUrl
+
+    from catch.mcp_server import oauth as mcp_oauth
+    from catch.mcp_server.oauth_http import OAuthThrottleMiddleware
+
+    _oauth_routes = create_auth_routes(
+        mcp_oauth.provider, issuer_url=AnyHttpUrl(mcp_oauth.issuer_url()),
+        client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=list(mcp_oauth.SCOPES), default_scopes=["catch:read"]),
+        revocation_options=RevocationOptions(enabled=True),
+    ) + create_protected_resource_routes(resource_url=AnyHttpUrl(mcp_oauth.resource_url()), authorization_servers=[AnyHttpUrl(mcp_oauth.issuer_url())], scopes_supported=list(mcp_oauth.SCOPES))
+    for _route in reversed(_oauth_routes):
+        app.router.routes.insert(0, _route)
+    app.add_middleware(OAuthThrottleMiddleware)
 
 if settings.mcp_http_enabled:
     # Registered before the SPA catch-all below — Starlette matches mounts and routes in

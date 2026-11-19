@@ -16,9 +16,9 @@ down_revision = "0007"
 branch_labels = None
 depends_on = None
 
-TABLES = ("tool_call_log", "ai_sharing_settings")  # owned (owner_id + forced RLS)
+TABLES = ("tool_call_log", "ai_sharing_settings", "oauth_auth_codes", "oauth_grants")  # owned (owner_id + forced RLS)
 UID = "(SELECT auth.uid())::text"
-GLOBAL = ("deleted_accounts", "account_restrictions", "moderation_actions", "moderator_access_log")  # catch_api only
+GLOBAL = ("deleted_accounts", "account_restrictions", "moderation_actions", "moderator_access_log", "oauth_clients")  # catch_api only
 APPEND_ONLY = ("moderation_actions", "moderator_access_log")  # SELECT + INSERT only
 TS = "TIMESTAMP WITH TIME ZONE"
 POLICY_COUNT_DELTAS = {"club_audit": 1}
@@ -81,7 +81,53 @@ def upgrade() -> None:
         PRIMARY KEY (owner_id),
         FOREIGN KEY(owner_id) REFERENCES catch.user_profiles (id) ON DELETE CASCADE
     )""")
+    op.execute(f"""CREATE TABLE catch.oauth_clients (
+        client_id VARCHAR NOT NULL,
+        client_json VARCHAR NOT NULL,
+        created_at {TS} NOT NULL,
+        last_used_at {TS},
+        PRIMARY KEY (client_id)
+    )""")
+    op.execute(f"""CREATE TABLE catch.oauth_auth_codes (
+        owner_id VARCHAR NOT NULL,
+        id SERIAL NOT NULL,
+        code_hash VARCHAR NOT NULL,
+        client_id VARCHAR NOT NULL,
+        redirect_uri VARCHAR NOT NULL,
+        redirect_uri_provided_explicitly BOOLEAN NOT NULL,
+        code_challenge VARCHAR NOT NULL,
+        scopes VARCHAR NOT NULL,
+        resource VARCHAR,
+        expires_at {TS} NOT NULL,
+        created_at {TS} NOT NULL,
+        PRIMARY KEY (id),
+        FOREIGN KEY(owner_id) REFERENCES catch.user_profiles (id) ON DELETE CASCADE
+    )""")
+    op.execute("CREATE INDEX ix_oauth_auth_codes_owner_id ON catch.oauth_auth_codes (owner_id)")
+    op.execute("CREATE INDEX ix_oauth_auth_codes_code_hash ON catch.oauth_auth_codes (code_hash)")
+    op.execute(f"""CREATE TABLE catch.oauth_grants (
+        owner_id VARCHAR NOT NULL,
+        grant_id VARCHAR NOT NULL,
+        client_id VARCHAR NOT NULL,
+        scopes VARCHAR NOT NULL,
+        resource VARCHAR,
+        created_at {TS} NOT NULL,
+        last_used_at {TS},
+        revoked_at {TS},
+        access_hash VARCHAR NOT NULL,
+        access_expires_at {TS} NOT NULL,
+        refresh_hash VARCHAR NOT NULL,
+        prev_refresh_hash VARCHAR,
+        refresh_expires_at {TS} NOT NULL,
+        absolute_expires_at {TS} NOT NULL,
+        PRIMARY KEY (owner_id, grant_id),
+        FOREIGN KEY(owner_id) REFERENCES catch.user_profiles (id) ON DELETE CASCADE
+    )""")
+    op.execute("CREATE INDEX ix_oauth_grants_access_hash ON catch.oauth_grants (access_hash)")
+    op.execute("CREATE INDEX ix_oauth_grants_refresh_hash ON catch.oauth_grants (refresh_hash)")
+    op.execute("CREATE INDEX ix_oauth_grants_prev_refresh_hash ON catch.oauth_grants (prev_refresh_hash)")
     op.execute("GRANT USAGE, SELECT ON SEQUENCE catch.tool_call_log_id_seq TO authenticated")
+    op.execute("GRANT USAGE, SELECT ON SEQUENCE catch.oauth_auth_codes_id_seq TO authenticated")
     # A device token resolves to its owner, role, scope and expiry before any owner is known (same SECURITY DEFINER shape as 0002).
     op.execute("DROP FUNCTION IF EXISTS catch_private.resolve_api_token(text)")
     op.execute("""CREATE FUNCTION catch_private.resolve_api_token(token_hash_in text)
@@ -142,6 +188,19 @@ def upgrade() -> None:
         _global_grants(t)
     for seq in ("account_restrictions_id_seq", "moderation_actions_id_seq", "moderator_access_log_id_seq"):
         op.execute(f"GRANT USAGE, SELECT ON SEQUENCE catch.{seq} TO catch_api")
+    # The token endpoint is called by an MCP client with no session, so it can't know the owner up front: two narrow read-only definer
+    # lookups find which owner a code / token belongs to; everything after that runs under that owner's own RLS context.
+    op.execute("""CREATE OR REPLACE FUNCTION catch_private.resolve_oauth_code(h text) RETURNS TABLE (owner_id text)
+        LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+        AS $$ SELECT c.owner_id FROM catch.oauth_auth_codes c WHERE c.code_hash = h LIMIT 1 $$""")
+    op.execute("""CREATE OR REPLACE FUNCTION catch_private.resolve_oauth_token(h text) RETURNS TABLE (owner_id text, grant_id text, kind text)
+        LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
+        AS $$ SELECT g.owner_id, g.grant_id,
+                     CASE WHEN g.access_hash = h THEN 'access' WHEN g.refresh_hash = h THEN 'refresh' ELSE 'refresh_prev' END
+              FROM catch.oauth_grants g WHERE g.access_hash = h OR g.refresh_hash = h OR g.prev_refresh_hash = h LIMIT 1 $$""")
+    for fn in ("resolve_oauth_code(text)", "resolve_oauth_token(text)"):
+        op.execute(f"REVOKE ALL ON FUNCTION catch_private.{fn} FROM PUBLIC, anon, authenticated")
+        op.execute(f"GRANT EXECUTE ON FUNCTION catch_private.{fn} TO catch_api")
     # How old an account is, for the report-brigading rule. user_profiles has no grant for catch_api, so this is a narrow definer function.
     op.execute("""CREATE OR REPLACE FUNCTION catch_private.account_age_days(uid text) RETURNS integer
         LANGUAGE sql SECURITY DEFINER STABLE SET search_path = ''
@@ -155,6 +214,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP FUNCTION IF EXISTS catch_private.resolve_oauth_token(text)")
+    op.execute("DROP FUNCTION IF EXISTS catch_private.resolve_oauth_code(text)")
     op.execute("DROP FUNCTION IF EXISTS catch_private.account_age_days(text)")
     op.execute("DROP FUNCTION IF EXISTS catch_private.resolve_api_token(text)")
     op.execute("""CREATE FUNCTION catch_private.resolve_api_token(token_hash_in text)

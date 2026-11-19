@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GLOBAL_TABLES = {"user_profiles", "weather_cells"}  # no owner column by design (see docs/public-architecture.md §2)
 # Session 26: what other signed-in users may see, plus the moderation trail. Reachable only by the runtime role through
 # catch.sync.leaderboard_store (docs/leaderboards.md); the authenticated role has no grant on any of them.
-SESSION28_GLOBAL = {"deleted_accounts", "account_restrictions", "moderation_actions", "moderator_access_log"}  # migration 0008, catch_api-only like the leaderboard globals
+SESSION28_GLOBAL = {"deleted_accounts", "account_restrictions", "moderation_actions", "moderator_access_log", "oauth_clients"}  # migration 0008, catch_api-only like the leaderboard globals
 LEADERBOARD_GLOBAL = {"public_athletes", "public_entries", "moderation_events", "result_reports", "appeals"}
 # Session 27: membership-scoped club tables (clubs/club_members began in 0005 and were reshaped in 0006). Unlike the leaderboard tables these are
 # granted to `authenticated` behind RLS policies that call the catch_club.* predicates (docs/clubs.md); none carries a per-owner key by design.

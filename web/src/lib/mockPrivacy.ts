@@ -1,4 +1,4 @@
-import type { DeviceToken, PrivacySummary, Restriction, SharingState, SharingUpdate, ToolCallRow } from "./privacy";
+import type { ConsentRequest, DeviceToken, OauthGrant, PrivacySummary, Restriction, SharingState, SharingUpdate, ToolCallRow } from "./privacy";
 
 const wait = <T,>(v: T, ms = 150): Promise<T> => new Promise((r) => setTimeout(() => r(v), ms));
 
@@ -25,6 +25,9 @@ let tokens: DeviceToken[] = [
 ];
 let removed: Record<string, number> = {};
 let restrictions: Restriction[] = [];
+let grants: OauthGrant[] = [
+  { grant_id: "g1", client_name: "Claude Desktop", scopes: ["catch:read"], created_at: "2026-11-10T08:00:00Z", last_used_at: "2026-11-17T20:00:00Z", expires_at: "2027-02-08T08:00:00Z" },
+];
 
 const BASE_ROWS: Record<string, number> = { conversations: 14, memory: 6, gps: 38, media: 3, notes_checkins: 112, nutrition: 540, wellness_body: 400, notification_log: 63, ai_usage: 220 };
 const LABELS: Record<string, [string, string]> = {
@@ -87,5 +90,20 @@ export const mockPrivacy = {
     restrictions = restrictions.map((r) => (r.id === id ? { ...r, appeal: { status: "open", text, resolution: null } } : r));
     return wait(restrictions.find((r) => r.id === id)!);
   },
+  grants: () => wait(grants),
+  endGrant: (id: string) => {
+    grants = grants.filter((g) => g.grant_id !== id);
+    return wait({ ok: true });
+  },
+  consent: (): Promise<ConsentRequest> =>
+    wait({
+      client_name: "Claude Desktop",
+      redirect_host: "claude.ai",
+      scopes: [
+        { scope: "catch:read", text: "Read your training data (only the categories you've allowed the AI to see)" },
+        { scope: "catch:write", text: "Propose changes: add notes, log food, plan sessions… — each one is shown to you first and saved only when you confirm" },
+      ],
+    }),
+  decide: (approve: boolean) => wait({ redirect_url: approve ? "/settings/privacy?mock=1&approved=1" : "/settings/privacy?mock=1&denied=1" }),
   download: () => wait(undefined),
 };

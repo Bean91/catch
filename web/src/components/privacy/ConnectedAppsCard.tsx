@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { fetchDeviceTokens, fetchToolCalls, revokeAllDeviceTokens, revokeDeviceToken } from "../../lib/privacy";
+import { endOauthGrant, fetchDeviceTokens, fetchOauthGrants, fetchToolCalls, revokeAllDeviceTokens, revokeDeviceToken } from "../../lib/privacy";
 import { Card } from "../ui/Card";
 
 const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
@@ -10,7 +10,9 @@ export function ConnectedAppsCard() {
   const qc = useQueryClient();
   const tokens = useQuery({ queryKey: ["device-tokens"], queryFn: fetchDeviceTokens });
   const calls = useQuery({ queryKey: ["tool-calls"], queryFn: fetchToolCalls });
-  const refresh = () => qc.invalidateQueries({ queryKey: ["device-tokens"] });
+  const grants = useQuery({ queryKey: ["oauth-grants"], queryFn: fetchOauthGrants });
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["device-tokens"] }); qc.invalidateQueries({ queryKey: ["oauth-grants"] }); };
+  const endGrant = useMutation({ mutationFn: endOauthGrant, onSuccess: refresh });
   const revoke = useMutation({ mutationFn: revokeDeviceToken, onSuccess: refresh });
   const revokeAll = useMutation({ mutationFn: revokeAllDeviceTokens, onSuccess: refresh });
 
@@ -22,7 +24,18 @@ export function ConnectedAppsCard() {
           that removes the stored credential and, where the provider allows it, ends their access; data already imported stays until you delete it above.
           Apps that use your Catch data (like Claude Desktop) connect with a token you can end at any time:
         </p>
-        {tokens.data && tokens.data.length === 0 && <p className="text-sm text-text-secondary">No apps are connected.</p>}
+        {tokens.data && tokens.data.length === 0 && (grants.data?.length ?? 0) === 0 && <p className="text-sm text-text-secondary">No apps are connected.</p>}
+        <ul className="flex flex-col gap-2" data-testid="oauth-grants">
+          {grants.data?.map((g) => (
+            <li key={g.grant_id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
+              <div className="min-w-0 text-sm">
+                <p className="font-medium text-text-primary">{g.client_name} <span className="text-xs font-normal text-text-secondary">· {g.scopes.includes("catch:write") ? "can propose changes (you confirm each)" : "read only"}</span></p>
+                <p className="text-xs text-text-secondary">Last used {when(g.last_used_at)} · access ends {when(g.expires_at)} unless renewed</p>
+              </div>
+              <button type="button" className={`${btn} shrink-0`} onClick={() => endGrant.mutate(g.grant_id)} disabled={endGrant.isPending} data-testid={`end-grant-${g.grant_id}`}>End access</button>
+            </li>
+          ))}
+        </ul>
         <ul className="flex flex-col gap-2">
           {tokens.data?.map((t) => (
             <li key={t.id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
@@ -34,7 +47,7 @@ export function ConnectedAppsCard() {
             </li>
           ))}
         </ul>
-        {tokens.data && tokens.data.length > 1 && (
+        {((tokens.data?.length ?? 0) + (grants.data?.length ?? 0)) > 1 && (
           <div><button type="button" className={btn} onClick={() => revokeAll.mutate()} disabled={revokeAll.isPending}>End all app access</button></div>
         )}
         <div>

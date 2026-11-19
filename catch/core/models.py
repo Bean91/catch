@@ -1910,6 +1910,58 @@ class DeletedAccount(SQLModel, table=True):
     deleted_at: datetime = Field(default_factory=_utcnow)
 
 
+class OAuthClient(SQLModel, table=True):
+    """Session 28: an MCP client registered itself (RFC 7591). Global — it describes an app, not a person: public clients only (no secret),
+    their redirect URIs and display name. `catch/mcp_server/oauth.py` validates what may be registered."""
+
+    __tablename__ = "oauth_clients"
+
+    client_id: str = Field(primary_key=True)
+    client_json: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_used_at: Optional[datetime] = None
+
+
+class OAuthAuthCode(OwnedStrict, SQLModel, table=True):
+    """A one-time authorization code (60 s), created when the signed-in person approves a client. Only the hash is stored."""
+
+    __tablename__ = "oauth_auth_codes"
+
+    owner_id: str = owner_field()
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code_hash: str = Field(index=True)
+    client_id: str
+    redirect_uri: str
+    redirect_uri_provided_explicitly: bool = True
+    code_challenge: str
+    scopes: str  # space-separated
+    resource: Optional[str] = None
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class OAuthGrant(OwnedStrict, SQLModel, table=True):
+    """What one person has allowed one MCP client to do: its scopes, the resource it is bound to, and the hashes of its current access
+    token and rotating refresh token (the previous refresh hash is kept to detect a replay, which revokes the whole grant)."""
+
+    __tablename__ = "oauth_grants"
+
+    owner_id: str = owner_field(primary_key=True)
+    grant_id: str = Field(primary_key=True)
+    client_id: str
+    scopes: str
+    resource: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    access_hash: str = Field(index=True)
+    access_expires_at: datetime
+    refresh_hash: str = Field(index=True)
+    prev_refresh_hash: Optional[str] = Field(default=None, index=True)
+    refresh_expires_at: datetime
+    absolute_expires_at: datetime
+
+
 class AccountRestriction(SQLModel, table=True):
     """Session 28: a platform moderator's restriction on what one account may do in the *social* features (publishing a result,
     clubs, posting). It never limits the person's own data, export, deletion or provider disconnection. One appeal per restriction."""
