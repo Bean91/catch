@@ -211,6 +211,51 @@ def cmd_db_seed(args: argparse.Namespace) -> None:
     print("seeded")
 
 
+def _secret_owners() -> list[str]:
+    if not settings.is_public:
+        return [tenant.PERSONAL_OWNER]
+    from catch.api.routes_internal import user_ids
+
+    return user_ids()
+
+
+def cmd_secrets_status(args: argparse.Namespace) -> None:
+    from collections import Counter
+
+    from catch.core import secret_store
+    from catch.sync import secret_rotation
+
+    init_db()
+    total: Counter = Counter()
+    for owner in _secret_owners():
+        with tenant.use_owner(owner), get_session() as session:
+            total.update(secret_rotation.status(session))
+    current = secret_store.current_key_id()
+    print(f"current master id: {current}")
+    for key_id, n in sorted(total.items()):
+        print(f"  sealed under {key_id}{' (current)' if key_id == current else ' (OLD — run `catch secrets rotate`)'}: {n}")
+    if not total:
+        print("  no sealed credentials")
+
+
+def cmd_secrets_rotate(args: argparse.Namespace) -> None:
+    from catch.sync import secret_rotation
+
+    init_db()
+    resealed = skipped = 0
+    failed: list[str] = []
+    for owner in _secret_owners():
+        with tenant.use_owner(owner), get_session() as session:
+            report = secret_rotation.rotate_owner(session, dry_run=args.dry_run)
+        resealed += report["resealed"]
+        skipped += report["already_current"]
+        failed += [f"{owner[:8]}…/{item}" for item in report["failed"]]
+    print(("dry run — would re-seal " if args.dry_run else "re-sealed ") + f"{resealed}; already current: {skipped}")
+    if failed:
+        print("could not open (is the previous master still in CATCH_SECRETS_MASTER_KEY_PREVIOUS?): " + ", ".join(failed))
+        raise SystemExit(1)
+
+
 def cmd_export_personal(args: argparse.Namespace) -> None:
     from pathlib import Path
 
@@ -286,6 +331,13 @@ def main() -> None:
     up.set_defaults(func=cmd_db_upgrade)
     db_sub.add_parser("check", help="Role, SSL and row-level-security probe over the runtime connection").set_defaults(func=cmd_db_check)
     db_sub.add_parser("seed", help="Seed global reference data (needs DATABASE_ADMIN_URL)").set_defaults(func=cmd_db_seed)
+
+    secrets_parser = sub.add_parser("secrets", help="Master-key rotation for sealed credentials (docs/security.md)")
+    secrets_sub = secrets_parser.add_subparsers(dest="secrets_command", required=True)
+    secrets_sub.add_parser("status", help="How many sealed credentials are on each master key").set_defaults(func=cmd_secrets_status)
+    rotate_parser = secrets_sub.add_parser("rotate", help="Re-seal every credential under the current master key")
+    rotate_parser.add_argument("--dry-run", action="store_true")
+    rotate_parser.set_defaults(func=cmd_secrets_rotate)
 
     exp = sub.add_parser("export-personal", help="Write the personal install's data to a file for a public account (docs/personal-to-public.md)")
     exp.add_argument("--out", required=True)
