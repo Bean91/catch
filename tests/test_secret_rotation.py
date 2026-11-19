@@ -1,9 +1,8 @@
 import dataclasses
 
 import pytest
-from sqlmodel import Session
 
-from catch.core import secret_store, tenant
+from catch.core import secret_store
 from catch.core.models import AiCredential, ProviderConnection
 from catch.sync import connections, secret_rotation
 
