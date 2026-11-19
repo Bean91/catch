@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Read-only token for every job: nothing here pushes, comments or publishes.
+permissions:
+  contents: read
+
 # Superseded runs on the same branch cancel automatically — a push while a prior run is
 # still going (or stuck, e.g. a slow/hung Playwright-browser download) no longer piles up
 # redundant or stale in-progress runs.
@@ -19,8 +23,8 @@ jobs:
   python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
       - run: uv sync --locked --all-groups --all-extras
@@ -33,8 +37,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -44,6 +48,8 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+      - name: The built bundle must not contain a Supabase secret (service-role) key
+        run: "! grep -rIl -e 'sb_secret_' -e 'service_role' ../catch/api/static"
       - name: Syntax-check the generated service worker
         # Nothing else exercises sw.js's template-string-generated JS before it ships — a
         # syntax error in vite.config.ts's serviceWorkerPlugin would otherwise only surface
@@ -56,7 +62,7 @@ jobs:
       - run: npx playwright test
         env:
           CI: "1"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: playwright-report

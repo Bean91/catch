@@ -1,0 +1,53 @@
+name: Security
+
+# Secret scanning over the full history, plus dependency vulnerability audits. Dev/CI tooling only — nothing here ships to the Pi or
+# the public deployment. Fixtures only, no repository secrets needed.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1" # weekly: a new advisory can land against a dependency nobody touched
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0 # every commit, not just the tip: a key committed and "removed" is still leaked
+      - name: gitleaks (full history)
+        # The container, not gitleaks-action (whose licence terms differ for organisations). Config: .gitleaks.toml
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
+
+  python-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Export the locked dependency set
+        run: uv export --locked --all-groups --all-extras --no-hashes --no-emit-project --format requirements-txt -o requirements-audit.txt
+      - name: pip-audit
+        run: uvx pip-audit --requirement requirements-audit.txt --no-deps --disable-pip --strict
+
+  web-deps:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      # Runtime dependencies only: the build tools never run on a user's machine or the server. High and critical fail the build;
+      # lower findings are reported, and tracked in docs/security-findings.md.
+      - run: npm audit --omit=dev --audit-level=high

@@ -1,0 +1,20 @@
+# Secret scanning (CI: .github/workflows/security.yml; locally: docker run --rm -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo).
+# The default ruleset applies everywhere. Only the two noisy *generic* rules are relaxed, and only for the synthetic fixtures the
+# test suite plants on purpose (fake keys the redaction/no-leak tests must be able to find) and one vendored API document.
+# Anything else — a real-looking Anthropic/OpenAI/AWS/Supabase/private-key string, anywhere, including tests — still fails the build.
+title = "Catch"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic keys the test suite plants to prove they never leak (tests/test_ai_no_leak.py, test_redact.py, ...)"
+condition = "AND"
+rules = ["generic-api-key", "gcp-api-key"]
+paths = ['''^tests/''', '''^web/tests/''']
+
+[[allowlists]]
+description = "Garmin's published OpenAPI document (example values, not credentials)"
+condition = "AND"
+rules = ["generic-api-key"]
+paths = ['''^docs/garmin-openapi\.json$''']

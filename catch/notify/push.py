@@ -82,8 +82,10 @@ def send_to_subscription(sub: PushSubscription, payload: dict) -> tuple[bool, bo
     )
     try:
         resp = httpx.post(sub.endpoint, content=encrypted, headers=headers, timeout=10.0)
-    except httpx.HTTPError:
-        logger.exception("push send failed (network) for subscription id=%s", sub.id)
+    except httpx.HTTPError as exc:
+        # Only the exception's type: its text can quote the request URL, and a push endpoint's path is a bearer-style
+        # capability (anyone holding it can push to that device).
+        logger.warning("push send failed (network, %s) for subscription id=%s", type(exc).__name__, sub.id)
         return False, False
     if resp.status_code in (404, 410):
         return False, True

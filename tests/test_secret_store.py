@@ -88,3 +88,20 @@ def test_mask_never_echoes_short_secrets():
     assert secret_store.mask("short") == ""
     assert secret_store.mask("x" * 11) == ""
     assert secret_store.mask("sk-" + "x" * 20 + "abcd") == "abcd"
+
+
+def test_ai_keys_and_provider_connection_credentials_use_separate_key_domains():
+    """A BYOK AI key and a provider-connection credential are sealed under different derived keys, so one kind of blob can never
+    be opened as the other even for the same owner and the same scope string."""
+    blob, _ = secret_store.seal(KEY, owner_id="alice", provider="anthropic", purpose=secret_store.AI_PURPOSE)
+    with pytest.raises(SecretStoreError):
+        secret_store.open_sealed(blob, owner_id="alice", provider="anthropic", purpose=secret_store.CONNECTION_PURPOSE)
+    other, _ = secret_store.seal(KEY, owner_id="alice", provider="whoop:access", purpose=secret_store.CONNECTION_PURPOSE)
+    with pytest.raises(SecretStoreError):
+        secret_store.open_sealed(other, owner_id="alice", provider="whoop:access", purpose=secret_store.AI_PURPOSE)
+
+
+def test_the_stored_blob_never_contains_the_master_key_or_the_plaintext():
+    blob, key_id = secret_store.seal(KEY, owner_id="owner", provider="anthropic")
+    master = secret_store._masters()[0][1].decode()
+    assert master not in blob and KEY not in blob and key_id in blob and master[:8] not in key_id

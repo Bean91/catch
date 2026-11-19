@@ -152,3 +152,28 @@ def test_a_personal_install_never_imports_the_public_stack(tmp_path):
     out = subprocess.run([sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "CATCH_DB_PATH": str(tmp_path / "x.db"), "PYTHONPATH": str(ROOT)})
     assert out.returncode == 0, out.stderr[-500:]
     assert out.stdout.strip() == "", f"the personal install imported: {out.stdout.strip()}"
+
+
+def test_the_supabase_secret_key_is_read_by_exactly_one_module_and_never_reaches_the_browser():
+    users = sorted(
+        str(p.relative_to(ROOT))
+        for p in (ROOT / "catch").rglob("*.py")
+        if "supabase_secret_key" in p.read_text() and str(p.relative_to(ROOT)) != "catch/core/config.py"
+    )
+    assert users == ["catch/api/routes_account.py"], users  # the GoTrue admin delete is its only legitimate use
+    web_src = "\n".join(p.read_text() for p in (ROOT / "web" / "src").rglob("*.ts*"))
+    assert "SECRET_KEY" not in web_src and "sb_secret" not in web_src and "service_role" not in web_src
+    for example in ("web/.env.example",):
+        path = ROOT / example
+        if path.is_file():
+            assert "SECRET" not in path.read_text().replace("never put", "").upper().replace("NEVER PUT", "") or "never" in path.read_text().lower()
+
+
+def test_provider_keys_are_never_read_from_the_environment_on_a_public_deployment():
+    """BYOK: the only AI credential path is the per-owner sealed row. No provider code may read the environment, and the
+    Anthropic SDK (which would itself fall back to ANTHROPIC_API_KEY) is always handed its key explicitly."""
+    for path in (ROOT / "catch" / "coach").rglob("*.py"):
+        code = "\n".join(line for line in path.read_text().splitlines() if not line.strip().startswith("#"))
+        assert "os.environ" not in code and "getenv" not in code, f"{path.relative_to(ROOT)} reads the environment"
+    anthropic = (ROOT / "catch" / "coach" / "providers" / "anthropic_provider.py").read_text()
+    assert "api_key=" in anthropic
