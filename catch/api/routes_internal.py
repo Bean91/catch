@@ -126,3 +126,35 @@ def db_check():
 
     report = db_pg.role_report(db_module.engine)
     return {**report, **db_pg.rls_probe(db_module.engine), "pool_mode": settings.db_pool_mode, **db_pg.schema_revision(db_module.engine)}
+
+
+# Settings an operator sets by hand, as (environment name, Settings attribute). Reported as set/unset only — a value never leaves the process.
+# SUPABASE_SECRET_KEY is deliberately absent: exactly one module may read it (tests/tenancy/test_structure.py); account deletion proves it.
+_CHECKED = (
+    ("DATABASE_URL", "database_url"), ("SUPABASE_URL", "supabase_url"), ("SUPABASE_PUBLISHABLE_KEY", "supabase_publishable_key"),
+    ("CATCH_SECRETS_MASTER_KEY", "secrets_master_key"), ("CATCH_TICK_SECRET", "tick_secret"),
+    ("CATCH_MODERATOR_IDS", "moderator_ids"), ("VAPID_PUBLIC_KEY", "vapid_public_key"), ("VAPID_PRIVATE_KEY", "vapid_private_key"),
+    ("WHOOP_CLIENT_ID", "whoop_client_id"), ("WHOOP_CLIENT_SECRET", "whoop_client_secret"), ("WHOOP_REDIRECT_URI", "whoop_redirect_uri"),
+    ("WITHINGS_CLIENT_ID", "withings_client_id"), ("WITHINGS_CLIENT_SECRET", "withings_client_secret"), ("WITHINGS_REDIRECT_URI", "withings_redirect_uri"),
+    ("CONCEPT2_CLIENT_ID", "concept2_client_id"), ("CONCEPT2_CLIENT_SECRET", "concept2_client_secret"), ("CONCEPT2_REDIRECT_URI", "concept2_redirect_uri"),
+)
+_REDIRECTS = {"WHOOP_REDIRECT_URI": ("whoop_redirect_uri", "whoop"), "WITHINGS_REDIRECT_URI": ("withings_redirect_uri", "withings"), "CONCEPT2_REDIRECT_URI": ("concept2_redirect_uri", "concept2")}
+
+
+@router.get("/config-check")
+def config_check():
+    """Which operator settings the *running* process actually sees. Environment listings show what was saved, not what the deployed
+    instance loaded; this answers "is X set?" without printing a value. A redirect URI is also compared with the callback this
+    deployment expects (a provider rejects the authorize step on any difference)."""
+    from catch.sync import providers
+
+    out = {name: bool(getattr(settings, attr)) for name, attr in _CHECKED}
+    base = settings.base_url.rstrip("/")
+    redirects = {name: getattr(settings, attr) == f"{base}/auth/{provider}/callback" for name, (attr, provider) in _REDIRECTS.items() if getattr(settings, attr)}
+    return {
+        "set": out,
+        "redirect_matches_expected": redirects,
+        "providers_available": {p: providers.available(p) for p in ("garmin", "withings", "concept2", "whoop")},
+        "providers_oauth_available": {p: providers.oauth_available(p) for p in ("withings", "concept2", "whoop")},
+        "base_url_is_https": settings.base_url.startswith("https://"),
+    }

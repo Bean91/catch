@@ -82,7 +82,7 @@ def test_internal_routes_are_all_behind_the_tick_secret():
         if path.startswith("/internal"):
             seen += 1
             assert routes_internal.require_tick_secret in _calls(route, extra), path
-    assert seen == 2
+    assert seen == 3  # tick/{job}, db-check, config-check
 
 
 def test_the_walker_actually_sees_the_whole_api():

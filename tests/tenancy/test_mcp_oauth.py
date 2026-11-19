@@ -20,7 +20,7 @@ from starlette.testclient import TestClient
 
 from catch.coach import tools
 from catch.core import config, tenant
-from catch.core.models import OAuthGrant
+from catch.core.models import OAuthClient, OAuthGrant
 from catch.mcp_server import oauth
 from tests.tenancy import kit
 from tests.tenancy.conftest import bearer
@@ -103,12 +103,33 @@ def test_a_public_client_registers_and_nothing_secret_is_issued(env):
     {"redirect_uris": ["http://evil.example/cb"]},               # plain http, not loopback
     {"redirect_uris": ["https://x.example/cb#frag"]},            # fragment
     {"redirect_uris": [f"https://x{i}.example/cb" for i in range(9)]},  # too many
-    {"token_endpoint_auth_method": "client_secret_post"},         # confidential clients aren't accepted
+    {"token_endpoint_auth_method": "private_key_jwt"},             # signed-assertion client auth isn't supported
     {"scope": "catch:admin"},                                      # unknown scope
     {"client_name": "x" * 200},
 ])
 def test_unsafe_registrations_are_refused(env, over):
     assert register(env, **over).status_code == 400
+
+
+@pytest.mark.parametrize("method", ["client_secret_post", "client_secret_basic"])
+def test_a_client_that_asks_for_a_secret_is_registered_as_public_and_told_so(env, method):
+    """claude.ai registers as a confidential client. It is registered as a public PKCE client instead, and the 201 says so: no secret is issued."""
+    r = register(env, token_endpoint_auth_method=method)
+    body = r.json()
+    assert r.status_code == 201 and body["token_endpoint_auth_method"] == "none"
+    assert not body.get("client_secret") and not body.get("client_secret_expires_at")
+    with Session(env.engine) as s:  # nothing secret is stored either
+        stored = s.exec(select(OAuthClient).where(OAuthClient.client_id == body["client_id"])).one().client_json
+    assert "client_secret\":\"" not in stored and '"token_endpoint_auth_method":"none"' in stored.replace(" ", "")
+
+
+def test_a_client_registered_that_way_completes_the_whole_flow_even_if_it_still_sends_a_secret(env):
+    client = register(env, token_endpoint_auth_method="client_secret_post").json()["client_id"]
+    verifier, challenge = pkce()
+    r = start(env, client, challenge)
+    assert r.status_code == 302
+    bad = env.oauth.post("/token", data={"grant_type": "authorization_code", "client_id": client, "client_secret": "whatever", "code": "nope", "code_verifier": verifier, "redirect_uri": REDIRECT})
+    assert bad.status_code == 400 and bad.json()["error"] == "invalid_grant"  # reached the code check: client authentication did not stop it
 
 
 def test_a_loopback_http_redirect_is_allowed_for_native_apps(env):

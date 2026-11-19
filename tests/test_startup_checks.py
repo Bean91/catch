@@ -117,3 +117,30 @@ def test_local_base_url_escape_hatch_is_loud(monkeypatch, caplog):
     assert any("CATCH_ALLOW_LOCAL_BASE_URL" in r.getMessage() for r in caplog.records)
     monkeypatch.delenv("CATCH_ALLOW_LOCAL_BASE_URL")
     assert startup_checks.public_config_problems(_s(base_url="http://localhost:8000"))
+
+
+def test_config_check_reports_set_or_unset_never_a_value():
+    import dataclasses
+
+    from fastapi.testclient import TestClient
+
+    import catch.main as main
+    from catch.api import routes_internal as ri
+    from catch.core import config, tenant
+
+    probe = dataclasses.replace(config.settings, whoop_client_id="whoop-id-VALUE", whoop_client_secret="", whoop_redirect_uri="https://catch.example.com/auth/whoop/callback", withings_redirect_uri="", concept2_redirect_uri="",
+                                base_url="https://catch.example.com", tick_secret="t" * 40)
+    real = tenant.is_public
+    tenant.is_public = lambda: True
+    saved = ri.settings
+    ri.settings = probe
+    try:
+        resp = TestClient(main.app).get("/internal/config-check", headers={"authorization": "Bearer " + "t" * 40})
+    finally:
+        ri.settings = saved
+        tenant.is_public = real
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["set"]["WHOOP_CLIENT_ID"] is True and body["set"]["WHOOP_CLIENT_SECRET"] is False
+    assert body["redirect_matches_expected"] == {"WHOOP_REDIRECT_URI": True}
+    assert "whoop-id-VALUE" not in resp.text and "t" * 40 not in resp.text

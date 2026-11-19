@@ -127,12 +127,20 @@ def _valid_redirect(uri: str) -> bool:
     return parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1")
 
 
+# claude.ai registers as a confidential client (it asks for a secret) even though it holds none worth protecting: it is a public
+# redirect URI on someone else's cloud. Refusing that made every connect attempt fail with an opaque "couldn't register". Catch stores
+# no client secrets, so such a request is registered as a PUBLIC client — which RFC 7591 §3.2.1 allows ("the authorization server MAY
+# replace any of the client's requested metadata values") and the response says so (`none`, no secret). PKCE (S256) stays mandatory and
+# the redirect-URI rules are unchanged, so the authorization code still can't be redeemed by anyone but the client that started it.
+_AUTH_METHODS_SEEN_IN_THE_WILD = ("none", "client_secret_post", "client_secret_basic")
+
+
 def validate_client(info: OAuthClientInformationFull) -> None:
     uris = [str(u) for u in (info.redirect_uris or [])]
     if not uris or len(uris) > MAX_REDIRECTS or not all(_valid_redirect(u) for u in uris):
         raise RegistrationError("invalid_redirect_uri", "Redirect URIs must be https (or an http loopback address), without fragments, at most 5.")
-    if (info.token_endpoint_auth_method or "none") != "none":
-        raise RegistrationError("invalid_client_metadata", "Only public clients (token_endpoint_auth_method=none) are accepted; use PKCE.")
+    if (info.token_endpoint_auth_method or "none") not in _AUTH_METHODS_SEEN_IN_THE_WILD:
+        raise RegistrationError("invalid_client_metadata", "token_endpoint_auth_method must be none, client_secret_post or client_secret_basic; every client is registered as public and must use PKCE.")
     if info.client_name is not None and not (1 <= len(info.client_name.strip()) <= 80):
         raise RegistrationError("invalid_client_metadata", "client_name must be 1–80 characters.")
     if info.scope and any(s not in SCOPES for s in info.scope.split()):
@@ -375,6 +383,10 @@ class CatchOAuthProvider:
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         validate_client(client_info)
+        # The SDK's handler returns this same object as the 201 body, so mutating it makes the response report what was actually registered.
+        client_info.token_endpoint_auth_method = "none"
+        client_info.client_secret = None
+        client_info.client_secret_expires_at = None
 
         def save() -> None:
             from sqlalchemy import func
