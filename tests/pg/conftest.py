@@ -163,3 +163,24 @@ def signout_everywhere(user: User) -> None:
 def jwks_fetch():
     with urllib.request.urlopen(f"{API_URL}/auth/v1/.well-known/jwks.json", timeout=10) as resp:
         return json.loads(resp.read())
+
+
+@pytest.fixture(autouse=True)
+def _reports_count_from_brand_new_accounts(monkeypatch):
+    """GoTrue accounts made in a test are seconds old; the production rule (a week) is tested in tests/pg/test_moderation.py."""
+    from catch.sync import account_store
+
+    monkeypatch.setattr(account_store, "MIN_REPORTER_AGE_DAYS", 0)
+
+
+@pytest.fixture(autouse=True)
+def _moderators_need_no_second_factor_in_these_tests():
+    """The local stack has MFA switched off (supabase/config.toml enroll_enabled = false), so a real aal2 session can't be made here.
+    The aal2 gate is covered with synthetic tokens in tests/tenancy/test_moderation_controls.py and is listed as unverified against
+    real GoTrue in docs/security-findings.md."""
+    from catch.core import config
+
+    saved = config.settings.moderator_require_aal2
+    object.__setattr__(config.settings, "moderator_require_aal2", False)
+    yield
+    object.__setattr__(config.settings, "moderator_require_aal2", saved)

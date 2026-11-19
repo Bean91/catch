@@ -378,8 +378,18 @@ def preview(session: Session, ref: dict, prefs: dict) -> dict:
     return {"entry": prep["view"], "preview_hash": prep["hash"], "disclosures": _disclosures(prep), "ranked": prep["verification"] == "verified"}
 
 
+def _not_restricted(scope: str) -> None:
+    from catch.sync import restrictions
+
+    try:
+        restrictions.assert_allowed(tenant.current_owner(), scope)
+    except restrictions.Restricted as exc:
+        raise LeaderboardError(str(exc), 403) from None
+
+
 def publish(session: Session, ref: dict, prefs: dict, *, confirm: bool, preview_hash: str) -> dict:
     owner = tenant.current_owner()
+    _not_restricted("publish")
     if confirm is not True:
         raise LeaderboardError("Confirm publishing after reviewing the preview.")
     since = _now() - timedelta(days=1)

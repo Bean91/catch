@@ -33,6 +33,32 @@ class DeleteAccount(BaseModel):
     confirm: str
 
 
+class AppealBody(BaseModel):
+    text: str
+
+
+@router.get("/api/account/restrictions")
+def my_restrictions():
+    """Anything a platform moderator has restricted on this account, with the reason and who decided — and whether it was appealed."""
+    from catch.sync import restrictions
+
+    if not tenant.is_public():
+        return {"restrictions": []}
+    return {"restrictions": restrictions.mine(tenant.current_owner())}
+
+
+@router.post("/api/account/restrictions/{restriction_id}/appeal")
+def appeal_restriction(restriction_id: int, body: AppealBody):
+    from catch.sync import restrictions
+
+    if not tenant.is_public():
+        raise HTTPException(status_code=404, detail="Not available on a personal install")
+    try:
+        return restrictions.appeal(tenant.current_owner(), restriction_id, body.text)
+    except restrictions.RestrictionError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
 @router.get("/api/me")
 def me(request: Request, db: Session = Depends(get_db)):
     owner = tenant.current_owner()

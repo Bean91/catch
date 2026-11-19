@@ -312,7 +312,13 @@ def report(reporter_id: str, entry_id: str, reason: str, detail: Optional[str]) 
         except IntegrityError:
             s.rollback()
             raise StoreError("You've already reported this result.", 409) from None
-        open_reporters = s.exec(select(func.count(func.distinct(ResultReport.reporter_id))).where(ResultReport.entry_id == entry_id, ResultReport.status == "open")).one()
+        from catch.sync import account_store
+
+        # Three reports hide a result for review — but only reports from accounts at least a week old count, so throwaway accounts
+        # made for the purpose can't do it. A moderator still sees every report in the queue.
+        open_reporters = account_store.eligible_reporters(
+            s.exec(select(ResultReport.reporter_id).where(ResultReport.entry_id == entry_id, ResultReport.status == "open")).all(), s
+        )
         hidden = False
         if open_reporters >= REPORT_AUTO_HIDE_AT:
             set_entry_status(s, entry, "hidden", actor_kind="system", actor_id=None, reason_code="report_threshold",

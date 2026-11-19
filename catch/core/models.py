@@ -1910,6 +1910,54 @@ class DeletedAccount(SQLModel, table=True):
     deleted_at: datetime = Field(default_factory=_utcnow)
 
 
+class AccountRestriction(SQLModel, table=True):
+    """Session 28: a platform moderator's restriction on what one account may do in the *social* features (publishing a result,
+    clubs, posting). It never limits the person's own data, export, deletion or provider disconnection. One appeal per restriction."""
+
+    __tablename__ = "account_restrictions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(index=True)
+    scope: str  # publish | clubs | posting
+    reason_code: str
+    reason_text: str
+    set_by: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: Optional[datetime] = None
+    lifted_at: Optional[datetime] = None
+    lifted_by: Optional[str] = None
+    appeal_text: Optional[str] = None
+    appeal_status: Optional[str] = None  # open | upheld | overturned
+    appeal_resolution: Optional[str] = None
+    appealed_at: Optional[datetime] = None
+
+
+class ModerationAction(SQLModel, table=True):
+    """Append-only (SELECT/INSERT grants only): every account-level moderator action, with the mandatory reason."""
+
+    __tablename__ = "moderation_actions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    actor_id: str = Field(index=True)
+    action: str  # restrict | lift | appeal_upheld | appeal_overturned
+    subject_user_id: str = Field(index=True)
+    restriction_id: Optional[int] = None
+    reason_text: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ModeratorAccess(SQLModel, table=True):
+    """Append-only: every time a moderator opened a detail view, so moderator browsing is itself accountable."""
+
+    __tablename__ = "moderator_access_log"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    moderator_id: str = Field(index=True)
+    kind: str  # queue | entry | club | restrictions
+    target_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 from catch.core import tenant_hooks as _tenant_hooks  # noqa: E402
 
 _tenant_hooks.install()

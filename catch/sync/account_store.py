@@ -103,3 +103,43 @@ def prune_global(now=None) -> dict:
         audit = s.execute(sa_delete(ClubAudit).where(ClubAudit.created_at < now - timedelta(days=730))).rowcount or 0
         s.commit()
     return {"club_reports": reports, "club_audit": audit}
+
+
+def account_age_days(owner_id: str, session=None) -> int | None:
+    """Days since this account was created, or None if it doesn't exist. user_profiles is not readable by the runtime role on
+    Postgres, so that path goes through one narrow SECURITY DEFINER function (migration 0008). Pass the caller's own store session
+    when it has one open: a second session would hold a second connection at the same time."""
+    from contextlib import nullcontext
+
+    from sqlalchemy import text
+
+    from catch.core import tenant_hooks
+    from catch.core.models import UserProfile
+
+    with (nullcontext(session) if session is not None else store()) as s:
+        if tenant_hooks.uses_rls(s.get_bind()):
+            return s.connection().execute(text("SELECT catch_private.account_age_days(:u)"), {"u": owner_id}).scalar()
+        row = s.execute(select(UserProfile).where(UserProfile.id == owner_id).execution_options(tenant_unscoped=True)).scalar_one_or_none()
+        if row is None:
+            return None
+        from datetime import datetime, timezone
+
+        created = row.created_at if row.created_at.tzinfo else row.created_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - created).days
+
+
+MIN_REPORTER_AGE_DAYS = 7
+
+
+def eligible_reporters(reporter_ids, session=None) -> int:
+    """How many of these reporters count towards an automatic hide: accounts at least a week old, so three throwaway accounts made
+    for the purpose can't take someone's result or post down. A moderator still sees every report."""
+    return sum(1 for r in set(reporter_ids) if r and (account_age_days(r, session) or 0) >= MIN_REPORTER_AGE_DAYS)
+
+
+def log_moderator_access(moderator_id: str, kind: str, target_id: str | None = None) -> None:
+    from catch.core.models import ModeratorAccess
+
+    with store() as s:
+        s.add(ModeratorAccess(moderator_id=moderator_id, kind=kind, target_id=target_id))
+        s.commit()

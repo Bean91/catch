@@ -186,7 +186,12 @@ def after_report(club_id: str, target_type: str, target_id: str) -> None:
     if target_type != "announcement":
         return
     with system_session() as s:
-        reporters = s.exec(select(func.count(func.distinct(ClubReport.reporter_id))).where(ClubReport.target_type == "announcement", ClubReport.target_id == target_id, ClubReport.status == "open")).one()
+        from catch.sync import account_store
+
+        # Only reports from accounts at least a week old count towards the automatic hide (a moderator still sees them all).
+        reporters = account_store.eligible_reporters(
+            s.exec(select(ClubReport.reporter_id).where(ClubReport.target_type == "announcement", ClubReport.target_id == target_id, ClubReport.status == "open")).all(), s
+        )
         post = s.get(ClubAnnouncement, int(target_id))
         if reporters >= REPORT_AUTO_HIDE_AT and post is not None and post.status == "published":
             post.status, post.decided_by, post.decision_reason, post.decided_at = "hidden", None, "Hidden after reports, pending a moderator's review.", _now()

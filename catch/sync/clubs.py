@@ -174,7 +174,17 @@ def _club_dict(club: Club, *, role: Optional[str] = None, count: Optional[int] =
     return out
 
 
+def _not_restricted(scope: str) -> None:
+    from catch.sync import restrictions
+
+    try:
+        restrictions.assert_allowed(me(), scope)
+    except restrictions.Restricted as exc:
+        raise ClubError(str(exc), 403) from None
+
+
 def create_club(session: Session, **raw) -> dict:
+    _not_restricted("clubs")
     profile = _need_profile(session)
     if profile.age_class != "adult":
         raise ClubError("Only adults can start a club. Ask a coach to start a junior club.", 403)
@@ -448,6 +458,7 @@ def _insert_membership(session: Session, club: Club, role: str, profile: ClubPro
 def join(session: Session, *, token: Optional[str] = None, club_id: Optional[str] = None, message: Optional[str] = None, accept_rules: bool = False) -> dict:
     """Open clubs admit directly; an invite admits directly to an adult 'invite' club; everything else (a request club, and EVERY junior club)
     becomes a request a coach or staff member decides. A removed member can't come back."""
+    _not_restricted("clubs")
     profile = _need_profile(session)
     inv_id: Optional[int] = None
     role = "athlete"

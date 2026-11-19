@@ -47,6 +47,9 @@ def _author_label(handles: dict, owner_id: Optional[str]) -> str:
 
 
 def post_announcement(session: Session, club_id: str, title: str, body: str) -> dict:
+    from catch.sync.clubs import _not_restricted
+
+    _not_restricted("posting")
     club, m = require_member(session, club_id, "post")
     title, body = _value(c.validate_post, title, body, club.audience)
     since = datetime.now(timezone.utc) - timedelta(days=1)

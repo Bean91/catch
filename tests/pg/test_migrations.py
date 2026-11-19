@@ -59,6 +59,7 @@ def test_every_table_has_forced_rls_and_a_policy_per_command(migrated, admin):
     expected = {"weather_cells": 2, "moderation_events": 3, **mig6.POLICY_COUNTS}
     for table, delta in mig8.POLICY_COUNT_DELTAS.items():
         expected[table] = expected.get(table, 4) + delta  # session 28: the retention policy on club_audit
+    expected.update(mig8.POLICY_COUNT_ABSOLUTE)  # session 28: the append-only moderation tables
     for name, rls, forced, policies in rows:
         assert rls and forced, f"{name}: RLS not enabled and forced"
         assert policies == expected.get(name, 4), f"{name}: {policies} policies"

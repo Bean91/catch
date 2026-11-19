@@ -82,6 +82,7 @@ class Settings:
     supabase_session_check_ttl: float
     tick_secret: str
     moderator_ids: str
+    moderator_require_aal2: bool
 
     @property
     def is_public(self) -> bool:
@@ -152,6 +153,8 @@ def load_settings() -> Settings:
         supabase_session_check_ttl=float(_get("CATCH_SESSION_CHECK_TTL", "15")),
         tick_secret=_get("CATCH_TICK_SECRET"),
         moderator_ids=_get("CATCH_MODERATOR_IDS"),
+        # Moderators must have completed a second factor on this session (Supabase MFA must be enabled for them). Default on.
+        moderator_require_aal2=_get("CATCH_MODERATOR_REQUIRE_AAL2", "1") == "1",
     )
 
 

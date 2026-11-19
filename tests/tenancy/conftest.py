@@ -18,18 +18,26 @@ def public_mode():
 
     real_is_public = tenant.is_public
     tenant.is_public = lambda: True
-    previous = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_session_check_ttl", "tick_secret", "ollama_enabled")}
+    previous = {k: getattr(config.settings, k) for k in ("deployment", "supabase_url", "supabase_session_check_ttl", "tick_secret", "ollama_enabled", "moderator_require_aal2")}
     object.__setattr__(config.settings, "deployment", "public")
     object.__setattr__(config.settings, "supabase_url", kit.SUPABASE_URL)
     object.__setattr__(config.settings, "supabase_session_check_ttl", 0.0)
     object.__setattr__(config.settings, "tick_secret", "tick-secret-for-tests-0123456789abcdefg")
     object.__setattr__(config.settings, "ollama_enabled", False)  # the public startup guard requires it
+    # Suite defaults for two session-28 rules that nearly every moderation test is not about; tests/tenancy/test_moderation_controls.py
+    # turns them back on. (Moderators need an aal2 session; a report only counts towards an auto-hide from a week-old account.)
+    object.__setattr__(config.settings, "moderator_require_aal2", False)
+    from catch.sync import account_store
+
+    saved_min_age = account_store.MIN_REPORTER_AGE_DAYS
+    account_store.MIN_REPORTER_AGE_DAYS = 0
     supabase_auth.jwks_cache = supabase_auth.JwksCache(fetch=kit.jwks)
     supabase_auth.liveness.reset()
     deps._profiles_known.clear()
     try:
         yield
     finally:
+        account_store.MIN_REPORTER_AGE_DAYS = saved_min_age
         tenant.is_public = real_is_public
         for k, v in previous.items():
             object.__setattr__(config.settings, k, v)
