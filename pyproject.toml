@@ -51,7 +51,7 @@ public = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.8"]
+dev = ["pytest>=8", "ruff>=0.17.5"]
 
 [tool.ruff]
 line-length = 120
