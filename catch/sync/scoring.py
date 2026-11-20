@@ -84,7 +84,7 @@ def _daily_activity_component(session: Session, day: date, settings: dict) -> di
         return daily_activity_strain(None, None, settings)
     exercise_steps, exercise_kcal = _day_garmin_activity_totals(session, day)
     non_exercise_steps = max(0, wellness.steps - exercise_steps)
-    non_exercise_kcal = max(0.0, (wellness.active_kcal or 0.0) - exercise_kcal)
+    non_exercise_kcal = None if wellness.active_kcal is None else max(0.0, wellness.active_kcal - exercise_kcal)
     return daily_activity_strain(non_exercise_steps, non_exercise_kcal, settings)
 
 

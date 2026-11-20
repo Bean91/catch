@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -415,3 +415,37 @@ def test_photo_estimate_rejects_unsupported_content_type(client):
 def test_nutrition_routes_require_auth(client):
     resp = client.get("/api/nutrition/logs")
     assert resp.status_code == 401
+
+
+def _fuel_day(session, food, day, *, expenditure, kcals):
+    from catch.core.models import DailyWellness, FoodLog
+
+    session.add(DailyWellness(date=day, source="garmin", total_kcal=expenditure))
+    for kcal in kcals:
+        session.add(FoodLog(ts=datetime.combine(day, time(12, 0)).astimezone(), meal="lunch", food_id=food.id, quantity=100, unit="g", kcal=kcal))
+    session.commit()
+
+
+def test_under_fuelling_ignores_todays_partial_day(session):
+    """Launch audit L-14: today's expenditure and intake are both still accumulating, so they can't complete a deficit streak."""
+    from catch.sync import nutrition
+
+    food = _seed_food(session)
+    today = date.today()
+    _fuel_day(session, food, today - timedelta(days=2), expenditure=2500, kcals=[1700])
+    _fuel_day(session, food, today - timedelta(days=1), expenditure=2500, kcals=[1700])
+    _fuel_day(session, food, today, expenditure=1400, kcals=[600])
+    assert nutrition.week_summary(session, today - timedelta(days=6), today)["under_fuelling"]["flag"] is False
+    _fuel_day(session, food, today - timedelta(days=3), expenditure=2500, kcals=[1700])
+    assert nutrition.week_summary(session, today - timedelta(days=6), today)["under_fuelling"]["flag"] is True
+
+
+def test_under_fuelling_does_not_read_unknown_kcal_as_a_deficit(session):
+    """Launch audit L-14: a logged food with no kcal made the day's intake a lower bound, which used to read as a deficit."""
+    from catch.sync import nutrition
+
+    food = _seed_food(session)
+    today = date.today()
+    for back in (1, 2, 3):
+        _fuel_day(session, food, today - timedelta(days=back), expenditure=2500, kcals=[400, None])
+    assert nutrition.week_summary(session, today - timedelta(days=6), today)["under_fuelling"]["flag"] is False

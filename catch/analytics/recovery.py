@@ -90,6 +90,15 @@ def recovery_score(
         (weights.get("checkin", 0.0), checkin_component),
     ]
     available = [(w, v) for w, v in weighted if v is not None]
+    # Prior-day strain and the check-in describe load and feeling, not the body's overnight state: without at least one of
+    # HRV, resting HR or sleep there is nothing physiological to score, so a day with no wellness row isn't "50, yellow".
+    if all(v is None for v in (hrv_component, rhr_component, sleep_component)):
+        return {
+            "value": None,
+            "band": "insufficient_data",
+            "components": components,
+            "explanation": "No HRV, resting heart rate or sleep for today, so there is no recovery score.",
+        }
     if not available:
         return {
             "value": None,

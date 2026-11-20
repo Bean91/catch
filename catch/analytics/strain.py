@@ -88,11 +88,13 @@ def daily_activity_strain(
     settings = settings or DEFAULT_SETTINGS
     cap = settings["daily_activity_strain_cap"]
     weight = settings["daily_activity_strain_weight"]
-    steps = max(0.0, non_exercise_steps or 0.0)
-    kcal = max(0.0, non_exercise_active_kcal or 0.0)
-    steps_term = math.log1p(steps / 2000.0)
-    kcal_term = math.log1p(kcal / 150.0)
-    raw = (steps_term + kcal_term) / 2.0
+    # Only the measures that exist are averaged: a missing kcal used to enter as 0 and halve a real step count's share.
+    terms = []
+    if non_exercise_steps is not None:
+        terms.append(math.log1p(max(0.0, non_exercise_steps) / 2000.0))
+    if non_exercise_active_kcal is not None:
+        terms.append(math.log1p(max(0.0, non_exercise_active_kcal) / 150.0))
+    raw = sum(terms) / len(terms) if terms else 0.0
     value = min(cap, weight * raw)
     return {
         "value": value,

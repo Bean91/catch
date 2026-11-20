@@ -464,7 +464,9 @@ def _day_totals(session: Session, day: date_) -> dict:
             value = getattr(row, field)
             if value is not None:
                 totals[field] += value
-    return {**totals, "has_log": len(rows) > 0, "logs": rows}
+    # A food with no known kcal makes the day's intake a lower bound, not a total: the fuelling check must not read it as a deficit.
+    kcal_complete = all(row.kcal is not None for row in rows)
+    return {**totals, "has_log": len(rows) > 0, "kcal_complete": kcal_complete, "logs": rows}
 
 
 def daily_summary(session: Session, day: date_) -> dict:
@@ -495,9 +497,17 @@ def week_summary(session: Session, from_: date_, to: date_) -> dict:
                 "protein": totals["protein"],
                 "expenditure_kcal": expenditure,
                 "has_log": totals["has_log"],
+                "kcal_complete": totals["kcal_complete"],
             }
         )
         cursor += timedelta(days=1)
 
-    balances = [{"date": d["date"], "intake_kcal": d["intake_kcal"], "expenditure_kcal": d["expenditure_kcal"], "has_log": d["has_log"]} for d in days]
+    # Today is still accumulating (Garmin's total_kcal and the food log both grow through the day), so like _trailing_kcal_target
+    # the fuelling check stops at yesterday; a day whose intake is a lower bound (a food with unknown kcal) counts as unlogged.
+    today = date_.today()
+    balances = [
+        {"date": d["date"], "intake_kcal": d["intake_kcal"], "expenditure_kcal": d["expenditure_kcal"], "has_log": d["has_log"] and d["kcal_complete"]}
+        for d in days
+        if d["date"] < today
+    ]
     return {"days": days, "under_fuelling": under_fuelling_flag(balances)}
