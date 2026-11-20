@@ -52,7 +52,7 @@ DATABASE_URL=postgresql://catch_api.<ref>:<password>@aws-0-<region>.pooler.supab
 * Add `sslmode=verify-full&sslrootcert=…` with the project's root certificate (Database settings) once you can ship the file; `require`
   encrypts but doesn't verify the server. Turn on **Database settings → "Enforce SSL"**.
 * Pool: 1 connection per replica (+2 overflow) by default; Hobby caps at 3 replicas.
-* ⚠ Whether a custom role works through the pooler, and whether FastAPI Cloud can reach it, is checked by `catch db check` (§4) — run it **from the deployed app**.
+* ✅ A custom role works through the shared pooler and FastAPI Cloud can reach it (session 29, checked from the deployed app via `/internal/db-check`; session mode, port 5432).
 
 Never use the `postgres` user or the direct connection string for `DATABASE_URL`: the app refuses to start when the role bypasses RLS.
 
@@ -69,17 +69,16 @@ Never use the `postgres` user or the direct connection string for `DATABASE_URL`
 4. **Dependencies.** FastAPI Cloud's docs mention only `pyproject.toml`/`uv.lock`, nothing about extras, and it starts the app with `fastapi run` (confirmed by a failed first deploy:
    `To use the fastapi command, please install "fastapi[standard]"`). So `fastapi[standard]`, `psycopg[binary]` and `pyjwt[crypto]` are in the main dependencies behind a
    `platform_machine not in 'armv6l armv7l'` marker (no 32-bit ARM wheel for psycopg-binary; a 32-bit Pi installs none of them). Only `alembic` stays in the `public` extra, for the laptop.
-5. ⚠ **Is the built frontend uploaded?** It is gitignored and uploads follow `.gitignore`; `.fastapicloudignore` has a `!catch/api/static/` line, but whether a
-   re-include overrides `.gitignore` is not documented. Check `GET /` after deploying; if it 404s, serve the frontend from a static host instead.
-6. ⚠ **Run `curl -H "Authorization: Bearer $CATCH_TICK_SECRET" https://<app>/internal/db-check`** — it reports the connected role, SSL, and performs the RLS probe
+5. ✅ **The built frontend is uploaded** (session 29: `.fastapicloudignore`'s `!catch/api/static/` overrides `.gitignore`; `GET /`, a deep link and `/assets/*` all served). Still check `GET /` after each deploy.
+6. **Run `curl -H "Authorization: Bearer $CATCH_TICK_SECRET" https://<app>/internal/db-check`** — it reports the connected role, SSL, and performs the RLS probe
    from inside FastAPI Cloud. `superuser`/`bypass_rls` must be `false` and both probe fields `true`.
-7. ⚠ Confirm SSE streaming (the coach), request timeouts and the 1-day (Hobby) / 14-day (Pro) log retention suit you — none are documented.
+7. ⚠ Confirm SSE streaming (the coach), request timeouts and the 1-day (Hobby) / 14-day (Pro) log retention suit you — none are documented. The app also refuses to start unless `CATCH_BASE_URL` is an https, non-loopback URL and the pool mode matches the `DATABASE_URL` port; `GET /internal/config-check` shows what the running app loaded.
 
 ## 5. Scheduled work (no scheduler in the process)
 
 FastAPI Cloud scales to zero and documents no cron, so syncs and notifications are driven by a **tick** — `POST /internal/tick/sync` and `/internal/tick/notifications`,
 bearer `CATCH_TICK_SECRET`. Each walks the users one at a time under that user's identity; a per-(user, job) lease keeps overlapping ticks from running twice.
-From Supabase (`pg_cron` + `pg_net`; put the secret in Vault, not in the SQL) ⚠ untested:
+From Supabase (`pg_cron` + `pg_net`; put the secret in Vault, not in the SQL) — ✅ run in production in session 29; the full job SQL (with the retention job and `timeout_milliseconds`) is in `docs/operations.md` §3:
 
 ```sql
 select vault.create_secret('<CATCH_TICK_SECRET>', 'catch_tick_secret');
