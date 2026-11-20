@@ -285,7 +285,15 @@ Full table: [supabase-setup.md](supabase-setup.md). In short:
 
 All runs on 2026-11-20, branch `session-31-launch-audit`, against the final head unless stated otherwise.
 
-FINAL_EVIDENCE_PLACEHOLDER
+| Suite | Command | Result |
+|---|---|---|
+| Lint | `uv run ruff check .` | All checks passed |
+| Backend (SQLite, personal default) | `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | **2209 passed, 3 skipped** |
+| Postgres / Supabase (real GoTrue, RLS with separate identities, Storage, pooler, runtime path) | `tests/pg` against the local `supabase start` stack | **100 passed, 1 skipped** |
+| Whole backend suite on PostgreSQL | `CATCH_TEST_PG_URL=… pytest --ignore=tests/pg` | **2211 passed, 1 skipped** |
+| Frontend unit | `npm test` (vitest) | **95 passed** (13 files) |
+| Frontend typecheck, lint, production build, bundle budget, build-secret scan | `npm run typecheck && lint && build && check:bundle-size && check:build-secrets` | pass; initial JS **230.0 KB gzip** (budget 250); 110 files clean |
+| Playwright touch/WebKit/desktop vs the production preview | `CI=1 npx playwright test` | full run: 244 passed, **13 failed by timeout** while the machine's load average was 138 (a backup daemon and Spotlight, not Catch). Those 13 re-run with `--last-failed --workers=2`: **13 passed**. An earlier full run in this session (before the last piece-split change) passed 257, with 8 skipped |
 
 Earlier in the session:
 - Production smoke (`scripts/smoke_public.py`, disposable users) ran on the session-30 production deploy: 28 passed, 3 failed
