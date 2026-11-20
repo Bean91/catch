@@ -48,8 +48,9 @@ def test_add_column_statements_run_on_postgres(pg):
         conn.execute(text("CREATE TABLE api_tokens (id SERIAL PRIMARY KEY, name TEXT, token_hash TEXT, created_at TIMESTAMP, last_used_at TIMESTAMP)"))
         conn.execute(text("INSERT INTO api_tokens (name, token_hash) VALUES ('legacy', 'h')"))
         conn.execute(text("CREATE TABLE planned_workouts (id SERIAL PRIMARY KEY, owner_id TEXT, title TEXT)"))
-        stmts = db_module._add_column_statements(inspect(conn), {t: db_module._NEW_COLUMNS[t] for t in ("api_tokens", "planned_workouts")})
-        assert len(stmts) == 3
+        wanted = {t: db_module._NEW_COLUMNS[t] for t in ("api_tokens", "planned_workouts")}
+        stmts = db_module._add_column_statements(inspect(conn), wanted)
+        assert len(stmts) == sum(len(cols) for cols in wanted.values())  # was a hard-coded 3 that session 28's two token columns outgrew
         for s in stmts:
             conn.execute(text(s))
         assert db_module._add_column_statements(inspect(conn), {t: db_module._NEW_COLUMNS[t] for t in ("api_tokens", "planned_workouts")}) == []
