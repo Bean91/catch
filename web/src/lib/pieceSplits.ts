@@ -139,10 +139,20 @@ export function aggregateFromSplits(rows: SplitRow[]): Aggregate {
   const watts = rows.map((r) => r.watts).filter((v): v is number => v != null);
   const durationS = definedSplits.length === rows.length && rows.length > 0 ? definedSplits.reduce((a, b) => a + b, 0) : null;
   const distanceM = rows.length > 0 && rows[rows.length - 1].distance_m != null ? rows[rows.length - 1].distance_m : null;
+  // Pace per 500 m = total time / total distance (launch audit L-10; mirrors catch/analytics/piece.py), not the mean of split durations.
+  let avgSplitS: number | null = null;
+  if (durationS != null && distanceM) {
+    avgSplitS = (durationS / distanceM) * 500;
+  } else {
+    const timed = rows.flatMap((r, i) => (r.split_s != null ? [[r.split_s, rowDistanceDelta(rows, i)] as const] : []));
+    if (timed.length && timed.every(([, d]) => d)) {
+      avgSplitS = (timed.reduce((a, [t]) => a + t, 0) / timed.reduce((a, [, d]) => a + (d as number), 0)) * 500;
+    }
+  }
   return {
     duration_s: durationS,
     distance_m: distanceM,
-    avg_split_s: definedSplits.length ? definedSplits.reduce((a, b) => a + b, 0) / definedSplits.length : null,
+    avg_split_s: avgSplitS,
     avg_rate: rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null,
     avg_watts: watts.length ? watts.reduce((a, b) => a + b, 0) / watts.length : null,
   };

@@ -80,6 +80,22 @@ describe("aggregateFromSplits", () => {
     expect(agg.distance_m).toBe(2000);
     expect(agg.avg_rate).toBeCloseTo(32, 5);
   });
+
+  it("averages pace over total distance, not the mean of uneven split durations (L-10)", () => {
+    const uneven: SplitRow[] = [
+      { split_index: 1, distance_m: 500, split_s: 105, rate: null, watts: null, hr: null },
+      { split_index: 2, distance_m: 1000, split_s: 105, rate: null, watts: null, hr: null },
+      { split_index: 3, distance_m: 1500, split_s: 105, rate: null, watts: null, hr: null },
+      { split_index: 4, distance_m: 1750, split_s: 52, rate: null, watts: null, hr: null },
+    ];
+    // 367 s over 1750 m -> 367 / 1750 * 500 = 104.857 s/500 m (the old mean of durations gave 91.75)
+    expect(aggregateFromSplits(uneven).avg_split_s).toBeCloseTo((367 / 1750) * 500, 6);
+    const timed: SplitRow[] = [
+      { split_index: 1, distance_m: null, split_s: 300, rate: null, watts: null, hr: null },
+      { split_index: 2, distance_m: null, split_s: 300, rate: null, watts: null, hr: null },
+    ];
+    expect(aggregateFromSplits(timed).avg_split_s).toBeNull(); // no distance, no pace
+  });
 });
 
 describe("parseSplitsPaste", () => {

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSettings, fetchSyncStatus, isMock, saveSettings } from "../lib/api";
+import { fetchConnections, fetchSettings, fetchSyncStatus, isMock, saveSettings } from "../lib/api";
 import { STATUS_GLYPH, STATUS_LABEL } from "../lib/connections";
 import { formatRelativeTime } from "../lib/format";
 import { useTheme } from "../lib/theme";
@@ -25,6 +25,10 @@ export function SettingsPage() {
   const { theme, toggle } = useTheme();
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
   const statusQuery = useQuery({ queryKey: ["sync-status"], queryFn: fetchSyncStatus });
+  // Launch audit L-32: list only the sources this deployment offers (Garmin BYOK can be switched off), never one Connections says
+  // "isn't available" for. Until the list loads, every source shows, as before.
+  const connectionsQuery = useQuery({ queryKey: ["connections"], queryFn: fetchConnections });
+  const offered = SOURCES.filter((s) => connectionsQuery.data?.connections.find((c) => c.provider === s)?.available ?? true);
 
   const [form, setForm] = useState<Settings | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -68,7 +72,7 @@ export function SettingsPage() {
         }
       >
         <div className="flex flex-col gap-3" data-testid="connected-sources">
-          {SOURCES.map((source) => {
+          {offered.map((source) => {
             const status = statusQuery.data?.find((s) => s.source === source);
             const connected = status?.connected ?? false;
             const state = status?.status ?? "disconnected";
@@ -323,7 +327,9 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Profile & units">
+      {/* Session 31 (launch audit L-22): a metric/imperial toggle sat here, but nothing read it — every figure stays metric — so it
+          is gone until units are actually implemented. The stored `units` setting is untouched. */}
+      <Card title="Profile">
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
           <label className="flex items-center gap-3 text-sm text-text-secondary">
             Max HR
@@ -334,21 +340,6 @@ export function SettingsPage() {
               className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
             />
           </label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-text-secondary">Units</span>
-            {(["metric", "imperial"] as const).map((u) => (
-              <button
-                key={u}
-                type="button"
-                onClick={() => update("units", u)}
-                className={`min-h-11 rounded-md border px-3.5 text-sm font-medium capitalize transition-colors ${
-                  form.units === u ? "border-accent text-accent" : "border-border text-text-tertiary"
-                }`}
-              >
-                {u}
-              </button>
-            ))}
-          </div>
         </div>
       </Card>
 

@@ -58,8 +58,13 @@ def _pool_problems(database_url: str, pool_mode: str) -> list[str]:
     return []
 
 
-def warnings(settings, static_index) -> list[str]:
+def warnings(settings, static_index, environ=None) -> list[str]:
+    environ = os.environ if environ is None else environ
     out: list[str] = []
+    if settings.garmin_byok_enabled and "CATCH_GARMIN_BYOK_ENABLED" not in environ:
+        # Launch audit L-26: the default is on (the Pi and the owner's account rely on it), but on a multi-user deployment offering
+        # Garmin's Personal API is an explicit decision — Garmin says it isn't intended for commercial multi-user apps.
+        out.append("CATCH_GARMIN_BYOK_ENABLED is not set, so Garmin BYOK is offered to every user by default; set it to 1 or 0 explicitly (docs/garmin-byok.md)")
     if not settings.tick_secret:
         out.append("CATCH_TICK_SECRET is not set: /internal/* answers 404, so no scheduled sync, notification or retention work will run")
     if not static_index.is_file():

@@ -151,17 +151,27 @@ def validate_splits(rows: list[dict], total_distance_m: Optional[float], total_d
 
 def aggregate_from_splits(rows: list[dict]) -> dict:
     """Totals/averages for the piece's own summary fields, derived from its splits rather
-    than re-entered separately — avg_split_s is time-weighted (the mean of a piece's actual
-    splits, not distance/time, since a short last partial split would otherwise skew it)."""
+    than re-entered separately. avg_split_s is pace per 500 m — total time / total distance,
+    what the PM5's own summary row shows. (Session 31, launch audit L-10: it used to be the
+    plain mean of the split *durations*, which is only right when every split is exactly
+    500 m — a short last split or 1000 m/timed splits gave a wrong average.) avg_rate and
+    avg_watts stay unweighted means of the typed values (docs/analytics.md limitations)."""
     defined_splits = [r["split_s"] for r in rows if r.get("split_s") is not None]
     rates = [r["rate"] for r in rows if r.get("rate") is not None]
     watts = [r["watts"] for r in rows if r.get("watts") is not None]
     duration_s = sum(defined_splits) if len(defined_splits) == len(rows) and rows else None
     distance_m = rows[-1]["distance_m"] if rows and rows[-1].get("distance_m") is not None else None
+    avg_split_s = None
+    if duration_s is not None and distance_m:
+        avg_split_s = duration_s / distance_m * 500.0
+    else:
+        timed = [(r["split_s"], _row_distance_delta(rows, i)) for i, r in enumerate(rows) if r.get("split_s") is not None]
+        if timed and all(d for _, d in timed):
+            avg_split_s = sum(t for t, _ in timed) / sum(d for _, d in timed) * 500.0
     return {
         "duration_s": duration_s,
         "distance_m": distance_m,
-        "avg_split_s": (sum(defined_splits) / len(defined_splits)) if defined_splits else None,
+        "avg_split_s": avg_split_s,
         "avg_rate": (sum(rates) / len(rates)) if rates else None,
         "avg_watts": (sum(watts) / len(watts)) if watts else None,
     }

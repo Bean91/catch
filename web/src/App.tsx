@@ -3,6 +3,8 @@ import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/shell/AppShell";
 import { CardSkeleton } from "./components/ui/Skeleton";
 import { useAuth } from "./lib/auth";
+import { isMock } from "./lib/api";
+import { isPublic } from "./lib/deployment";
 import { useDeepLinks } from "./lib/native/useDeepLinks";
 import { useNativeShell } from "./lib/native/useNativeShell";
 import { LoginPage } from "./pages/Login";
@@ -148,14 +150,19 @@ export function App() {
           <Route path="/settings/memory" element={<MemoryPage />} />
           <Route path="/settings/health" element={<HealthDataPage />} />
           <Route path="/settings/status" element={<StatusPage />} />
-          <Route path="/settings/leaderboards" element={<LeaderboardSettingsPage />} />
-          <Route path="/settings/moderation" element={<ModerationPage />} />
-          <Route path="/leaderboards" element={<LeaderboardsPage />} />
-          <Route path="/leaderboards/athletes/:id" element={<LeaderboardAthletePage />} />
-          <Route path="/clubs" element={<ClubsPage />} />
-          <Route path="/clubs/join" element={<ClubJoinPage />} />
-          <Route path="/clubs/:id" element={<ClubPage />} />
-          <Route path="/clubs/:id/challenges/:cid" element={<ClubChallengePage />} />
+          {/* Public-only features (launch audit L-32): a personal build has no leaderboard/club API, so these pages only showed errors. */}
+          {(isPublic || isMock) && (
+            <>
+              <Route path="/settings/leaderboards" element={<LeaderboardSettingsPage />} />
+              <Route path="/settings/moderation" element={<ModerationPage />} />
+              <Route path="/leaderboards" element={<LeaderboardsPage />} />
+              <Route path="/leaderboards/athletes/:id" element={<LeaderboardAthletePage />} />
+              <Route path="/clubs" element={<ClubsPage />} />
+              <Route path="/clubs/join" element={<ClubJoinPage />} />
+              <Route path="/clubs/:id" element={<ClubPage />} />
+              <Route path="/clubs/:id/challenges/:cid" element={<ClubChallengePage />} />
+            </>
+          )}
         </Routes>
       </Suspense>
     </AppShell>

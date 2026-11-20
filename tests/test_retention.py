@@ -30,3 +30,15 @@ def test_the_tick_knows_the_retention_job():
     from catch.api import routes_internal
 
     assert "retention" in routes_internal.JOBS and callable(routes_internal._retention_work)
+
+
+def test_a_persons_not_duplicate_and_split_decisions_are_never_pruned(session):
+    """Launch audit L-37: matching rescans all history, so pruning these let an old pair the person had separated auto-merge again."""
+    from catch.core.models import MatchDecision
+
+    old = NOW - timedelta(days=900)
+    for i, decision in enumerate(("not_duplicate", "split", "merge")):
+        session.add(MatchDecision(source_a="garmin", external_id_a=f"a{i}", source_b="concept2", external_id_b=f"b{i}", decision=decision, created_at=old))
+    session.commit()
+    assert retention.prune_owner(session, NOW)["match_decisions"] == 1
+    assert sorted(d.decision for d in session.exec(select(MatchDecision)).all()) == ["not_duplicate", "split"]

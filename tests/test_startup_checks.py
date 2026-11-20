@@ -61,7 +61,14 @@ def test_warnings_for_missing_tick_secret_and_frontend(tmp_path):
     msgs = startup_checks.warnings(_s(tick_secret=""), tmp_path / "index.html")
     assert any("TICK_SECRET" in m for m in msgs) and any("index.html" in m for m in msgs)
     (tmp_path / "index.html").write_text("x")
-    assert startup_checks.warnings(_s(), tmp_path / "index.html") == []
+    assert startup_checks.warnings(_s(), tmp_path / "index.html", {"CATCH_GARMIN_BYOK_ENABLED": "1"}) == []
+
+
+def test_garmin_byok_left_on_by_default_is_a_warning(tmp_path):
+    (tmp_path / "index.html").write_text("x")
+    msgs = startup_checks.warnings(_s(garmin_byok_enabled=True), tmp_path / "index.html", {})
+    assert any("CATCH_GARMIN_BYOK_ENABLED" in m for m in msgs)
+    assert startup_checks.warnings(_s(garmin_byok_enabled=False), tmp_path / "index.html", {}) == []
 
 
 def test_expected_schema_revision_is_the_real_migration_head():

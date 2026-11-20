@@ -94,6 +94,17 @@ def test_aggregate_from_splits():
     assert agg["avg_split_s"] == pytest.approx(sum(_TASK_2K_SPLITS_S) / 4)
 
 
+def test_average_split_is_total_time_over_total_distance_not_a_mean_of_durations():
+    """Launch audit L-10: 3 x 500 m at 1:45.0 then 250 m in 52 s is 367 s / 1750 m = 1:44.86/500 m (the mean of durations said 1:31.75)."""
+    rows = [
+        {"split_index": i + 1, "distance_m": d, "split_s": t, "rate": None, "watts": None, "hr": None}
+        for i, (d, t) in enumerate(((500, 105), (1000, 105), (1500, 105), (1750, 52)))
+    ]
+    assert aggregate_from_splits(rows)["avg_split_s"] == pytest.approx(367 / 1750 * 500)
+    timed = [{"split_index": i + 1, "distance_m": None, "split_s": 300.0, "rate": None, "watts": None, "hr": None} for i in range(2)]
+    assert aggregate_from_splits(timed)["avg_split_s"] is None  # no distance, no pace
+
+
 def test_parse_splits_paste_matches_the_tasks_own_example():
     text = "1:36.8 32 / 1:38.9 30 / 1:39.0 31 / 1:37.7 32"
     rows = parse_splits_paste(text)
