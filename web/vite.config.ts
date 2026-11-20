@@ -214,7 +214,8 @@ function publicEnvGuardPlugin(native = false): Plugin {
       }
       const url = String(config.env.VITE_SUPABASE_URL ?? '')
       if (config.env.VITE_CATCH_DEPLOYMENT === 'public') {
-        if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(url)) {
+        // The dev server never ships anything, and tests/public points it at a fake host that every spec intercepts.
+        if (config.command === 'build' && !/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(url)) {
           problems.push('VITE_SUPABASE_URL must look like https://<project-ref>.supabase.co')
         }
         if (!config.env.VITE_SUPABASE_PUBLISHABLE_KEY) problems.push('VITE_SUPABASE_PUBLISHABLE_KEY is empty')

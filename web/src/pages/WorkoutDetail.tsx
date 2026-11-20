@@ -41,7 +41,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 const SPORT_FAMILIES: SportFamily[] = ["rowing", "cycling", "running", "strength", "other"];
-const PROVENANCE_LABELS: Record<string, string> = { garmin: "Garmin watch", peloton: "Peloton", concept2: "Concept2 PM5" };
+const PROVENANCE_LABELS: Record<string, string> = { garmin: "Garmin watch", peloton: "Peloton", concept2: "Concept2 PM5", apple_health: "Apple Health", health_connect: "Health Connect" };
 
 export function WorkoutDetailPage() {
   const { id } = useParams();
@@ -563,6 +563,7 @@ export function WorkoutDetailPage() {
               {workout.sources.map((s) => (
                 <li key={s.activity_id} className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
                   <span className="font-medium text-text-primary">{PROVENANCE_LABELS[s.provenance] ?? s.provenance}</span>
+                  {s.origin_app && <span className="text-text-tertiary">recorded by {s.origin_app}</span>}
                   <span className="text-text-tertiary">({s.type ?? "unknown type"})</span>
                   {Object.entries(workout.field_sources)
                     .filter(([, src]) => src === `${s.source}:${s.external_id}`)

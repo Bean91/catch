@@ -8,6 +8,7 @@ const SOURCES = [
   { id: "garmin", label: "Garmin" },
   { id: "whoop", label: "Whoop" },
 ] as const;
+// Apple Health / Health Connect always rank after these two (analytics/wellness_inputs.py); they are not offered as "first".
 
 /** Which device's number wins when both Garmin and Whoop have one. Values are never averaged:
  *  exactly one provider supplies each input per day (docs/analytics.md §30). */

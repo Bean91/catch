@@ -169,3 +169,12 @@ def test_routes_need_a_signed_in_person_and_do_not_exist_on_a_personal_install(a
     assert api.get("/api/health/status").status_code == 401
     assert api.put("/api/health/consent", json={"platform": "apple_health", "categories": ["workouts"]}).status_code == 401
     assert client.get("/api/health/status").status_code in (401, 404)
+
+
+def test_the_recording_app_is_visible_on_the_workout_detail(api):
+    _consent(api, A)
+    api.post("/api/health/import", headers=A, json={"platform": "apple_health", "workouts": [_workout(app="Apple Watch")]})
+    canonical_id = api.get("/api/activities", headers=A).json()["items"][0]["id"]
+    detail = api.get(f"/api/activities/{canonical_id}", headers=A).json()
+    src = detail["sources"][0]
+    assert (src["source"], src["provenance"], src["origin_app"]) == ("apple_health", "apple_health", "Apple Watch")

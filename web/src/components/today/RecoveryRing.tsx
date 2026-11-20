@@ -25,7 +25,7 @@ const METRIC_LABEL: Record<string, string> = {
   checkin: "Morning check-in",
 };
 
-const SOURCE_LABEL: Record<string, string> = { garmin: "Garmin", whoop: "Whoop", catch: "Catch", you: "You" };
+const SOURCE_LABEL: Record<string, string> = { garmin: "Garmin", whoop: "Whoop", apple_health: "Apple Health", health_connect: "Health Connect", catch: "Catch", you: "You" };
 
 const SIZE = 180;
 const STROKE = 14;

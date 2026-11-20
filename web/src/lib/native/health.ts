@@ -102,6 +102,21 @@ export async function requestOsPermission(categories: HealthCategory[]): Promise
   return { readable: categories.filter((c) => ok.has(TYPE_FOR[c])), unknownOnThisOs: healthPlatform() === "apple_health" };
 }
 
+/** Categories the OS currently lets us read. Health Connect reports this truthfully; HealthKit never does, so on iOS the consented list
+ * is returned unchanged (a type that was denied simply comes back empty). */
+export async function readableNow(platform: HealthPlatform, categories: HealthCategory[]): Promise<HealthCategory[]> {
+  if (platform === "apple_health") return categories;
+  const { Health } = await import("@capgo/capacitor-health");
+  const status = await Health.checkAuthorization({ read: categories.map((c) => TYPE_FOR[c]) as never[], write: [] });
+  const ok = new Set<string>(status.readAuthorized as string[]);
+  return categories.filter((c) => ok.has(TYPE_FOR[c]));
+}
+
+export async function openHealthConnectSettings(): Promise<void> {
+  const { Health } = await import("@capgo/capacitor-health");
+  await Health.openHealthConnectSettings();
+}
+
 export interface HealthPayload {
   workouts: Record<string, unknown>[];
   readings: Record<string, unknown>[];
@@ -256,7 +271,10 @@ export async function incrementalSync(): Promise<ImportResult | null> {
   const consent = status.consents.find((c) => c.platform === platform && c.active && c.last_import_at);
   if (!consent) return null;
   if (!(await availability()).available) return null;
-  const preview = await buildPreview(platform, consent.categories, status, await sinceCursor(platform));
+  // A permission switched off in system settings since the last sync is respected: read only what is still allowed.
+  const readable = await readableNow(platform, consent.categories);
+  if (!readable.length) return null;
+  const preview = await buildPreview(platform, readable, status, await sinceCursor(platform));
   if (!preview.payload.workouts.length && !preview.payload.readings.length) return null;
   return sendPreview(platform, preview);
 }

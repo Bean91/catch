@@ -4514,11 +4514,13 @@ Backend (public-only routes; 404 on personal): `api/native_cors.py`; migration `
 
 ## Verification
 
-See `docs/mobile/test-report.md`. Python suite + `tests/pg` (local Supabase) green; web vitest/touch/update/gym green; **`test:public` fails to start, pre-existing** (its fake Supabase URL fails the build guard — reproduced on the base commit). Android: real app ↔ real backend e2e (login, secure storage, restart/update persistence, deep links, offline logging across kill, reconnect sync). iOS: compiles and launches on the simulator; push banner delivered.
+See `docs/mobile/test-report.md`. Python suite + `tests/pg` (local Supabase) green; web vitest/touch/update/gym green; `test:public` could not start (pre-existing: its fake Supabase URL failed the env guard on the base commit too); the guard now checks the URL shape for `vite build` only and the suite passes (18). Android: real app ↔ real backend e2e (login, secure storage, restart/update persistence, deep links, offline logging across kill, reconnect sync). iOS: compiles and launches on the simulator; push banner delivered.
 
 ## Not done / limitations
 
 - **No physical devices, no developer accounts.** Unverified: APNs/FCM delivery, universal/App Links verification, HealthKit/Health Connect reads, iOS Keychain/sign-in/offline at runtime (no tap automation for the simulator), camera flow on a phone, haptics, chart gestures in the native webviews.
+- Provenance: a workout shows its recording app ("recorded by Apple Watch"); wellness days show the provider ("Apple Health") — the recording app for a reading is kept in its meta and the export, not on screen.
+- Android Auto Backup is off (`allowBackup=false` + extraction rules); iOS: the WebKit storage is in the device backup (not excluded) — the Keychain session is `ThisDeviceOnly`.
 - Health: workouts carry no heart rate (plugin limit); no background sync; Android history beyond 30 days not requested; HealthKit HRV (SDNN) deliberately excluded.
 - No min-app-version/forced-update mechanism; no Android release signing config; Health-Connect and Play declarations, store forms and screenshots at final sizes are drafts.
 - Legal drafts (incl. the new account-deletion text) have had no legal review.

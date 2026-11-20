@@ -6,12 +6,12 @@ Environment: macOS, Xcode 26.3, iOS 26.3 simulator (iPhone 17 Pro); Android emul
 ## Automated, all green
 | Suite | Result |
 |---|---|
-| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | **all pass** (2174 before the last additions; see PLAN.md for the final figure), incl. new: CORS (6), native push (26), well-known (5), native OAuth (8), health import API (13), health analytics (33), structure/route-auth updates |
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | **2177+ passed, 3 skipped** (final figure in the closing report), incl. new: CORS (6), native push (26), well-known (5), native OAuth (8), health import API (13), health analytics (33), structure/route-auth updates |
 | `tests/pg` on the local Supabase stack | **97 passed** — migration 0009 applies, schema matches the models, RLS/grants for `health_consents` and the global `native_push_tokens`, token hand-off and cascade on the real roles |
 | web `vitest` | 91 passed (deep-link resolver, apiBase, + existing) |
 | web `test:touch` (Playwright; Chromium+CDP touch, real WebKit, desktop mouse) | 257 passed, 8 skipped |
 | `test:update`, `test:gym` | 4 passed, 1 passed |
-| `test:public` | **fails to start — pre-existing**: the dev server's env guard rejects the suite's fake `VITE_SUPABASE_URL=http://supabase.test`; reproduced on the unmodified base commit (stash). Not fixed here. |
+| `test:public` | **18 passed** (public web auth, incl. account deletion). It could not start at first — pre-existing, reproduced on the base commit: the dev server's env guard rejected the suite's fake Supabase URL; the URL-shape check now applies to `vite build` only. |
 | Web build / bundle budget / secrets | build ok; initial JS 229.8 KB gzip (budget 250); `check-build-secrets` clean on the web build |
 | `npm run check:native-secrets` + APK content scan | clean (no private key, service-account, DB URL, `sb_secret_`, APNs/FCM names) |
 

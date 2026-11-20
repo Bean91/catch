@@ -5,7 +5,7 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { formatRelativeTime } from "../lib/format";
 import {
-  availability, buildPreview, CATEGORY_INFO, categoriesFor, deleteImportedHealthData, fetchHealthStatus, healthPlatform, requestOsPermission, revokeConsent,
+  availability, buildPreview, openHealthConnectSettings, CATEGORY_INFO, categoriesFor, deleteImportedHealthData, fetchHealthStatus, healthPlatform, requestOsPermission, revokeConsent,
   saveConsent, sendPreview, sinceCursor, type HealthCategory, type HealthPreview,
 } from "../lib/native/health";
 import { isNative } from "../lib/native/platform";
@@ -22,6 +22,7 @@ export function HealthDataPage() {
   const [preview, setPreview] = useState<HealthPreview | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [needsSettings, setNeedsSettings] = useState(false);
 
   const consent = status.data?.consents.find((c) => c.platform === platform);
   const active = !!consent?.active;
@@ -34,7 +35,15 @@ export function HealthDataPage() {
       if (!av.available) throw new Error(platform === "health_connect" ? "Health Connect isn't available on this phone. Install or enable it from the Play Store, then try again." : "Apple Health isn't available on this device.");
       await saveConsent(platform, categories); // 1. the consent is recorded BEFORE the phone is asked anything
       const os = await requestOsPermission(categories); // 2. the phone's own permission sheet
-      const p = await buildPreview(platform, os.readable.length ? os.readable : categories, status.data, await sinceCursor(platform)); // 3. nothing is sent yet
+      // Health Connect says exactly what was allowed, so only that is read. HealthKit can't say, so its consented list is used and an
+      // empty type simply returns nothing.
+      const allowed = platform === "apple_health" ? categories : os.readable;
+      if (!allowed.length) {
+        setNeedsSettings(true);
+        throw new Error("Health Connect didn't allow any of those types, so nothing was read. You can change this in Health Connect → App permissions → Catch.");
+      }
+      setNeedsSettings(false);
+      const p = await buildPreview(platform, allowed, status.data, await sinceCursor(platform)); // 3. nothing is sent yet
       setPreview(p);
       qc.invalidateQueries({ queryKey: ["health-status"] });
     },
@@ -96,7 +105,16 @@ export function HealthDataPage() {
         <p className="mt-1 text-sm text-text-secondary">Bring workouts, sleep and heart data from your phone into Catch. Off until you turn it on, and you choose each type.</p>
       </div>
 
-      {notice && <p role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">{notice}</p>}
+      {notice && (
+        <div role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
+          {notice}
+          {needsSettings && platform === "health_connect" && (
+            <button type="button" onClick={() => void openHealthConnectSettings()} className="mt-2 block min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
+              Open Health Connect
+            </button>
+          )}
+        </div>
+      )}
       {status.isLoading && <CardSkeleton lines={4} />}
 
       <Card title="What is shared">

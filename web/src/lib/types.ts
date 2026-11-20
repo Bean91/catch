@@ -578,6 +578,8 @@ export interface ActivitySourceSummary {
   hr_source_type: string | null; // "chest_strap" | "wrist" | null
   has_fit: boolean;
   has_strokes: boolean;
+  /** Health-platform records only: the app that recorded it (e.g. "Apple Watch"). */
+  origin_app?: string | null;
 }
 
 export interface ActivityZones {

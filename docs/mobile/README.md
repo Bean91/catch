@@ -54,6 +54,8 @@ provisioning profile that has those capabilities, so a signed build needs an App
 
 **Demo/screenshot build** (no backend, fixtures only): `VITE_CATCH_MOCK=1 npx vite build --mode native-development && npx cap sync`.
 
+Android Auto Backup and device transfer are disabled (the Keystore-encrypted session can't be restored elsewhere, and the webview storage holds health-derived caches); iOS keeps the session in the Keychain as `afterFirstUnlockThisDeviceOnly`.
+
 ## Server settings the apps need (public deployment)
 
 `CATCH_NATIVE_ORIGINS` (default `capacitor://localhost,https://localhost`), `CATCH_NATIVE_URL_SCHEME` (`com.openoted.catch`), `CATCH_APPLE_TEAM_ID`,

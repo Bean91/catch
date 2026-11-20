@@ -74,6 +74,15 @@ def _activity_strain(db: Session, canonical: CanonicalActivity, strain_by_date: 
     return None
 
 
+def _origin_app(member: Activity) -> str | None:
+    if member.source not in ("apple_health", "health_connect") or not member.raw_json:
+        return None
+    try:
+        return json.loads(member.raw_json).get("origin_app")
+    except (ValueError, AttributeError):
+        return None
+
+
 def _source_summary(member: Activity) -> dict:
     return {
         "activity_id": member.id,
@@ -85,6 +94,9 @@ def _source_summary(member: Activity) -> dict:
         "hr_source_type": member.hr_source_type,
         "has_fit": bool(member.fit_path),
         "has_strokes": member.source == "concept2",
+        # Session 30: a health-platform record keeps the app that actually recorded it ("Apple Watch", "Garmin Connect"…), so the screen can
+        # say where a number really came from rather than only "Apple Health".
+        "origin_app": _origin_app(member),
     }
 
 

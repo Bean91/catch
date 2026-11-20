@@ -35,6 +35,10 @@ HRV RMSSD (Android). Weight is excluded (Withings owns body composition and a se
 Server: the import accepts only categories the consent lists, only valid values (ranges, plausible durations, window of 400 days), never echoes a rejected value, and is
 per-account (RLS + owner scoping). Throttled (`health` bucket). Account deletion removes everything (owned tables cascade).
 
+Permissions are used strictly. On Health Connect only the types the OS reports as allowed are read — if none were allowed the page says so and offers "Open Health Connect"; the foreground sync re-checks `checkAuthorization` each time, so a permission switched off in system settings stops that type at once. HealthKit cannot report denial, so there the consented list is read and a denied type returns nothing.
+
+Delete paths: the Health data page ("Stop sharing", "Delete imported data…") and Settings → Privacy → "Recovery, sleep and body data" (which also removes imported wellness readings); account deletion removes everything.
+
 ## No double counting
 
 1. The client leaves out samples whose recording app is one Catch already syncs from the source **while that provider is connected** (Garmin Connect, Withings Health Mate,
