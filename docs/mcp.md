@@ -193,7 +193,7 @@ Settings → Privacy → Recent activity by apps. Reads obey the AI-sharing swit
 "sharing is switched off".
 
 **OAuth 2.1 for `/mcp`** (public deployment; `CATCH_MCP_OAUTH_ENABLED=1` plus `CATCH_MCP_HTTP_ENABLED=1`; **off by default; verified against a synthetic
-client only — never a real Claude Desktop/Claude.ai connector**). Built on the installed MCP SDK's `OAuthAuthorizationServerProvider` (`mcp` 2.3.0), so the
+client in session 28; **since session 29 on in production and confirmed with a real claude.ai connector** — see docs/mcp-client-setup.md for every client's status). Built on the installed MCP SDK's `OAuthAuthorizationServerProvider` (`mcp` 2.3.0), so the
 SDK supplies the metadata documents, dynamic client registration (RFC 7591), `/authorize`, `/token`, `/revoke` and PKCE verification; Catch supplies
 storage and consent (`catch/mcp_server/oauth.py`, `catch/api/routes_oauth.py`, `web/src/pages/OAuthConsent.tsx`).
 

@@ -509,6 +509,16 @@ The store apps are the same screens in the same tokens; nothing was redesigned. 
 - **No update toast** in the apps (the store delivers updates); offline/online/pending use the same subtle badge as the PWA.
 - Hardware back closes the open sheet first. External links open in the system sheet, never over the app.
 
+## Launch-audit UI corrections (session 31)
+
+- **Nothing may claim a state the app doesn't have.** The public Status page no longer renders the server's disk, database size,
+  uptime or backup state, which the API deliberately zeroes for users ("0 B", "Uptime 0m", "No backup has run yet" were false).
+  Settings' metric/imperial toggle is gone because nothing read it; every figure is metric and labelled with its unit.
+- Settings → Connected sources lists only providers the deployment offers (`available` from `/api/connections`). Leaderboard, club
+  and moderation routes aren't registered in a personal build.
+- `?mock=1` works in the dev server, personal builds and explicitly allowed test bundles only. On the real public site it would
+  have shown a signed-in-looking app with fake "Connected" sources.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

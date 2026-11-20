@@ -1177,3 +1177,40 @@ are not in the recovery formula (respiration still feeds the separate illness si
 readings it implies; resolving them reproduces the same numbers. Garmin's sync now records readings and resolves the
 days it touched instead of writing those columns directly, and `scheduler.run_sync` rescoring follows every source's
 sync.
+
+## 31. Known limitations and launch-audit changes (session 31)
+
+Hand-calculation checks of the core formulas are in `tests/analytics/test_launch_hand_calcs.py`; the full audit is
+docs/launch-audit.md §B. Changed this session:
+
+- **Recovery** returns `insufficient_data` when there is no HRV, resting HR or sleep for the day. Prior-day strain and the check-in
+  alone no longer produce a score (L-16).
+- **Daily activity strain** averages only the measures that exist. A missing active-kcal reading is no longer a 0 that halves the
+  steps term (L-13).
+- **Under-fuelling** ends at yesterday, because today's intake and expenditure are still accumulating. A day containing a food with
+  unknown kcal counts as unlogged, since its intake is a lower bound, not a total (L-14).
+- **Piece average split** = total time / total distance × 500 (the PM5 summary figure), in Python and `web/src/lib/pieceSplits.ts`.
+  It is `None` when the splits carry no distance. Pieces saved before this keep their stored value (L-10).
+
+Still true, documented rather than changed:
+
+- **No per-user time zone (L-09, launch blocker).** Day bucketing uses the server's zone (`astimezone()`, `date.today()`) or, at a
+  dozen sites, the UTC `.date()`. On the public server that misplaces evening and early-morning sessions for most users. DST itself
+  is handled correctly by `_local_day_utc_range`.
+- Load uses EWMA with λ = 2/(N+1) (Williams). It reacts about 2× faster than Coggan's ATL/CTL, so don't compare it with other apps'
+  numbers. ACR has no minimum-history gate. A session with neither HR nor RPE enters load as 0, the same as a rest day.
+- Cycling TSS uses average power, not NP. One hour at threshold (TSS 100) maps to less strain than the same hour rowed by HR, so
+  cycling is under-weighted by about 1.4–2×.
+- Resting-HR recovery component: no minimum history and no SD floor (illness uses a 1.5 bpm floor). Baselines use the last 7/60
+  *available* nights, not calendar days.
+- Epley e1RM: a single scores 1.033× its load; reps above 10 are capped, so a 20-rep set gives a floor estimate that PR detection
+  treats as real.
+- `normalize_muscle_au` clamps to 0.4–2× the baseline rather than normalising.
+- PB bucketing tolerance is `max(25 m, 2 %)` (475 m counts as 500 m), looser than the test center's auto-detect.
+- `validate_splits` assumes 500 m for a row with no distance (a false watts warning on timed pieces). `find_best_window` has no
+  coverage gate.
+- Piece `avg_watts`/`avg_rate` are unweighted means of the typed values. No real PM5 fixture settles whether the PM5's own summary
+  watts are time-weighted or derived from the average pace.
+- `workload_change_flags` compares against `max(ref)`, so a modest planned increase can mask a large jump over actual training.
+- Concept2 results with neither `date_utc` nor `timezone` are read as UTC.
+- 2k prediction: an unweighted mean over the six longest recent distance buckets. Long easy pieces pull it slower.

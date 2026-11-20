@@ -91,3 +91,26 @@ and `run_sync`. They take no credential arguments and return none; they cannot c
 - The Whoop 10-member cap and Concept2 production validation are operator tasks.
 - Rate limits for the connection routes are in-process (per replica).
 - `tests/pg` (RLS for `provider_connections`, migration 0004, `FOR UPDATE` on Postgres) needs a local Supabase stack and was not run.
+
+## Launch-audit status (session 31, 2026-11-20)
+
+What is now known from production, via the owner's account through MCP `get_sync_status`:
+
+- **Garmin (Personal API key):** syncing. The owner's key expires 2027-10-31. **Catch has no Garmin developer-program approval.**
+  Offering BYOK on the multi-user deployment is an open owner decision (docs/launch-audit.md B-6). The app now warns at startup when
+  `CATCH_GARMIN_BYOK_ENABLED` is left implicit.
+- **Withings:** failing since 2026-11-20 00:37 UTC, 8 consecutive failures: `getnonce failed: status=503 (Invalid Params: Invalid
+  HMAC signature)`. The likely cause is a client secret stored with a trailing newline. Since `bf3848e`, every env value is
+  whitespace-stripped (`catch/core/config.py`, `tests/test_config_env_strip.py`). Deploy, then confirm the next sync. Withings
+  OAuth for a second account has never run live.
+- **Concept2:** the owner's personal-token connection syncs. The OAuth flow has never run live, and the `state` caveat above still
+  stands.
+- **Whoop:** never connected live.
+
+Open from the audit:
+
+- **L-41.** Any 400/401 on a token refresh (and any non-zero Withings refresh status) is treated as a revoked grant (needs
+  reconnect). A rotated app secret or a provider hiccup would flip every user at once. It should be limited to `invalid_grant`-class
+  responses.
+- **L-48.** A new OAuth token without a refresh token re-keys the row while the old refresh blob keeps the previous master key.
+- **`tests/pg`** (incl. `provider_connections` RLS) now runs on HEAD: 99 passed, 1 skipped (session 31).

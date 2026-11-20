@@ -4540,3 +4540,96 @@ Apple Developer Program (US$99/yr): signing, push key, HealthKit/associated-doma
 ## Next steps
 
 Run the device-only checklist; add a min-supported-version check; per-workout heart rate (HealthKit/Health Connect samples); Health Connect history permission; decide whether to fix the `test:public` env guard.
+
+# Session 31: launch-readiness audit — NO-GO (no release tag)
+
+The brief asked for a full pre-launch audit (Parts A–J), fixes for Critical/High issues, six launch documents, a release checklist,
+and a tag only if that checklist passes. **It does not pass.** Verdict, findings L-01…L-49 and blockers B-1…B-16 are in
+`docs/launch-audit.md`; the checklist is `docs/release-checklist.md`. Branch `session-31-launch-audit`, not merged or pushed.
+
+## What was found in production (owner-authorised: unauthenticated curl, `scripts/smoke_public.py` with disposable users, the owner's own MCP connector read-only/preview-only)
+
+- **L-38, Critical:** production runs session 30's code on a database at migration 0008.
+  - Account deletion returns 500 for everyone. Push device listing and health status also return 500.
+  - It was invisible because the runtime role can't read `alembic_version`.
+  - Fix: the owner runs `catch db upgrade` (B-1). Detection was added (`db_pg.missing_tables`, see below).
+- **L-33:** production Withings has been failing with `Invalid HMAC signature` since 2026-11-20 00:37 UTC, which matches the
+  trailing-newline secret bug fixed in `bf3848e`.
+- **L-42:** the smoke script leaked its user when deletion failed. The script is fixed and the user was removed (0 smoke users left).
+- HTTPS, HSTS, CSP, MCP auth challenge and OAuth metadata all checked out. 28 of 31 smoke checks passed; the 3 failures were the
+  deletion path.
+
+## Fixed in code (each with a test that fails without it, unless noted)
+
+- **Config:** env values are stripped (`catch/core/config.py`, the pending session-29 fix, now committed with
+  `tests/test_config_env_strip.py`).
+- **Web:**
+  - `?mock=1` no longer bypasses sign-in on a public production bundle (`mockQueryAllowed`; `vite.config.ts` refuses
+    `VITE_CATCH_ALLOW_MOCK`/`VITE_CATCH_MOCK` in a public production build). Verified in a browser against a real public bundle.
+  - Status hides the server-only cards on public.
+  - The no-op units toggle is removed.
+  - Settings lists only the sources the deployment offers.
+  - Leaderboard/club/moderation routes exist only on public (or mock).
+- **Leaderboards:** rows are ordered verified-first and best-first before the 5000-row cap (`BOARD_ROW_CAP`).
+- **Jobs:**
+  - `/internal` meters only failed secrets, so junk can't 429 the real tick.
+  - A claim or job failure for one user no longer aborts the tick, and leases release in `finally`.
+- **MCP OAuth:** code exchange and refresh mark the client used, so refresh-only connectors aren't pruned after 30 days.
+- **Postgres:** migration **0010** lets a user request refresh a provisional `weather_cells` row (UPDATE on `complete = false` only).
+  The bug was reproduced locally. `EXPECTED_SCHEMA_REVISION = "0010"`.
+- **Schema drift:** `db_pg.missing_tables` (via `to_regclass`, no grant needed) logs an ERROR at public startup and appears in
+  `/internal/db-check` as `schema_missing_tables`.
+- **Retention:** a person's `not_duplicate`/`split` match decisions are kept.
+- **Push:** native push tokens and app ids are validated per platform.
+- **Garmin:** a startup warning fires when public Garmin BYOK is left implicit (the default was deliberately not changed; the
+  owner's production Garmin uses it).
+- **Analytics** (`tests/analytics/test_launch_hand_calcs.py` holds hand-computed vectors):
+  - No recovery score without HRV, RHR or sleep.
+  - A missing kcal is not 0 in activity strain.
+  - Under-fuelling ends at yesterday and ignores unknown-kcal days.
+  - Piece average split = total time / total distance (Python + TS).
+- **Tests:** two flaky tests fixed (clock-dependent tick test, substring-collision club leak check); a stale PG column-count test
+  fixed.
+
+## New tooling
+
+- `scripts/mcp_stdio_check.py`: stdio MCP end to end against a disposable instance, 7/7.
+- `scripts/load_local.py`: multi-user seeded latency/concurrency check against a local public app.
+- `scripts/backup_restore_drill.py`: dump, drop, restore and verify on the local stack, 15/15. It found that a schema-level restore
+  loses the `auth.users` triggers (L-40).
+
+## Documents
+
+- New: `docs/launch-audit.md`, `release-checklist.md`, `operations-runbook.md`, `mcp-client-setup.md`, `supabase-setup.md`,
+  `fastapi-cloud-deployment.md`.
+- Updated:
+  - `docs/analytics.md` §31 (known limitations).
+  - Provider docs (production status).
+  - `mcp.md` and `security-findings.md` (stale OAuth "never verified" wording, the gate update).
+  - `operations.md`/`public-setup.md` (the backup command was `-n catch` only, missing `catch_private`/`catch_club`, L-39).
+  - `data-inventory.md`.
+
+## Not done / needs the owner (blockers in docs/launch-audit.md)
+
+1. B-1: run `catch db upgrade` in production, then deploy this branch.
+2. B-2: per-user time zone, the one High code finding left (design needed: profile field, migration, UI, one bucketing helper).
+3. B-3: backups (the Free plan has none).
+4. B-4: legal review; the placeholders render publicly.
+5. B-5: SMTP.
+6. B-6: the Garmin decision.
+7. B-7: F-02 acceptance.
+8. B-8: monitoring.
+9. B-9: Withings, after deploying.
+10. B-10: Supabase Auth settings.
+11. B-11: F-38 verification.
+12. B-12: store accounts, signing and device checks.
+13. B-13/14/15: live provider, BYOK and ChatGPT/Gemini MCP checks.
+14. B-16: remaining Medium/Low hardening (L-41, L-27, L-29, L-43, L-44).
+
+Not run this session:
+- `npm run test:live`.
+- The Android emulator e2e.
+- Any live provider or AI call.
+- Production `/internal/*` (no tick secret).
+- Production backup, deploy and rollback (not authorised).
+- An axe or screen-reader pass.

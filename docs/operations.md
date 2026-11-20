@@ -1,5 +1,7 @@
 # Operating the public deployment (FastAPI Cloud + Supabase)
 
+> Incident playbooks: [operations-runbook.md](operations-runbook.md). Release order and checks: [fastapi-cloud-deployment.md](fastapi-cloud-deployment.md), [release-checklist.md](release-checklist.md) (session 31).
+
 Runbook for the **public** build only. The personal Pi is separate and untouched by everything here (its tooling is `deploy.sh`,
 `deploy/`). First-time setup is `docs/public-setup.md`; the design is `docs/public-architecture.md`. Marks: ✅ verified live in
 session 29 (see PLAN.md for the evidence), ⚠ written from vendor documentation or a local stack, not yet exercised on the hosted
@@ -134,7 +136,9 @@ compare), is throttled per source address *before* the secret is compared, and 4
 
 * Supabase **Free has no backups**; **Pro** keeps 7 daily backups (PITR is a paid add-on). Check the plan before relying on either.
 * **Logical backup you control** (works on any plan; schedule it from a machine you own, store it encrypted off the project):
-  `pg_dump "$DATABASE_ADMIN_URL" -n catch -Fc -f catch-$(date +%F).dump`. It excludes Storage objects, `auth.*` users and role passwords.
+  `pg_dump "$DATABASE_ADMIN_URL" -Fc -n catch -n catch_private -n catch_club -f catch-$(date +%F).dump` (session 31: `-n catch` alone misses the
+  function schemas policies call). It excludes Storage objects, `auth.*` users, role passwords and the two triggers on `auth.users` — re-create those after a
+  restore (docs/operations-runbook.md §7; `scripts/backup_restore_drill.py` rehearses the whole thing on the local stack).
 * **Restore drill (rehearsed):** restore into a *scratch* database, never over production: `createdb scratch && psql scratch -c 'create schema auth'` is not
   enough for RLS tests — use the local Supabase stack (`docs/public-setup.md` §8): `pg_restore --no-owner -d <local> catch.dump`, then
   `ALTER ROLE catch_api PASSWORD …`, run `catch db current` and `catch db check`, and compare row counts.

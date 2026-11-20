@@ -671,6 +671,19 @@ Backend (all public-only): `api/native_cors.py` (exact-origin CORS, outermost, n
 (`analytics/health_import.py` pure, `sync/health_import.py`, `api/routes_health.py`: consent → import → delete; sources `apple_health`/`health_connect` rank last in `canonical.py`/`wellness_inputs.py`; HealthKit HRV is SDNN and is refused).
 Verified: full Python + PG suites, vitest/Playwright, Android emulator e2e (`web/tests/native/android-e2e.mjs`), iOS simulator build/launch. **Unverified (no devices/accounts): APNs/FCM delivery, verified links, HealthKit/Health Connect reads, iOS runtime sign-in.**
 
+Session 31 (launch-readiness audit — see `docs/launch-audit.md` (findings L-01…L-49, blockers B-1…B-16), `docs/release-checklist.md`, `docs/operations-runbook.md`,
+`docs/mcp-client-setup.md`, `docs/supabase-setup.md`, `docs/fastapi-cloud-deployment.md`; the brief carried no number). **Verdict NO-GO, no release tag.** Production was
+found running session 30 code on a migration-0008 database (account deletion 500): **always `catch db upgrade` before `fastapi deploy`**. Code changes: env values are
+`.strip()`ped (`core/config.py`); `db_pg.missing_tables` (via `to_regclass`, no grant needed) → ERROR at public startup + `schema_missing_tables` in `/internal/db-check`;
+migration **0010** (users may UPDATE provisional `weather_cells` rows; `EXPECTED_SCHEMA_REVISION = "0010"`); `/internal` meters only failed secrets; per-user claim/release
+guarded in `run_for_each_user`; OAuth code exchange/refresh touch the client; `leaderboard_store.BOARD_ROW_CAP` ordered best-first; retention keeps `not_duplicate`/`split`
+match decisions; native push token/app-id formats; startup warning when public Garmin BYOK is implicit; web: `mockQueryAllowed` (no `?mock` on a public production bundle,
+`VITE_CATCH_ALLOW_MOCK` refused there), Status hides server cards on public, the units toggle is gone, Settings lists only offered sources, public-only routes gated;
+analytics: no recovery score without HRV/RHR/sleep, missing kcal isn't 0, under-fuelling ends yesterday and skips unknown-kcal days, piece average split = total time /
+total distance (Python + `pieceSplits.ts`). **Still open (High): no per-user time zone (L-09)** — every bucketing site must go through one helper when it's built. Backups:
+dump `-n catch -n catch_private -n catch_club` and re-create the two `auth.users` triggers after a schema-level restore. New scripts: `scripts/mcp_stdio_check.py`,
+`scripts/load_local.py`, `scripts/backup_restore_drill.py` (local stack only).
+
 ## Commands
 
 - `uv sync` — install deps
@@ -685,6 +698,8 @@ Verified: full Python + PG suites, vitest/Playwright, Android emulator e2e (`web
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
 - `uv run catch db current` — public: the applied Alembic revision vs the one this build expects (admin URL; docs/operations.md)
+- `uv run python scripts/mcp_stdio_check.py` — stdio MCP end-to-end check against a disposable local instance (no .env, no network)
+- `uv run python scripts/backup_restore_drill.py` / `scripts/load_local.py` — local-Supabase-stack-only restore drill and multi-user latency check (env vars in each docstring)
 - `uv run catch secrets status` / `secrets rotate [--dry-run]` — master-key rotation: re-seal every stored credential under the current `CATCH_SECRETS_MASTER_KEY` (docs/security.md)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)

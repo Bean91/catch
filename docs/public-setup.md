@@ -100,8 +100,9 @@ Site URL identical to it.
 
 ## 7. Backups and recovery
 
-* Supabase **Pro** keeps 7 daily backups (Team 14, Enterprise 30); **Free has none** — schedule `pg_dump -n catch -Fc` yourself. PITR is a paid add-on.
+* Supabase **Pro** keeps 7 daily backups (Team 14, Enterprise 30); **Free has none** — schedule `pg_dump -Fc -n catch -n catch_private -n catch_club` yourself (all three schemas — session 31, docs/operations-runbook.md §7). PITR is a paid add-on.
 * Backups **do not include Storage objects** or custom-role passwords. After a restore: `ALTER ROLE catch_api PASSWORD …`, and re-check Storage.
+* Session 31: a restore must also re-create the two `auth.users` triggers (a schema-level dump doesn't carry them) — `scripts/backup_restore_drill.py`, runbook §7.
 * The restore path was rehearsed against the local stack: `pg_dump -n catch -Fc`, drop the schema, `pg_restore --no-owner`, rows and all 210 policies came back
   and isolation held (`tests/pg/test_migrations.py::test_backup_and_restore_…`).
 * Never use the production project as a test fixture: the `tests/pg` suite refuses non-local hosts.
@@ -125,7 +126,7 @@ Required settings the app now enforces at startup (it refuses to start otherwise
 Pi-only `CATCH_FERNET_KEY` fallback is not accepted); `CATCH_TICK_SECRET` (if used) ≥ 32 characters. Run `catch db upgrade` for migration **0008**.
 
 New or changed settings: `CATCH_MODERATOR_REQUIRE_AAL2=1` (default; moderators must have completed MFA — enable TOTP in Supabase and enrol the moderator accounts);
-`CATCH_MCP_OAUTH_ENABLED=0` (keep off until verified with a real client; needs `CATCH_MCP_HTTP_ENABLED=1`). Schedule a third tick job:
+`CATCH_MCP_OAUTH_ENABLED` (off by default; on in production since session 29, verified with claude.ai — docs/mcp-client-setup.md; needs `CATCH_MCP_HTTP_ENABLED=1`). Schedule a third tick job:
 `POST /internal/tick/retention` once a day (same bearer secret as the others) — it prunes notification/tool-call/usage logs and expired club reports/audit rows.
 
 Supabase dashboard (the local stack's config is weaker than these on purpose; see the table in `docs/security.md`): minimum password length ≥ 12 and character

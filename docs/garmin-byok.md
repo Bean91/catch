@@ -74,3 +74,11 @@ these docs share):
 - Not verified live: the endpoint set is the one recorded in `docs/garmin-endpoints.md` / `docs/garmin-openapi.json` (the Swagger spec Garmin embeds in its
   docs page, checked against a real account on the Pi in session 1); the per-user flow added here ran only against synthetic fixtures. Garmin's FAQ and
   Personal API pages state no rate limits, history depth or endpoint-level terms, and that is reported as "not published", not guessed.
+
+## Status at the session 31 launch audit (2026-11-20)
+
+- Catch has **no Garmin Connect Developer Program approval**. The public deployment can only offer each user's own Personal API
+  key, which this page's terms caveat applies to.
+- Whether to offer it at launch is an owner decision (docs/launch-audit.md, blocker B-6). Set `CATCH_GARMIN_BYOK_ENABLED` to `1` or
+  `0` **explicitly**. Leaving it unset now logs a startup warning, and Settings/Connections hide Garmin when it is `0`.
+- Verified in production: the owner's own key syncs through the per-user connection (last success 2026-11-20 15:07 UTC).
