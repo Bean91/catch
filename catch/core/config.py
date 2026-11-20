@@ -115,7 +115,8 @@ class Settings:
 
 
 def _get(name: str, default: str = "") -> str:
-    return os.environ.get(name, default)
+    # A secret piped in with a trailing newline (or pasted with a space) is otherwise a silent bad credential, e.g. Withings' "Invalid HMAC signature".
+    return os.environ.get(name, default).strip()
 
 
 def load_settings() -> Settings:
