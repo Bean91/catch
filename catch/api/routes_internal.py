@@ -139,7 +139,8 @@ def db_check():
     from catch.core import db_pg
 
     report = db_pg.role_report(db_module.engine)
-    return {**report, **db_pg.rls_probe(db_module.engine), "pool_mode": settings.db_pool_mode, **db_pg.schema_revision(db_module.engine)}
+    return {**report, **db_pg.rls_probe(db_module.engine), "pool_mode": settings.db_pool_mode, **db_pg.schema_revision(db_module.engine),
+            "schema_missing_tables": db_pg.missing_tables(db_module.engine)}
 
 
 # Settings an operator sets by hand, as (environment name, Settings attribute). Reported as set/unset only — a value never leaves the process.

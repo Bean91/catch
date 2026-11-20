@@ -211,7 +211,8 @@ def main() -> int:
         record(gone.status_code == 404, "the Auth user no longer exists")
         record(api(b, "GET", "/api/me").status_code == 401, "B's old token is rejected after deletion")
         record(api(a, "GET", f"/api/notes?date={today}").json().get("text") == text, "user A's data is untouched by B's deletion")
-        created.remove(b.id)
+        if gone.status_code == 404:  # only an account the deletion really removed skips the cleanup below (it leaked one in session 31)
+            created.remove(b.id)
     finally:
         for uid in created:
             admin_delete(uid)  # an account the checks above did not already delete

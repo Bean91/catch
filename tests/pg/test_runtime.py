@@ -411,3 +411,20 @@ def test_a_burst_of_concurrent_requests_through_the_small_pool_never_exhausts_co
         assert idle == 0
     finally:
         eng.dispose()
+
+
+def test_the_runtime_role_can_tell_when_the_database_is_behind_the_code(runtime, admin):
+    """Launch audit L-38: the runtime role can't read the version table, so a 0008 database under 0009 code went unnoticed until
+    account deletion returned 500 in production. `missing_tables` needs no grant and names what's missing."""
+    from sqlalchemy import text
+
+    from catch.core import db_pg
+
+    assert db_pg.missing_tables(runtime) == []
+    with admin.begin() as conn:
+        conn.execute(text("ALTER TABLE catch.native_push_tokens RENAME TO native_push_tokens_hidden"))
+    try:
+        assert db_pg.missing_tables(runtime) == ["native_push_tokens"]
+    finally:
+        with admin.begin() as conn:
+            conn.execute(text("ALTER TABLE catch.native_push_tokens_hidden RENAME TO native_push_tokens"))

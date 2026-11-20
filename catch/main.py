@@ -85,6 +85,14 @@ def _check_public_runtime() -> None:
         logging.getLogger("catch").warning("CATCH_ALLOW_PRIVILEGED_DB=1: RLS is NOT protecting this deployment's requests")
         return
     db_pg.assert_unprivileged(engine)
+    try:
+        missing = db_pg.missing_tables(engine)
+    except Exception:  # noqa: BLE001 — a failed probe must not stop the app; db-check reports it too
+        logging.getLogger("catch").exception("could not check the schema against this build")
+        return
+    if missing:
+        # Not a refusal: refusing would take the whole site down for a fix only `catch db upgrade` can make. Loud, and in db-check.
+        logging.getLogger("catch").error("database is behind this build — missing tables %s; run `catch db upgrade` (docs/operations.md)", ", ".join(missing))
 
 
 @asynccontextmanager

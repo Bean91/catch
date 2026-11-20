@@ -69,6 +69,19 @@ def schema_revision(engine: Engine) -> dict:
     return {"schema_revision": applied, "schema_expected": EXPECTED_SCHEMA_REVISION, "schema_current": applied == EXPECTED_SCHEMA_REVISION if applied else None}
 
 
+def missing_tables(engine: Engine, schema: str = "catch") -> list[str]:
+    """Tables this build's models expect that the database doesn't have. Unlike `schema_revision` it needs no grant on the version
+    table — `to_regclass` only resolves a name — so the runtime role can tell when code was deployed ahead of `catch db upgrade`
+    (launch audit L-38: production ran session 30's code on a 0008 database, and account deletion failed with a 500)."""
+    from sqlmodel import SQLModel
+
+    names = sorted(SQLModel.metadata.tables)
+    with engine.connect() as conn:
+        found = conn.execute(text("SELECT n FROM unnest(CAST(:names AS text[])) AS n WHERE to_regclass(:schema || '.' || quote_ident(n)) IS NULL"),
+                             {"names": names, "schema": schema}).scalars().all()
+    return list(found)
+
+
 def role_report(engine: Engine) -> dict:
     """What the connected role can do — used by the startup guard and `catch db check`."""
     with engine.connect() as conn:
