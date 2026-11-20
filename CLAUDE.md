@@ -644,6 +644,21 @@ MCP OAuth 2.1 (`mcp_server/oauth.py` on the SDK's provider interface, consent in
 new raw-SQL modules must be added to `ALLOWED_RAW_SQL`). CI: `security.yml` (gitleaks, pip-audit, npm audit), `.gitleaks.toml`, `SECURITY.md`. **Legal documents in `docs/legal/` are drafts with no legal review — never describe them as compliant.**
 Tests: `tests/tenancy/test_{route_auth_coverage,idor_sweep,privacy,account_deletion,hardening,log_hygiene,moderation_controls,mcp_oauth}.py`, `tests/coach/test_{tool_safety,ai_sharing}.py`, `tests/pg/test_{rls_all_tables,moderation,oauth,retention}.py`. Tool count unchanged (66).
 
+Session 29 (deploying the public build — see PLAN.md, `docs/operations.md` (the runbook), `docs/public-setup.md`; the brief carried no number). **No product features: the public deployment was put live and verified.**
+Live at `https://catch.openoted.com` (FastAPI Cloud + a Supabase project on the shared pooler, session mode 5432). Verified in production: the frontend uploads with `fastapi deploy`, migrations at `0008`, `/internal/db-check`
+(non-bypass role, SSL, RLS probes), the three `pg_cron`+`pg_net`+Vault jobs (`sync`, `notifications`, `retention`; `timeout_milliseconds := 60000`), and `scripts/smoke_public.py` (35/35, disposable users via GoTrue admin, key from
+`SMOKE_SECRET_KEY_FILE`, cleanup verified). Not verified: a real provider connect, BYOK AI, the sign-up e-mail path (SMTP), push delivery to a phone, any backup (no automated backups on the Free plan; no `pg_dump` taken).
+Code added: `core/startup_checks.py` refuses a non-https/loopback `CATCH_BASE_URL` (it is the MCP host allowlist and OAuth issuer; `CATCH_ALLOW_LOCAL_BASE_URL=1` is a loud local-rehearsal escape hatch) and a pool-mode/port
+mismatch, and warns on a missing tick secret or frontend; `core/db_pg.py` has `connect_timeout`, `EXPECTED_SCHEMA_REVISION` (a test pins it to the migration head) and `schema_revision`; `tenant_hooks` sets a 60 s
+`statement_timeout` per transaction; `core/redact.py` pins env secrets (separate from the LRU so they are never evicted; the Supabase secret key is deliberately excluded — one module may read it); the public `/mcp` is stateless
+JSON; `main.py` 404s typo paths under `api/ auth/ internal/ .well-known/ mcp/`. `api/routes_internal.py` gained `GET /internal/config-check` (set/unset booleans of what the *running* process loaded, redirect-URI match, provider
+availability — never a value; it found a provider secret that was saved but empty) and `/internal/db-check` the schema revision; `catch db current` prints applied vs expected. **MCP OAuth is on in production and works with
+claude.ai**: it registers as a confidential-style client, so `oauth.py::register_client` coerces any registration to a public PKCE client (RFC 7591 §3.2.1; the 201 says `none`), and `mcp_server/oauth_http.py` logs the
+server-generated reason for a rejected `/register|/authorize|/token|/revoke`. Operating facts: FastAPI Cloud secrets are write-once (`env delete` then `env set --secret`; `--no-redeploy` to batch), a change redeploys, there is no
+documented cron; the app runs on scale-to-zero, so ticks come from Supabase. VAPID keys are generated once (`.env.example` snippet), the private key set as a secret via stdin, `VAPID_SUBJECT` a bare https origin; rotating
+invalidates every subscription. Findings still open: F-38 (owner must confirm the `catch_api` rotation), F-30 (narrowed: many peers are Cloudflare addresses), F-02 residual, real-client confirmation of the other flows,
+legal review of `docs/legal/`, Garmin approval, SMTP. Tests: `tests/test_startup_checks.py`, `tests/test_main_static.py`, `tests/test_mcp_http_hosts.py`, `tests/tenancy/test_mcp_oauth.py`, `tests/pg/test_runtime.py`.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -657,6 +672,7 @@ Tests: `tests/tenancy/test_{route_auth_coverage,idor_sweep,privacy,account_delet
   connection); `uv run catch export-personal --out f.jsonl.gz` (on the Pi) and `import-personal --file f --user-id <uuid> [--dry-run]` — docs/personal-to-public.md
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
+- `uv run catch db current` — public: the applied Alembic revision vs the one this build expects (admin URL; docs/operations.md)
 - `uv run catch secrets status` / `secrets rotate [--dry-run]` — master-key rotation: re-seal every stored credential under the current `CATCH_SECRETS_MASTER_KEY` (docs/security.md)
 - `uv run catch token create --name <device> [--role coach --display-name "Coach Sam"]` — mint a device bearer token for the MCP
   server (prints it once; see `docs/mcp.md`)

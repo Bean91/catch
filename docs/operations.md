@@ -69,7 +69,7 @@ one, delete and re-create it). Setting a variable redeploys unless you choose "S
 | `CATCH_SECRETS_MASTER_KEY` (≥ 32 chars) | `CATCH_BASE_URL=https://<host>` (**required**: MCP host allowlist, OAuth issuer) |
 | `CATCH_TICK_SECRET` (≥ 32 chars) | `CATCH_OLLAMA_ENABLED=0` (**required**) |
 | `CATCH_MODERATOR_IDS` | `CATCH_DB_POOL_MODE`, `CATCH_DB_POOL_SIZE` (default 1, +2 overflow) |
-| `VAPID_PRIVATE_KEY` (push) | `CATCH_MCP_HTTP_ENABLED=1`, `CATCH_MCP_OAUTH_ENABLED=0`, `CATCH_MODERATOR_REQUIRE_AAL2=1` |
+| `VAPID_PRIVATE_KEY` (push) | `CATCH_MCP_HTTP_ENABLED=1`, `CATCH_MCP_OAUTH_ENABLED=1`, `CATCH_MODERATOR_REQUIRE_AAL2=1` |
 | `WITHINGS_/WHOOP_/CONCEPT2_CLIENT_SECRET`, `USDA_FDC_API_KEY` | provider client ids and redirect URIs, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`, `CATCH_GARMIN_BYOK_ENABLED` |
 
 Never set on the deployed app: `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY`, `GARMIN_PERSONAL_API_KEY`,
@@ -117,7 +117,8 @@ select cron.schedule('catch-retention', '17 3 * * *', $$ … same with /internal
 one (syncs are idempotent upserts keyed on `(source, external_id)`; the backfill cursor only advances after a window succeeds; a
 provider that is rate-limiting or needs reconnecting is skipped with its own backoff). Duplicate or overlapping deliveries are safe
 (lease). `pg_net`'s timeout is only how long *it* waits for the response — a tick that outlasts it still finishes in the app, and
-shows as a timeout in `net._http_response`. ⚠ FastAPI Cloud documents no request timeout; if a platform timeout cuts a tick at N
+shows as a timeout in `net._http_response`. ✅ Observed live: the sync tick outlasts the 5 s default wait and still completes in the app, which is why the jobs
+set `timeout_milliseconds := 60000`. ⚠ FastAPI Cloud documents no request timeout; if a platform timeout ever cuts a tick at N
 seconds, lower `TICK_BUDGET_S` below N (`catch/api/routes_internal.py`) — the remainder is simply deferred.
 
 **Watching it:** `select * from cron.job_run_details order by start_time desc limit 20;` (did cron fire) and
@@ -159,7 +160,10 @@ compare), is throttled per source address *before* the secret is compared, and 4
     (re-seals every stored credential), then drop the previous key (`docs/security.md`).
   * Supabase secret key / publishable key: rotate in the dashboard, update `SUPABASE_SECRET_KEY` (delete + re-create) / `SUPABASE_PUBLISHABLE_KEY` and
     rebuild the frontend for the publishable one.
-  * `VAPID_PRIVATE_KEY`: rotating invalidates every push subscription — users must re-enable notifications.
+  * VAPID keys (push): rotating **either** key invalidates every push subscription — users must re-enable notifications. Generate the pair with the snippet in
+    `.env.example` into a `chmod 600` file (never print it), set `VAPID_PRIVATE_KEY` with `fastapi cloud env set --secret --value-stdin`, and `VAPID_PUBLIC_KEY`/
+    `VAPID_SUBJECT` as plain variables. `VAPID_SUBJECT` is sent to the browser push services, so a bare `https://<host>` origin keeps a personal e-mail out of it.
+    The platform will not show a secret again; losing the private key means generating a new pair. Set up live in session 29; real delivery to a phone not yet confirmed.
   * Anything that ever appeared in a build output, log or chat: treat as leaked and rotate (F-38 is the precedent).
 
 ## 6. If a dependency is down
@@ -178,6 +182,12 @@ compare), is throttled per source address *before* the secret is compared, and 4
   external drain). Every log record passes `catch/core/redact.py` (bearer tokens, JWTs, `?code=`/`?token=` query values, DB URL
   passwords, `sb_secret_…`, and the configured master/tick/DB-password values). ⚠ FastAPI Cloud's *platform* request log is outside that
   filter: check once whether an OAuth callback's `?code=` appears in it.
+* **What the running process actually loaded:** `GET /internal/config-check` (tick-secret bearer) returns set/unset booleans for every operator setting, whether each
+  provider redirect URI equals this deployment's callback, and which providers are available — never a value. `fastapi cloud env list` shows what was *saved*;
+  this shows what the deployed instance *sees* (it caught a provider secret that was saved but empty). A secret is write-once: to change it, `env delete` then
+  `env set --secret`.
+* **Schema version:** `GET /internal/db-check` includes the applied revision when the runtime role may read it (usually null); `uv run catch db current` (admin URL)
+  prints applied vs the revision this build expects.
 * **Health:** your monitor polls `GET /api/health` (liveness) and, with the secret in a header, `GET /internal/db-check` (database + RLS).
   Alert on a non-200, `bypass_rls: true`, or `ssl: false`.
 * **Supabase:** dashboard → Reports (database connections, CPU, disk), Logs, and the Backups page.
@@ -190,8 +200,11 @@ compare), is throttled per source address *before* the secret is compared, and 4
 `/mcp/` (trailing slash) is **Streamable HTTP**, mounted in the app when `CATCH_MCP_HTTP_ENABLED=1`. On a public deployment it is
 **stateless with plain JSON responses**: there is no `Mcp-Session-Id` to lose across replicas or a scale-to-zero. Auth is a device bearer token
 minted in *Settings → Device tokens* (default scope `read`, expires in 90 days, cap 10 per account); the token resolves to its minting user
-inside the database, and no tool accepts a user id. OAuth 2.1 for MCP (`CATCH_MCP_OAUTH_ENABLED`) stays **off**: it has only been run against a
-synthetic client. Supported: clients that accept a remote Streamable-HTTP server with a bearer header (e.g. Claude Desktop through
+inside the database, and no tool accepts a user id. OAuth 2.1 for MCP (`CATCH_MCP_OAUTH_ENABLED=1`) is **on in production and confirmed with claude.ai** (connect, consent screen, tool call; 2026-11-19).
+claude.ai registers itself as a confidential-style client (`client_secret_post`); Catch only issues public PKCE clients, so `/register` answers 201 as a public client
+(`token_endpoint_auth_method: none`, no secret), which RFC 7591 §3.2.1 allows. PKCE S256 and exact redirect-URI rules are unchanged. A rejected `/register`,
+`/authorize`, `/token` or `/revoke` is logged as `oauth <path> rejected: <status> <error>: <description>` (server-generated text only, never the request), so a failing
+client is diagnosable from `fastapi cloud logs`. Also supported: clients that accept a remote Streamable-HTTP server with a bearer header (e.g. Claude Desktop through
 `mcp-remote`/the stdio `catch-mcp` bridge; see `docs/mcp.md`). No claim is made about any chat product's plan tier supporting remote MCP —
 verify with that client. Connection check: `POST /mcp/` without a token must answer `401`; with a valid token, an `initialize` + `tools/list`
 must succeed (`scripts/smoke_public.py` does both).

@@ -4480,3 +4480,10 @@ is correct but means no write was actually executed; provider connects and BYOK 
   S256 PKCE and the redirect rules are unchanged. A real claude.ai connect (consent screen + a tool call) has not yet been confirmed.
 - **Whoop "isn't available on this server":** the running app saw `WHOOP_CLIENT_SECRET` as empty although the env listing showed `[secret]`. Found with the new `GET /internal/config-check` (set/unset per setting, redirect-URI match; never a value).
   Fix is the owner's: delete and re-create the secret. `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are also unset in production (no push).
+
+### Session 29 — closing confirmations (2026-11-19)
+- claude.ai MCP connect **confirmed working** after the confidential-client coercion fix (user report).
+- Whoop: the saved-but-empty `WHOOP_CLIENT_SECRET` was deleted and re-created by the owner; `/internal/config-check` now shows it set and `whoop` OAuth available (all three redirect URIs match).
+- VAPID: keys generated into a 0600 file, set via `fastapi cloud env set` (`VAPID_PRIVATE_KEY` secret via stdin; `VAPID_SUBJECT` = the https origin, so no e-mail address goes to push services), files deleted; `config-check` shows both keys set. **Push delivery to a phone not yet confirmed.**
+- Production bundle re-scanned after redeploy: no database URL / `sb_secret_` / `service_role` string in any of the 7 served assets (F-38 code guard holds; the `catch_api` rotation is still the owner's to confirm).
+- Not done: production `pg_dump`/restore drill (no automated backups on this plan), real provider connect, BYOK AI, SMTP sign-up path, DESIGN.md (no UI change).
