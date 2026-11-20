@@ -160,6 +160,11 @@ def test_the_real_tick_for_fresh_accounts_runs_clean_and_raises_no_alert(pub_cli
     from catch.notify import ntfy, push
 
     sent: list = []
+    # Pin the clock outside the morning-brief window (default 08:00-10:00): the trigger is wall-clock dependent and a
+    # fresh account is correctly not yet "sent today", so the unpinned test failed whenever it ran in that window.
+    from catch.notify import triggers
+
+    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 15, 3, 0).astimezone())
     monkeypatch.setattr(ntfy, "send", lambda *a, **k: sent.append(("ntfy", a)) or True)
     monkeypatch.setattr(push, "send_to_subscription", lambda *a, **k: sent.append(("push", a)) or True)
     monkeypatch.setattr(push, "notify", lambda *a, **k: sent.append(("notify", a)) or [])

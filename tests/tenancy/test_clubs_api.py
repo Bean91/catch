@@ -804,8 +804,11 @@ def test_no_private_health_or_training_value_appears_in_any_club_response(env):
         seen.append(call(env, who, "GET", "/mine", 200).text)
     blob = "\n".join(seen).lower().replace("nothing about weight, calories, recovery or sleep is used or shown.", "").replace("no recovery, sleep, weight or nutrition data is ever included.", "")  # disclaimers say what is NOT used
     assert len(seen) > 30
+    import re
+
     for name, value in sentinels.items():
-        assert str(value).lower() not in blob, f"{name} leaked into a club response"
+        # Token-bounded: a bare substring check flaked when a short sentinel (3141) occurred inside a random id/timestamp.
+        assert not re.search(rf"(?<![\w.-]){re.escape(str(value).lower())}(?![\w-])", blob), f"{name} leaked into a club response"
     for word in ("hrv", "resting_hr", "weight_kg", "fat_pct", "sleep_seconds", "calories", "recovery", "strain", "rpe"):
         assert word not in blob, word
 
