@@ -15,6 +15,7 @@ from catch.api.ratelimit import rate_limit
 from catch.api.deps import get_db, require_auth
 from catch.coach import limits
 from catch.core import oauth_state, tenant
+from catch.core.config import settings
 from catch.core.owner import current_owner_id
 from catch.sync import connections
 from catch.sync.providers import available
@@ -83,14 +84,36 @@ def put_expiry(provider: str, body: ExpiryBody, db: Session = Depends(get_db)):
 
 
 @router.post("/api/connections/{provider}/oauth/start")
-def oauth_start(provider: str, response: Response, owner_id: str = Depends(current_owner_id)):
+def oauth_start(provider: str, response: Response, native: bool = False, owner_id: str = Depends(current_owner_id)):
     """Bearer-authenticated; returns the provider's authorize URL (the browser then navigates there — a redirect from here
     couldn't carry the bearer). Sets the signed state cookie the callback needs."""
     if _provider_or_404(provider) not in OAUTH_PROVIDERS:
         raise HTTPException(status_code=422, detail="This provider uses a pasted key, not a sign-in page.")
     _throttle(owner_id)
+    if native:
+        return {"authorize_url": native_start_url(provider, owner_id)}
     url = authorize_url_for(provider, response, owner_id)
     return {"authorize_url": url}
+
+
+def _configured(provider: str) -> bool:
+    from catch.sync import concept2_client, whoop_client, withings_client
+
+    return {"withings": withings_client.configured, "whoop": whoop_client.configured, "concept2": concept2_client.oauth_configured}[provider]()
+
+
+def _provider_authorize_url(provider: str, nonce: str) -> str:
+    from catch.sync import concept2_client, whoop_client, withings_client
+
+    return {"withings": withings_client.authorize_url, "whoop": whoop_client.authorize_url, "concept2": concept2_client.authorize_url}[provider](nonce)
+
+
+def native_start_url(provider: str, owner_id: str) -> str:
+    """The store app's version of "start": a single-use ticket URL on this server for the system browser to open (see oauth_state)."""
+    if not _configured(provider):
+        raise HTTPException(status_code=409, detail=f"{provider.capitalize()} sign-in isn't set up on this server.")
+    ticket = oauth_state.make_ticket(owner_id, provider, oauth_state.new_nonce(provider))
+    return f"{settings.base_url.rstrip('/')}/auth/{provider}/native-start?ticket={ticket}"
 
 
 def authorize_url_for(provider: str, response: Response, owner_id: str) -> str:
@@ -133,6 +156,25 @@ def disconnect(provider: str, db: Session = Depends(get_db)):
 callback_router = APIRouter()  # deliberately unauthenticated: identity comes from the signed state cookie, never from a body or query
 
 
+@callback_router.get("/auth/{provider}/native-start", dependencies=[rate_limit("callback", by="ip")])
+def oauth_native_start(provider: str, ticket: str | None = None):
+    """Runs in the SYSTEM browser the store app opened. Redeems the ticket, sets the signed state cookie here (the one place it can
+    be set so the callback sees it), and sends the browser on to the provider. Public deployment only."""
+    from fastapi.responses import RedirectResponse
+
+    if not tenant.is_public() or provider not in OAUTH_PROVIDERS:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        owner, nonce = oauth_state.redeem_ticket(ticket, provider)
+    except oauth_state.OAuthStateError:
+        raise HTTPException(status_code=400, detail="Invalid or expired sign-in link") from None
+    if not _configured(provider):
+        raise HTTPException(status_code=409, detail=f"{provider.capitalize()} sign-in isn't set up on this server.")
+    response = RedirectResponse(_provider_authorize_url(provider, nonce), status_code=302)
+    response.set_cookie(oauth_state.cookie_name(provider), oauth_state.make(owner, provider, nonce, native=True), **oauth_state.cookie_kwargs())
+    return response
+
+
 @callback_router.get("/auth/{provider}/callback", dependencies=[rate_limit("callback", by="ip")])
 def oauth_callback(
     provider: str,
@@ -152,12 +194,15 @@ def oauth_callback(
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider")
     try:
-        owner = oauth_state.verify(request.cookies.get(oauth_state.cookie_name(provider)), provider, state)
+        owner, from_app = oauth_state.verify_full(request.cookies.get(oauth_state.cookie_name(provider)), provider, state)
     except oauth_state.OAuthStateError:
         raise HTTPException(status_code=400, detail="Invalid or missing OAuth state") from None
 
     def done(result: str) -> RedirectResponse:
-        redirect = RedirectResponse(f"/settings/connections?provider={provider}&result={result}", status_code=303)
+        # Started from the store app: hand control back to it through its custom scheme (the app also handles https links, but a
+        # redirect that stays on this domain is opened by the browser, not by the app).
+        target = f"{settings.native_url_scheme}://settings/connections" if from_app else "/settings/connections"
+        redirect = RedirectResponse(f"{target}?provider={provider}&result={result}", status_code=303)
         redirect.delete_cookie(oauth_state.cookie_name(provider), path="/")
         return redirect
 

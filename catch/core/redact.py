@@ -59,7 +59,14 @@ def register_env_secrets(settings) -> None:
     may read it (tests/tenancy/test_structure.py), and its `sb_secret_` shape is already scrubbed by pattern."""
     from urllib.parse import urlsplit
 
-    values = [settings.tick_secret, settings.secrets_master_key, getattr(settings, "vapid_private_key", "")]
+    values = [settings.tick_secret, settings.secrets_master_key, getattr(settings, "vapid_private_key", ""), getattr(settings, "apns_key_p8", "")]
+    try:  # the Firebase service account: the whole blob and its private key on its own (a log line may carry either)
+        import json as _json
+
+        sa = _json.loads(getattr(settings, "fcm_service_account_json", "") or "{}")
+        values += [getattr(settings, "fcm_service_account_json", ""), sa.get("private_key", "")]
+    except ValueError:
+        pass
     values += [p.strip() for p in settings.secrets_master_key_previous.split(",")]
     try:
         values.append(urlsplit(settings.database_url).password)

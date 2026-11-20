@@ -10,4 +10,9 @@ interface ImportMetaEnv {
   readonly VITE_CATCH_DEPLOYMENT?: "personal" | "public";
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+  // Session 30 (native apps): set only by a `--mode native-<env>` build. See web/.env.native-*.example.
+  readonly VITE_CATCH_NATIVE?: "1";
+  readonly VITE_CATCH_MOCK?: "1";
+  readonly VITE_API_BASE_URL?: string;
+  readonly VITE_WEB_BASE_URL?: string;
 }

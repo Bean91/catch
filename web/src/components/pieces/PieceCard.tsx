@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { deletePiece, deletePiecePhoto, piecePhotoUrl, replaceIntervals, updatePiece } from "../../lib/api";
+import { deletePiece, deletePiecePhoto, fetchPiecePhotoUrl, replaceIntervals, updatePiece } from "../../lib/api";
 import { formatDistance, formatDuration, formatSplit } from "../../lib/format";
 import type { IntervalValidationIssue, Piece, PieceInterval, ZoneName } from "../../lib/types";
 import { zoneColor, ZONE_NAMES } from "../../lib/zoneColors";
@@ -12,6 +12,31 @@ import { SplitsReviewTable } from "./SplitsReviewTable";
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
  * so I can check it later; delete option"). Editing re-runs the same validation the create
  * flow does, highlighting issues rather than silently accepting a bad edit. */
+function PiecePhoto({ pieceId }: { pieceId: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    let made: string | null = null;
+    fetchPiecePhotoUrl(pieceId).then((u) => {
+      if (!live) {
+        if (u) URL.revokeObjectURL(u);
+        return;
+      }
+      made = u;
+      setUrl(u);
+      setFailed(u === null);
+    });
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [pieceId]);
+  if (failed) return <p className="text-xs text-text-secondary">The photo couldn't be loaded.</p>;
+  if (!url) return <div className="h-24 w-full animate-pulse rounded-md border border-border bg-surface" aria-hidden />;
+  return <img src={url} alt="PM5 screen" className="max-h-72 w-full rounded-md border border-border object-contain" />;
+}
+
 export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: number }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -222,7 +247,7 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
           </div>
           {showPhoto && piece.has_photo && (
             <div className="mt-3">
-              <img src={piecePhotoUrl(piece.id)} alt="PM5 screen" className="max-h-72 w-full rounded-md border border-border object-contain" />
+              <PiecePhoto pieceId={piece.id} />
               <button type="button" disabled={busy} onClick={removePhoto} className="mt-2 min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50">
                 Delete photo
               </button>

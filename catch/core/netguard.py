@@ -19,6 +19,17 @@ PUSH_HOST_SUFFIXES = (
 )
 MAX_ENDPOINT_CHARS = 1024
 
+# Session 30: the hosts the server itself calls to deliver to the store apps. These are fixed in code — a device token is a
+# string the client sends, never a URL, so no client-supplied value can pick the host.
+NATIVE_PUSH_HOSTS = frozenset({"api.push.apple.com", "api.sandbox.push.apple.com", "fcm.googleapis.com", "oauth2.googleapis.com"})
+
+
+def assert_native_push_host(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in NATIVE_PUSH_HOSTS or parts.port not in (None, 443) or parts.username or parts.password:
+        raise UnsafeUrl("Not a native push service host")
+    return url
+
 
 class UnsafeUrl(ValueError):
     pass

@@ -22,6 +22,9 @@ OPEN = {
     ("POST", "/api/logout"): "personal install only: clears the cookie",
     ("GET", "/{full_path:path}"): "the built SPA; returns static files only and 404s anything under api/ or auth/",
     ("GET", "/auth/{provider}/callback"): "OAuth redirect target: identity comes from the signed state cookie, never the request",
+    ("GET", "/auth/{provider}/native-start"): "session 30: opened in the system browser by the store app; identity is a single-use signed ticket (tests/tenancy/test_native_oauth.py)",
+    ("GET", "/.well-known/apple-app-site-association"): "session 30: fetched by iOS with no credentials; holds only public identifiers, 404 until configured",
+    ("GET", "/.well-known/assetlinks.json"): "session 30: fetched by Android with no credentials; holds only public identifiers, 404 until configured",
 }
 # Personal-install-only routes that carry their own gate (`personal_only` → 404 on a public deployment); they are not reachable there.
 PERSONAL_ONLY_GATES = {"personal_only"}

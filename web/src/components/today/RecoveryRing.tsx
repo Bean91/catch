@@ -90,7 +90,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85vh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
           <Dialog.Title className="text-base font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             {recovery?.explanation ?? "Need at least 7 nights of HRV history before a baseline exists."}

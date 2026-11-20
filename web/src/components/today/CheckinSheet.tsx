@@ -88,7 +88,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
             reach that zone (every prior Dialog.Content was centered and never got close).
             Caught by screenshot, not by the touch suite (Radix traps focus/clicks correctly
             regardless of paint order — this was purely visual). */}
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-30 max-h-[88vh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,420px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border">
+        <Dialog.Content className="fixed inset-x-0 bottom-0 z-30 max-h-[88dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,420px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border">
           <Dialog.Title className="text-base font-semibold text-text-primary">Morning check-in</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">Ten seconds — this feeds your recovery number and nothing else.</Dialog.Description>
 

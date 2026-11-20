@@ -55,6 +55,21 @@ body {
   touch-action: pan-x pan-y;
 }
 
+/* Session 30 (DESIGN.md "Native apps"): in landscape the notch / rounded corners sit on the left and right edges. Zero in portrait,
+   so this changes nothing there; the fixed bottom nav pads itself the same way. */
+#root {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* A store app's webview shouldn't select UI text on a long press or show the link callout on buttons (page content stays selectable). */
+button,
+nav a {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 [data-chart-surface="true"] {
   /* iOS's long-press callout (the "Copy"/share bubble) would otherwise interrupt the
      press-and-hold-to-inspect gesture partway through its ~300ms hold. */

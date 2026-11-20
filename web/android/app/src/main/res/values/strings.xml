@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- app_name, title_activity_main, package_name and custom_url_scheme are per-flavor resValues in app/build.gradle. -->
+    <!-- Shown by Health Connect when someone taps "Privacy policy" on its permission screen. -->
+    <string name="health_connect_privacy_policy_url">https://catch.openoted.com/legal/privacy-policy</string>
+</resources>

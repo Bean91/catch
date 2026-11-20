@@ -8,11 +8,13 @@ from sqlmodel import Session, select
 
 from catch.api.deps import get_db, require_auth
 from catch.coach import limits
-from catch.core import netguard
+from catch.core import netguard, tenant
 from catch.core.config import settings
 from catch.core.owner import current_owner_id
 from catch.core.models import NotificationLog, PushSubscription
-from catch.notify import push
+from catch.notify import native_push, push
+from catch.sync import native_push_store
+from catch.sync.leaderboard_store import StoreError
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -45,6 +47,20 @@ class UnsubscribeRequest(BaseModel):
 
 class TestSendRequest(BaseModel):
     subscription_id: int
+    kind: str = "web"  # "native" = a store-app registration (session 30)
+
+
+class NativeSubscribeRequest(BaseModel):
+    platform: str
+    token: str
+    environment: str = "production"
+    app_id: str
+    label: str | None = None
+
+
+class NativeUnsubscribeRequest(BaseModel):
+    platform: str
+    token: str
 
 
 @router.get("/api/push/vapid-public-key")
@@ -95,14 +111,42 @@ def unsubscribe(body: UnsubscribeRequest = Body(...), db: Session = Depends(get_
 
 
 @router.get("/api/push/subscriptions")
-def list_subscriptions(db: Session = Depends(get_db)):
+def list_subscriptions(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     rows = db.exec(select(PushSubscription).order_by(PushSubscription.created_at)).all()
-    return rows
+    if not tenant.is_public():
+        return rows
+    web = [{"id": r.id, "kind": "web", "endpoint": r.endpoint, "label": r.label, "created_at": r.created_at, "last_seen_at": r.last_seen_at} for r in rows]
+    return web + native_push_store.list_for(owner_id)
+
+
+def _native_only() -> None:
+    if not tenant.is_public():
+        raise HTTPException(status_code=404, detail="Not found")  # the store apps exist for the public deployment only
+
+
+@router.post("/api/push/native/subscribe")
+def native_subscribe(body: NativeSubscribeRequest = Body(...), owner_id: str = Depends(current_owner_id)):
+    _native_only()
+    _throttle(owner_id)
+    try:
+        return native_push_store.register(owner_id, platform=body.platform, token=body.token, environment=body.environment, app_id=body.app_id, label=body.label)
+    except StoreError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.delete("/api/push/native/subscribe")
+def native_unsubscribe(body: NativeUnsubscribeRequest = Body(...), owner_id: str = Depends(current_owner_id)):
+    _native_only()
+    native_push_store.unregister(owner_id, platform=body.platform, token=body.token)
+    return {"deleted": True}
 
 
 @router.post("/api/push/test")
 def send_test(body: TestSendRequest = Body(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
     _throttle(owner_id)
+    if body.kind == "native":
+        _native_only()
+        return _send_native_test(owner_id, body.subscription_id)
     sub = db.get(PushSubscription, body.subscription_id)
     if sub is None:
         raise HTTPException(status_code=404, detail="No such subscription")
@@ -116,6 +160,23 @@ def send_test(body: TestSendRequest = Body(...), db: Session = Depends(get_db), 
         db.delete(sub)
     db.add(NotificationLog(type="test", title="Catch", body="Test notification", device_count=1 if sent else 0))
     db.commit()
+    if not sent:
+        raise HTTPException(status_code=502, detail="Push service did not accept the notification")
+    return {"sent": True}
+
+
+def _send_native_test(owner_id: str, token_id: int):
+    row = native_push_store.get_for(owner_id, token_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such subscription")
+    if not native_push.configured_for(row.platform):
+        raise HTTPException(status_code=503, detail="Push to the phone app isn't configured on the server yet")
+    sent, prune = native_push.send_to_token(
+        row, {"title": "Catch", "body": "Test notification — if you can see this, it worked.", "url": "/settings", "type": "test"},
+        on_environment_fix=lambda env: native_push_store.flip_environment(row.id, env),
+    )
+    if prune:
+        native_push_store.prune(row.id)
     if not sent:
         raise HTTPException(status_code=502, detail="Push service did not accept the notification")
     return {"sent": True}

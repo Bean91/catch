@@ -1900,6 +1900,44 @@ class Appeal(SQLModel, table=True):
     resolved_at: Optional[datetime] = None
 
 
+class NativePushToken(SQLModel, table=True):
+    """Session 30 (docs/mobile/push.md): one APNs (iOS) or FCM (Android) registration of the store app. GLOBAL (catch_api-only, like
+    `deleted_accounts`) rather than owned, on purpose: a device token must belong to exactly ONE account at a time. When someone else
+    signs in on the same phone, registering the token moves it, so the previous account's morning brief can never reach a handset
+    its owner no longer holds. Reachable only through catch/sync/native_push_store.py, which takes the owner explicitly."""
+
+    __tablename__ = "native_push_tokens"
+    __table_args__ = (UniqueConstraint("platform", "token", name="uq_native_push_platform_token"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: str = Field(sa_column=Column("owner_id", String, ForeignKey("user_profiles.id", ondelete="CASCADE"), nullable=False, index=True))
+    platform: str  # "apns" | "fcm"
+    token: str
+    environment: str = "production"  # APNs only: "sandbox" for a development-signed build
+    app_id: str  # the bundle/application id the token belongs to (the APNs topic)
+    label: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class HealthConsent(OwnedStrict, SQLModel, table=True):
+    """Session 30 (docs/mobile/health-data.md): the person's recorded in-app consent to import from Apple Health / Health Connect.
+    One row per platform; `categories_json` is the list they ticked; `revoked_at` set = consent withdrawn (imports are refused).
+    The OS permission sheet is only ever shown after this row exists."""
+
+    __tablename__ = "health_consents"
+    __table_args__ = (UniqueConstraint("owner_id", "platform", name="uq_health_consent_owner_platform"),)
+
+    owner_id: str = owner_field()
+    id: Optional[int] = Field(default=None, primary_key=True)
+    platform: str  # "apple_health" | "health_connect"
+    categories_json: str = "[]"
+    granted_at: datetime = Field(default_factory=_utcnow)
+    revoked_at: Optional[datetime] = None
+    last_import_at: Optional[datetime] = None
+    notice_version: str = "1"
+
+
 class DeletedAccount(SQLModel, table=True):
     """Tombstone written (global, catch_api-only) just before the auth user is deleted, so a still-valid access token
     can never re-create the profile that account deletion just removed. Holds nothing but the opaque id and a time."""

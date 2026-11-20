@@ -63,7 +63,7 @@ export function FeedbackSheet({ open, onOpenChange, existing }: { open: boolean;
         <Dialog.Content
           onOpenAutoFocus={(e) => e.preventDefault()}
           data-testid="feedback-sheet"
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90vh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
+          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
         >
           <Dialog.Title className="text-base font-semibold text-text-primary">{existing ? "Edit your feedback entry" : "Log feedback"}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">

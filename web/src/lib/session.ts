@@ -1,7 +1,19 @@
 import { isPublic } from "./deployment";
+import { isNativeBuild } from "./native/platform";
 
 export const SESSION_ENDED_EVENT = "catch:session-ended";
 const UID_KEY = "catch:uid";
+
+// Native shell (session 30): the persisted query snapshot, push registration, health cursor and the Keychain session marker go too.
+async function clearNativeState(): Promise<void> {
+  if (!isNativeBuild) return;
+  try {
+    const [{ clearPersistedQueries }, { clearHealthState }] = await Promise.all([import("./native/queryPersist"), import("./native/health")]);
+    await Promise.all([clearPersistedQueries(), clearHealthState()]);
+  } catch {
+    /* best effort: a wiped session must never fail to finish */
+  }
+}
 
 async function deleteApiCaches(): Promise<void> {
   // sw.js keeps every GET /api/* response (network first, cache as the offline fallback) keyed by URL — not by user.
@@ -33,7 +45,7 @@ export async function clearLocalUserState(): Promise<void> {
   } catch {
     // blocked storage: nothing to clear
   }
-  await Promise.all([deleteApiCaches(), deleteGymQueue()]);
+  await Promise.all([deleteApiCaches(), deleteGymQueue(), clearNativeState()]);
   window.dispatchEvent(new Event(SESSION_ENDED_EVENT)); // main.tsx clears the TanStack Query cache
 }
 

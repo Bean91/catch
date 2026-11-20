@@ -71,6 +71,7 @@ one, delete and re-create it). Setting a variable redeploys unless you choose "S
 | `CATCH_MODERATOR_IDS` | `CATCH_DB_POOL_MODE`, `CATCH_DB_POOL_SIZE` (default 1, +2 overflow) |
 | `VAPID_PRIVATE_KEY` (push) | `CATCH_MCP_HTTP_ENABLED=1`, `CATCH_MCP_OAUTH_ENABLED=0`, `CATCH_MODERATOR_REQUIRE_AAL2=1` |
 | `WITHINGS_/WHOOP_/CONCEPT2_CLIENT_SECRET`, `USDA_FDC_API_KEY` | provider client ids and redirect URIs, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`, `CATCH_GARMIN_BYOK_ENABLED` |
+| `APNS_KEY_P8`, `FCM_SERVICE_ACCOUNT_JSON` (native push, session 30) | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `CATCH_NATIVE_ORIGINS`, `CATCH_NATIVE_URL_SCHEME`, `CATCH_APPLE_TEAM_ID`, `CATCH_APPLE_BUNDLE_ID`, `CATCH_ANDROID_PACKAGE`, `CATCH_ANDROID_CERT_SHA256` (docs/mobile/README.md) |
 
 Never set on the deployed app: `DATABASE_ADMIN_URL`, `CATCH_PASSWORD_HASH`, `CATCH_FERNET_KEY`, `GARMIN_PERSONAL_API_KEY`,
 `CONCEPT2_ACCESS_TOKEN`. The app refuses to start (and says which *setting* — never the value) when: Ollama is on, the master key is

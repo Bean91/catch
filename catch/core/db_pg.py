@@ -46,7 +46,7 @@ def build_pg_engine(url: str, *, pool_mode: str = "session", pool_size: int = 1,
 
 # The newest Alembic revision this code expects (migrations/versions/*.py). The deployed app cannot import alembic (it is in the
 # laptop-only `public` extra), so tests/test_startup_checks.py pins this to the real head.
-EXPECTED_SCHEMA_REVISION = "0008"
+EXPECTED_SCHEMA_REVISION = "0009"
 
 
 def applied_revision(engine: Engine) -> str | None:

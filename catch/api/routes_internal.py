@@ -137,6 +137,9 @@ _CHECKED = (
     ("WHOOP_CLIENT_ID", "whoop_client_id"), ("WHOOP_CLIENT_SECRET", "whoop_client_secret"), ("WHOOP_REDIRECT_URI", "whoop_redirect_uri"),
     ("WITHINGS_CLIENT_ID", "withings_client_id"), ("WITHINGS_CLIENT_SECRET", "withings_client_secret"), ("WITHINGS_REDIRECT_URI", "withings_redirect_uri"),
     ("CONCEPT2_CLIENT_ID", "concept2_client_id"), ("CONCEPT2_CLIENT_SECRET", "concept2_client_secret"), ("CONCEPT2_REDIRECT_URI", "concept2_redirect_uri"),
+    # Session 30 (native apps): set/unset only, like everything here.
+    ("CATCH_APPLE_TEAM_ID", "apple_team_id"), ("CATCH_ANDROID_CERT_SHA256", "android_cert_sha256"),
+    ("APNS_KEY_P8", "apns_key_p8"), ("APNS_KEY_ID", "apns_key_id"), ("APNS_TEAM_ID", "apns_team_id"), ("FCM_SERVICE_ACCOUNT_JSON", "fcm_service_account_json"),
 )
 _REDIRECTS = {"WHOOP_REDIRECT_URI": ("whoop_redirect_uri", "whoop"), "WITHINGS_REDIRECT_URI": ("withings_redirect_uri", "withings"), "CONCEPT2_REDIRECT_URI": ("concept2_redirect_uri", "concept2")}
 

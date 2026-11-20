@@ -19,7 +19,7 @@ from catch.core.config import settings
 from catch.core.models import UserProfile
 from catch.core.redact import redact
 from catch.core.tenant import OwnedOrShared, OwnedStrict
-from catch.sync import account_store, club_store, leaderboard_store
+from catch.sync import account_store, club_store, leaderboard_store, native_push_store
 
 logger = logging.getLogger("catch.account")
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -97,6 +97,7 @@ def delete_global_rows(owner: str) -> None:
     reports/appeals/audit rows are detached from the person. Idempotent, and run BEFORE the auth user is deleted:
     once that succeeds the person can no longer sign in to retry, so nothing may be left that only a retry could clean."""
     leaderboard_store.delete_owner_data(owner)
+    native_push_store.delete_owner_data(owner)  # the phone stops receiving this account's notifications at once
     club_store.delete_owner_data(owner)  # ownership succession, then their own club rows; what they wrote stays, detached from them
 
 

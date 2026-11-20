@@ -84,10 +84,26 @@ class Settings:
     moderator_ids: str
     moderator_require_aal2: bool
     mcp_oauth_enabled: bool
+    # Session 30 (docs/mobile/): the store apps. All public-deployment-only and all off/empty until configured.
+    native_origins: str  # the webview origins allowed to call the API cross-origin (CORS), comma-separated
+    native_url_scheme: str  # the app's custom URL scheme, used for the provider-OAuth return
+    apple_team_id: str  # → /.well-known/apple-app-site-association
+    apple_bundle_id: str
+    android_package: str  # → /.well-known/assetlinks.json
+    android_cert_sha256: str
+    apns_key_p8: str  # the .p8 token key's PEM text (a secret)
+    apns_key_id: str
+    apns_team_id: str
+    apns_topic: str  # the iOS bundle id
+    fcm_service_account_json: str  # a Firebase service-account key (a secret)
 
     @property
     def is_public(self) -> bool:
         return self.deployment == "public"
+
+    @property
+    def native_origin_list(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.native_origins.split(",") if o.strip()]
 
     @property
     def moderators(self) -> frozenset[str]:
@@ -158,6 +174,17 @@ def load_settings() -> Settings:
         moderator_require_aal2=_get("CATCH_MODERATOR_REQUIRE_AAL2", "1") == "1",
         # MCP OAuth 2.1 for the /mcp mount (public deployment only; needs CATCH_MCP_HTTP_ENABLED=1). Off until verified against a real client.
         mcp_oauth_enabled=_get("CATCH_MCP_OAUTH_ENABLED", "0") == "1",
+        native_origins=_get("CATCH_NATIVE_ORIGINS", "capacitor://localhost,https://localhost"),
+        native_url_scheme=_get("CATCH_NATIVE_URL_SCHEME", "com.openoted.catch"),
+        apple_team_id=_get("CATCH_APPLE_TEAM_ID"),
+        apple_bundle_id=_get("CATCH_APPLE_BUNDLE_ID", "com.openoted.catch"),
+        android_package=_get("CATCH_ANDROID_PACKAGE", "com.openoted.catch"),
+        android_cert_sha256=_get("CATCH_ANDROID_CERT_SHA256"),
+        apns_key_p8=_get("APNS_KEY_P8"),
+        apns_key_id=_get("APNS_KEY_ID"),
+        apns_team_id=_get("APNS_TEAM_ID"),
+        apns_topic=_get("APNS_TOPIC", "com.openoted.catch"),
+        fcm_service_account_json=_get("FCM_SERVICE_ACCOUNT_JSON"),
     )
 
 

@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect } from "react";
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/shell/AppShell";
 import { CardSkeleton } from "./components/ui/Skeleton";
 import { useAuth } from "./lib/auth";
+import { useDeepLinks } from "./lib/native/useDeepLinks";
+import { useNativeShell } from "./lib/native/useNativeShell";
 import { LoginPage } from "./pages/Login";
 import { TodayPage } from "./pages/Today";
 
@@ -46,6 +48,7 @@ const ClubsPage = lazy(() => import("./pages/Clubs").then((m) => ({ default: m.C
 const ClubPage = lazy(() => import("./pages/ClubPage").then((m) => ({ default: m.ClubPage })));
 const ClubChallengePage = lazy(() => import("./pages/ClubChallenge").then((m) => ({ default: m.ClubChallengePage })));
 const ClubJoinPage = lazy(() => import("./pages/ClubJoin").then((m) => ({ default: m.ClubJoinPage })));
+const HealthDataPage = lazy(() => import("./pages/HealthData").then((m) => ({ default: m.HealthDataPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function RouteFallback() {
@@ -77,9 +80,24 @@ function useServiceWorkerNavigate() {
 export function App() {
   const { status } = useAuth();
   useServiceWorkerNavigate();
+  useDeepLinks();
+  useNativeShell();
 
   if (status === "checking") {
     return <div className="min-h-screen bg-bg" />;
+  }
+
+  // The pages an app-store listing links to must open without an account (Google Play requires a public account-deletion URL).
+  const { pathname } = useLocation();
+  const publicDoc = pathname === "/account-deletion" ? "account-deletion" : pathname.match(/^\/legal\/(privacy-policy|terms-of-service|data-deletion-policy|account-deletion)$/)?.[1];
+  if (publicDoc && status !== "authed") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-6">
+        <Suspense fallback={<RouteFallback />}>
+          <LegalPage publicDoc={publicDoc} />
+        </Suspense>
+      </div>
+    );
   }
 
   if (status === "anon" || status === "recovery") {
@@ -91,6 +109,7 @@ export function App() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<TodayPage />} />
+          <Route path="/checkin" element={<TodayPage forceCheckin />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/calendar/plan" element={<PlanPage />} />
           <Route path="/calendar/events/:id" element={<EventDetailPage />} />
@@ -122,10 +141,12 @@ export function App() {
           <Route path="/settings/ai" element={<AiProvidersPage />} />
           <Route path="/settings/privacy" element={<PrivacyPage />} />
           <Route path="/oauth/consent" element={<OAuthConsentPage />} />
+          <Route path="/account-deletion" element={<LegalPage publicDoc="account-deletion" />} />
           <Route path="/legal" element={<LegalPage />} />
           <Route path="/legal/:doc" element={<LegalPage />} />
           <Route path="/settings/connections" element={<ConnectionsPage />} />
           <Route path="/settings/memory" element={<MemoryPage />} />
+          <Route path="/settings/health" element={<HealthDataPage />} />
           <Route path="/settings/status" element={<StatusPage />} />
           <Route path="/settings/leaderboards" element={<LeaderboardSettingsPage />} />
           <Route path="/settings/moderation" element={<ModerationPage />} />

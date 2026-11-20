@@ -497,6 +497,18 @@ News, Calendar, Challenges, Board, Members, Manage), `/clubs/:id/challenges/:cid
 - **Moderator tools stay narrow.** Account restrictions show ids and reasons only, a mandatory reason field on every action, and an expandable action log; the person sees "a platform moderator decided this", the reason, and one Appeal box.
 - Playwright: `web/tests/touch/privacy.spec.ts` (both mobile projects: defaults off, acknowledge-first, guardian tick, two-step delete, app access, consent page, stale link, legal drafts, no horizontal overflow) and `privacy-desktop.spec.ts`; `web/tests/public/public-auth.spec.ts` covers the re-sign-in prompt.
 
+## Native apps (session 30)
+
+The store apps are the same screens in the same tokens; nothing was redesigned. What the native shell adds, and the few rules it follows:
+
+- **Safe areas are the web layer's job** (`contentInset: never`): top/bottom padding in `AppShell`/`BottomNav` as before, plus left/right insets on `#root` and the nav for landscape. Every bottom sheet pads its bottom by `env(safe-area-inset-bottom)` and caps at `dvh`, not `vh`.
+- **The system decides light/dark** until the person taps the theme button once; that tap is remembered. The status-bar text colour follows the theme.
+- **Permissions are never asked at launch.** Notifications on the Enable tap, camera on "Take photo", Health after the consent screen. A refusal is explained in a sentence with the Settings path, not retried.
+- **Haptics confirm, never decorate:** a light tap on a logged set, a success pattern on a PR, a medium tap when the rest timer ends. Off with reduced motion or the Settings switch.
+- **Health consent is a screen, not a toast:** what is shared (per type), where it goes, and the two stop/delete buttons are on the page *before* the OS sheet; a counted preview precedes the first upload. iOS can't report denial, so empty results say "no data returned".
+- **No update toast** in the apps (the store delivers updates); offline/online/pending use the same subtle badge as the PWA.
+- Hardware back closes the open sheet first. External links open in the system sheet, never over the app.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

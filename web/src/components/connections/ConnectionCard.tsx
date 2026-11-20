@@ -1,3 +1,4 @@
+import { isNative } from "../../lib/native/platform";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { disconnectConnection, putConnectionExpiry, startConnectionOAuth, syncConnection, testConnection } from "../../lib/api";
@@ -41,7 +42,10 @@ export function ConnectionCard({ card }: { card: Card_ }) {
   const connect = useMutation({
     mutationFn: () => startConnectionOAuth(card.provider),
     onSuccess: (r) => {
-      if (r.authorize_url) window.location.assign(r.authorize_url);
+      if (r.authorize_url) {
+        if (isNative()) void import("@capacitor/browser").then(({ Browser }) => Browser.open({ url: r.authorize_url! }));
+        else window.location.assign(r.authorize_url);
+      }
       else refresh();
     },
     onError: (e: Error) => setNotice(e.message),

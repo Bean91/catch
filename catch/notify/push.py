@@ -95,6 +95,25 @@ def send_to_subscription(sub: PushSubscription, payload: dict) -> tuple[bool, bo
     return True, False
 
 
+def _notify_native(payload: dict) -> int:
+    from catch.core import tenant
+
+    if not tenant.is_public():  # the store apps exist for the public deployment only
+        return 0
+    from catch.notify import native_push
+    from catch.sync import native_push_store
+
+    sent = 0
+    for row in native_push_store.tokens_for(tenant.current_owner()):
+        if not native_push.configured_for(row.platform):
+            continue
+        ok, prune = native_push.send_to_token(row, payload, on_environment_fix=lambda env, tid=row.id: native_push_store.flip_environment(tid, env))
+        sent += 1 if ok else 0
+        if prune:
+            native_push_store.prune(row.id)
+    return sent
+
+
 def notify(session: Session, *, type: str, title: str, body: str, deep_link: str | None = None) -> int:
     """Sends to every registered device, prunes any subscription the push service confirms is
     gone, and always writes one `NotificationLog` row (task Part A.4) — even with zero devices
@@ -102,14 +121,16 @@ def notify(session: Session, *, type: str, title: str, body: str, deep_link: str
     logic) still needs that row to exist to know "already sent today" for the right type.
     Returns how many devices actually received it."""
     sent_count = 0
+    payload = {"title": title, "body": body, "url": deep_link or "/", "type": type}
     if settings.vapid_private_key and settings.vapid_public_key:
-        payload = {"title": title, "body": body, "url": deep_link or "/", "type": type}
         for sub in session.exec(select(PushSubscription)).all():
             sent, should_prune = send_to_subscription(sub, payload)
             if sent:
                 sent_count += 1
             if should_prune:
                 session.delete(sub)
+    # Native app registrations (session 30), each channel checked on its own: an unset VAPID key must not silence the phone app.
+    sent_count += _notify_native(payload)
     session.add(NotificationLog(type=type, title=title, body=body, deep_link=deep_link, device_count=sent_count))
     session.commit()
     return sent_count

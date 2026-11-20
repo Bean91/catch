@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { fetchPushSubscriptions, fetchSettings, fetchVapidPublicKey, saveSettings, sendTestPush } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
 import { currentSubscriptionEndpoint, disablePush, enablePush, isInstalledPwa, pushSupported, PushPermissionDeniedError } from "../../lib/push";
+import { disableNativePush, enableNativePush, nativePushPermission, nativePushTokenHint } from "../../lib/native/push";
+import { isNative } from "../../lib/native/platform";
 import type { Settings } from "../../lib/types";
 import { Card } from "../ui/Card";
 
@@ -28,6 +30,8 @@ const looksLikeIosSafariNotInstalled = () => /iPhone|iPad/.test(navigator.userAg
 
 export function NotificationsCard() {
   const queryClient = useQueryClient();
+  // The store app registers with APNs/FCM instead of Web Push (session 30); everything below the device list is shared.
+  const native = isNative();
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
   const subscriptionsQuery = useQuery({ queryKey: ["push-subscriptions"], queryFn: fetchPushSubscriptions });
   const vapidKeyQuery = useQuery({
@@ -37,15 +41,23 @@ export function NotificationsCard() {
     queryKey: ["vapid-public-key"],
     queryFn: fetchVapidPublicKey,
     retry: false,
+    enabled: !native,
   });
 
   const [thisDeviceEndpoint, setThisDeviceEndpoint] = useState<string | null>(null);
+  const [nativeHint, setNativeHint] = useState<string | null>(null);
+  const [nativePermission, setNativePermission] = useState<"granted" | "denied" | "prompt" | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<number, "sending" | "ok" | "error">>({});
 
   useEffect(() => {
+    if (native) {
+      void nativePushTokenHint().then(setNativeHint);
+      void nativePushPermission().then(setNativePermission);
+      return;
+    }
     currentSubscriptionEndpoint().then(setThisDeviceEndpoint);
-  }, []);
+  }, [native]);
 
   const save = useMutation({
     mutationFn: (notifications: Settings["notifications"]) => saveSettings({ notifications }),
@@ -54,29 +66,40 @@ export function NotificationsCard() {
 
   const enable = useMutation({
     mutationFn: async () => {
+      if (native) return enableNativePush(guessDeviceLabel());
       if (!vapidKeyQuery.data) throw new Error("Push isn't configured on the server yet");
       await enablePush(vapidKeyQuery.data, guessDeviceLabel());
     },
     onSuccess: async () => {
       setStatus(null);
       queryClient.invalidateQueries({ queryKey: ["push-subscriptions"] });
+      if (native) {
+        setNativeHint(await nativePushTokenHint());
+        setNativePermission(await nativePushPermission());
+        return;
+      }
       setThisDeviceEndpoint(await currentSubscriptionEndpoint());
     },
     onError: (err) => {
+      if (native) void nativePushPermission().then(setNativePermission);
       setStatus(err instanceof PushPermissionDeniedError ? "Notification permission was denied." : "Couldn't enable notifications.");
     },
   });
 
   const disable = useMutation({
-    mutationFn: () => disablePush(),
+    mutationFn: () => (native ? disableNativePush() : disablePush()),
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["push-subscriptions"] });
+      if (native) {
+        setNativeHint(await nativePushTokenHint());
+        return;
+      }
       setThisDeviceEndpoint(await currentSubscriptionEndpoint());
     },
   });
 
   const sendTest = useMutation({
-    mutationFn: (id: number) => sendTestPush(id),
+    mutationFn: (id: number) => sendTestPush(id, subscriptions.find((x) => x.id === id && x.kind === "native") ? "native" : "web"),
     onMutate: (id) => setTestResult((r) => ({ ...r, [id]: "sending" })),
     onSuccess: (_void, id) => setTestResult((r) => ({ ...r, [id]: "ok" })),
     onError: (_err, id) => setTestResult((r) => ({ ...r, [id]: "error" })),
@@ -101,17 +124,40 @@ export function NotificationsCard() {
   if (settingsQuery.isLoading || !settingsQuery.data) return null;
   const notifications = settingsQuery.data.notifications;
   const subscriptions = subscriptionsQuery.data ?? [];
-  const subscribedOnThisDevice = thisDeviceEndpoint != null && subscriptions.some((s) => s.endpoint === thisDeviceEndpoint);
+  const subscribedOnThisDevice = native
+    ? nativeHint != null && subscriptions.some((s) => s.kind === "native" && s.token_hint === nativeHint)
+    : thisDeviceEndpoint != null && subscriptions.some((s) => s.endpoint === thisDeviceEndpoint);
 
   return (
     <Card title="Notifications">
       <p className="mb-3 text-xs text-text-tertiary">
         Morning brief, illness/overtraining warnings, a Garmin-key-expiry countdown, sync-broken alerts, and a day-before
-        reminder for a scheduled test or A race. iOS only allows push for the version installed to your home screen (iOS
-        16.4+), and only after you tap a button — Settings pages can't ask on page load.
+        reminder for a scheduled test or A race. {native
+          ? "Your phone asks for permission only when you tap the button below."
+          : "iOS only allows push for the version installed to your home screen (iOS 16.4+), and only after you tap a button — Settings pages can't ask on page load."}
       </p>
 
-      {!pushSupported() ? (
+      {native ? (
+        nativePermission === "denied" && !subscribedOnThisDevice ? (
+          <p className="text-sm text-text-secondary">
+            Notifications are turned off for Catch on this phone. Turn them on in your phone's Settings → Catch → Notifications, then come back here.
+          </p>
+        ) : subscribedOnThisDevice ? (
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-band-green">Enabled on this device</span>
+            <button type="button" onClick={() => disable.mutate()} disabled={disable.isPending} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50">
+              Disable
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => enable.mutate()} disabled={enable.isPending} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50">
+              Enable notifications on this device
+            </button>
+            {status && <span className="text-xs text-band-red-text">{status}</span>}
+          </div>
+        )
+      ) : !pushSupported() ? (
         <p className="text-sm text-text-tertiary">This browser doesn't support push notifications.</p>
       ) : looksLikeIosSafariNotInstalled() ? (
         <p className="text-sm text-text-secondary">

@@ -1,4 +1,5 @@
 import { isPublic } from "./deployment";
+import { apiUrl } from "./native/apiBase";
 import { accessToken, refreshedAccessToken } from "./supabase";
 
 // A session cookie can expire mid-visit (30-day max age, but still). AuthProvider listens
@@ -10,6 +11,7 @@ export const UNAUTHORIZED_EVENT = "catch:unauthorized";
  * token in the Authorization header — refreshed once and retried on a 401 (an expired token, or one revoked since the
  * last refresh), and only then is the person sent back to sign in. */
 export async function authedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  input = apiUrl(input);
   if (!isPublic) return fetch(input, { credentials: "include", ...init });
 
   const send = (token: string) => {

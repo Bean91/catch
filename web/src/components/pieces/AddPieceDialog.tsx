@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useVisionAvailable } from "../../lib/useVisionAvailable";
 import { ApiError, createPiece, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
+import { pickNativePhoto } from "../../lib/native/camera";
+import { isNative } from "../../lib/native/platform";
 import { parseSplitsPaste, validateSplits } from "../../lib/pieceSplits";
 import { ERG_TEST_TYPES, type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
 import { formatDuration, formatShortDate } from "../../lib/format";
@@ -102,6 +104,16 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     }
   };
 
+  const choosePhoto = async () => {
+    if (!isNative()) return fileInputRef.current?.click();
+    try {
+      const file = await pickNativePhoto();
+      if (file) void onPhotoPicked(file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open the camera.");
+    }
+  };
+
   const onPhotoPicked = async (file: File) => {
     setError(null);
     setStep("photo");
@@ -187,7 +199,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     <Dialog.Root open={open} onOpenChange={(v) => !v && close()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[88vh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[88dvh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
           <Dialog.Title className="text-base font-semibold text-text-primary">Add piece</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-tertiary">A segment of this activity — a 2k inside a longer row, a 30r20, or a custom piece.</Dialog.Description>
 
@@ -231,7 +243,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
               {photoAvailable && (
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={choosePhoto}
                   className="min-h-24 rounded-md border border-dashed border-border text-sm text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary"
                 >
                   Take or choose a photo of the PM5 screen

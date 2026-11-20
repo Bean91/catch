@@ -1,3 +1,4 @@
+import { isNative } from "./native/platform";
 import { UNAUTHORIZED_EVENT, authedFetch } from "./authedFetch";
 import {
   mockLbAppeal, mockLbBoard, mockLbBoards, mockLbMe, mockLbModEntry, mockLbModQueue,
@@ -692,8 +693,17 @@ export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ 
   return res.json() as Promise<{ has_photo: true }>;
 }
 
-export function piecePhotoUrl(pieceId: number): string {
-  return `/api/pieces/${pieceId}/photo`;
+/** A piece's PM5 photo as an object URL, or null. An <img src> cannot send the bearer token a public/native build authenticates
+ * with, so the bytes are fetched through authedFetch. The caller revokes the URL. */
+export async function fetchPiecePhotoUrl(pieceId: number): Promise<string | null> {
+  if (isMock) return null;
+  try {
+    const res = await authedFetch(`/api/pieces/${pieceId}/photo`);
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  } catch {
+    return null;
+  }
 }
 
 export async function deletePiecePhoto(pieceId: number): Promise<void> {
@@ -956,7 +966,10 @@ export async function putConnectionExpiry(provider: ProviderId, expiresOn: strin
  *  mock there is no provider page, so it completes in place and returns null. */
 export async function startConnectionOAuth(provider: ProviderId): Promise<{ authorize_url: string | null }> {
   if (isMock) return delay(mockStartProviderOAuth(provider), 300);
-  return request(`/api/connections/${provider}/oauth/start`, { method: "POST", credentials: "same-origin" });
+  // The store app asks for a single-use ticket URL: the system browser (which has no bearer token) opens it and the server hands back
+  // to the app through its custom URL scheme (docs/mobile/oauth-return.md).
+  const native = isNative() ? "?native=true" : "";
+  return request(`/api/connections/${provider}/oauth/start${native}`, { method: "POST", credentials: "same-origin" });
 }
 
 export async function testConnection(provider: ProviderId): Promise<ConnectionTestResult> {
@@ -1396,12 +1409,40 @@ export async function fetchPushSubscriptions(): Promise<PushSubscriptionRow[]> {
   return request<PushSubscriptionRow[]>("/api/push/subscriptions");
 }
 
-export async function sendTestPush(subscriptionId: number): Promise<void> {
+export async function sendTestPush(subscriptionId: number, kind: "web" | "native" = "web"): Promise<void> {
   if (isMock) return delay(undefined, 400);
   await request<{ sent: true }>("/api/push/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subscription_id: subscriptionId }),
+    body: JSON.stringify({ subscription_id: subscriptionId, kind }),
+  });
+}
+
+// --- Session 30 — native (APNs / FCM) push registration (docs/mobile/push.md) ---
+
+export interface NativePushRegistration {
+  platform: "apns" | "fcm";
+  token: string;
+  environment: "sandbox" | "production";
+  app_id: string;
+  label?: string;
+}
+
+export async function subscribeNativePush(reg: NativePushRegistration): Promise<PushSubscriptionRow> {
+  if (isMock) return delay({ id: 1, endpoint: `native:${reg.platform}`, label: reg.label ?? null, created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), kind: "native", platform: reg.platform, token_hint: reg.token.slice(-8) }, 200);
+  return request<PushSubscriptionRow>("/api/push/native/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reg),
+  });
+}
+
+export async function unsubscribeNativePush(platform: "apns" | "fcm", token: string): Promise<void> {
+  if (isMock) return delay(undefined, 150);
+  await request<{ deleted: true }>("/api/push/native/subscribe", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform, token }),
   });
 }
 

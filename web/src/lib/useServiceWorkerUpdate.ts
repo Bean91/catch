@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isNativeBuild } from "./native/platform";
 
 const POLL_INTERVAL_MS = 60_000;
 const PRELOAD_RELOAD_KEY = "catch:preload-reload";
@@ -37,6 +38,8 @@ export function useServiceWorkerUpdate(): { updateAvailable: boolean; reload: ()
   }, []);
 
   useEffect(() => {
+    // A store-installed app is replaced by the store, not by a new bundle: no service worker, no version.json poll.
+    if (isNativeBuild) return;
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {
         // Dev server / no SW support — offline caching just doesn't apply; update detection

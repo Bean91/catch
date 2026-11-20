@@ -97,6 +97,10 @@ def sport_family(source: str | None, type_: str | None) -> str:
         from catch.analytics.whoop import sport_family as _whoop_family
 
         return _whoop_family(type_)
+    if source in ("apple_health", "health_connect"):  # session 30: on-device health platforms
+        from catch.analytics.health_import import sport_family as _health_family
+
+        return _health_family(type_)
     return "other"
 
 
@@ -126,6 +130,10 @@ def is_indoor(source: str | None, type_: str | None) -> Optional[bool]:
         from catch.analytics.whoop import is_indoor as _whoop_indoor
 
         return _whoop_indoor(type_)
+    if source in ("apple_health", "health_connect"):
+        from catch.analytics.health_import import is_indoor as _health_indoor
+
+        return _health_indoor(type_)
     return None
 
 

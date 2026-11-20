@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef } from "react";
 import { MOCK_SCENARIO, isMock } from "./api";
+import { apiUrl } from "./native/apiBase";
 
 const PROBE_TIMEOUT_MS = 4_000;
 const PROBE_INTERVAL_MS = 15_000;
@@ -24,7 +25,7 @@ async function probeHealth(): Promise<boolean> {
     // works; only a rejected fetch (DNS/connection failure, abort on timeout) means offline.
     // The service worker routes /api/health network-only with no cache fallback (vite.config.ts)
     // specifically so this can never be answered by a stale cached "ok" while truly offline.
-    await fetch("/api/health", { cache: "no-store", signal: controller.signal });
+    await fetch(apiUrl("/api/health"), { cache: "no-store", signal: controller.signal });
     return true;
   } catch {
     return false;

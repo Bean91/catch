@@ -23,6 +23,8 @@ from catch.api import (
     routes_leaderboards,
     routes_moderation,
     routes_clubs,
+    routes_wellknown,
+    routes_health,
     routes_library,
     routes_checkins,
     routes_coach,
@@ -144,6 +146,11 @@ if tenant.is_public():
 
     app.add_middleware(SecurityHeadersMiddleware, csp=csp_for_static(_STATIC_DIR, settings.supabase_url))
 
+    from catch.api.native_cors import install_native_cors
+
+    # Added last on purpose: the outermost layer, so error responses from the layers above carry CORS headers too.
+    install_native_cors(app, settings.native_origin_list)
+
 
 @app.exception_handler(tenant.ParentNotFound)
 async def _parent_not_found(request: Request, exc: tenant.ParentNotFound):
@@ -194,6 +201,8 @@ app.include_router(routes_coaching.router)
 app.include_router(routes_leaderboards.router)
 app.include_router(routes_moderation.router)
 app.include_router(routes_clubs.router)
+app.include_router(routes_wellknown.router)
+app.include_router(routes_health.router)
 
 
 @app.get("/api/health")

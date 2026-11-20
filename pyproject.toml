@@ -37,6 +37,8 @@ dependencies = [
     "fastapi[standard]>=0.115; platform_machine not in 'armv6l armv7l'",
     "psycopg[binary]>=3.2; platform_machine not in 'armv6l armv7l'",
     "pyjwt[crypto]>=2.9; platform_machine not in 'armv6l armv7l'",
+    # Session 30: APNs only speaks HTTP/2. `h2` (and its pure-Python hpack/hyperframe) is public-deployment-only, so the Pi is unchanged.
+    "h2>=4.1; platform_machine not in 'armv6l armv7l'",
 ]
 
 [project.optional-dependencies]

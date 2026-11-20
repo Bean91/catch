@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ApiError, UNAUTHORIZED_EVENT, fetchSyncStatus, isMock, login as apiLogin, logout as apiLogout } from "./api";
 import { isPublic } from "./deployment";
+import { publicOrigin } from "./native/apiBase";
+import { isNativeBuild } from "./native/platform";
 import { clearLocalUserState, rememberUser } from "./session";
 
 // "recovery": the person followed a password-reset link and must choose a new password before anything else.
@@ -147,6 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async (everywhere = false) => {
     if (isPublic) {
+      // Native: stop this handset receiving the account's notifications while the session can still authorise the call.
+      if (isNativeBuild) await (await import("./native/push")).releaseNativePush();
       const { getAuthClient } = await import("./supabase");
       // scope "global" ends every session of this account; the default ends this device's only.
       await (await getAuthClient()).signOut({ scope: everywhere ? "global" : "local" });
@@ -165,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await (await getAuthClient()).signUp({
       email: emailAddress,
       password,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: publicOrigin() },
     });
     if (error) throw error;
     return { needsConfirmation: !data.session };
@@ -174,7 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const sendPasswordReset = useCallback(async (emailAddress: string) => {
     if (!isPublic) return unsupported();
     const { getAuthClient } = await import("./supabase");
-    const { error } = await (await getAuthClient()).resetPasswordForEmail(emailAddress, { redirectTo: window.location.origin });
+    const { error } = await (await getAuthClient()).resetPasswordForEmail(emailAddress, { redirectTo: publicOrigin() });
     if (error) throw error;
   }, []);
 

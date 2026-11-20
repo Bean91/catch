@@ -5,6 +5,7 @@ import {
 } from "../../lib/api";
 import { REPORT_REASONS_CLUB, SESSION_TYPES, metricLabel } from "../../lib/clubs";
 import type { Club, ClubProfile, ClubSessionItem, NewChallengeInput, NewClubInput } from "../../lib/types";
+import { publicOrigin } from "../../lib/native/apiBase";
 import { ErrorLine, Field, Sheet, btn, btnPrimary, inputCls, refreshClub } from "./ClubBits";
 
 type Base = { open: boolean; onOpenChange: (open: boolean) => void };
@@ -167,7 +168,7 @@ export function InviteSheet({ open, onOpenChange, club }: Base & { club: Club })
   const [link, setLink] = useState<string | null>(null);
   const s = useSubmit(() => createClubInvite(club.club_id, role, days, uses ? Number(uses) : undefined), (inv) => {
     refreshClub(qc, club.club_id);
-    setLink(`${window.location.origin}/clubs/join#${inv.token}`);
+    setLink(`${publicOrigin()}/clubs/join#${inv.token}`);
   });
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) setLink(null); onOpenChange(o); }} testId="invite-sheet" title="Invite someone" description={club.audience === "junior" ? "A link only gets someone to the join form. A coach or the owner still approves every young member." : "Anyone with the link can ask to join (or join, if this club admits by link) until it expires. You can revoke it any time."}>

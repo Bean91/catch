@@ -64,6 +64,10 @@ client and `postMessage`s it the deep link, falling back to `openWindow` — not
 `WindowClient.navigate()`, which has real gaps on iOS standalone WebKit; `App.tsx` listens for
 that message and navigates via `react-router`).
 
+## Native apps (session 30)
+
+The store apps register an APNs (iOS) or FCM (Android) token instead of a Web Push subscription (`POST /api/push/native/subscribe`, public deployment only). `notify()` sends to both kinds; each channel is gated on its own server settings (`VAPID_*` vs `APNS_*`/`FCM_SERVICE_ACCOUNT_JSON`). The five types, quiet hours and per-type toggles are shared. Full detail: `docs/mobile/push.md`.
+
 ## Monitoring (`GET /api/status`, Settings → Status)
 
 `catch/api/routes_status.py`: per-source last success/consecutive failures/last error/token

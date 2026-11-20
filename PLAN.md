@@ -4480,3 +4480,53 @@ is correct but means no write was actually executed; provider connects and BYOK 
   S256 PKCE and the redirect rules are unchanged. A real claude.ai connect (consent screen + a tool call) has not yet been confirmed.
 - **Whoop "isn't available on this server":** the running app saw `WHOOP_CLIENT_SECRET` as empty although the env listing showed `[secret]`. Found with the new `GET /internal/config-check` (set/unset per setting, redirect-URI match; never a value).
   Fix is the owner's: delete and re-create the secret. `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are also unset in production (no push).
+
+# Session 30: native iOS and Android apps (Capacitor) on the public API
+
+**Numbering note.** The brief carried no number; the last was 29 → 30. Branch `session-30-native-apps`. Docs: `docs/mobile/` (README, push, deep-links, health-data, release, store-listing, privacy-disclosures, health-policy-review, app-review-notes, mobile-review, test-report).
+
+## Decisions (the user chose the first four; the rest are mine)
+
+1. Backend scope: **full** (CORS, native push tokens + APNs/FCM senders, association files, OAuth return flow) — written and tested, delivery unverified live.
+2. **Install an Android toolchain** (JDK 21 + SDK 36 + emulator) so both apps compile and Android can be driven.
+3. App id **`com.openoted.catch`**, name "Catch"; dev/staging suffixes so they install beside the store build.
+4. Health: **full import** (consent → OS permission → preview → upload), HRV Android-only, no weight.
+5. Capacitor 8 with a **bundled** web build (`dist-native`, never `catch/api/static`), always the public deployment; no service worker natively.
+6. Capacitor CLI can't load `capacitor.config.ts` here (TypeScript 7 has no `typescript` API; `.js` is `require()`d in a `"type": "module"` package) → `scripts/native-config.mjs` writes a gitignored `capacitor.config.json` per `CATCH_NATIVE_ENV`.
+7. Android: `catch` is a Java keyword, so the Java namespace is `com.openoted.catchapp` while the applicationId is `com.openoted.catch`; `minSdk` 26 (Health Connect).
+8. `native_push_tokens` is a **global** table (a device token belongs to one account) behind one store module, not an owned table.
+9. Provider OAuth from the app uses a signed single-use **ticket** redeemed in the system browser, not a shared cookie.
+10. Cross-origin API calls: exact-origin CORS, credentials off (bearer auth), outermost middleware.
+
+## Changes
+
+Backend (public-only routes; 404 on personal): `api/native_cors.py`; migration `0009` (`native_push_tokens` global, `health_consents` owned); `sync/native_push_store.py`, `notify/native_push.py` (APNs HTTP/2 ES256, FCM v1 RS256→OAuth, fixed hosts in `core/netguard.py`, per-channel gating in `push.notify`), `routes_push.py` native subscribe/list/test; `api/routes_wellknown.py` (AASA + assetlinks, 404 until configured); `core/oauth_state.py` tickets + `routes_connections.py` `native-start`/native return; `analytics/health_import.py`, `sync/health_import.py`, `api/routes_health.py`; health sources wired into `matching.py`, `canonical.py` (lowest priority) and `wellness_inputs.py`; `config-check`/redaction/limits entries; `h2` dependency. Web: `src/lib/native/*` (platform, apiBase, secureStorage, deepLinkTargets/Bus/useDeepLinks, push, camera, haptics, health, queryPersist, externalLinks, useNativeShell), `pages/HealthData.tsx`, `/checkin` route, public `/account-deletion` + `/legal/*` pages outside the sign-in gate, theme follows the system, dvh/safe-area fixes, blob photos, share-sheet export. Native projects in `web/ios`, `web/android` (entitlements, URL scheme, usage strings, `PrivacyInfo.xcprivacy`, Android flavors, App Links, trimmed Health Connect permissions).
+
+## Bugs found while building (fixed)
+
+- Sheets used `vh` and ignored the bottom safe area; no landscape insets; the theme froze the first system value.
+- PM5 photo `<img src>` could not authenticate (a latent public-web bug).
+- The offline queue never retried when the phone was online and the server briefly wasn't.
+- Whoop's cookie-based OAuth start can't work from a system browser (ticket flow added; web flow unchanged).
+- `native_push_tokens` model lacked `ON DELETE CASCADE` vs the migration (caught by the PG schema-diff test).
+- Playwright `connectOverCDP` can't attach to an Android WebView (`Browser.setDownloadBehavior`); its own Android driver can.
+- `xcodebuild` hung at "Resolve Package Graph": SwiftPM blocked on a Keychain prompt for a github.com credential (workaround in docs/mobile/README.md).
+
+## Verification
+
+See `docs/mobile/test-report.md`. Python suite + `tests/pg` (local Supabase) green; web vitest/touch/update/gym green; **`test:public` fails to start, pre-existing** (its fake Supabase URL fails the build guard — reproduced on the base commit). Android: real app ↔ real backend e2e (login, secure storage, restart/update persistence, deep links, offline logging across kill, reconnect sync). iOS: compiles and launches on the simulator; push banner delivered.
+
+## Not done / limitations
+
+- **No physical devices, no developer accounts.** Unverified: APNs/FCM delivery, universal/App Links verification, HealthKit/Health Connect reads, iOS Keychain/sign-in/offline at runtime (no tap automation for the simulator), camera flow on a phone, haptics, chart gestures in the native webviews.
+- Health: workouts carry no heart rate (plugin limit); no background sync; Android history beyond 30 days not requested; HealthKit HRV (SDNN) deliberately excluded.
+- No min-app-version/forced-update mechanism; no Android release signing config; Health-Connect and Play declarations, store forms and screenshots at final sizes are drafts.
+- Legal drafts (incl. the new account-deletion text) have had no legal review.
+
+## Blockers (for shipping)
+
+Apple Developer Program (US$99/yr): signing, push key, HealthKit/associated-domains capabilities, TestFlight. Google Play Console (US$25) + a Firebase project (`google-services.json`, FCM service account). Owner sets the `APNS_*`/`FCM_*`/`CATCH_APPLE_TEAM_ID`/`CATCH_ANDROID_CERT_SHA256` secrets and the Supabase redirect allow-list. Real iPhone + Android phone passes of the device-only list.
+
+## Next steps
+
+Run the device-only checklist; add a min-supported-version check; per-workout heart rate (HealthKit/Health Connect samples); Health Connect history permission; decide whether to fix the `test:public` env guard.

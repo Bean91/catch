@@ -10,6 +10,7 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { fetchBody, fetchExercises, fetchGyms, fetchRepeatLastWorkout, fetchStations, fetchTemplates } from "../lib/api";
 import * as gymDb from "../lib/gymDb";
 import { logSetLocally, deleteSetLocally } from "../lib/gymSync";
+import { haptic } from "../lib/native/haptics";
 import { useGymSync } from "../lib/useGymSync";
 import type { EquipmentType, Exercise, GymStation, SetType } from "../lib/types";
 
@@ -161,6 +162,7 @@ export function GymPage() {
       { exerciseName: exercise.name, bodyweightKg, stationConfig },
     );
     setLocalSets((prev) => [...prev, local]);
+    haptic(local.isRepPr || local.isE1rmPr ? "success" : "light"); // a set logged is the app's most frequent confirmation; a PR gets the stronger one
     if (input.set_type !== "warmup") setRestEndAt(Date.now() + DEFAULT_REST_S * 1000);
     void queryClient;
   }

@@ -16,7 +16,9 @@ import { VitalsCard } from "../components/today/VitalsCard";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 
-export function TodayPage() {
+// `forceCheckin`: the /checkin deep link (a notification tap, a link) opens the sheet even if it was skipped earlier today,
+// and for an already-completed check-in it opens in edit mode.
+export function TodayPage({ forceCheckin = false }: { forceCheckin?: boolean } = {}) {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["today"], queryFn: fetchToday });
   const { data: checkinStatus } = useQuery({ queryKey: ["today-checkin"], queryFn: fetchTodayCheckin, enabled: !!data });
   const isOnline = useOnlineStatus();
@@ -27,6 +29,11 @@ export function TodayPage() {
   const [dismissedDate, setDismissedDate] = useState<string | null>(null);
 
   useEffect(() => {
+    if (forceCheckin && data && checkinStatus) setSheetOpen(true);
+  }, [forceCheckin, !!data, !!checkinStatus]);
+
+  useEffect(() => {
+    if (forceCheckin) return;
     if (!data || !checkinStatus || checkinStatus.completed || dismissedDate === data.date) return;
     // web/tests/touch/ drives Today under plain ?mock=1 — an auto-opening dialog there would
     // block every gesture test. The real app always auto-opens off real `completed` state;

@@ -2,6 +2,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useRef, useState } from "react";
 import { ApiError, estimateMealPhoto, savePhotoEstimate } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
+import { pickNativePhoto } from "../../lib/native/camera";
+import { isNative } from "../../lib/native/platform";
 import { MEALS, type Meal, type PhotoEstimateItem, type PhotoEstimateResult } from "../../lib/types";
 
 const MEAL_LABELS: Record<Meal, string> = {
@@ -26,6 +28,16 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
     setItems([]);
     setNotes("");
     setError(null);
+  };
+
+  const choosePhoto = async () => {
+    if (!isNative()) return fileInputRef.current?.click();
+    try {
+      const file = await pickNativePhoto();
+      if (file) void onFilePicked(file);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open the camera.");
+    }
   };
 
   const onFilePicked = async (file: File) => {
@@ -71,7 +83,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
     <Dialog.Root open={open} onOpenChange={(v) => !v && close()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[85vh] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[85dvh] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
           <Dialog.Title className="text-base font-semibold text-text-primary">Photo estimate</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-tertiary">
             A rough, editable macro estimate from a photo — always labelled as an estimate, and the photo itself is never stored.
@@ -80,7 +92,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
           {status === "idle" && (
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={choosePhoto}
               className="mt-4 min-h-24 w-full rounded-md border border-dashed border-border text-sm text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary"
             >
               Take or choose a photo

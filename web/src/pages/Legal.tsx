@@ -9,19 +9,22 @@ const TITLES: Record<string, string> = {
   "privacy-policy": "Privacy policy",
   "terms-of-service": "Terms of service",
   "data-deletion-policy": "Data deletion",
+  "account-deletion": "Delete your account",
   "ai-data-sharing": "AI data sharing",
   "provider-disclosures": "Provider integrations",
   "not-medical-advice": "Not medical advice",
   "community-guidelines": "Community guidelines",
 };
 
-export function LegalPage() {
-  const { doc = "privacy-policy" } = useParams();
+// `publicDoc`: rendered outside the sign-in gate (App.tsx) for the pages a store listing links to without an account.
+export function LegalPage({ publicDoc }: { publicDoc?: string } = {}) {
+  const params = useParams();
+  const doc = publicDoc ?? params.doc ?? "privacy-policy";
   const text = byName[doc];
   return (
     <div className="flex flex-col gap-4 lg:gap-5" data-testid="legal-page">
       <div>
-        <Link to="/settings/privacy" className="text-sm font-medium text-accent hover:underline">← Privacy</Link>
+        <Link to={publicDoc ? "/" : "/settings/privacy"} className="text-sm font-medium text-accent hover:underline">{publicDoc ? "← Catch" : "← Privacy"}</Link>
       </div>
       <nav aria-label="Documents" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         {Object.entries(TITLES).map(([slug, title]) => (

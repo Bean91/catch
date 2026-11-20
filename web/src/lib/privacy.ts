@@ -1,3 +1,4 @@
+import { isNative } from "./native/platform";
 import { authedFetch } from "./authedFetch";
 import { ApiError, isMock } from "./api";
 import { mockPrivacy } from "./mockPrivacy";
@@ -57,6 +58,24 @@ export const fetchRestrictions = (): Promise<{ restrictions: Restriction[] }> =>
 export const appealRestriction = (id: number, text: string): Promise<Restriction> =>
   isMock ? mockPrivacy.appeal(id, text) : call(`/api/account/restrictions/${id}/appeal`, json("POST", { text }));
 
+// A webview can't save a blob: URL anchor click as a file. Write it to the app's cache and hand it to the system share sheet
+// ("Save to Files", AirDrop, mail…), then delete the cached copy.
+async function shareExportNatively(blob: Blob, name: string): Promise<void> {
+  const [{ Filesystem, Directory }, { Share }] = await Promise.all([import("@capacitor/filesystem"), import("@capacitor/share")]);
+  const data = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error);
+    r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+    r.readAsDataURL(blob);
+  });
+  const { uri } = await Filesystem.writeFile({ path: name, data, directory: Directory.Cache });
+  try {
+    await Share.share({ title: "Your Catch data", url: uri });
+  } finally {
+    await Filesystem.deleteFile({ path: name, directory: Directory.Cache }).catch(() => {});
+  }
+}
+
 /** The export is a download that needs the bearer header, so it is fetched, then handed to the browser as a file. */
 export async function downloadExport(): Promise<void> {
   if (isMock) return mockPrivacy.download();
@@ -66,9 +85,10 @@ export async function downloadExport(): Promise<void> {
     throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : res.statusText);
   }
   const blob = await res.blob();
+  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  if (isNative()) return shareExportNatively(blob, `catch-export-${day}.ndjson.gz`);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   a.href = url;
   a.download = `catch-export-${day}.ndjson.gz`;
   document.body.appendChild(a);

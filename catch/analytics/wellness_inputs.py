@@ -36,12 +36,12 @@ SLEEP_META_COLUMNS = {
 # Skin temperature has no Garmin source, so the order only matters if one appears. Whoop's
 # respiratory rate has no documented unit, so it ranks below Garmin's.
 DEFAULT_WELLNESS_PRIORITY: dict[str, list[str]] = {
-    "hrv_rmssd": ["garmin", "whoop"],
-    "resting_hr": ["garmin", "whoop"],
-    "sleep_seconds": ["garmin", "whoop"],
-    "sleep_respiration": ["garmin", "whoop"],
-    "skin_temp_c": ["whoop", "garmin"],
-    "spo2": ["garmin", "whoop"],
+    "hrv_rmssd": ["garmin", "whoop", "apple_health", "health_connect"],
+    "resting_hr": ["garmin", "whoop", "apple_health", "health_connect"],
+    "sleep_seconds": ["garmin", "whoop", "apple_health", "health_connect"],
+    "sleep_respiration": ["garmin", "whoop", "apple_health", "health_connect"],
+    "skin_temp_c": ["whoop", "garmin", "apple_health", "health_connect"],
+    "spo2": ["garmin", "whoop", "apple_health", "health_connect"],
 }
 
 

@@ -15,16 +15,20 @@ export function getAuthClient(): Promise<GoTrueClient> {
   // Read straight from import.meta.env (not via an imported constant) so the bundler folds it to a literal in THIS
   // module and drops the dynamic import — auth-js is then absent from a personal build, not just unused.
   if (import.meta.env.VITE_CATCH_DEPLOYMENT !== "public") return Promise.reject(new Error("Supabase Auth is not part of a personal build"));
-  client ??= import("@supabase/auth-js").then(
-    ({ GoTrueClient }) =>
+  // Native shell (session 30): the session goes to the Keychain/Keystore, and the URL is never scanned for a session — the
+  // deep-link handler (lib/native/deepLinks.ts) exchanges a ?code= itself. Both branches are build-time literals.
+  const native = import.meta.env.VITE_CATCH_NATIVE === "1";
+  client ??= Promise.all([import("@supabase/auth-js"), native ? import("./native/secureStorage") : Promise.resolve(null)]).then(
+    ([{ GoTrueClient }, secure]) =>
       new GoTrueClient({
         url: `${supabaseUrl}/auth/v1`,
         headers: { apikey: supabasePublishableKey },
         storageKey: "catch.auth",
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: !native,
         flowType: "pkce",
+        ...(secure ? { storage: secure.secureSessionStorage } : {}),
       }),
   );
   return client;

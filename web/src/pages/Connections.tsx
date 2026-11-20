@@ -4,6 +4,8 @@ import { fetchConnections } from "../lib/api";
 import { ConnectionCard } from "../components/connections/ConnectionCard";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
+import { healthPlatform } from "../lib/native/health";
+import { isNative } from "../lib/native/platform";
 
 const RESULT_TEXT: Record<string, string> = {
   connected: "connected.",
@@ -40,6 +42,17 @@ export function ConnectionsPage() {
       {query.isLoading && <CardSkeleton lines={4} />}
       {query.isError && <p className="text-sm text-band-red-text">Couldn't load your connections.</p>}
       {query.data?.connections.map((c) => <ConnectionCard key={c.provider} card={c} />)}
+
+      {isNative() && healthPlatform() && (
+        <Card title={healthPlatform() === "apple_health" ? "Apple Health" : "Health Connect"}>
+          <p className="text-sm text-text-secondary">
+            Optional. Bring workouts, sleep and heart data from your phone into Catch — only the types you choose, only after you confirm a preview.
+          </p>
+          <Link to="/settings/health" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent">
+            Set up
+          </Link>
+        </Card>
+      )}
 
       <Card title="Sync health">
         <p className="text-sm text-text-secondary">

@@ -202,7 +202,7 @@ function catchPort(): number {
 
 // A VITE_* value is compiled into JavaScript anyone can download. A database URL or a secret key pasted into the wrong
 // variable once shipped a Postgres password in a public bundle, so refuse to build rather than publish it.
-function publicEnvGuardPlugin(): Plugin {
+function publicEnvGuardPlugin(native = false): Plugin {
   return {
     name: 'catch-public-env-guard',
     configResolved(config) {
@@ -219,6 +219,20 @@ function publicEnvGuardPlugin(): Plugin {
         }
         if (!config.env.VITE_SUPABASE_PUBLISHABLE_KEY) problems.push('VITE_SUPABASE_PUBLISHABLE_KEY is empty')
       }
+      if (native) {
+        if (config.env.VITE_CATCH_DEPLOYMENT !== 'public') problems.push('a native build is always the public deployment (VITE_CATCH_DEPLOYMENT=public)')
+        if (config.env.VITE_CATCH_MOCK === '1' && config.mode === 'native-production') problems.push('VITE_CATCH_MOCK must not be set in a production build')
+        if (config.env.VITE_CATCH_NATIVE !== '1') problems.push('VITE_CATCH_NATIVE must be 1 in a native build')
+        const api = String(config.env.VITE_API_BASE_URL ?? '')
+        const web = String(config.env.VITE_WEB_BASE_URL ?? '')
+        const local = /^http:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?$/
+        const devMode = config.mode === 'native-development'
+        for (const [name, v] of [['VITE_API_BASE_URL', api], ['VITE_WEB_BASE_URL', web]] as const) {
+          if (!/^https:\/\/[^/\s]+$/.test(v) && !(devMode && local.test(v))) {
+            problems.push(`${name} must be an https origin with no path${devMode ? ' (or a local http origin in native-development)' : ''}`)
+          }
+        }
+      }
       if (problems.length) {
         throw new Error(`Refusing to build: ${problems.join('; ')}. Values are not shown here on purpose.`)
       }
@@ -226,14 +240,18 @@ function publicEnvGuardPlugin(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), serviceWorkerPlugin(), publicEnvGuardPlugin()],
+// `vite build --mode native-<env>` (session 30): the bundle a Capacitor shell ships. It is the public build with an absolute API base, no
+// service worker (the store, not version.json, delivers updates) and its own output directory — never the one FastAPI serves.
+export default defineConfig(({ mode }) => {
+  const native = mode.startsWith('native-')
+  return {
+  plugins: [react(), tailwindcss(), ...(native ? [] : [serviceWorkerPlugin()]), publicEnvGuardPlugin(native)],
   define: {
     __BUILD_ID__: JSON.stringify(BUILD_ID),
     __COMMIT__: JSON.stringify(COMMIT),
   },
   build: {
-    outDir: '../catch/api/static',
+    outDir: native ? 'dist-native' : '../catch/api/static',
     emptyOutDir: true,
   },
   server: {
@@ -250,4 +268,5 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
   },
+  }
 })

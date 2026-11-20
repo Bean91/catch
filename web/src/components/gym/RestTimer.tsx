@@ -1,3 +1,4 @@
+import { haptic } from "../../lib/native/haptics";
 import { useEffect, useRef, useState } from "react";
 
 const DEFAULT_REST_S = 90;
@@ -47,6 +48,7 @@ export function RestTimer({ endAt, onDismiss, onExtend }: { endAt: number | null
       alerted.current = true;
       beep();
       if ("vibrate" in navigator) navigator.vibrate([200, 100, 200]);
+      haptic("medium"); // iOS has no navigator.vibrate; the native shell fills that gap
     }
   }, [endAt, remainingMs]);
 

@@ -644,6 +644,18 @@ MCP OAuth 2.1 (`mcp_server/oauth.py` on the SDK's provider interface, consent in
 new raw-SQL modules must be added to `ALLOWED_RAW_SQL`). CI: `security.yml` (gitleaks, pip-audit, npm audit), `.gitleaks.toml`, `SECURITY.md`. **Legal documents in `docs/legal/` are drafts with no legal review — never describe them as compliant.**
 Tests: `tests/tenancy/test_{route_auth_coverage,idor_sweep,privacy,account_deletion,hardening,log_hygiene,moderation_controls,mcp_oauth}.py`, `tests/coach/test_{tool_safety,ai_sharing}.py`, `tests/pg/test_{rls_all_tables,moderation,oauth,retention}.py`. Tool count unchanged (66).
 
+Session 30 (native iOS and Android apps — see PLAN.md, `docs/mobile/` (README, push, deep-links, health-data, release, privacy-disclosures, test-report), DESIGN.md "Native apps"; the brief carried no number).
+**Capacitor 8 shells (`web/ios`, `web/android`) around the same frontend, public deployment only**: same Supabase Auth project and bearer-authenticated API; a native build is
+`vite build --mode native-<development|staging|production>` into `web/dist-native` (never `catch/api/static`), with `VITE_CATCH_NATIVE=1`, an absolute `VITE_API_BASE_URL`/`VITE_WEB_BASE_URL`, no service worker, and only public config
+(`web/.env.native-*.example`; `vite.config.ts` + `scripts/check-build-secrets.mjs` refuse secrets/http bases/`VITE_CATCH_MOCK` in production). `scripts/native-config.mjs` writes the gitignored `capacitor.config.json`
+(`CATCH_NATIVE_ENV`: app id `com.openoted.catch` + `.staging`/`.dev`). Frontend: `web/src/lib/native/` — `platform.ts` (`isNative()`), `apiBase.ts` (`apiUrl()`; every request goes through it), `secureStorage.ts` (Keychain/Keystore GoTrue storage),
+`deepLinkTargets.ts` (pure allow-list resolver) + `deepLinkBus.ts` + `useDeepLinks.ts`, `push.ts`, `camera.ts`, `haptics.ts`, `health.ts`, `queryPersist.ts`, `externalLinks.ts`, `useNativeShell.ts`; pages `HealthData.tsx`, `/checkin`, public `/account-deletion`.
+Backend (all public-only): `api/native_cors.py` (exact-origin CORS, outermost, no credentials; `CATCH_NATIVE_ORIGINS`), migration `0009` (`native_push_tokens` — **global**, catch_api-only, one account per device token, touched only by
+`sync/native_push_store.py`; `health_consents` owned), `notify/native_push.py` (APNs HTTP/2 + FCM v1; fixed hosts in `core/netguard.py`; `push.notify` gates each channel separately), `api/routes_wellknown.py` (AASA/assetlinks, 404 until
+`CATCH_APPLE_TEAM_ID`/`CATCH_ANDROID_CERT_SHA256` set), `core/oauth_state.py` native tickets + `GET /auth/{p}/native-start` (provider OAuth from the system browser; callback returns through `com.openoted.catch://`), health import
+(`analytics/health_import.py` pure, `sync/health_import.py`, `api/routes_health.py`: consent → import → delete; sources `apple_health`/`health_connect` rank last in `canonical.py`/`wellness_inputs.py`; HealthKit HRV is SDNN and is refused).
+Verified: full Python + PG suites, vitest/Playwright, Android emulator e2e (`web/tests/native/android-e2e.mjs`), iOS simulator build/launch. **Unverified (no devices/accounts): APNs/FCM delivery, verified links, HealthKit/Health Connect reads, iOS runtime sign-in.**
+
 ## Commands
 
 - `uv sync` — install deps
@@ -682,6 +694,7 @@ Tests: `tests/tenancy/test_{route_auth_coverage,idor_sweep,privacy,account_delet
   into `catch/api/static` and boots a real disposable `uv run uvicorn` backend (scratch DB +
   generated secrets, port 8731) via Playwright's `webServer`, needs `uv` on PATH but no running
   `.env`-backed instance of its own
+- `cd web && CATCH_NATIVE_ENV=development npm run native:sync` — build the native bundle for an environment and `cap sync`; then `npm run native:ios|native:android` (Xcode/Android Studio), `cd web/android && ./gradlew assembleDevDebug`, `npm run native:assets`, `npm run check:native-secrets` (docs/mobile/README.md; Android needs JDK 21)
 - `./deploy.sh` — build the frontend + rsync the backend to the Pi + restart + health-check
   (needs `deploy/pi-bootstrap.sh` to have been run on the Pi at least once; see that file)
 

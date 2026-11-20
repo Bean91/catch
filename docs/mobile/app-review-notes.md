@@ -1,0 +1,7 @@
+# Notes for App Review / Play review (draft)
+
+**Not a thin web wrapper (Apple 4.2).** The bundle ships inside the app (no remote site). Native-only capabilities: push notifications (APNs/FCM) with deep links; the camera and photo library through the system sheet; the session in the Keychain/Keystore; an offline strength logger that keeps data on the device across app closure and syncs on reconnect; Apple Health / Health Connect import with an in-app consent and preview; haptics; native lifecycle (background/resume refresh, hardware back); share-sheet export; universal/app links. Plus the product itself (recovery/strain analytics, a coach, calendar, erg tests) which is the app's purpose.
+**Sign-in:** e-mail + password with Catch's own accounts (Supabase Auth). No third-party/social login is offered, so Sign in with Apple isn't required. **Demo account:** create a disposable account with sample data and put its credentials in App Store Connect → App Review Information (not in this repo).
+**Account deletion:** Settings → Account → Delete account (type DELETE; a recent sign-in is required). Public URL: `/account-deletion`.
+**Permissions and when they appear:** camera (tapping "Take photo"), photo library (picking one), notifications (tapping "Enable notifications"), Health (Settings → Connections → Apple Health → Continue). None at launch.
+**Subscriptions / payments:** none. **User-generated content:** clubs (adults/juniors) with reporting, blocking and moderation (docs/clubs.md, docs/security.md).

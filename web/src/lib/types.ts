@@ -950,6 +950,11 @@ export interface PushSubscriptionRow {
   label: string | null;
   created_at: string;
   last_seen_at: string;
+  /** Session 30: a native (APNs/FCM) registration. Absent/"web" = a Web Push subscription. */
+  kind?: "web" | "native";
+  platform?: "apns" | "fcm";
+  /** Last characters of a native token, enough for this device to recognise its own row; never the whole token. */
+  token_hint?: string;
 }
 
 export interface NotificationLogRow {
