@@ -656,7 +656,7 @@ availability — never a value; it found a provider secret that was saved but em
 claude.ai**: it registers as a confidential-style client, so `oauth.py::register_client` coerces any registration to a public PKCE client (RFC 7591 §3.2.1; the 201 says `none`), and `mcp_server/oauth_http.py` logs the
 server-generated reason for a rejected `/register|/authorize|/token|/revoke`. Operating facts: FastAPI Cloud secrets are write-once (`env delete` then `env set --secret`; `--no-redeploy` to batch), a change redeploys, there is no
 documented cron; the app runs on scale-to-zero, so ticks come from Supabase. VAPID keys are generated once (`.env.example` snippet), the private key set as a secret via stdin, `VAPID_SUBJECT` a bare https origin; rotating
-invalidates every subscription. Findings still open: F-38 (owner must confirm the `catch_api` rotation), F-30 (narrowed: many peers are Cloudflare addresses), F-02 residual, real-client confirmation of the other flows,
+invalidates every subscription. Findings still open: F-30 (narrowed: many peers are Cloudflare addresses), F-02 residual, real-client confirmation of the other flows,
 legal review of `docs/legal/`, Garmin approval, SMTP. Tests: `tests/test_startup_checks.py`, `tests/test_main_static.py`, `tests/test_mcp_http_hosts.py`, `tests/tenancy/test_mcp_oauth.py`, `tests/pg/test_runtime.py`.
 
 ## Commands
