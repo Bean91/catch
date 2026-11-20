@@ -40,7 +40,8 @@ DATABASE_ADMIN_URL=… uv run catch db upgrade && DATABASE_ADMIN_URL=… uv run 
 fastapi deploy
 # 5. Verify
 curl -sS https://catch.openoted.com/api/health
-curl -sS -H "authorization: Bearer $CATCH_TICK_SECRET" https://catch.openoted.com/internal/db-check   # schema_missing_tables must be []
+curl -sS -H "authorization: Bearer $CATCH_TICK_SECRET" https://catch.openoted.com/internal/db-check   # schema_missing_tables must be [] (necessary, not sufficient)
+DATABASE_ADMIN_URL=… uv run catch db current   # the authoritative revision check
 SMOKE_SECRET_KEY_FILE=~/.catch-smoke-secret … uv run python scripts/smoke_public.py
 ```
 

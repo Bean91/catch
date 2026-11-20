@@ -9,9 +9,16 @@ Branch `session-31-launch-audit`.
 Rules this document follows:
 - **PASS** means the check was actually run in this session and the evidence line says how. **NOT VERIFIED** means it was not
   run (no account, no device, not authorised). **FAIL** means it was run or inspected and does not meet the bar.
-- Production was touched only as authorised: unauthenticated `curl`, `scripts/smoke_public.py` (if run — see §F), and
-  read-only/preview-only calls through the owner's own claude.ai MCP connector. No production `pg_dump`, deploy, rollback or
-  config change was made.
+- Production was touched only as authorised, and here is everything that was done there:
+  - unauthenticated `curl`;
+  - one run of `scripts/smoke_public.py`, which created and deleted two disposable users;
+  - one further disposable `catch-smoke-diag-…@example.com` user, created to probe which endpoints fail (§Evidence) and deleted
+    straight after;
+  - a GoTrue admin listing of auth users, paged through with the operator's secret key, keeping only `catch-smoke-*@example.com`
+    matches; one leaked smoke user was found and deleted;
+  - read-only and preview-only calls through the owner's own claude.ai MCP connector (`confirm` never passed).
+
+  No production `pg_dump`, migration, deploy, rollback or configuration change was made.
 - Finding IDs `L-nn` are this session's; `F-nn` are the session 28 register (docs/security-findings.md).
 
 ## Findings
@@ -156,7 +163,7 @@ Remaining formula limitations are listed in docs/analytics.md "Known limitations
 |---|---|
 | Anthropic / OpenAI / Gemini adapters: streaming, tool calls, normalised errors (`invalid_key`, `rate_limited`, `quota`, `unavailable`, `timeout`) | PASS (synthetic fixtures: `tests/coach/test_provider_*.py`, `test_chat_byok.py`) |
 | Ollama | personal only; startup refuses it on public. PASS (mocked) |
-| Switching provider and replacing a key keeps conversation history; a rejected key never replaces a working one; another owner can't replace or delete it; no env fallback; key never logged | PASS (`tests/test_ai_credentials.py`, `test_ai_no_leak.py`, `test_secret_rotation.py`) |
+| Switching provider keeps and replays history (`tests/coach/test_chat_byok.py::test_switching_to_openai_keeps_history_and_replays_it`, `…_gemini_…`); replacing a key keeps the conversation and active provider (`tests/test_ai_credentials.py::test_api_replacing_a_key_keeps_the_conversation_and_the_active_provider`, added session 31); deleting a key keeps history (`…::test_api_delete_removes_key_and_deactivates_but_keeps_history`); a rejected key never replaces a working one; another owner can't replace/delete it; no env fallback; key never logged (`test_ai_no_leak.py`) | PASS |
 | **Live** BYOK calls with real Anthropic/OpenAI/Gemini keys | **NOT VERIFIED.** No keys in this session (B-14). Owner: Settings → AI providers → Test, for each provider |
 | MCP over the **remote Streamable HTTP endpoint on FastAPI Cloud with Supabase identity** | **PASS.** The owner's claude.ai connector (OAuth) returned the owner's own connections; `create_event` without `confirm` returned `saved: false` with a preview, and nothing was saved. Production smoke: MCP initialize, 66 tools listed (stateless), a read as user A, a read-scope token refused a confirmed write, `/mcp` without a token returns 401 with RFC 9728 metadata |
 | MCP stdio (`catch-mcp`) | **PASS** `scripts/mcp_stdio_check.py` 7/7 (new; there was no automated stdio test before) |
@@ -264,7 +271,7 @@ Full table: [supabase-setup.md](supabase-setup.md). In short:
 
 | ID | Sev | Blocker | Owner | Next action |
 |---|---|---|---|---|
-| B-1 | **Critical** | Production database at 0008 under 0009 code; account deletion, push device list and health status return 500 (L-38) | Operator | `DATABASE_ADMIN_URL=… uv run catch db upgrade` (to 0010 once this branch is merged), deploy, then check `/internal/db-check` `schema_missing_tables: []` and run `scripts/smoke_public.py`: all PASS |
+| B-1 | **Critical — live incident** | Production database at 0008 under 0009 code; **every user's account deletion fails today**, and push device list and health status return 500 (L-38) | Operator, today | `DATABASE_ADMIN_URL=… uv run catch db upgrade` (to 0010 once this branch is merged), deploy, then check `/internal/db-check` `schema_missing_tables: []` and run `scripts/smoke_public.py`: all PASS |
 | B-2 | High | No per-user time zone: days, "today" and check-ins are wrong for anyone not in the server's zone (L-09) | Developer | Design session: `user_profiles.timezone` (browser-detected, editable), migration, one `local_day(ts, tz)` helper used by every bucketing site incl. the UTC `.date()` ones, web date defaults, backfill/recompute |
 | B-3 | High | No backups: Supabase Free, no PITR, no dump ever taken | Operator | Upgrade to Pro (7 daily backups) or schedule `pg_dump -n catch -n catch_private -n catch_club` off-project; run `scripts/backup_restore_drill.py`-style restore of a real dump into a scratch stack |
 | B-4 | High | Legal documents are unreviewed drafts with placeholders, rendered publicly (F-18, L-25) | Operator + counsel | Counsel review; fill controller/contact details; remove counsel notes; then ship |

@@ -233,6 +233,25 @@ def test_api_delete_removes_key_and_deactivates_but_keeps_history(client, sessio
     assert client.get(f"/api/coach/conversations/{conv['id']}").json()["messages"][0]["blocks"][0]["text"] == "keep me"
 
 
+def test_api_replacing_a_key_keeps_the_conversation_and_the_active_provider(client, session, monkeypatch):
+    """Launch audit Part C/D: a person who swaps in a new key for the same provider loses no coach history."""
+    from catch.core.models import CoachMessage
+
+    _login(client)
+    _stub_validate(monkeypatch)
+    client.put("/api/ai/providers/openai/key", json={"api_key": KEY_A})
+    client.put("/api/ai/active", json={"provider": "openai", "model": "gpt-x"})
+    conv = client.post("/api/coach/conversations").json()
+    session.add(CoachMessage(conversation_id=conv["id"], role="user", blocks_json=json.dumps([{"type": "text", "text": "keep me"}])))
+    session.commit()
+
+    resp = client.put("/api/ai/providers/openai/key", json={"api_key": KEY_B})
+    assert resp.status_code == 200 and resp.json()["configured"]
+    assert client.get("/api/ai/providers").json()["active"] == "openai"
+    assert client.get(f"/api/coach/conversations/{conv['id']}").json()["messages"][0]["blocks"][0]["text"] == "keep me"
+    assert KEY_A not in client.get("/api/ai/providers").text and KEY_B not in client.get("/api/ai/providers").text
+
+
 def test_api_cannot_activate_an_unconfigured_provider(client):
     _login(client)
     resp = client.put("/api/ai/active", json={"provider": "gemini"})

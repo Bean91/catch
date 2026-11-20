@@ -15,7 +15,7 @@ database URL from your own shell, never pasted into a deploy, chat or ticket.
    - `bypass_rls` must be false.
    - `ssl` must be true.
    - the RLS probes must pass.
-   - **`schema_missing_tables` must be empty** (added in session 31).
+   - **`schema_missing_tables` must be empty** (added in session 31). Empty is necessary but **not sufficient**: it only catches missing tables, not grant-, policy- or column-only migrations such as 0010. `DATABASE_ADMIN_URL=… uv run catch db current` is the authoritative check.
    - `schema_revision` is shown when readable.
 3. `curl … /internal/config-check` shows which secrets the running process loaded (booleans only).
 4. Read the FastAPI Cloud logs for the window. Logs are redacted (`core/redact.py`), but treat them as sensitive anyway.

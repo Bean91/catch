@@ -95,6 +95,6 @@ Status key:
 
 ```sh
 DATABASE_ADMIN_URL=… uv run catch db current                       # applied vs expected revision
-curl -H "authorization: Bearer $CATCH_TICK_SECRET" https://catch.openoted.com/internal/db-check   # role, ssl, RLS probe, schema_missing_tables
+curl -H "authorization: Bearer $CATCH_TICK_SECRET" https://catch.openoted.com/internal/db-check   # role, ssl, RLS probe, schema_missing_tables ([] is necessary, not sufficient)
 SMOKE_SECRET_KEY_FILE=~/.catch-smoke-secret SMOKE_BASE_URL=… SMOKE_SUPABASE_URL=… SMOKE_PUBLISHABLE_KEY=… uv run python scripts/smoke_public.py
 ```
