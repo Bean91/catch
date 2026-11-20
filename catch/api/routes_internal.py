@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from catch.api.ratelimit import rate_limit
+from catch.api.ratelimit import throttle
 from catch.core import db as db_module
 from catch.core import tenant, tenant_hooks
 from catch.core.config import settings
@@ -34,10 +34,13 @@ def require_tick_secret(request: Request) -> None:
     header = request.headers.get("authorization", "")
     given = header[len("bearer ") :].strip() if header.lower().startswith("bearer ") else ""
     if not given or not hmac.compare_digest(given.encode(), settings.tick_secret.encode()):
+        # Only failed attempts are metered (so guessing is), never the real tick: behind the platform's shared proxy addresses
+        # (F-30) a flood of junk requests used to fill the per-IP bucket the scheduled pg_cron tick shares and 429 it.
+        throttle("internal", f"ip:{request.client.host if request.client else 'unknown'}")
         raise HTTPException(status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
 
 
-router = APIRouter(prefix="/internal", dependencies=[rate_limit("internal", by="ip"), Depends(require_tick_secret)])  # throttled first, so guessing the secret is metered
+router = APIRouter(prefix="/internal", dependencies=[Depends(require_tick_secret)])
 
 
 def user_ids() -> list[str]:

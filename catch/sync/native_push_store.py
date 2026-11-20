@@ -5,6 +5,7 @@ acting owner explicitly and filters by it. Nothing here needs raw SQL."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,6 +19,10 @@ MAX_TOKENS_PER_USER = 10
 PLATFORMS = ("apns", "fcm")
 ENVIRONMENTS = ("sandbox", "production")
 MAX_TOKEN_CHARS = 4096  # an FCM registration token is ~163 chars, an APNs device token 64 hex; both far under this
+# The APNs token becomes a URL path segment (/3/device/<token>) and app_id the apns-topic header: only their real alphabets pass,
+# so "/", "?", "#" or ".." can't reshape the request sent to Apple (launch audit L-07).
+TOKEN_FORMAT = {"apns": re.compile(r"[0-9a-fA-F]{64,200}"), "fcm": re.compile(r"[A-Za-z0-9_:\-]{20,4096}")}
+APP_ID_FORMAT = re.compile(r"[A-Za-z0-9][A-Za-z0-9.\-]{0,199}")
 
 
 def _now() -> datetime:
@@ -35,10 +40,10 @@ def register(owner_id: str, *, platform: str, token: str, environment: str, app_
         raise StoreError("Unknown push platform", 422)
     if environment not in ENVIRONMENTS:
         raise StoreError("Unknown push environment", 422)
-    if not token or len(token) > MAX_TOKEN_CHARS or any(ord(c) <= 32 for c in token):
+    if not token or len(token) > MAX_TOKEN_CHARS or not TOKEN_FORMAT[platform].fullmatch(token):
         raise StoreError("Not a valid push token", 422)
-    if not app_id or len(app_id) > 200 or len(label or "") > 80:
-        raise StoreError("Registration fields are too long", 422)
+    if not app_id or not APP_ID_FORMAT.fullmatch(app_id) or len(label or "") > 80:
+        raise StoreError("Registration fields are too long or malformed", 422)
     with store() as s:
         row = s.exec(select(NativePushToken).where(NativePushToken.platform == platform, NativePushToken.token == token)).first()
         if row is None:

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Iterator, Optional
 
+from sqlalchemy import case
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
@@ -244,14 +245,20 @@ def _public_club_ids(owner_ids: set[str], s: Session) -> dict[str, set[str]]:
     return out
 
 
+BOARD_ROW_CAP = 5000
+
+
 def board_rows(board_key: str) -> list[dict]:
     """Every active entry on a board from an active athlete, with the fields ranking and filtering need. Capped."""
+    # The cap must keep the *best* rows: unordered, a board past 5000 entries dropped arbitrary ones and ranked the rest wrong.
+    best_first = PublicEntry.value.asc() if lb.BOARDS[board_key]["kind"] == "distance" else PublicEntry.value.desc()
     with store() as s:
         rows = s.exec(
             select(PublicEntry, PublicAthlete)
             .join(PublicAthlete, PublicAthlete.public_id == PublicEntry.public_id)
             .where(PublicEntry.board_key == board_key, PublicEntry.status == "active", PublicAthlete.active == True)  # noqa: E712
-            .limit(5000)
+            .order_by(case((PublicEntry.verification == "verified", 0), else_=1), best_first, PublicEntry.tiebreak)
+            .limit(BOARD_ROW_CAP)
         ).all()
         clubs = _public_club_ids({e.owner_id for e, _ in rows}, s)
         return [

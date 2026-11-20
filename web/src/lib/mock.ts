@@ -102,12 +102,20 @@ import { aggregateFromSplits, defaultSplits, validateSplits, wattsForSplit } fro
 // without overloading "calibrating"/"empty" (which are about recovery data, not illness).
 export type MockScenario = "full" | "calibrating" | "empty" | "error" | "loading" | "offline" | "illness_watch" | "illness_likely";
 
+export function mockQueryAllowed(deployment: string | undefined, dev: boolean, allowFlag: string | undefined): boolean {
+  return deployment !== "public" || dev || allowFlag === "1";
+}
+
 export function mockScenarioFromQuery(): MockScenario | null {
   const params = new URLSearchParams(window.location.search);
   // Native shot/demo builds (session 30): a bundle built with VITE_CATCH_MOCK=1 runs on fixtures with no backend, so store screenshots and
   // simulator checks never show real data. vite.config.ts refuses this flag in a production build.
   if (import.meta.env.VITE_CATCH_MOCK === "1" && !params.has("mock")) return "full";
   if (!params.has("mock")) return null;
+  // Session 31 (launch audit L-03): on the real public site `?mock=1` skipped sign-in and showed a signed-in-looking
+  // app with fake "Connected" sources — a link anyone could send. The public build only honours it in the dev server
+  // or when built with VITE_CATCH_ALLOW_MOCK=1 (test/demo bundles; vite.config.ts refuses that in a production build).
+  if (!mockQueryAllowed(import.meta.env.VITE_CATCH_DEPLOYMENT, import.meta.env.DEV, import.meta.env.VITE_CATCH_ALLOW_MOCK)) return null;
   const value = params.get("mock");
   if (value === "" || value === "1" || value === "true") return "full";
   const known: MockScenario[] = ["calibrating", "empty", "error", "loading", "offline", "illness_watch", "illness_likely"];

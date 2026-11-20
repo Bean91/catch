@@ -55,7 +55,8 @@ def test_one_person_cannot_unregister_anothers_token(pub_client):
     assert len(pub_client.get("/api/push/subscriptions", headers=A).json()) == 1
 
 
-@pytest.mark.parametrize("bad", [{"platform": "web"}, {"environment": "staging"}, {"token": ""}, {"token": "has space"}, {"token": "x" * 5000}, {"app_id": ""}])
+@pytest.mark.parametrize("bad", [{"platform": "web"}, {"environment": "staging"}, {"token": ""}, {"token": "has space"}, {"token": "x" * 5000}, {"app_id": ""},
+                                  {"token": "a" * 60 + "/../"}, {"token": "a" * 64 + "?x=1"}, {"token": "z" * 64}, {"app_id": "com.x/../y"}, {"app_id": "a\r\nx: y"}])
 def test_bad_registrations_are_refused(pub_client, bad):
     pub_client.get("/api/me", headers=A)
     assert _reg(pub_client, A, **bad).status_code in (400, 422)

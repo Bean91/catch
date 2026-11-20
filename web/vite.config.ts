@@ -219,6 +219,9 @@ function publicEnvGuardPlugin(native = false): Plugin {
           problems.push('VITE_SUPABASE_URL must look like https://<project-ref>.supabase.co')
         }
         if (!config.env.VITE_SUPABASE_PUBLISHABLE_KEY) problems.push('VITE_SUPABASE_PUBLISHABLE_KEY is empty')
+        if (config.command === 'build' && config.mode === 'production' && (config.env.VITE_CATCH_ALLOW_MOCK === '1' || config.env.VITE_CATCH_MOCK === '1')) {
+          problems.push('VITE_CATCH_ALLOW_MOCK/VITE_CATCH_MOCK must not be set in a public production build (?mock=1 would bypass sign-in with fake data)')
+        }
       }
       if (native) {
         if (config.env.VITE_CATCH_DEPLOYMENT !== 'public') problems.push('a native build is always the public deployment (VITE_CATCH_DEPLOYMENT=public)')

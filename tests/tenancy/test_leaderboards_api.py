@@ -227,6 +227,17 @@ def test_a_timed_board_ranks_by_distance(env):
     assert [(r["name"], r["result"], r["rank"]) for r in rows] == [("Bravo", "8,200 m", 1), ("Alpha", "8,000 m", 2)]
 
 
+def test_the_board_row_cap_keeps_the_best_verified_rows(env, monkeypatch):
+    """Launch audit L-05: the cap used to run with no ORDER BY, so past it arbitrary rows were dropped and ranks were wrong."""
+    athlete(env, ALICE, "Alpha", 1, account="1", duration=420.0)
+    athlete(env, BOB, "Bravo", 2, account="2", duration=395.0)
+    athlete(env, CAROL, "Charlie", 3, account="3", duration=380.0, verified=False)
+    athlete(env, DAVE, "Delta", 4, account="4", duration=390.0)
+    monkeypatch.setattr(store, "BOARD_ROW_CAP", 2)
+    data = board(env, ERIN)
+    assert [(e["name"], e["rank"]) for e in data["entries"]] == [("Delta", 1), ("Bravo", 2)]
+
+
 # ------------------------------------------------------------------ duplicates
 
 def test_one_result_cannot_be_published_twice_even_from_two_catch_accounts(env):

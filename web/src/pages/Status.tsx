@@ -5,6 +5,7 @@ import { formatBytes, formatRelativeTime, formatUptime } from "../lib/format";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
+import { isPublic } from "../lib/deployment";
 
 /** Task Part B.1 — a read-only operational dashboard, not a settings form: per-source sync
  * health, the Garmin key expiry reminder, backup status, disk/DB size, uptime, build. Its own
@@ -61,6 +62,9 @@ export function StatusPage() {
         </Link>
       </Card>
 
+      {/* Session 31 (launch audit L-04): the public server reports no disk/backup/uptime to a user (they describe shared
+          infrastructure), so these cards showed "0 B", "Uptime 0m" and "No backup has run yet" — false statements. */}
+      {!isPublic && (
       <Card title="Backup">
         {data.backup ? (
           <div className="flex flex-col gap-1 text-sm text-text-primary">
@@ -79,12 +83,17 @@ export function StatusPage() {
           <p className="text-sm text-text-tertiary">No backup has run yet on this instance.</p>
         )}
       </Card>
+      )}
 
       <Card title="System">
         <div className="flex flex-col gap-1 text-sm text-text-primary">
-          <div>Disk free: {formatBytes(data.disk_free_bytes)} of {formatBytes(data.disk_total_bytes)} ({diskUsedPct.toFixed(0)}% used)</div>
-          <div>Database size: {formatBytes(data.db_size_bytes)}</div>
-          <div>Uptime: {formatUptime(data.uptime_seconds)}</div>
+          {!isPublic && (
+            <>
+              <div>Disk free: {formatBytes(data.disk_free_bytes)} of {formatBytes(data.disk_total_bytes)} ({diskUsedPct.toFixed(0)}% used)</div>
+              <div>Database size: {formatBytes(data.db_size_bytes)}</div>
+              <div>Uptime: {formatUptime(data.uptime_seconds)}</div>
+            </>
+          )}
           {data.build && (
             <div>
               Build {data.build.build} · {data.build.commit}
