@@ -72,18 +72,29 @@ def run_for_each_user(job: str, work: Callable[[], object], budget_s: float | No
             summary["deferred"] += 1
             continue
         with tenant.use_owner(uid):
-            with Session(db_module.engine) as session:
-                if not _claim(session, job):
-                    summary["skipped_running"] += 1
-                    continue
+            # Claim and release sit inside the per-user guard too: a claim that hit a statement timeout (or a user deleted
+            # mid-tick) used to abort the whole tick, and a failed job kept its lease for the full 10 minutes (launch audit L-35).
+            try:
+                with Session(db_module.engine) as session:
+                    if not _claim(session, job):
+                        summary["skipped_running"] += 1
+                        continue
+            except Exception:  # noqa: BLE001
+                logger.exception("tick job %s could not claim one user", job)
+                summary["failed"] += 1
+                continue
             try:
                 work()
-                with Session(db_module.engine) as session:
-                    _finish(session, job)
                 summary["ran"] += 1
             except Exception:  # noqa: BLE001 — one user's failure never stops the others; no user data is logged
                 logger.exception("tick job %s failed for one user", job)
                 summary["failed"] += 1
+            finally:
+                try:
+                    with Session(db_module.engine) as session:
+                        _finish(session, job)
+                except Exception:  # noqa: BLE001
+                    logger.exception("tick job %s could not release one user", job)
     return summary
 
 

@@ -458,3 +458,23 @@ def test_abandoned_registrations_codes_and_ended_grants_are_pruned(env):
         s.commit()
         removed = retention.prune_owner(s)
     assert removed["oauth_auth_codes"] == 1 and removed["oauth_grants"] == 1
+
+
+def test_a_connector_that_only_refreshes_is_never_pruned_as_abandoned(env):
+    """Launch audit L-34: only /authorize marked a client in use, so a connector that refreshed for 30+ days without
+    re-authorising was deleted by retention and its next refresh failed as an unknown client."""
+    from catch.core.models import OAuthClient
+    from catch.sync import account_store
+    from catch.sync.leaderboard_store import store
+
+    client, tok = full_flow(env)
+    with store() as s:
+        row = s.get(OAuthClient, client)
+        row.created_at = row.last_used_at = datetime.now(timezone.utc) - timedelta(days=45)
+        s.commit()
+    new = refresh(env, client, tok["refresh_token"])
+    assert new.status_code == 200, new.text
+    account_store.prune_global()
+    with store() as s:
+        assert s.get(OAuthClient, client) is not None
+    assert refresh(env, client, new.json()["refresh_token"]).status_code == 200

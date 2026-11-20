@@ -60,6 +60,10 @@ def test_every_table_has_forced_rls_and_a_policy_per_command(migrated, admin):
     for table, delta in mig8.POLICY_COUNT_DELTAS.items():
         expected[table] = expected.get(table, 4) + delta  # session 28: the retention policy on club_audit
     expected.update(mig8.POLICY_COUNT_ABSOLUTE)  # session 28: the append-only moderation tables
+    spec10 = importlib.util.spec_from_file_location("mig0010", ROOT / "migrations" / "versions" / "0010_weather_cell_refresh.py")
+    mig10 = importlib.util.module_from_spec(spec10)
+    spec10.loader.exec_module(mig10)
+    expected.update(mig10.POLICY_COUNT_ABSOLUTE)  # session 31: provisional weather cells can be refreshed
     for name, rls, forced, policies in rows:
         assert rls and forced, f"{name}: RLS not enabled and forced"
         assert policies == expected.get(name, 4), f"{name}: {policies} policies"

@@ -421,6 +421,7 @@ class CatchOAuthProvider:
         return await run_in_threadpool(redeem_code, client.client_id or "", authorization_code)
 
     async def exchange_authorization_code(self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode) -> OAuthToken:
+        await run_in_threadpool(_touch_client, client.client_id or "")
         try:
             return await run_in_threadpool(exchange_code, authorization_code)
         except _Fail as exc:
@@ -431,6 +432,9 @@ class CatchOAuthProvider:
 
     async def exchange_refresh_token(self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
         assert isinstance(refresh_token, CatchRefreshToken)
+        # A connector that only ever refreshes is in use: without this, retention dropped it after 30 days and its next refresh
+        # failed as an unknown client (launch audit L-34).
+        await run_in_threadpool(_touch_client, client.client_id or "")
         try:
             return await run_in_threadpool(exchange_refresh, refresh_token, scopes)
         except _Fail as exc:
