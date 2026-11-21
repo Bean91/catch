@@ -8,8 +8,9 @@ changed is *which* performances feed it and *how*:
   evidence. Steady rows, intervals, rate-capped pieces and anything outside 500 m–10 km never count.
 * Recent evidence wins: when any declared or verified effort exists in the last 120 days only that window is used; older data is a
   fallback that caps confidence at "low" and says so.
-* Submaximal efforts can only make an estimate too slow, so points more than 4 % slower than the best one in the pool are dropped,
-  then the estimate is the weighted median (recency half-life 60 days x effort class x closeness to 2,000 m).
+* Submaximal efforts can only make an estimate too slow, so points more than 4 % slower than the best near-2,000 m effort are dropped
+  (a declared effort within one doubling of 2,000 m never is), then the estimate is the weighted median (recency half-life 60 days x
+  effort class x closeness to 2,000 m).
 * The range adds the spread between points, the uncertainty of Paul's law itself per doubling extrapolated, a day-to-day floor and
   a staleness term. Confidence is stated in words and never "high" without two recent strong efforts near 2,000 m.
 
@@ -112,8 +113,12 @@ def predict_2k(points: list[dict], as_of: date, target_distance: float = 2000.0)
     stale = bool(strong) and not recent_strong
     pool = recent if (recent_strong or not strong) else qualified
     reference_pool = [q for q in pool if q["effort"] != "effort_unknown"] or pool
+    # The reference comes from efforts within one doubling of 2,000 m when there are any: Paul's law from a 500 m sprint usually
+    # flatters a sprint-strong rower, and must not be the yardstick that discards a real 2k. A declared effort that close to
+    # 2,000 m is never dropped.
+    reference_pool = [q for q in reference_pool if q["doublings"] <= 1.0] or reference_pool
     best = min(q["implied_2k_s"] for q in reference_pool)
-    kept = [q for q in pool if q["implied_2k_s"] <= best * (1 + NEAR_BEST)]
+    kept = [q for q in pool if q["implied_2k_s"] <= best * (1 + NEAR_BEST) or (q["effort"] == "declared" and q["doublings"] <= 1.0)]
     values = [q["implied_2k_s"] for q in kept]
     weights = [q["weight"] for q in kept]
     estimate = _weighted_median(values, weights)

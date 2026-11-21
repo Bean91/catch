@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timezone
 
+from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from catch.analytics.erg_test import detect_test_type
@@ -31,12 +32,16 @@ def _erg_canonicals_with_concept2_member(session: Session) -> list[tuple[Canonic
     rows = session.exec(
         select(CanonicalActivity).where(CanonicalActivity.category == "erg", CanonicalActivity.absorbed_into_piece_id.is_(None))
     ).all()
-    out = []
-    for c in rows:
-        member = session.exec(select(Activity).where(Activity.canonical_id == c.id, Activity.source == "concept2")).first()
-        if member is not None:
-            out.append((c, member))
-    return out
+    # One query for every member (session 32), not one per canonical: this runs on Today, the 2k estimate and recommendations.
+    first_member: dict[int, Activity] = {}
+    ids = [c.id for c in rows]
+    for i in range(0, len(ids), 500):
+        members = session.exec(
+            select(Activity).options(defer(Activity.raw_json)).where(Activity.canonical_id.in_(ids[i : i + 500]), Activity.source == "concept2").order_by(Activity.id)
+        ).all()
+        for m in members:
+            first_member.setdefault(m.canonical_id, m)
+    return [(c, first_member[c.id]) for c in rows if c.id in first_member]
 
 
 def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
@@ -49,11 +54,13 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
 
     # Session 19: an interval piece isn't one continuous effort — it never becomes a test row.
     pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(False))).all()
+    ids = sorted({p.canonical_id for p in pieces if p.canonical_id is not None})
+    canonicals = {c.id: c for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(ids))).all()} if ids else {}
     out = []
     for p in pieces:
         if test_type and p.piece_type != test_type:
             continue
-        canonical = session.get(CanonicalActivity, p.canonical_id)
+        canonical = canonicals.get(p.canonical_id)
         splits = json.loads(p.splits_json) if p.splits_json else []
         hrs = [s["hr"] for s in splits if s.get("hr") is not None]
         out.append(

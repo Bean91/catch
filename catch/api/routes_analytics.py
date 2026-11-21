@@ -613,7 +613,7 @@ def _resolve_all_and_recompute_in_background(engine) -> None:
 
     with Session(engine) as session:
         resolve_all_canonicals(session)
-        recompute_scores(session)
+        recompute_scores(session, full=True)
 
 
 @router.put("/api/settings")
@@ -638,7 +638,7 @@ def put_settings(patch: dict = Body(...), background_tasks: BackgroundTasks = No
     else:
         from catch.sync.scoring import recompute_scores
 
-        recompute_scores(db)
+        recompute_scores(db, full=True)
     return result
 
 

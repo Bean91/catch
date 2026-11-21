@@ -55,7 +55,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
                 print(f"{source} backfill failed: {exc}")
         from catch.sync.scoring import recompute_scores
 
-        n = recompute_scores(session)
+        n = recompute_scores(session, full=True)
         print(f"recomputed {n} daily_scores rows")
 
 

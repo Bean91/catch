@@ -95,7 +95,7 @@ def test_today_includes_sleep_strain_target_hrv_and_erg(client, session):
     body = resp.json()
     assert body["sleep_last_night"]["need_seconds"] == 8 * 3600
     assert body["sleep_last_night"]["deep_seconds"] == 4000
-    assert body["strain_target_range"] == [10, 16]  # green band default
+    assert body["strain_target_range"] == [11, 17]  # green band default (session 32)
     assert body["hrv"]["today"] == 55.0
     assert len(body["hrv"]["sparkline_14d"]) == 1
     assert body["hrv"]["baseline_band"]["baseline"] == pytest.approx(math.exp(4.0))

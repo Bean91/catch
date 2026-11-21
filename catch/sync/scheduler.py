@@ -277,14 +277,17 @@ def run_maintenance() -> dict:
     """Session 32: once per owner, bring stored data up to the current model — stamp each record's local day and zone, learn the
     travel timeline from history, and recompute every score when the strain model changed. A no-op (a few small queries) after
     the first run. Personal: at startup and daily; public: before each user's sync tick."""
-    from catch.sync.scoring import ensure_current_model, recompute_scores
+    from catch.sync.canonical import resolve_all_canonicals
+    from catch.sync.scoring import model_is_current, recompute_scores
 
     with get_session() as session:
         stamped = localtime.ensure_backfilled(session)
-        if stamped:
-            recompute_scores(session)
-            return {"backfilled": True, "recomputed": True}
-        return {"backfilled": False, "recomputed": ensure_current_model(session)}
+        if not stamped and model_is_current(session):
+            return {"backfilled": False, "recomputed": False}
+        # Re-resolve first: each rowing session's power zones and muscular share now use the 2k estimate as of its own date.
+        resolve_all_canonicals(session)
+        recompute_scores(session, full=True)
+        return {"backfilled": stamped, "recomputed": True}
 
 
 def run_retention() -> None:

@@ -332,20 +332,24 @@ def report_device_zone(session: Session, zone: str, now: datetime | None = None)
 def _observations(session: Session, updated_since: datetime | None) -> list[tuple[datetime, str, str]]:
     """(instant, zone, source) a watch or phone recorded: a workout's start (Garmin, Whoop, phone health) and a night's wake-up (a
     Whoop sleep's offset). Concept2's account zone is not an observation of where the athlete was."""
-    from sqlalchemy.orm import load_only
-
     from catch.core.models import Activity, WellnessReading
 
     out: list[tuple[datetime, str, str]] = []
-    stmt = select(Activity).options(load_only(Activity.id, Activity.source, Activity.start, Activity.raw_json)).where(
-        Activity.source.in_(("garmin", "whoop", "apple_health", "health_connect")), Activity.start.is_not(None)
-    )
+    conditions = [Activity.source.in_(("garmin", "whoop", "apple_health", "health_connect")), Activity.start.is_not(None)]
     if updated_since is not None:
-        stmt = stmt.where(Activity.updated_at >= updated_since)
-    for a in session.exec(stmt).all():
-        zone, grade = activity_provider_zone(a.source, a.raw_json)
-        if zone and grade in lt.DEVICE_GRADE:
-            out.append((lt.aware(a.start), zone, a.source))
+        conditions.append(Activity.updated_at >= updated_since)
+    last = 0
+    while True:
+        page = session.exec(
+            select(Activity.id, Activity.source, Activity.start, Activity.raw_json).where(Activity.id > last, *conditions).order_by(Activity.id).limit(PAGE)
+        ).all()
+        if not page:
+            break
+        for a_id, source, start, raw in page:
+            zone, grade = activity_provider_zone(source, raw)
+            if zone and grade in lt.DEVICE_GRADE:
+                out.append((lt.aware(start), zone, source))
+        last = page[-1][0]
     stmt = select(WellnessReading).where(WellnessReading.recorded_at.is_not(None), WellnessReading.meta_json.is_not(None))
     if updated_since is not None:
         stmt = stmt.where(WellnessReading.fetched_at >= updated_since)
@@ -431,45 +435,52 @@ def restamp(session: Session, since: datetime | None = None, until: datetime | N
 
     invalidate(session)
     earliest: date | None = None
-    for model, col in ((Activity, Activity.start), (FoodLog, FoodLog.ts), (BodyComp, BodyComp.ts)):
-        stmt = select(model).where(col.is_not(None))
+
+    def note(before, after) -> None:
+        nonlocal earliest
+        for d in (before, after):
+            if d is not None and (earliest is None or d < earliest):
+                earliest = d
+
+    for model, col in ((Activity, Activity.start), (FoodLog, FoodLog.ts), (BodyComp, BodyComp.ts), (CanonicalActivity, CanonicalActivity.start)):
+        conditions = [col.is_not(None)]
         if since is not None:
-            stmt = stmt.where(col >= since)
+            conditions.append(col >= since)
         if until is not None:
-            stmt = stmt.where(col < until)
-        for row in session.exec(stmt).all():
-            before = row.local_date
-            stamp(session, row)
-            if row.local_date != before:
-                session.add(row)
-                for d in (before, row.local_date):
-                    if d is not None and (earliest is None or d < earliest):
-                        earliest = d
-    session.flush()
-    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))
-    if since is not None:
-        stmt = stmt.where(CanonicalActivity.start >= since)
-    if until is not None:
-        stmt = stmt.where(CanonicalActivity.start < until)
-    canonicals = session.exec(stmt).all()
-    members_by_c: dict[int, list] = {}
-    if canonicals:
-        ids = [c.id for c in canonicals]
-        for i in range(0, len(ids), 500):
-            for a in session.exec(select(Activity).where(Activity.canonical_id.in_(ids[i : i + 500]))).all():
-                members_by_c.setdefault(a.canonical_id, []).append(a)
-    for c in canonicals:
-        before = c.local_date
-        stamp_canonical(session, c, members_by_c.get(c.id, ()))
-        if c.local_date != before:
-            session.add(c)
-            for d in (before, c.local_date):
-                if d is not None and (earliest is None or d < earliest):
-                    earliest = d
-    session.flush()
+            conditions.append(col < until)
+        for page in _pages(session, model, conditions):
+            members_by_c: dict[int, list] = {}
+            if model is CanonicalActivity:
+                for a in session.exec(select(Activity).where(Activity.canonical_id.in_([c.id for c in page]))).all():
+                    members_by_c.setdefault(a.canonical_id, []).append(a)
+            for row in page:
+                before = row.local_date
+                if model is CanonicalActivity:
+                    stamp_canonical(session, row, members_by_c.get(row.id, ()))
+                else:
+                    stamp(session, row)
+                if row.local_date != before:
+                    session.add(row)
+                    note(before, row.local_date)
+            session.flush()
     if earliest is not None:
         mark_recompute_from(session, earliest)
     return earliest
+
+
+PAGE = 500
+
+
+def _pages(session: Session, model, conditions: list):
+    """Rows in id order, PAGE at a time (keyset paging, so writes between pages are safe) — never a whole history in memory on
+    a 1 GB Pi (CLAUDE.md)."""
+    last = 0
+    while True:
+        page = session.exec(select(model).where(model.id > last, *conditions).order_by(model.id).limit(PAGE)).all()
+        if not page:
+            return
+        yield page
+        last = page[-1].id
 
 
 def mark_recompute_from(session: Session, day: date) -> None:
@@ -532,6 +543,36 @@ def _instant_changed(obj, attr: str) -> bool:
         return False
 
 
+def _touched_days(obj) -> list[date]:
+    """The local day(s) a changed row belongs to, before and after the change — what a score recompute must start from."""
+    days = []
+    for attr in ("local_date", "date"):
+        if not hasattr(obj, attr):
+            continue
+        value = getattr(obj, attr)
+        if isinstance(value, date):
+            days.append(value)
+        try:
+            days += [d for d in sa_inspect(obj).attrs[attr].history.deleted if isinstance(d, date)]
+        except Exception:  # noqa: BLE001 — a transient object has no history
+            pass
+    return days
+
+
+_SCORE_INPUTS = ("Activity", "CanonicalActivity", "Note", "CheckIn", "IllnessAck", "DailyWellness", "BodyComp", "FoodLog")
+
+
+def _track_touched(session: Session) -> None:
+    """Session 32: remember the earliest local day any score input changed on in this session, so the next recompute_scores starts
+    there instead of at the first day of history. A write that touches nothing listed here leaves nothing to remember, and the
+    recompute then covers everything — the safe default."""
+    for obj in (*session.new, *session.dirty, *session.deleted):
+        if type(obj).__name__ not in _SCORE_INPUTS:
+            continue
+        for day in _touched_days(obj):
+            mark_recompute_from(session, day)
+
+
 def _before_flush(session: Session, flush_context, instances) -> None:
     if tenant.owner_or_none() is None or session.info.get("catch_no_stamp"):
         return
@@ -547,6 +588,7 @@ def _before_flush(session: Session, flush_context, instances) -> None:
         elif isinstance(obj, CanonicalActivity):
             if obj.start is not None and obj.local_date is None:
                 stamp_canonical(session, obj)
+    _track_touched(session)
 
 
 def install() -> None:

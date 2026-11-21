@@ -44,13 +44,15 @@ DEFAULT_SETTINGS: dict = {
     "sleep_need_seconds": 8 * 3600,
     "min_hrv_nights_for_baseline": 7,
     "predict_lookback_days": 180,
-    # Today-screen strain gauge target range per recovery band — illustrative coaching
-    # defaults (encourage more strain when green, less when red), not a validated standard.
+    # Today-screen strain gauge target range per recovery band — illustrative coaching defaults (encourage more strain when
+    # green, less when red), not a validated standard. Session 32 moved them up by about one point: ordinary daily movement is
+    # now part of the day's one load sum, and 10,000 everyday steps alone read about 8 (docs/analytics.md §4), so "red = rest"
+    # must still be reachable on a day with normal walking. The bands keep their old width and order.
     "strain_targets": {
         "calibrating": [0, 21],
-        "green": [10, 16],
-        "yellow": [6, 12],
-        "red": [0, 8],
+        "green": [11, 17],
+        "yellow": [7, 13],
+        "red": [0, 9],
     },
     # Which table the zone/workout-detail screens default to showing — doesn't change how
     # zones are computed (both are always available), just the default view.

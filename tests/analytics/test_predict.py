@@ -88,6 +88,13 @@ def test_submaximal_rows_cannot_drag_the_estimate_slower():
     assert out["excluded_count"] == 3
 
 
+def test_a_flattering_500m_sprint_never_discards_a_measured_2k():
+    # A 500 m test at 1:22.0 implies 4 x (82 + 10) = 368 s (6:08); the real 2k is 6:30 (390 s), 6 % slower. The 2k must stay and win.
+    out = predict_2k([pt(500, 82.0, 5), pt(2000, 390.0, 12)], TODAY)
+    assert out["excluded_count"] == 0
+    assert out["predicted_time_s"] == pytest.approx(390.0)
+
+
 def test_distances_outside_500m_to_10k_never_count():
     out = predict_2k([pt(21097, 21097 / 500 * 110.0), pt(250, 40.0)], TODAY)
     assert out["confidence"] == "insufficient_data" and out["predicted_time_s"] is None

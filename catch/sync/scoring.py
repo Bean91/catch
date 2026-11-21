@@ -153,6 +153,37 @@ def _daily_movement(r: _Range, day: date, activities: list[CanonicalActivity], s
     return daily_activity_trimp(steps, kcal, settings)
 
 
+def _overlap_s(a: CanonicalActivity, b: CanonicalActivity) -> float:
+    if a.start is None or b.start is None or not a.duration or not b.duration:
+        return 0.0
+    lo = max(a.start, b.start)
+    hi = min(a.start + timedelta(seconds=a.duration), b.start + timedelta(seconds=b.duration))
+    return max(0.0, (hi - lo).total_seconds())
+
+
+def _drop_unmerged_duplicates(sessions: list[dict], by_id: dict[int, CanonicalActivity], members: dict[int, list[Activity]]) -> None:
+    """Two cardio sessions from *different* sources that cover the same time (over half of the shorter one) are one session the
+    matcher didn't merge — a watch's auto-detected workout beside the erg's own result, say. Only the larger load counts; the other
+    stays listed with `duplicate_of` and no load. Merging (or "not a duplicate") on the Duplicates screen is still the athlete's
+    call; this only keeps the day's load honest meanwhile. Lifting is left alone: a strength record with heart rate beside the gym
+    log of the same session is exactly the "heart rate + muscular" combination the model intends."""
+    cardio = sorted((s for s in sessions if s["kind"] == "cardio" and s.get("load") is not None), key=lambda s: -s["load"])
+    kept: list[dict] = []
+    for s in cardio:
+        a = by_id[s["canonical_id"]]
+        sources_a = {m.source for m in members.get(a.id, [])}
+        for k in kept:
+            b = by_id[k["canonical_id"]]
+            sources_b = {m.source for m in members.get(b.id, [])}
+            shorter = min(a.duration or 0, b.duration or 0)
+            if shorter > 0 and not (sources_a & sources_b) and _overlap_s(a, b) > 0.5 * shorter:
+                s["duplicate_of"] = b.id
+                s["load"], s["value"], s["trimp_like"], s["components"] = None, None, None, []
+                break
+        else:
+            kept.append(s)
+
+
 def _day_strain(r: _Range, day: date, settings: dict) -> dict:
     all_day = r.by_day.get(day, [])
     activities = [a for a in all_day if not _overrides(a).get("exclude_from_totals")]
@@ -164,7 +195,6 @@ def _day_strain(r: _Range, day: date, settings: dict) -> dict:
     baseline_au, baseline_source = strength_baseline_au(r.strength_before(day, settings["strength_baseline_days"]), settings)
 
     sessions = []
-    rowing = 0.0
     muscular_au = 0.0
     for a in activities:
         # A per-activity RPE (task Part C.1) beats the day's single Note.rpe.
@@ -185,8 +215,6 @@ def _day_strain(r: _Range, day: date, settings: dict) -> dict:
         else:
             load, method = (hr, hr_method) if hr is not None else (srpe, "srpe" if srpe is not None else None)
             entry.update(kind="cardio", load=load, method=method, muscular_load=0.0)
-        if load is not None and a.sport_family == "rowing":
-            rowing += load
         # A session's own strain, as if it were the day's only load (workout detail); its share of the day is `share`.
         entry["value"] = strain_from_load(load, settings) if load is not None else None
         entry["band"] = None if load is None else ("light" if entry["value"] < 10 else "moderate" if entry["value"] < 14 else "high" if entry["value"] < 18 else "all_out")
@@ -194,12 +222,18 @@ def _day_strain(r: _Range, day: date, settings: dict) -> dict:
         entry["components"] = [{"method": method, "trimp_like": load, "duration_minutes": minutes}] if load is not None else []
         sessions.append(entry)
 
+    by_id = {a.id: a for a in activities}
+    _drop_unmerged_duplicates(sessions, by_id, r.members)
+    rowing = sum(x["load"] for x in sessions if x.get("load") is not None and by_id[x["canonical_id"]].sport_family == "rowing")
     result = day_load_strain(sessions, movement, settings)
     value = result["value"] or 0.0
     shares = result["shares"]
     out = {
         "model": SCORING_MODEL,
         "value": result["value"],
+        # The same curve over the sessions alone (no everyday walking): what recovery's "prior-day strain" input has always meant,
+        # so its calibration is unchanged by daily movement joining the headline number (docs/analytics.md §4).
+        "training_value": strain_from_load(result["load"] - result["daily_activity_load"], settings) if result["value"] is not None else None,
         "band": result["band"],
         "load": result["load"],
         "trimp_like": result["load"],
@@ -365,116 +399,153 @@ def _seed_from_stored(session: Session, since: date, lookback: int, illness_wind
         illness = json.loads(row.illness_json) if row.illness_json else {}
         if illness.get("level") == "likely":
             likely.add(day)
-        prev = (strain.get("value"), json.loads(row.load_json).get("value") if row.load_json else None, illness.get("deviated_count", 0))
+        prev = (strain.get("training_value"), json.loads(row.load_json).get("value") if row.load_json else None, illness.get("deviated_count", 0))
         day += timedelta(days=1)
     if prev is None:
         return None
     return _Seed(trimp, rowing, prev[0], prev[1], prev[2] or 0, likely)
 
 
-def recompute_scores(session: Session, since: date | None = None) -> int:
-    """Recompute the cached daily_scores rows.
+_dirty_guard = threading.Lock()
+_FULL = object()
+_dirty: dict[str, object] = {}  # owner -> earliest day (or _FULL) a waiting caller asked for while a recompute held the lock
 
-    With `since` (a write that only touched that day or later — a check-in, a note, one workout's RPE), the days before it are
-    read back from their stored rows to seed the load/illness state, and only `since`..today are recomputed; a test asserts the
-    result equals a full recompute. Without it, or when the stored history can't seed it, every day is recomputed.
+
+def _note_dirty(owner: str, since: date | None) -> None:
+    with _dirty_guard:
+        prev = _dirty.get(owner)
+        if since is None or prev is _FULL:
+            _dirty[owner] = _FULL
+        else:
+            _dirty[owner] = since if prev is None else min(prev, since)
+
+
+def _take_dirty(owner: str) -> object | None:
+    with _dirty_guard:
+        return _dirty.pop(owner, None)
+
+
+def recompute_scores(session: Session, since: date | None = None, *, full: bool = False, wait_s: float = 30.0) -> int:
+    """Recompute the cached daily_scores rows, from `since` (or from the earliest day a write in this session touched, which
+    catch.core.localtime tracks) through today; everything when neither is known or `full` is set.
+
+    Days before the start are read back from their stored rows to seed the load/illness state, so a check-in recomputes a few
+    days, not years; a test asserts the result equals a full recompute. If another recompute for the same person holds the lock
+    longer than `wait_s`, this one is handed to it (it re-runs from the earliest day asked for) instead of keeping a request
+    waiting — the session-32 replacement for silently skipping.
 
     This is the one choke point run after every sync, backfill, settings PUT, note/check-in POST and coach-memory write — so it is
     also where GET /api/series's per-owner cache is invalidated."""
+    touched = localtime.pending_recompute_from(session)
+    if full:
+        since = None
+    elif since is None:
+        since = touched
+    elif touched is not None:
+        since = min(since, touched)
     owner = tenant.current_owner()
     lock = _owner_lock(owner)
-    if not lock.acquire(timeout=300):
-        log.warning("recompute for one owner waited 300 s for a previous one; skipped")
+    if not lock.acquire(timeout=wait_s):
+        _note_dirty(owner, since)
+        log.info("recompute handed to the one already running for this owner")
         return 0
     try:
-        from catch.sync.matching import run_matching
-
-        run_matching(session)
-        pending = localtime.pending_recompute_from(session)
-        if pending is not None and since is not None:
-            since = min(since, pending)
-
-        settings = get_settings(session)
-        earliest = _earliest_date(session)
-        if earliest is None:
-            return 0
-        today = localtime.today(session)
-        lookback = settings["load_chronic_days"] * 2
-        illness_window = settings["illness_baseline_window_days"]
-
-        seed = None
-        start = earliest
-        if since is not None and since > earliest:
-            seed = _seed_from_stored(session, min(since, today), lookback, illness_window)
-            if seed is not None:
-                start = min(since, today)
-        trimp_series = list(seed.trimp) if seed else []
-        rowing_trimp_series = list(seed.rowing) if seed else []
-        strain_cache: dict[date, float | None] = {start - timedelta(days=1): seed.prior_strain} if seed else {}
-        confound_dates = set(session.exec(select(IllnessAck.date).where(IllnessAck.dismiss_reason.in_(_CONFOUND_REASONS))).all())
-        acked = set(session.exec(select(IllnessAck.date)).all())
-        illness_exclude_dates: set[date] = set(confound_dates) | (seed.likely if seed else set())
-        prev_acr = seed.prev_acr if seed else None
-        prev_illness_count = seed.prev_illness_count if seed else 0
-
-        span = max(61, illness_window + 1, settings["strength_baseline_days"] + 1)
-        r = _Range(session, start - timedelta(days=span), today)
-        now = datetime.now(timezone.utc)
-        count = 0
-        day = start
-        while day <= today:
-            strain = _day_strain(r, day, settings)
-            trimp_series.append(strain.get("trimp_like") or 0.0)
-            rowing_trimp_series.append(strain.get("rowing_trimp_like") or 0.0)
-            strain_cache[day] = strain.get("value")
-            load = training_load(trimp_series[-lookback:], settings)
-            # Rowing-only load (task Part B.3): the same EWMA over rowing-only load, so cycling/other volume never inflates
-            # the number the athlete trains rowing against.
-            rowing_load = training_load(rowing_trimp_series[-lookback:], settings)
-            recovery = _day_recovery(r, day, settings, strain_cache)
-            illness = _day_illness(r, day, settings, prev_illness_count, prev_acr, illness_exclude_dates)
-            if illness["level"] == "likely":
-                illness_exclude_dates.add(day)
-            prev_illness_count = illness["deviated_count"]
-            prev_acr = load.get("value")
-
-            row = r.scores.get(day)
-            if row is None:
-                row = DailyScore(date=day)
-                session.add(row)
-            row.recovery_json = json.dumps(recovery)
-            row.strain_json = json.dumps(strain)
-            row.load_json = json.dumps(load)
-            row.rowing_load_json = json.dumps(rowing_load)
-            row.illness_json = json.dumps(illness)
-            row.updated_at = now
-            count += 1
-            if illness["level"] == "likely" and day not in confound_dates and day not in acked:
-                # Insert-only (task Part B.3/B.4): a dismissal, its reason, or a backtest mark is never overwritten later.
-                session.add(IllnessAck(date=day, first_flagged_at=now))
-                acked.add(day)
-            day += timedelta(days=1)
-
-        # A move west can make "today" yesterday: a row dated after today would otherwise linger as a phantom future day.
-        session.exec(delete(DailyScore).where(DailyScore.owner_id == owner, DailyScore.date > today))
-        session.commit()
-
-        from catch.api.routes_analytics import invalidate_series_cache
-
-        invalidate_series_cache(owner)
-
-        # Session 18 — scoped to `today` only, isolated so a bug in this newer subsystem can't undo the rows committed above.
-        try:
-            from catch.sync.training_intelligence import generate_recommendations
-
-            generate_recommendations(session, settings, today)
-        except Exception:
-            session.rollback()
-            log.exception("recommendation generation failed")
-
+        count = _recompute(session, owner, since)
+        while (more := _take_dirty(owner)) is not None:
+            count += _recompute(session, owner, None if more is _FULL else more)
         return count
     finally:
         lock.release()
+
+
+def _recompute(session: Session, owner: str, since: date | None) -> int:
+    """One pass; the caller holds the owner's lock."""
+    from catch.sync.matching import run_matching
+
+    run_matching(session)
+    matched = localtime.pending_recompute_from(session)
+    if matched is not None and since is not None:
+        since = min(since, matched)
+    settings = get_settings(session)
+    earliest = _earliest_date(session)
+    if earliest is None:
+        return 0
+    today = localtime.today(session)
+    lookback = settings["load_chronic_days"] * 2
+    illness_window = settings["illness_baseline_window_days"]
+
+    seed = None
+    start = earliest
+    if since is not None and since > earliest:
+        seed = _seed_from_stored(session, min(since, today), lookback, illness_window)
+        if seed is not None:
+            start = min(since, today)
+    trimp_series = list(seed.trimp) if seed else []
+    rowing_trimp_series = list(seed.rowing) if seed else []
+    strain_cache: dict[date, float | None] = {start - timedelta(days=1): seed.prior_strain} if seed else {}
+    confound_dates = set(session.exec(select(IllnessAck.date).where(IllnessAck.dismiss_reason.in_(_CONFOUND_REASONS))).all())
+    acked = set(session.exec(select(IllnessAck.date)).all())
+    illness_exclude_dates: set[date] = set(confound_dates) | (seed.likely if seed else set())
+    prev_acr = seed.prev_acr if seed else None
+    prev_illness_count = seed.prev_illness_count if seed else 0
+
+    span = max(61, illness_window + 1, settings["strength_baseline_days"] + 1)
+    r = _Range(session, start - timedelta(days=span), today)
+    now = datetime.now(timezone.utc)
+    count = 0
+    day = start
+    while day <= today:
+        strain = _day_strain(r, day, settings)
+        trimp_series.append(strain.get("trimp_like") or 0.0)
+        rowing_trimp_series.append(strain.get("rowing_trimp_like") or 0.0)
+        strain_cache[day] = strain.get("training_value") if "training_value" in strain else strain.get("value")
+        load = training_load(trimp_series[-lookback:], settings)
+        # Rowing-only load (task Part B.3): the same EWMA over rowing-only load, so cycling/other volume never inflates
+        # the number the athlete trains rowing against.
+        rowing_load = training_load(rowing_trimp_series[-lookback:], settings)
+        recovery = _day_recovery(r, day, settings, strain_cache)
+        illness = _day_illness(r, day, settings, prev_illness_count, prev_acr, illness_exclude_dates)
+        if illness["level"] == "likely":
+            illness_exclude_dates.add(day)
+        prev_illness_count = illness["deviated_count"]
+        prev_acr = load.get("value")
+
+        row = r.scores.get(day)
+        if row is None:
+            row = DailyScore(date=day)
+            session.add(row)
+        row.recovery_json = json.dumps(recovery)
+        row.strain_json = json.dumps(strain)
+        row.load_json = json.dumps(load)
+        row.rowing_load_json = json.dumps(rowing_load)
+        row.illness_json = json.dumps(illness)
+        row.updated_at = now
+        count += 1
+        if illness["level"] == "likely" and day not in confound_dates and day not in acked:
+            # Insert-only (task Part B.3/B.4): a dismissal, its reason, or a backtest mark is never overwritten later.
+            session.add(IllnessAck(date=day, first_flagged_at=now))
+            acked.add(day)
+        day += timedelta(days=1)
+
+    # A move west can make "today" yesterday: a row dated after today would otherwise linger as a phantom future day.
+    session.exec(delete(DailyScore).where(DailyScore.owner_id == owner, DailyScore.date > today))
+    session.commit()
+    localtime.pending_recompute_from(session)  # this pass's own IllnessAck inserts are already accounted for
+
+    from catch.api.routes_analytics import invalidate_series_cache
+
+    invalidate_series_cache(owner)
+
+    # Session 18 — scoped to `today` only, isolated so a bug in this newer subsystem can't undo the rows committed above.
+    try:
+        from catch.sync.training_intelligence import generate_recommendations
+
+        generate_recommendations(session, settings, today)
+    except Exception:
+        session.rollback()
+        log.exception("recommendation generation failed")
+
+    return count
 
 
 def changed_since(session: Session, instant: datetime) -> date:
@@ -493,17 +564,20 @@ def changed_since(session: Session, instant: datetime) -> date:
     return min(days)
 
 
-def ensure_current_model(session: Session) -> bool:
-    """Recompute everything once when the newest stored row predates SCORING_MODEL (session 32's strain fix, or a later
-    change). Idempotent and cheap to call: one indexed read when nothing needs doing."""
+def model_is_current(session: Session) -> bool:
+    """Whether the newest stored row was computed with SCORING_MODEL (one indexed read). No rows at all counts as current."""
     row = session.exec(select(DailyScore).order_by(DailyScore.date.desc())).first()
     if row is None:
-        return False
+        return True
     try:
-        model = json.loads(row.strain_json or "{}").get("model")
+        return json.loads(row.strain_json or "{}").get("model") == SCORING_MODEL
     except ValueError:
-        model = None
-    if model == SCORING_MODEL:
         return False
-    recompute_scores(session)
+
+
+def ensure_current_model(session: Session) -> bool:
+    """Recompute everything once when the newest stored row predates SCORING_MODEL. Idempotent."""
+    if model_is_current(session):
+        return False
+    recompute_scores(session, full=True)
     return True

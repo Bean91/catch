@@ -189,7 +189,7 @@ const FULL: Today = {
     muscular: { value: 0, total_normalized_au: 0, explanation: "No muscular load logged." },
     explanation: "1 session today, Banister TRIMP from heart rate -> 8.2, plus daily activity 0.7 = 8.9.",
   },
-  strain_target_range: [10, 16],
+  strain_target_range: [11, 17],
   daily_activity: { steps: 9800, active_kcal: 340 },
   load: {
     value: 1.08,
@@ -1576,7 +1576,7 @@ let MOCK_SETTINGS: Settings = {
   sleep_need_seconds: 8 * 3600,
   min_hrv_nights_for_baseline: 7,
   predict_lookback_days: 180,
-  strain_targets: { calibrating: [0, 21], green: [10, 16], yellow: [6, 12], red: [0, 8] },
+  strain_targets: { calibrating: [0, 21], green: [11, 17], yellow: [7, 13], red: [0, 9] },
   zone_mode: "hr",
   units: "metric",
   garmin_key_expires_on: null,

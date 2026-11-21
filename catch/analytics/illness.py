@@ -22,6 +22,10 @@ def _z(today: float | None, history: list[float] | None, sd_floor: float, min_ni
         return None, None
     baseline = statistics.mean(history)
     spread = max(statistics.pstdev(history) if len(history) >= 2 else 0.0, sd_floor)
+    if spread <= 0:
+        # A signal that never varied (the same check-in answer every morning) has no spread to measure a deviation against —
+        # no z-score rather than a crash (found by session 32's query-budget seed; it stopped the whole recompute).
+        return None, baseline
     return (today - baseline) / spread, baseline
 
 

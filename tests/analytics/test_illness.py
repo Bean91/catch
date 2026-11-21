@@ -114,3 +114,10 @@ def test_wording_never_diagnoses():
     assert result["level"] == "watch"
     for forbidden in ("sick", "diagnos", "you have", "you are ill"):
         assert forbidden not in result["explanation"].lower()
+
+
+def test_a_signal_that_never_varied_gives_no_z_score_instead_of_crashing():
+    from catch.analytics.illness import _z
+
+    assert _z(25.0, [25.0] * 10, 0.0, 5) == (None, 25.0)
+    assert _z(75.0, [25.0] * 10, 0.0, 5) == (None, 25.0)

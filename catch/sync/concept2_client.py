@@ -325,7 +325,7 @@ def _seed_max_hr(session: Session, http: httpx.Client) -> None:
         from catch.sync.scoring import recompute_scores
 
         resolve_all_canonicals(session)
-        recompute_scores(session)
+        recompute_scores(session, full=True)
 
 
 def sync(

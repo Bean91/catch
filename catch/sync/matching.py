@@ -11,6 +11,7 @@ import logging
 from collections import defaultdict
 from datetime import timedelta
 
+from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from catch.analytics.matching import MatchInput, MatchResult, is_indoor, match_pair
@@ -48,20 +49,6 @@ def _decision_key(a: Activity, b: Activity) -> tuple[str, str, str, str]:
     return pair[0][0], pair[0][1], pair[1][0], pair[1][1]
 
 
-def _blocked(session: Session, a: Activity, b: Activity) -> bool:
-    sa, ea, sb, eb = _decision_key(a, b)
-    row = session.exec(
-        select(MatchDecision).where(
-            MatchDecision.source_a == sa,
-            MatchDecision.external_id_a == ea,
-            MatchDecision.source_b == sb,
-            MatchDecision.external_id_b == eb,
-            MatchDecision.decision.in_(["not_duplicate", "split"]),
-        )
-    ).first()
-    return row is not None
-
-
 def _to_match_input(a: Activity) -> MatchInput:
     # A Peloton-pushed Garmin activity is always indoor cycling (task Part B.2), regardless
     # of whatever Garmin typed the import as — is_indoor's generic source/type table has no
@@ -83,7 +70,13 @@ def find_candidate_pairs(session: Session) -> list[tuple[Activity, Activity, Mat
     rule's own 3-minute/70%-overlap window means anything further apart always scores 0, so
     this is a cheap prefilter, not a correctness-affecting one, at this app's single-user
     scale (a few hundred activities at most)."""
-    rows = session.exec(select(Activity).where(Activity.start.is_not(None))).all()
+    # raw_json is never read here; deferring it keeps a three-year history's provider payloads out of memory (session 32).
+    rows = session.exec(select(Activity).options(defer(Activity.raw_json)).where(Activity.start.is_not(None))).all()
+    # Every blocking decision, read once — this used to be one query per candidate pair, twice per recompute (session 32).
+    blocked = {
+        (d.source_a, d.external_id_a, d.source_b, d.external_id_b)
+        for d in session.exec(select(MatchDecision).where(MatchDecision.decision.in_(["not_duplicate", "split"]))).all()
+    }
     by_day: dict = defaultdict(list)
     for a in rows:
         # A prefilter only (pairs further apart than minutes always score 0), so any one consistent calendar works: the UTC one.
@@ -102,7 +95,7 @@ def find_candidate_pairs(session: Session) -> list[tuple[Activity, Activity, Mat
                 if pair_key in seen_pairs:
                     continue
                 seen_pairs.add(pair_key)
-                if _blocked(session, a, b):
+                if _decision_key(a, b) in blocked:
                     continue
                 result = match_pair(_to_match_input(a), _to_match_input(b))
                 if result.is_candidate and result.score >= 0.0:
