@@ -27,7 +27,10 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
     queryClient.invalidateQueries({ queryKey: ["coach-settings"] });
   };
 
-  const models = useQuery({ queryKey: ["ai-models", card.id], queryFn: () => fetchAiModels(card.id), enabled: card.configured });
+  // Session 33: the saved model shows straight away; the provider's live model list (a network call per provider) is fetched only
+  // when the athlete asks to change the model, then kept 10 minutes (the server caches it too).
+  const [pickModel, setPickModel] = useState(false);
+  const models = useQuery({ queryKey: ["ai-models", card.id], queryFn: () => fetchAiModels(card.id), enabled: card.configured && pickModel, staleTime: 10 * 60_000 });
   const testMutation = useMutation({
     mutationFn: () => testAiProvider(card.id),
     onSuccess: (r) => {
@@ -102,6 +105,16 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
 
         {card.configured && (
           <div className="flex flex-col gap-1.5">
+            {!pickModel ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-text-secondary" data-testid={`saved-model-${card.id}`}>
+                  Model: <span className="text-text-primary">{card.model ?? "none chosen yet"}</span>
+                </span>
+                <button type="button" onClick={() => setPickModel(true)} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:border-accent" data-testid={`change-model-${card.id}`}>
+                  {card.model ? "Change model" : "Choose a model"}
+                </button>
+              </div>
+            ) : (
             <label className="flex flex-col gap-1.5 text-sm text-text-secondary">
               Model
               <select
@@ -121,6 +134,12 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
                 ))}
               </select>
             </label>
+            )}
+            {pickModel && (
+              <button type="button" onClick={() => models.refetch()} disabled={models.isFetching} className="min-h-9 self-start text-xs font-medium text-accent hover:underline disabled:opacity-50">
+                {models.isFetching ? "Loading models…" : "Refresh models"}
+              </button>
+            )}
             {models.data?.error && <p className="text-xs text-text-tertiary">{models.data.error}</p>}
             {visionNote && <p className="text-xs text-text-tertiary">{visionNote}</p>}
           </div>

@@ -19,12 +19,13 @@ class VisionError(RuntimeError):
     """str(exc) is always safe to show the user."""
 
 
-async def vision_available(session: Session, owner_id: str | None = None) -> dict:
-    """What the UI needs to decide whether to offer a photo button: no provider call is made."""
+def vision_available(session: Session, owner_id: str | None = None, prefs: dict | None = None, configured: list[str] | None = None) -> dict:
+    """What the UI needs to decide whether to offer a photo button: no provider call is made. Synchronous (it only reads the
+    database), so the route that serves it runs in the threadpool, never on the event loop (session 33)."""
     owner_id = owner_id or current_owner()
-    prefs = coach_settings_module.get_coach_settings(session, owner_id)
+    prefs = prefs if prefs is not None else coach_settings_module.get_coach_settings(session, owner_id)
     provider_id = prefs["provider"]
-    configured = provider_id in registry.configured(session, owner_id)
+    configured = provider_id in (configured if configured is not None else registry.configured(session, owner_id))
     model = prefs["models"].get(provider_id)
     spec = registry.SPECS[provider_id]
     available = configured and bool(model) and spec.capabilities.vision
@@ -40,8 +41,9 @@ async def vision_available(session: Session, owner_id: str | None = None) -> dic
     return {"available": available, "provider": provider_id, "reason": reason}
 
 
-async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: str | None = None) -> tuple[dict, float | None]:
-    owner_id = owner_id or current_owner()
+def _prepare(session: Session, owner_id: str):
+    """Every database read run_vision needs before the provider call, in one synchronous step that the async caller runs in the
+    threadpool — never on the event loop, where waiting for a pooled connection stalls every other request (session 33)."""
     if "photos" not in ai_sharing.enabled_categories(session):
         raise VisionError("Photo reading is switched off: it sends the photo to your AI provider. Turn on \"Photos you ask the coach to read\" in Settings → Privacy → AI sharing.")
     try:
@@ -66,6 +68,18 @@ async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: 
     if prefs["daily_token_cap"] is not None and cost_module.today_tokens(session, owner_id=owner_id) >= prefs["daily_token_cap"]:
         raise VisionError("Today's AI token cap has been reached — photo features share the same cap.")
 
+    # End the read transaction before the provider call (often 5–30 s): on the public build a request holds one of only three
+    # pooled connections for as long as its transaction is open, and nothing here needs the database again until the usage row.
+    session.commit()
+    return provider, prefs, provider_id, model
+
+
+async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: str | None = None) -> tuple[dict, float | None]:
+    from starlette.concurrency import run_in_threadpool
+
+    owner_id = owner_id or current_owner()
+    provider, prefs, provider_id, model = await run_in_threadpool(_prepare, session, owner_id)
+
     if provider_id == "ollama":
         # Ollama reports vision per model; hosted providers either report it in their model
         # listing (Anthropic) or surface a clear API error when a model can't take images.
@@ -77,10 +91,11 @@ async def run_vision(session: Session, kind: str, req: VisionRequest, owner_id: 
     try:
         result, usage = await provider.vision_structured(model, req)
     except ProviderError as exc:
-        coach_settings_module.set_status(session, provider_id, "invalid", "rejected_by_provider", owner_id) if exc.kind == "invalid_key" and provider_id != "ollama" else None
+        if exc.kind == "invalid_key" and provider_id != "ollama":
+            await run_in_threadpool(coach_settings_module.set_status, session, provider_id, "invalid", "rejected_by_provider", owner_id)
         raise VisionError(exc.user_message) from None
 
     prices = {} if provider_id == "ollama" else prefs["prices"].get(model)
     turn_cost = cost_module.estimate_cost_usd(prices, usage)
-    cost_module.record_usage_event(session, kind, usage, turn_cost, owner_id, provider_id, model)
+    await run_in_threadpool(cost_module.record_usage_event, session, kind, usage, turn_cost, owner_id, provider_id, model)
     return result, turn_cost

@@ -8,11 +8,32 @@
 import type { ErgTestType } from "./types";
 
 export const PIECE_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"];
+
+// Session 33: a piece is on a rowing erg (pace per 500 m) or a bike (pace per 1000 m — what a BikeErg's PM5 shows). The split
+// basis is the machine's own display unit; the rowing pace->watts formula never applies to a bike.
+export type PieceModality = "rowing_erg" | "bike";
+export const PIECE_MODALITIES: PieceModality[] = ["rowing_erg", "bike"];
+export const SPLIT_M: Record<PieceModality, number> = { rowing_erg: 500, bike: 1000 };
+export const PIECE_TYPES_BY_MODALITY: Record<PieceModality, ErgTestType[]> = { rowing_erg: PIECE_TYPES, bike: PIECE_TYPES.filter((t) => t !== "30min_r20") };
+const RATE_RANGE: Record<PieceModality, [number, number, string]> = { rowing_erg: [14, 50, "spm"], bike: [30, 150, "rpm"] };
+
+export function modalityLabel(m: PieceModality): string {
+  return m === "bike" ? "Bike" : "Rowing erg";
+}
+
+/** "spm" for a rowing stroke rate, "rpm" for a bike cadence. */
+export function rateUnit(m: PieceModality | undefined): string {
+  return RATE_RANGE[m ?? "rowing_erg"][2];
+}
+
+/** The one-row shape a piece known only by its totals is saved as (mirrors catch/analytics/piece.py's totals_only_splits). */
+export function totalsOnlySplits(distanceM: number | null, durationS: number | null, rate: number | null = null, watts: number | null = null): SplitRow[] {
+  if (distanceM == null && durationS == null) return [];
+  return [{ split_index: 1, distance_m: distanceM, split_s: durationS, rate, watts, hr: null }];
+}
 const DISTANCE_BY_TYPE: Partial<Record<ErgTestType, number>> = { "500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000 };
 const DURATION_BY_TYPE: Partial<Record<ErgTestType, number>> = { "30min_r20": 1800, "60min": 3600 };
 
-const MIN_PLAUSIBLE_RATE = 14;
-const MAX_PLAUSIBLE_RATE = 50;
 const WATTS_TOLERANCE_FLOOR = 2.0;
 const WATTS_TOLERANCE_PCT = 0.01;
 const DEFAULT_SPLIT_DISTANCE_M = 500.0;
@@ -47,12 +68,12 @@ export function wattsForSplit(splitS: number, distanceDeltaM = DEFAULT_SPLIT_DIS
   return WATTS_CONSTANT / secondsPerMeter ** 3;
 }
 
-export function defaultSplits(pieceType: ErgTestType, distanceM?: number | null, durationS?: number | null): SplitRow[] {
+export function defaultSplits(pieceType: ErgTestType, distanceM?: number | null, durationS?: number | null, modality: PieceModality = "rowing_erg"): SplitRow[] {
   const distance = DISTANCE_BY_TYPE[pieceType] ?? distanceM ?? null;
   const duration = DURATION_BY_TYPE[pieceType] ?? durationS ?? null;
 
   if (distance) {
-    const n = Math.max(1, Math.round(distance / DEFAULT_SPLIT_DISTANCE_M));
+    const n = Math.max(1, Math.round(distance / SPLIT_M[modality]));
     const perSplit = distance / n;
     return Array.from({ length: n }, (_, i) => ({
       split_index: i + 1,
@@ -78,8 +99,9 @@ function rowDistanceDelta(rows: SplitRow[], i: number): number | null {
   return d - prev;
 }
 
-export function validateSplits(rows: SplitRow[], totalDistanceM: number | null, totalDurationS: number | null): Validation {
+export function validateSplits(rows: SplitRow[], totalDistanceM: number | null, totalDurationS: number | null, modality: PieceModality = "rowing_erg"): Validation {
   const issues: ValidationIssue[] = [];
+  const [rateLo, rateHi, unit] = RATE_RANGE[modality];
   const n = rows.length;
   const definedSplits = rows.map((r) => r.split_s).filter((s): s is number => s != null);
 
@@ -105,10 +127,10 @@ export function validateSplits(rows: SplitRow[], totalDistanceM: number | null, 
 
   rows.forEach((row, i) => {
     const { split_s: splitS, rate, watts } = row;
-    if (rate != null && (rate < MIN_PLAUSIBLE_RATE || rate > MAX_PLAUSIBLE_RATE)) {
-      issues.push({ split_index: row.split_index, field: "rate", message: `${rate}spm is outside the plausible ${MIN_PLAUSIBLE_RATE}-${MAX_PLAUSIBLE_RATE} range.` });
+    if (rate != null && (rate < rateLo || rate > rateHi)) {
+      issues.push({ split_index: row.split_index, field: "rate", message: `${rate} ${unit} is outside the plausible ${rateLo}-${rateHi} range.` });
     }
-    if (splitS != null && watts != null && splitS > 0) {
+    if (modality === "rowing_erg" && splitS != null && watts != null && splitS > 0) {
       const distanceDelta = rowDistanceDelta(rows, i) ?? DEFAULT_SPLIT_DISTANCE_M;
       const expected = wattsForSplit(splitS, distanceDelta);
       const toleranceW = Math.max(WATTS_TOLERANCE_FLOOR, expected * WATTS_TOLERANCE_PCT);
@@ -133,20 +155,21 @@ export interface Aggregate {
   avg_watts: number | null;
 }
 
-export function aggregateFromSplits(rows: SplitRow[]): Aggregate {
+export function aggregateFromSplits(rows: SplitRow[], modality: PieceModality = "rowing_erg"): Aggregate {
+  const splitM = SPLIT_M[modality];
   const definedSplits = rows.map((r) => r.split_s).filter((s): s is number => s != null);
   const rates = rows.map((r) => r.rate).filter((v): v is number => v != null);
   const watts = rows.map((r) => r.watts).filter((v): v is number => v != null);
   const durationS = definedSplits.length === rows.length && rows.length > 0 ? definedSplits.reduce((a, b) => a + b, 0) : null;
   const distanceM = rows.length > 0 && rows[rows.length - 1].distance_m != null ? rows[rows.length - 1].distance_m : null;
-  // Pace per 500 m = total time / total distance (launch audit L-10; mirrors catch/analytics/piece.py), not the mean of split durations.
+  // Pace per split_m = total time / total distance (launch audit L-10; mirrors catch/analytics/piece.py), not the mean of split durations.
   let avgSplitS: number | null = null;
   if (durationS != null && distanceM) {
-    avgSplitS = (durationS / distanceM) * 500;
+    avgSplitS = (durationS / distanceM) * splitM;
   } else {
     const timed = rows.flatMap((r, i) => (r.split_s != null ? [[r.split_s, rowDistanceDelta(rows, i)] as const] : []));
     if (timed.length && timed.every(([, d]) => d)) {
-      avgSplitS = (timed.reduce((a, [t]) => a + t, 0) / timed.reduce((a, [, d]) => a + (d as number), 0)) * 500;
+      avgSplitS = (timed.reduce((a, [t]) => a + t, 0) / timed.reduce((a, [, d]) => a + (d as number), 0)) * splitM;
     }
   }
   return {

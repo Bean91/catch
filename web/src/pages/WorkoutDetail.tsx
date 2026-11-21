@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchSettings, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
+import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily } from "../lib/types";
@@ -94,7 +94,6 @@ export function WorkoutDetailPage() {
 
   const [hoveredInterval, setHoveredInterval] = useState<number | null>(null);
 
-  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
   // --- HR graph (task Part E.8) --------------------------------------------
   // Two queries, like the erg strokes above: one unwindowed fetch for everything that's
@@ -396,7 +395,13 @@ export function WorkoutDetailPage() {
           </div>
         )}
       </Card>
-      <AddPieceDialog open={addPieceOpen} onClose={() => setAddPieceOpen(false)} canonicalId={canonicalId} onSaved={() => setAddPieceOpen(false)} />
+      <AddPieceDialog
+        open={addPieceOpen}
+        onClose={() => setAddPieceOpen(false)}
+        canonicalId={canonicalId}
+        defaultModality={workout?.sport_family === "cycling" ? "bike" : "rowing_erg"}
+        onSaved={() => setAddPieceOpen(false)}
+      />
 
       <TechniqueNotesCard canonicalId={canonicalId} date={workout?.local_date ?? null} pieces={(pieces ?? []).map((p) => ({ id: p.id, label: `Piece ${p.piece_type}` }))} />
 
@@ -405,8 +410,7 @@ export function WorkoutDetailPage() {
           <Card title="Split, watts & rate over distance">
             <ErgChart
               strokes={windowedStrokesData?.strokes ?? fullStrokesData.strokes}
-              maxHr={settings?.max_hr ?? null}
-              hrPct={settings?.zones.hr_pct ?? {}}
+              hrBoundsBpm={workout.zones_config?.hr_basis?.bounds_bpm ?? {}}
               domain={effectiveDomain}
               fullDomain={fullDomain}
               onDomainChange={setDomain}

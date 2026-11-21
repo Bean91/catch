@@ -273,6 +273,9 @@ export interface ErgTestSummary {
   // confirmed-test row (id in canonical_id) from a piece row (id in piece_id), since a
   // piece's canonical_id is the *containing* activity, not unique to the piece.
   kind: "test" | "piece";
+  /** Session 33: tests and rowing pieces are "rowing_erg"; bike pieces only appear in GET /api/tests/bike-pieces. */
+  modality?: "rowing_erg" | "bike";
+  split_unit_m?: number;
   piece_id: number | null;
   canonical_id: number;
   activity_id: number | null;
@@ -292,6 +295,10 @@ export interface Piece {
   id: number;
   canonical_id: number;
   piece_type: ErgTestType;
+  /** Session 33: rowing erg (pace per 500 m) or bike (pace per 1000 m). Older pieces are rowing_erg. */
+  modality: "rowing_erg" | "bike";
+  /** The distance avg_split_s and every split are per — 500 or 1000. */
+  split_unit_m: number;
   distance_m: number | null;
   duration_s: number | null;
   avg_split_s: number | null;
@@ -412,10 +419,14 @@ export interface PieceValidation {
 
 export interface CreatePieceResult {
   piece: Piece | null;
-  validation: PieceValidation;
+  /** `warnings`: the piece saved, but a follow-up step (window alignment, rescoring) will finish later. */
+  validation: PieceValidation & { warnings?: string[] };
 }
 
 export interface PiecePhotoEstimate {
+  modality?: "rowing_erg" | "bike";
+  /** The standard type the screen's totals match, for the athlete to confirm; null = none matched. */
+  detected_piece_type?: ErgTestType | null;
   splits: PieceSplitRow[];
   distance_m: number | null;
   duration_s: number | null;
@@ -690,7 +701,8 @@ export interface DuplicatePair {
 
 export interface ZoneRow {
   zone: string;
-  hr_pct_lo: number;
+  /** % of heart-rate reserve when hr_basis.method is "hrr", % of max HR when "max_pct", null without a max HR. */
+  hr_pct_lo: number | null;
   hr_pct_hi: number | null;
   hr_lo: number | null;
   hr_hi: number | null;
@@ -700,9 +712,39 @@ export interface ZoneRow {
   power_hi: number | null;
 }
 
+/** Session 33: what a set of heart-rate zones was computed from — stored with every workout's cached zones. */
+export interface HrBasis {
+  method: "hrr" | "max_pct" | "none";
+  requested_method: "hrr" | "max_pct";
+  max_hr: number | null;
+  resting_hr: number | null;
+  bounds_pct: Record<string, number>;
+  bounds_bpm: Record<string, number>;
+  /** "setting" = the athlete's own value; "measured" = median of the 14 days before; "measured_stale" = an older median. */
+  rhr_source: "setting" | "measured" | "measured_stale" | "none";
+  rhr_window: [string, string] | null;
+  rhr_readings: number;
+  /** Why the zones fell back (no resting HR, no max HR), in a sentence. */
+  reason: string | null;
+}
+
 export interface TrainingZones {
   zones: ZoneRow[];
   note: string;
+  /** Absent only in payloads older than session 33; stripped of resting-HR fields for an AI without wellness sharing. */
+  hr_basis?: HrBasis;
+}
+
+export interface ZonesSettingsView {
+  basis: HrBasis;
+  zones: ZoneRow[];
+  note: string;
+  method: "hrr" | "max_pct";
+  max_hr: number | null;
+  resting_hr_setting: number | null;
+  hrr_pct: Record<string, number>;
+  hr_pct: Record<string, number>;
+  observed_max_hr: { value: number; date: string | null } | null;
 }
 
 export interface Note {
@@ -927,7 +969,9 @@ export type PersonalBests = Record<string, PbEntry | null>;
 // --- Settings (session 4) ---------------------------------------------------
 
 export interface Settings {
-  zones: { hr_pct: Record<string, number>; power_pct: Record<string, number> };
+  zones: { hr_pct: Record<string, number>; hrr_pct: Record<string, number>; power_pct: Record<string, number> };
+  hr_zone_method: "hrr" | "max_pct";
+  resting_hr: number | null;
   trimp_exponent: number;
   srpe_to_trimp_scale: number;
   strain_log_a: number;

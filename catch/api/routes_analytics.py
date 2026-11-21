@@ -16,7 +16,7 @@ from catch.analytics.downsample import bucket_value_bounds, lttb_indices
 from catch.analytics.erg_math import w_per_kg
 from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
-from catch.analytics.zones import ZONE_ORDER, training_zones, zone_for_hr
+from catch.analytics.zones import ZONE_ORDER, basis_from_dict, training_zones, zone_for_hr
 from catch.analytics.zones_samples import hr_recovery_drop
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.api.routes_checkins import niggle_streak_days
@@ -482,7 +482,15 @@ def erg_strokes(
         by_interval.setdefault(s.interval_index or 0, []).append(s)
 
     settings = get_settings(db)
-    max_hr = settings.get("max_hr")
+    from catch.api.routes_activities import workout_hr_basis
+
+    canonical_for_basis = db.get(CanonicalActivity, activity.canonical_id) if activity.canonical_id else None
+    if canonical_for_basis is not None:
+        basis = workout_hr_basis(db, canonical_for_basis, settings)
+    else:
+        from catch.sync.hr_basis import basis_for_day
+
+        basis = basis_for_day(db, localtime.day_of(db, activity) if activity.start else None, settings)
     technique_by_interval = {}
     time_in_zone_by_interval = {}
     interval_summaries: dict[int, dict] = {}
@@ -496,7 +504,7 @@ def erg_strokes(
         hr_samples = hr_sample_durations([(s.t, s.hr) for s in group])
         # Per-sample HR only exists for strokes that recorded one (Concept2 w/ a paired HR
         # strap); Garmin-only sessions have no sample-level HR without FIT parsing (not done).
-        time_in_zone_by_interval[idx] = time_in_zone(hr_samples, max_hr, settings) if hr_samples else None
+        time_in_zone_by_interval[idx] = time_in_zone(hr_samples, basis) if hr_samples else None
 
     # Drift vs rep 1, by avg split — positive means slower than the first rep.
     rep1_split = interval_summaries[min(interval_summaries)]["avg_split_500m"] if interval_summaries else None
@@ -572,6 +580,36 @@ def get_settings_endpoint(db: Session = Depends(get_db)):
     return get_settings(db)
 
 
+@router.get("/api/zones")
+def zones_endpoint(db: Session = Depends(get_db)):
+    """Session 33: the heart-rate zones a workout recorded today would use — method, the resting and max heart rate behind them and
+    where each came from, each zone in bpm — plus the highest heart rate a workout recorded in the last year, offered as a
+    suggestion only (never applied on its own: a device's peak can be a spike, and a max HR is the athlete's to set)."""
+    from catch.sync.hr_basis import current_basis
+
+    settings = get_settings(db)
+    basis = current_basis(db, settings)
+    since = datetime.combine(localtime.today(db) - timedelta(days=365), datetime.min.time(), tzinfo=timezone.utc)
+    top = db.exec(
+        select(CanonicalActivity.max_hr, CanonicalActivity.local_date)
+        .where(CanonicalActivity.start >= since, CanonicalActivity.max_hr.is_not(None), CanonicalActivity.max_hr <= 230)
+        .order_by(CanonicalActivity.max_hr.desc())
+        .limit(1)
+    ).first()
+    table = training_zones(basis, settings=settings)
+    return {
+        "basis": table["hr_basis"],
+        "zones": table["zones"],
+        "note": table["note"],
+        "method": settings.get("hr_zone_method", "hrr"),
+        "max_hr": settings.get("max_hr"),
+        "resting_hr_setting": settings.get("resting_hr"),
+        "hrr_pct": settings["zones"]["hrr_pct"],
+        "hr_pct": settings["zones"]["hr_pct"],
+        "observed_max_hr": {"value": round(top[0]), "date": top[1].isoformat() if top[1] else None} if top else None,
+    }
+
+
 # The exact settings keys resolve_canonical's zones/strain/field-priority pipeline reads
 # (catch/sync/canonical.py, catch/analytics/zones.py) — a PUT whose *resulting values* on
 # none of these differ from before can't change any already-resolved canonical's cached
@@ -588,10 +626,16 @@ def get_settings_endpoint(db: Session = Depends(get_db)):
 # a FastAPI background task below instead of inline, so the PUT itself returns immediately
 # rather than slowing every other request on that one worker for that long.
 _RESOLVE_AFFECTING_SETTINGS_KEYS = {
-    "max_hr", "ftp_watts", "field_priority", "zones",
+    "max_hr", "ftp_watts", "field_priority", "zones", "hr_zone_method", "resting_hr",
     "trimp_exponent", "min_zone_minutes", "min_zone_pct",
     "auto_trim_enabled", "auto_trim_min_idle_s",
 }
+
+
+# Session 33: keys that no score, zone or cached value reads — a notification toggle, quiet hours, the Garmin key reminder, which
+# zone table the screens open on, display units. Saving only these returns at once instead of rescoring every day of history (a
+# deny-list on purpose: a key missing here costs one extra recompute, while an allow-list that missed a key would leave scores stale).
+_NO_SCORE_EFFECT_SETTINGS_KEYS = {"notifications", "garmin_key_expires_on", "zone_mode", "units"}
 
 
 def _resolve_all_and_recompute_in_background(engine) -> None:
@@ -631,21 +675,22 @@ def put_settings(patch: dict = Body(...), background_tasks: BackgroundTasks = No
     # every *already-resolved* canonical's cached zones/strain/label/title, none of which
     # run_matching's own resolve calls touch (those only cover orphaned, blank, or
     # newly-merged canonicals).
-    if any(before.get(k) != result.get(k) for k in _RESOLVE_AFFECTING_SETTINGS_KEYS):
+    changed = {k for k in set(before) | set(result) if before.get(k) != result.get(k)}
+    if changed & _RESOLVE_AFFECTING_SETTINGS_KEYS:
         background_tasks.add_task(_resolve_all_and_recompute_in_background, db.get_bind())
-    else:
+    elif changed - _NO_SCORE_EFFECT_SETTINGS_KEYS:
         from catch.sync.scoring import recompute_scores
 
         recompute_scores(db, full=True)
     return result
 
 
-def _estimated_zone_totals(activity: CanonicalActivity, max_hr: float | None, settings: dict) -> dict[str, float] | None:
+def _estimated_zone_totals(activity: CanonicalActivity, basis) -> dict[str, float] | None:
     """Fallback for a canonical with no per-sample HR cached (nothing parsed a FIT/stroke
     stream for any of its members): bucket the *whole* duration into the zone for avg_hr,
     rather than contributing nothing to weekly volume. Callers must flag weeks that used this
     as "estimated" — it's a coarser number than real time-in-zone."""
-    zone = zone_for_hr(activity.avg_hr, max_hr, settings)
+    zone = zone_for_hr(activity.avg_hr, basis)
     if zone is None or not activity.duration:
         return None
     totals = {z: 0.0 for z in ZONE_ORDER}
@@ -656,7 +701,6 @@ def _estimated_zone_totals(activity: CanonicalActivity, max_hr: float | None, se
 @router.get("/api/trends/volume")
 def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get_db)):
     settings = get_settings(db)
-    max_hr = settings.get("max_hr")
     today = localtime.today(db)
     this_week_start = today - timedelta(days=today.weekday())
     week_starts = [this_week_start - timedelta(weeks=i) for i in range(weeks)][::-1]
@@ -669,6 +713,9 @@ def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get
 
     buckets: dict[date, dict[str, float]] = {w: {z: 0.0 for z in ZONE_ORDER} for w in week_starts}
     estimated_weeks: set[date] = set()
+    from catch.sync.hr_basis import RhrLookup
+
+    rhr = RhrLookup(db, range_start, range_end)  # one query for the whole range, never one per workout
     for a in activities:
         local_date = localtime.day_of(db, a)
         if local_date < range_start or local_date >= range_end:
@@ -685,7 +732,8 @@ def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get
             for z, secs in exact.items():
                 buckets[bucket_week][z] += secs
         else:
-            estimated = _estimated_zone_totals(a, max_hr, settings)
+            stored = (json.loads(a.zones_json) or {}).get("basis") if a.zones_json else None
+            estimated = _estimated_zone_totals(a, basis_from_dict(stored) or rhr.basis(local_date, settings))
             if estimated:
                 estimated_weeks.add(bucket_week)
                 for z, secs in estimated.items():
@@ -823,6 +871,9 @@ def activity_samples(
         return {"has_data": False, "reason": "no heart-rate data"}
 
     settings = get_settings(db)
+    from catch.api.routes_activities import workout_hr_basis
+
+    basis = workout_hr_basis(db, canonical, settings)
     max_hr = settings.get("max_hr")
     trimmed_s = canonical.auto_trimmed_tail_s or 0
     usable_n = n - int(trimmed_s)
@@ -859,7 +910,7 @@ def activity_samples(
         "max_hr_observed": max(defined_hr) if defined_hr else None,
         "min_hr_observed": min(defined_hr) if defined_hr else None,
         "zones": json.loads(canonical.zones_json) if canonical.zones_json else None,
-        "zones_config": training_zones(max_hr=max_hr, settings=settings),
+        "zones_config": training_zones(basis, settings=settings),
         "session_label": canonical.session_label,
         "laps": laps,
         "hr_recovery": recoveries,

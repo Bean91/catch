@@ -205,7 +205,7 @@ class TargetsPatchRequest(BaseModel):
 
 @router.get("/api/nutrition/targets")
 def get_targets(db: Session = Depends(get_db)):
-    row = nutrition.get_targets_settings(db)
+    row = nutrition.read_targets_settings(db)
     computed = nutrition.compute_targets(db)
     return {
         "settings": {

@@ -245,7 +245,7 @@ def _result_from_ref(session: Session, ref: dict) -> dict:
         if p is None:
             raise LeaderboardError("Not found.", 404)
         canonical = session.get(CanonicalActivity, p.canonical_id)
-        elig = lb.eligible_board(distance_m=p.distance_m, duration_s=p.duration_s, has_intervals=p.has_intervals, is_piece=True)
+        elig = lb.eligible_board(distance_m=p.distance_m, duration_s=p.duration_s, has_intervals=p.has_intervals, is_piece=True, modality=p.modality)
         return {"kind": kind, "id": p.id, "activity": None, "piece": p, "meta": {}, "elig": elig, "date": localtime.day_of(session, canonical) if canonical and canonical.start else None,
                 "digest": _piece_digest(p), "result_id": str(p.id)}
     raise LeaderboardError("kind must be concept2_result or piece")
@@ -281,7 +281,7 @@ def my_results(session: Session, *, board: str | None = None, state: str | None 
     ).all()
     refs = [{"kind": "concept2_result", "id": a.id} for a in acts]
     covered = {(a.id) for a in acts if lb.eligible_board(distance_m=a.distance, duration_s=a.duration, workout_type=a.workout_type, erg_type=a.type)}
-    for p in session.exec(select(Piece).where(Piece.has_intervals == False)).all():  # noqa: E712
+    for p in session.exec(select(Piece).where(Piece.has_intervals == False, Piece.modality == "rowing_erg")).all():  # noqa: E712
         if p.concept2_activity_id in covered:
             continue  # the Concept2 result itself is the authoritative entry
         refs.append({"kind": "piece", "id": p.id})

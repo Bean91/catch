@@ -1,13 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVisionAvailable } from "../../lib/useVisionAvailable";
-import { ApiError, createPiece, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts, uploadPiecePhoto } from "../../lib/api";
+import { ApiError, createPiece, createPieceWithPhoto, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
 import { pickNativePhoto } from "../../lib/native/camera";
 import { isNative } from "../../lib/native/platform";
-import { parseSplitsPaste, validateSplits } from "../../lib/pieceSplits";
-import { ERG_TEST_TYPES, type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
+import { PIECE_MODALITIES, PIECE_TYPES_BY_MODALITY, modalityLabel, parseSplitsPaste, validateSplits, type PieceModality } from "../../lib/pieceSplits";
+import { type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
 import { formatDuration, formatShortDate } from "../../lib/format";
 import { IntervalEditor } from "./IntervalEditor";
 import { SplitsReviewTable } from "./SplitsReviewTable";
@@ -19,12 +19,31 @@ type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "
  * with two input methods (photo, typed/pasted splits), both ending in the same editable
  * review table. `canonicalId` is omitted only from the test-center entry point, which shows
  * an activity picker first (the workout-detail entry point already knows it). */
-export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, onSaved }: { open: boolean; onClose: () => void; canonicalId?: number; onSaved: () => void }) {
+export function AddPieceDialog({
+  open,
+  onClose,
+  canonicalId: fixedCanonicalId,
+  defaultModality = "rowing_erg",
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  canonicalId?: number;
+  /** Session 33: a cycling workout's piece starts as a bike piece. */
+  defaultModality?: PieceModality;
+  onSaved: () => void;
+}) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [canonicalId, setCanonicalId] = useState<number | null>(fixedCanonicalId ?? null);
   const [step, setStep] = useState<Step>(fixedCanonicalId ? "choose-method" : "pick-activity");
+  const [modality, setModality] = useState<PieceModality>(defaultModality);
   const [pieceType, setPieceType] = useState<ErgTestType>("2000m");
+  const [dragFactor, setDragFactor] = useState<number | null>(null);
+  const [avgRate, setAvgRate] = useState<number | null>(null);
+  const [avgWatts, setAvgWatts] = useState<number | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [splits, setSplits] = useState<PieceSplitRow[]>([]);
   const [distanceM, setDistanceM] = useState<number | null>(null);
   const [durationS, setDurationS] = useState<number | null>(null);
@@ -42,6 +61,15 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
   const activitiesQuery = useQuery({ queryKey: ["workouts", "piece-picker"], queryFn: () => fetchWorkouts({}), enabled: open && step === "pick-activity" });
 
   const reset = () => {
+    setModality(defaultModality);
+    setDragFactor(null);
+    setAvgRate(null);
+    setAvgWatts(null);
+    setPhotoUrl((url) => {
+      if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+    setWarnings([]);
     setCanonicalId(fixedCanonicalId ?? null);
     setStep(fixedCanonicalId ? "choose-method" : "pick-activity");
     setSplits([]);
@@ -76,13 +104,23 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
   const pickActivity = (w: WorkoutListItem) => {
     setCanonicalId(w.id);
+    setModality(w.sport_family === "cycling" ? "bike" : "rowing_erg");
     setStep("choose-method");
   };
+
+  const chooseModality = (m: PieceModality) => {
+    setModality(m);
+    if (!PIECE_TYPES_BY_MODALITY[m].includes(pieceType)) setPieceType("custom");
+  };
+
+  // The live check on review — the server re-validates on save and is the value of record.
+  const liveValidation = useMemo(() => (step === "review" ? validateSplits(splits, distanceM, durationS, modality) : null), [step, splits, distanceM, durationS, modality]);
+  const shownValidation = liveValidation ?? validation;
 
   const startTyped = async () => {
     setSource("manual");
     setStep("typed");
-    const template = await fetchPieceTemplate(canonicalId!, pieceType);
+    const template = await fetchPieceTemplate(canonicalId!, pieceType, undefined, undefined, modality);
     setSplits(template);
     setDistanceM(null);
     setDurationS(null);
@@ -120,10 +158,20 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     try {
       const resized = await resizeImage(file);
       setPendingPhoto(resized);
-      const result = await estimatePiecePhoto(canonicalId!, resized);
+      setPhotoUrl((url) => {
+        if (url) URL.revokeObjectURL(url);
+        return URL.createObjectURL(resized);
+      });
+      const result = await estimatePiecePhoto(canonicalId!, resized, modality);
       setSplits(result.splits);
       setDistanceM(result.distance_m);
       setDurationS(result.duration_s);
+      setAvgRate(result.avg_rate);
+      setAvgWatts(result.avg_watts);
+      setDragFactor(result.drag_factor);
+      // The screen's totals suggest a type; the athlete confirms it on review (it used to keep whatever was picked before the photo).
+      if (result.detected_piece_type && PIECE_TYPES_BY_MODALITY[modality].includes(result.detected_piece_type)) setPieceType(result.detected_piece_type);
+      else if (result.distance_m || result.duration_s) setPieceType("custom");
       setVisionNotes(result.notes);
       setValidation(result.validation);
       setSource("photo");
@@ -141,7 +189,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     setStep("saving");
     setError(null);
     try {
-      const result = await createPiece(canonicalId, { piece_type: "custom", splits: [], intervals: intervalRows, force });
+      const result = await createPiece(canonicalId, { piece_type: "custom", splits: [], intervals: intervalRows, force, modality });
       if (!result.piece) {
         setIntervalIssues(result.validation.issues.map((i) => ({ index: (i as { index?: number | null }).index ?? i.split_index, field: i.field, message: i.message })));
         setStep("intervals");
@@ -159,7 +207,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
   };
 
   const goToReview = () => {
-    setValidation(validateSplits(splits, distanceM, durationS));
+    setValidation(validateSplits(splits, distanceM, durationS, modality));
     setStep("review");
   };
 
@@ -167,30 +215,35 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
     if (canonicalId == null) return;
     setStep("saving");
     setError(null);
+    const body = {
+      piece_type: pieceType,
+      modality,
+      splits,
+      distance_m: distanceM,
+      duration_s: durationS,
+      drag_factor: dragFactor,
+      avg_rate: splits.length ? null : avgRate,
+      avg_watts: splits.length ? null : avgWatts,
+      source,
+      force,
+    };
     try {
-      const result = await createPiece(canonicalId, {
-        piece_type: pieceType,
-        splits,
-        distance_m: distanceM,
-        duration_s: durationS,
-        source,
-        force,
-      });
+      // One request: with a photo, the piece and the photo are saved together or not at all, so a retry can never duplicate.
+      const result = source === "photo" && pendingPhoto ? await createPieceWithPhoto(canonicalId, body, pendingPhoto) : await createPiece(canonicalId, body);
       setValidation(result.validation);
       if (!result.piece) {
         setStep("review"); // issues present, not forced — let the athlete fix or force-save
         return;
       }
-      if (source === "photo" && pendingPhoto) {
-        await uploadPiecePhoto(result.piece.id, pendingPhoto);
-      }
+      setWarnings(result.validation.warnings ?? []);
       queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
       queryClient.invalidateQueries({ queryKey: ["tests"] });
       queryClient.invalidateQueries({ queryKey: ["pbs"] });
       setStep("saved");
       onSaved();
-    } catch {
-      setError("Couldn't save this piece — try again.");
+    } catch (e) {
+      setError(e instanceof ApiError ? `${e.message} Nothing was saved.` : "Couldn't save this piece — nothing was saved. Try again.");
       setStep("review");
     }
   };
@@ -227,16 +280,8 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
           {step === "choose-method" && (
             <div className="mt-4 flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium text-text-primary">Piece type</span>
-                <select value={pieceType} onChange={(e) => setPieceType(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary">
-                  {ERG_TEST_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <ModalityPicker value={modality} onChange={chooseModality} />
+              <PieceTypeSelect modality={modality} value={pieceType} onChange={setPieceType} />
 
               {error && <p className="text-sm text-band-red-text">{error}</p>}
 
@@ -290,7 +335,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
                 </button>
               </label>
 
-              <SplitsReviewTable splits={splits} validation={null} onChange={setSplits} />
+              <SplitsReviewTable splits={splits} validation={null} onChange={setSplits} modality={modality} />
 
               <div className="flex gap-3 text-sm">
                 <label className="flex flex-1 flex-col gap-1">
@@ -311,8 +356,32 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
           {step === "review" && (
             <div className="mt-4 flex flex-col gap-3">
+              {source === "photo" && photoUrl && (
+                <img src={photoUrl} alt="The PM5 photo this piece was read from" className="max-h-48 w-full rounded-md border border-border object-contain" data-testid="piece-photo-preview" />
+              )}
               {visionNotes && <p className="rounded-md bg-surface-2 p-2 text-xs text-text-tertiary">{visionNotes}</p>}
-              <SplitsReviewTable splits={splits} validation={validation} onChange={setSplits} />
+              <p className="text-xs text-text-secondary">
+                {modalityLabel(modality)} piece{source === "photo" ? " — check the type and totals read from the photo" : ""}.
+              </p>
+              <PieceTypeSelect modality={modality} value={pieceType} onChange={setPieceType} />
+              <div className="flex gap-3 text-sm">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-xs text-text-tertiary">Total distance (m)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    aria-label="Total distance (m)"
+                    value={distanceM ?? ""}
+                    onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))}
+                    className="min-h-9 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-xs text-text-tertiary">Total time</span>
+                  <TimeInput valueS={durationS} onChange={setDurationS} ariaLabel="Total time" />
+                </label>
+              </div>
+              <SplitsReviewTable splits={splits} validation={shownValidation} onChange={setSplits} modality={modality} />
               {error && <p className="text-sm text-band-red-text">{error}</p>}
               <div className="flex gap-2">
                 <button type="button" onClick={() => setStep(source === "photo" ? "choose-method" : "typed")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
@@ -320,10 +389,11 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
                 </button>
                 <button
                   type="button"
-                  onClick={() => save(!(validation?.ok ?? true))}
-                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast"
+                  disabled={splits.length === 0 && distanceM == null && durationS == null}
+                  onClick={() => save(!(shownValidation?.ok ?? true))}
+                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
                 >
-                  {validation && !validation.ok ? "Save anyway" : "Save piece"}
+                  {shownValidation && !shownValidation.ok ? "Save anyway" : "Save piece"}
                 </button>
               </div>
             </div>
@@ -331,7 +401,7 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
           {step === "intervals" && canonicalId != null && (
             <div className="mt-4 flex flex-col gap-3">
-              <IntervalEditor rows={intervalRows} onChange={setIntervalRows} canonicalId={canonicalId} issues={intervalIssues} />
+              <IntervalEditor rows={intervalRows} onChange={setIntervalRows} canonicalId={canonicalId} issues={intervalIssues} modality={modality} />
               {error && <p className="text-sm text-band-red-text">{error}</p>}
               <div className="flex gap-2">
                 <button type="button" onClick={() => setStep("choose-method")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
@@ -353,7 +423,14 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
 
           {step === "saved" && (
             <div className="mt-6 flex flex-col gap-3 py-4 text-center">
-              <p className="text-sm text-text-primary">Piece saved.</p>
+              <p className="text-sm text-text-primary" role="status">
+                Piece saved{source === "photo" && pendingPhoto ? " with its photo" : ""}.
+              </p>
+              {warnings.map((w) => (
+                <p key={w} className="text-xs text-text-tertiary">
+                  {w}
+                </p>
+              ))}
               <button type="button" onClick={close} className="min-h-11 rounded-md bg-accent text-sm font-medium text-accent-contrast">
                 Done
               </button>
@@ -370,5 +447,43 @@ export function AddPieceDialog({ open, onClose, canonicalId: fixedCanonicalId, o
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function ModalityPicker({ value, onChange }: { value: PieceModality; onChange: (m: PieceModality) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Machine" className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-text-primary">Machine</span>
+      <div className="grid grid-cols-2 gap-2">
+        {PIECE_MODALITIES.map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="radio"
+            aria-checked={value === m}
+            onClick={() => onChange(m)}
+            className={`min-h-11 rounded-md border text-sm font-medium ${value === m ? "border-accent bg-accent/10 text-text-primary" : "border-border text-text-secondary hover:border-accent/40"}`}
+          >
+            <span aria-hidden="true">{value === m ? "● " : "○ "}</span>
+            {modalityLabel(m)} <span className="text-xs text-text-tertiary">{m === "bike" ? "/1000m" : "/500m"}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PieceTypeSelect({ modality, value, onChange }: { modality: PieceModality; value: ErgTestType; onChange: (t: ErgTestType) => void }) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-text-primary">Piece type</span>
+      <select value={value} onChange={(e) => onChange(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary">
+        {PIECE_TYPES_BY_MODALITY[modality].map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

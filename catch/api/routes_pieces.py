@@ -7,11 +7,13 @@ path. A piece never silently "corrects" a bad reading (task Part B.3): create/up
 `{piece: null, validation}` when a check fails, unless the caller explicitly passes
 `force=true` after the athlete has seen the issues and still wants to save as-is."""
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, Field
+import json
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 
-from catch.analytics.piece import PIECE_TYPES, default_splits, parse_splits_paste
+from catch.analytics.piece import MODALITIES, PIECE_TYPES, check_modality, default_splits, parse_splits_paste
 from catch.core import uploads
 from catch.api.deps import get_db, require_auth
 from catch.core.owner import current_owner_id
@@ -24,6 +26,21 @@ from catch.sync import piece_intervals as intervals_sync
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+# The web client resizes to ~1500 px JPEG (well under 1 MB); 5 MB matches the public Storage bucket's own limit
+# (docs/public-storage.md), inside the 6 MB request cap catch/core/uploads.py enforces on the stream.
+MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+
+def _read_photo(photo: UploadFile) -> tuple[bytes, str]:
+    """Validates before anything is written: declared type on the allow-list, real bytes match it, size within the limit."""
+    if photo.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image.")
+    data = photo.file.read(MAX_PHOTO_BYTES + 1)
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="That photo is too large (max 5 MB).")
+    if not data or uploads.sniff_image(data) != photo.content_type:
+        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image.")
+    return data, photo.content_type
 
 
 def _require_canonical(canonical_id: int, db: Session) -> CanonicalActivity:
@@ -45,12 +62,16 @@ def piece_template(
     piece_type: str = Query(..., alias="type"),
     distance_m: float | None = None,
     duration_s: float | None = None,
+    modality: str | None = None,
     db: Session = Depends(get_db),
 ):
     _require_canonical(canonical_id, db)
+    modality = modality or piece_sync.default_modality_for(db, canonical_id)
     if piece_type not in PIECE_TYPES:
         raise HTTPException(status_code=422, detail=f"type must be one of {PIECE_TYPES}")
-    return {"splits": default_splits(piece_type, distance_m=distance_m, duration_s=duration_s)}
+    if (problem := check_modality(modality, piece_type)) is not None:
+        raise HTTPException(status_code=422, detail=problem)
+    return {"splits": default_splits(piece_type, distance_m=distance_m, duration_s=duration_s, modality=modality)}
 
 
 class PasteSplitsRequest(BaseModel):
@@ -115,23 +136,32 @@ class CreatePieceRequest(BaseModel):
     source: str = "manual"
     notes: str | None = None
     force: bool = False
+    # Session 33. Omitted: from the activity (a cycling workout's piece is a bike piece), else rowing erg.
+    modality: str | None = None
+    # Totals a PM5 screen showed without a splits table — used for the one whole-piece row.
+    avg_rate: float | None = Field(None, ge=0)
+    avg_watts: float | None = Field(None, ge=0)
 
 
-def _piece_response(piece, validation: dict, db: Session | None = None) -> dict:
+def _piece_response(piece, validation: dict, db: Session | None = None, has_photo: bool = False) -> dict:
     return {
-        "piece": piece_sync.piece_payload(db, piece) if piece is not None and db is not None else (piece_sync.piece_dict(piece) if piece is not None else None),
+        "piece": piece_sync.piece_payload(db, piece, has_photo=has_photo) if piece is not None and db is not None else (piece_sync.piece_dict(piece) if piece is not None else None),
         "validation": validation,
     }
 
 
-@router.post("/api/activities/{canonical_id}/pieces")
-def create_piece(canonical_id: int, body: CreatePieceRequest, db: Session = Depends(get_db)):
+def _create(canonical_id: int, body: CreatePieceRequest, db: Session, photo: tuple[bytes, str] | None = None) -> dict:
     _require_canonical(canonical_id, db)
     if body.piece_type not in PIECE_TYPES:
         raise HTTPException(status_code=422, detail=f"piece_type must be one of {PIECE_TYPES}")
     if body.source not in ("manual", "photo"):
         raise HTTPException(status_code=422, detail="source must be 'manual' or 'photo'")
+    modality = body.modality or piece_sync.default_modality_for(db, canonical_id)
+    if (problem := check_modality(modality, body.piece_type)) is not None:
+        raise HTTPException(status_code=422, detail=problem)
     if body.intervals is not None:
+        if photo is not None:
+            raise HTTPException(status_code=422, detail="A photo can be attached to a single piece, not to intervals.")
         piece, validation = intervals_sync.create_interval_piece(
             db,
             canonical_id,
@@ -139,39 +169,75 @@ def create_piece(canonical_id: int, body: CreatePieceRequest, db: Session = Depe
             piece_type=body.piece_type,
             notes=body.notes,
             force=body.force,
+            modality=modality,
         )
         return _piece_response(piece, validation, db)
-    if not body.splits:
-        raise HTTPException(status_code=422, detail="splits (or intervals) required")
-    piece, validation = piece_sync.create_piece(
-        db,
-        canonical_id,
-        body.piece_type,
-        [r.model_dump() for r in body.splits],
-        distance_m=body.distance_m,
-        duration_s=body.duration_s,
-        drag_factor=body.drag_factor,
-        source=body.source,
-        notes=body.notes,
-        force=body.force,
-    )
-    return _piece_response(piece, validation, db)
+    try:
+        piece, validation = piece_sync.create_piece(
+            db,
+            canonical_id,
+            body.piece_type,
+            [r.model_dump() for r in body.splits],
+            distance_m=body.distance_m,
+            duration_s=body.duration_s,
+            drag_factor=body.drag_factor,
+            source=body.source,
+            notes=body.notes,
+            force=body.force,
+            modality=modality,
+            avg_rate=body.avg_rate,
+            avg_watts=body.avg_watts,
+            photo=photo,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _piece_response(piece, validation, db, has_photo=photo is not None and piece is not None)
+
+
+@router.post("/api/activities/{canonical_id}/pieces")
+def create_piece(canonical_id: int, body: CreatePieceRequest, db: Session = Depends(get_db)):
+    return _create(canonical_id, body, db)
+
+
+@router.post("/api/activities/{canonical_id}/pieces/with-photo")
+def create_piece_with_photo(canonical_id: int, payload: str = Form(...), photo: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Session 33: the piece and its PM5 photo in one request and one transaction. The photo is validated before anything is
+    written; if either insert fails, neither exists (the photo bytes live in `piece_photos` on both deployments, so there is no
+    separate file to orphan). Replaces the old create-then-upload pair, whose second request could fail after the first had
+    saved — the app then said "couldn't save" and a retry made a duplicate."""
+    image = _read_photo(photo)
+    try:
+        body = CreatePieceRequest.model_validate(json.loads(payload))
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(status_code=422, detail="The piece details couldn't be read.") from exc
+    return _create(canonical_id, body, db, photo=image)
 
 
 @router.post("/api/activities/{canonical_id}/pieces/photo-estimate")
-async def photo_estimate(canonical_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
+async def photo_estimate(
+    canonical_id: int,
+    photo: UploadFile = File(...),
+    modality: str | None = Form(None),
+    db: Session = Depends(get_db),
+    owner_id: str = Depends(current_owner_id),
+):
     """Vision draft only — nothing is saved (task Part B.4's same "never silently corrects"
-    principle: the athlete reviews/edits before anything is written). The photo itself is
-    re-sent by the client to POST .../pieces/{id}/photo after the piece is created, rather
-    than held server-side between these two calls."""
-    _require_canonical(canonical_id, db)
-    if photo.content_type not in _ALLOWED_IMAGE_TYPES:
-        raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
-    image_bytes = await photo.read()
-    if uploads.sniff_image(image_bytes) != photo.content_type:
-        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image")
+    principle: the athlete reviews/edits before anything is written). The client then sends
+    the reviewed piece and the same photo together to POST .../pieces/with-photo, one
+    transaction (session 33). Stays async (the vision call is awaited); `run_vision` ends its
+    read transaction before that await so no pooled connection is held during it."""
+    from starlette.concurrency import run_in_threadpool
+
+    def check() -> str:
+        _require_canonical(canonical_id, db)
+        return modality or piece_sync.default_modality_for(db, canonical_id)
+
+    modality = await run_in_threadpool(check)
+    if modality not in MODALITIES:
+        raise HTTPException(status_code=422, detail=f"modality must be one of {list(MODALITIES)}")
+    image_bytes, content_type = _read_photo(photo)
     try:
-        return await estimate_piece_photo(db, image_bytes, photo.content_type, owner_id)
+        return await estimate_piece_photo(db, image_bytes, content_type, owner_id, modality=modality)
     except PieceVisionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -185,6 +251,7 @@ class UpdatePieceRequest(BaseModel):
     duration_s: float | None = None
     notes: str | None = None
     force: bool = False
+    modality: str | None = None
 
 
 @router.patch("/api/pieces/{piece_id}")
@@ -192,6 +259,8 @@ def update_piece(piece_id: int, body: UpdatePieceRequest, db: Session = Depends(
     existing = piece_sync.get_piece(db, piece_id)
     if existing is not None and existing.has_intervals and (body.splits is not None or body.distance_m is not None or body.duration_s is not None):
         raise HTTPException(status_code=422, detail="This piece is made of intervals — edit its intervals instead of splits or totals.")
+    if existing is not None and body.modality is not None and (problem := check_modality(body.modality, existing.piece_type)) is not None:
+        raise HTTPException(status_code=422, detail=problem)
     try:
         piece, validation = piece_sync.update_piece(
             db,
@@ -201,10 +270,11 @@ def update_piece(piece_id: int, body: UpdatePieceRequest, db: Session = Depends(
             duration_s=body.duration_s,
             notes=body.notes,
             force=body.force,
+            modality=body.modality,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _piece_response(piece, validation, db)
+    return _piece_response(piece, validation, db, has_photo=piece is not None and piece_sync.get_photo(db, piece_id) is not None)
 
 
 @router.delete("/api/pieces/{piece_id}")
@@ -236,16 +306,15 @@ def align_piece(piece_id: int, body: AlignPieceRequest | None = None, db: Sessio
 
 
 @router.post("/api/pieces/{piece_id}/photo")
-async def upload_photo(piece_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db)):
-    if piece_sync.get_piece(db, piece_id) is None:
+def upload_photo(piece_id: int, photo: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Add or replace the photo of an existing piece (PieceCard). A plain `def` so its database work runs in the threadpool,
+    never on the event loop."""
+    piece = piece_sync.get_piece(db, piece_id)
+    if piece is None:
         raise HTTPException(status_code=404, detail="Piece not found")
-    if photo.content_type not in _ALLOWED_IMAGE_TYPES:
-        raise HTTPException(status_code=422, detail=f"photo must be one of {sorted(_ALLOWED_IMAGE_TYPES)}")
-    image_bytes = await photo.read()
-    if uploads.sniff_image(image_bytes) != photo.content_type:
-        raise HTTPException(status_code=422, detail="That file isn't a JPEG, PNG or WebP image")
-    piece_sync.attach_photo(db, piece_id, image_bytes, photo.content_type)
-    return {"has_photo": True}
+    image_bytes, content_type = _read_photo(photo)
+    piece_sync.attach_photo(db, piece_id, image_bytes, content_type)
+    return {"has_photo": True, "piece": piece_sync.piece_payload(db, piece_sync.get_piece(db, piece_id), has_photo=True)}
 
 
 @router.get("/api/pieces/{piece_id}/photo")
@@ -260,7 +329,7 @@ def get_photo(piece_id: int, db: Session = Depends(get_db)):
 def delete_photo(piece_id: int, db: Session = Depends(get_db)):
     if not piece_sync.delete_photo(db, piece_id):
         raise HTTPException(status_code=404, detail="No photo for this piece")
-    return {"deleted": True}
+    return {"deleted": True, "piece": piece_sync.piece_payload(db, piece_sync.get_piece(db, piece_id), has_photo=False)}
 
 
 # --- Session 19: intervals within a piece ------------------------------------------------------

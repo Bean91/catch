@@ -7,8 +7,8 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { ProviderCard } from "../components/settings/ProviderCard";
 
 export function AiProvidersPage() {
-  const providers = useQuery({ queryKey: ["ai-providers"], queryFn: fetchAiProviders });
-  const settings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings });
+  const providers = useQuery({ queryKey: ["ai-providers"], queryFn: fetchAiProviders, staleTime: 5 * 60_000 });
+  const settings = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings, staleTime: 5 * 60_000 });
   const usage = useQuery({ queryKey: ["ai-usage"], queryFn: fetchAiUsage });
 
   return (

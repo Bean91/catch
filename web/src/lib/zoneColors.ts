@@ -11,3 +11,15 @@ export function zoneColor(zone: ZoneName): string {
 }
 
 export { ZONE_NAMES };
+
+/** Which zone a bpm value falls in, given each zone's lower bound in bpm *as the server computed it* (session 33: the browser
+ * holds no zone maths — no %, no heart-rate reserve — only this lookup against the workout's own stored bounds). Below UT2's
+ * bound reads UT2, as on the server; no bounds (no max HR) = no zone. */
+export function zoneForBpm(hr: number | null | undefined, boundsBpm: Record<string, number>): ZoneName | null {
+  if (hr == null || boundsBpm.UT2 == null) return null;
+  let zone: ZoneName = ZONE_NAMES[0];
+  for (const name of ZONE_NAMES) {
+    if (boundsBpm[name] != null && hr >= boundsBpm[name]) zone = name;
+  }
+  return zone;
+}

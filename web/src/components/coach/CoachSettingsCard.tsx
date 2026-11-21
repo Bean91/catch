@@ -4,14 +4,16 @@ import { Link } from "react-router-dom";
 import { createToken, deleteToken, fetchAiProviders, fetchCoachSettings, fetchTokens, saveCoachSettings } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
 import { Card } from "../ui/Card";
+import { ErrorState } from "../ui/EmptyState";
 
 const inputCls = "min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
 
 export function CoachSettingsCard() {
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings });
-  const tokensQuery = useQuery({ queryKey: ["coach-tokens"], queryFn: fetchTokens });
-  const providersQuery = useQuery({ queryKey: ["ai-providers"], queryFn: fetchAiProviders });
+  // Stored configuration only: none of these calls a provider or builds a model (session 33). Kept 5 minutes.
+  const settingsQuery = useQuery({ queryKey: ["coach-settings"], queryFn: fetchCoachSettings, staleTime: 5 * 60_000 });
+  const tokensQuery = useQuery({ queryKey: ["coach-tokens"], queryFn: fetchTokens, staleTime: 60_000 });
+  const providersQuery = useQuery({ queryKey: ["ai-providers"], queryFn: fetchAiProviders, staleTime: 5 * 60_000 });
 
   const [newTokenName, setNewTokenName] = useState("");
   const [mintedToken, setMintedToken] = useState<string | null>(null);
@@ -36,10 +38,14 @@ export function CoachSettingsCard() {
 
   const removeToken = useMutation({ mutationFn: (id: number) => deleteToken(id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["coach-tokens"] }) });
 
-  if (settingsQuery.isLoading || !settingsQuery.data) {
+  if (!settingsQuery.data) {
     return (
       <Card title="AI coach">
-        <p className="text-sm text-text-tertiary">Loading…</p>
+        {settingsQuery.isError ? (
+          <ErrorState message="Couldn't load the AI coach settings." onRetry={() => settingsQuery.refetch()} />
+        ) : (
+          <p className="text-sm text-text-tertiary">Loading…</p>
+        )}
       </Card>
     );
   }

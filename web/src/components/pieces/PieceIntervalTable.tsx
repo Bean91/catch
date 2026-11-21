@@ -1,4 +1,5 @@
-import { formatDistance, formatDuration, formatSplit } from "../../lib/format";
+import { formatDistance, formatDuration, formatSplit, splitUnitLabel } from "../../lib/format";
+import { rateUnit, type PieceModality } from "../../lib/pieceSplits";
 import type { PieceInterval, PieceIntervalSummary } from "../../lib/types";
 
 const dash = "—";
@@ -7,7 +8,18 @@ const dash = "—";
  * folded into the work figures), then one compact row per work interval with its rest shown as
  * a muted inset line beneath, so recovery reads as a different thing from effort. Every number
  * here is server-supplied (weighted averages included). */
-export function PieceIntervalTable({ intervals, summary }: { intervals: PieceInterval[]; summary: PieceIntervalSummary | null }) {
+export function PieceIntervalTable({
+  intervals,
+  summary,
+  splitUnitM = 500,
+  modality = "rowing_erg",
+}: {
+  intervals: PieceInterval[];
+  summary: PieceIntervalSummary | null;
+  splitUnitM?: number;
+  modality?: PieceModality;
+}) {
+  const unit = splitUnitLabel(splitUnitM);
   return (
     <div data-testid="interval-table">
       {summary && (
@@ -23,7 +35,7 @@ export function PieceIntervalTable({ intervals, summary }: { intervals: PieceInt
             <dd className="font-mono-nums text-text-primary">{summary.rest_duration_s ? formatDuration(summary.rest_duration_s) : dash}</dd>
           </div>
           <div>
-            <dt className="text-text-tertiary">Avg split</dt>
+            <dt className="text-text-tertiary">Avg split {unit}</dt>
             <dd className="font-mono-nums text-text-primary">{formatSplit(summary.avg_split_s)}</dd>
           </div>
           <div>
@@ -31,7 +43,7 @@ export function PieceIntervalTable({ intervals, summary }: { intervals: PieceInt
             <dd className="font-mono-nums text-text-primary">{summary.avg_watts != null ? Math.round(summary.avg_watts) : dash}</dd>
           </div>
           <div>
-            <dt className="text-text-tertiary">Avg rate</dt>
+            <dt className="text-text-tertiary">{modality === "bike" ? "Avg cadence" : "Avg rate"}</dt>
             <dd className="font-mono-nums text-text-primary">{summary.avg_rate != null ? Math.round(summary.avg_rate) : dash}</dd>
           </div>
           <div>
@@ -54,9 +66,9 @@ export function PieceIntervalTable({ intervals, summary }: { intervals: PieceInt
               <th className="py-1 pr-2 font-normal">#</th>
               <th className="py-1 pr-2 font-normal">Work</th>
               <th className="py-1 pr-2 font-normal">Time</th>
-              <th className="py-1 pr-2 font-normal">Split</th>
+              <th className="py-1 pr-2 font-normal">Split {unit}</th>
               <th className="py-1 pr-2 font-normal">W</th>
-              <th className="py-1 pr-2 font-normal">spm</th>
+              <th className="py-1 pr-2 font-normal">{rateUnit(modality)}</th>
               <th className="py-1 font-normal">HR</th>
             </tr>
           </thead>

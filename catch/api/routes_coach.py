@@ -186,9 +186,15 @@ def post_message(conversation_id: int, body: MessageRequest, request: Request, d
 
 @coach_router.get("/api/coach/models", dependencies=[rate_limit("admin")])
 async def list_models(provider: str | None = Query(None), db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
-    prefs = coach_settings_module.get_coach_settings(db, owner_id)
-    chosen = provider or prefs["provider"]
-    p = _build_or_400(db, owner_id, chosen)
+    from starlette.concurrency import run_in_threadpool
+
+    def build():
+        prefs = coach_settings_module.get_coach_settings(db, owner_id)
+        built = _build_or_400(db, owner_id, provider or prefs["provider"])
+        db.commit()  # no pooled connection held across the provider call
+        return built
+
+    p = await run_in_threadpool(build)
     try:
         return await p.list_models()
     except ProviderError as exc:
@@ -237,8 +243,14 @@ def delete_anthropic_key(db: Session = Depends(get_db), owner_id: str = Depends(
 
 @coach_router.post("/api/coach/test-connection", dependencies=[rate_limit("admin")])
 async def test_connection(db: Session = Depends(get_db), owner_id: str = Depends(current_owner_id)):
-    prefs = coach_settings_module.get_coach_settings(db, owner_id)
-    provider = _build_or_400(db, owner_id, prefs["provider"])
+    from starlette.concurrency import run_in_threadpool
+
+    def build():
+        built = _build_or_400(db, owner_id, coach_settings_module.get_coach_settings(db, owner_id)["provider"])
+        db.commit()
+        return built
+
+    provider = await run_in_threadpool(build)
     return await provider.test_connection()
 
 

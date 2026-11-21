@@ -2,13 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchIllnessBacktest, markIllnessBacktest } from "../../lib/api";
 import { formatShortDate, formatPercent } from "../../lib/format";
 import { Card } from "../ui/Card";
+import { ErrorState } from "../ui/EmptyState";
 
 /** Task Part B.4: list every night history would have flagged, let the athlete mark right/
  * wrong, report precision over what's actually been marked. A review/debug tool, not a
  * polished feature screen — plain list, no chart. */
 export function IllnessBacktestCard() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["illness-backtest"], queryFn: fetchIllnessBacktest });
+  // Reads stored results only — no history is recomputed to show this (session 33).
+  const { data, isError, refetch } = useQuery({ queryKey: ["illness-backtest"], queryFn: fetchIllnessBacktest, staleTime: 5 * 60_000 });
 
   const mark = useMutation({
     mutationFn: ({ date, correct }: { date: string; correct: boolean }) => markIllnessBacktest(date, correct),
@@ -18,9 +20,11 @@ export function IllnessBacktestCard() {
   return (
     <Card title="Illness detector backtest">
       <p className="mb-3 text-xs text-text-tertiary">
-        Every night this would have flagged "watch" or "likely" — mark each one right or wrong to track precision.
+        Every night in the last year this flagged "watch" or "likely" — mark each one right or wrong to track precision.
       </p>
-      {isLoading || !data ? (
+      {isError && !data ? (
+        <ErrorState message="Couldn't load the flagged nights." onRetry={() => refetch()} />
+      ) : !data ? (
         <p className="text-sm text-text-tertiary">Loading…</p>
       ) : data.flagged.length === 0 ? (
         <p className="text-sm text-text-tertiary">No flagged nights yet.</p>

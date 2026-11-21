@@ -105,7 +105,9 @@ def gather_interval_comparisons(session: Session, settings: dict) -> dict:
         sig = interval_signature(rows)
         if sig is None:
             continue
-        by_sig[sig].append({"date": d.isoformat(), "piece_id": p.id, "canonical_id": p.canonical_id, "summary": summarize_intervals(rows)})
+        # Session 33: a bike 4x1000m and a rowing 4x1000m are different efforts on different pace units — separate buckets.
+        key = f"Bike · {sig}" if p.modality == "bike" else sig
+        by_sig[key].append({"date": d.isoformat(), "piece_id": p.id, "canonical_id": p.canonical_id, "summary": summarize_intervals(rows, p.modality)})
     buckets = [compare_equivalent_intervals(sig, sessions, n_history_days, settings) for sig, sessions in by_sig.items()]
     buckets.sort(key=lambda b: b["bucket_label"])
     return {"buckets": buckets}
@@ -260,7 +262,7 @@ def _fast_start_flags(session: Session, limit: int = 10) -> list[bool]:
     zero extra queries beyond this one, unlike re-fetching a confirmed test's real Concept2
     stroke data, which this deliberately skips to keep this cheap enough to run from
     generate_recommendations' context assembly."""
-    rows = session.exec(select(Piece).where(Piece.has_intervals.is_(False)).order_by(Piece.created_at.desc()).limit(limit)).all()
+    rows = session.exec(select(Piece).where(Piece.has_intervals.is_(False), Piece.modality == "rowing_erg").order_by(Piece.created_at.desc()).limit(limit)).all()
     flags = []
     for p in rows:
         if not p.splits_json or not p.distance_m:

@@ -52,8 +52,8 @@ def list_interval_rows(session: Session, piece_id: int) -> list[PieceInterval]:
 def intervals_payload(session: Session, piece: Piece) -> dict:
     rows = [interval_row(r) for r in list_interval_rows(session, piece.id)]
     for r in rows:
-        r["split_s"] = derived_split_s(r)
-    return {"intervals": rows, "interval_summary": summarize_intervals(rows) if rows else None, "interval_signature": interval_signature(rows)}
+        r["split_s"] = derived_split_s(r, piece.modality)
+    return {"intervals": rows, "interval_summary": summarize_intervals(rows, piece.modality) if rows else None, "interval_signature": interval_signature(rows)}
 
 
 def _plain(row: dict, position: int) -> dict:
@@ -68,7 +68,7 @@ def _commit_rows(session: Session, piece: Piece, plain_rows: list[dict], source_
     soft-validation contract as splits, so an athlete can save an incomplete interval set and
     return to it later."""
     rows = [_plain(r, i) for i, r in enumerate(plain_rows)]
-    validation = validate_intervals(rows)
+    validation = validate_intervals(rows, piece.modality)
     if not validation["ok"] and not force:
         return False, validation
 
@@ -105,7 +105,7 @@ def _sync_piece_totals(piece: Piece, rows: list[dict]) -> None:
         # Last interval removed: stop reporting stale work totals as if this were a single effort.
         piece.distance_m = piece.duration_s = piece.avg_split_s = piece.avg_rate = piece.avg_watts = None
         return
-    s = summarize_intervals(rows)
+    s = summarize_intervals(rows, piece.modality)
     piece.distance_m = s["work_distance_m"]
     piece.duration_s = s["work_duration_s"]
     piece.avg_split_s = s["avg_split_s"]
@@ -136,14 +136,15 @@ def create_interval_piece(
     source: str = "manual",
     concept2_activity_id: Optional[int] = None,
     force: bool = False,
+    modality: str = "rowing_erg",
 ) -> tuple[Optional[Piece], dict]:
     rows = [_plain(r, i) for i, r in enumerate(intervals)]
-    validation = validate_intervals(rows)
+    validation = validate_intervals(rows, modality)
     if (not validation["ok"] and not force) or not rows:
         if not rows:
             validation = {"ok": False, "issues": [{"index": None, "field": None, "message": "Add at least one interval."}]}
         return None, validation
-    piece = Piece(canonical_id=canonical_id, piece_type=piece_type, source=source, notes=notes, concept2_activity_id=concept2_activity_id)
+    piece = Piece(canonical_id=canonical_id, piece_type=piece_type, modality=modality, source=source, notes=notes, concept2_activity_id=concept2_activity_id)
     session.add(piece)
     session.commit()
     session.refresh(piece)
@@ -288,6 +289,8 @@ def build_intervals_from_concept2(session: Session, canonical_id: int, activity_
             r["id"] = old_ids[i] if i < len(old_ids) else None
         _commit_rows(session, existing, rows, ["concept2"] * len(rows), force=True)
         return existing
-    piece, _ = create_interval_piece(session, canonical_id, rows, source="concept2", concept2_activity_id=activity_id, force=True)
+    # A BikeErg result's intervals are a bike piece (pace per 1000 m); RowErg/SkiErg and the rest keep the rowing basis.
+    modality = "bike" if activity.type == "bike" else "rowing_erg"
+    piece, _ = create_interval_piece(session, canonical_id, rows, source="concept2", concept2_activity_id=activity_id, force=True, modality=modality)
     assert piece is not None
     return piece

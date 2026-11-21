@@ -1,5 +1,5 @@
-import type { TrainingZones } from "../../lib/types";
-import { formatNumber } from "../../lib/format";
+import type { HrBasis, TrainingZones } from "../../lib/types";
+import { formatNumber, formatShortDate } from "../../lib/format";
 import { zoneColor } from "../../lib/zoneColors";
 import type { ZoneName } from "../../lib/types";
 
@@ -31,7 +31,23 @@ export function ZoneTable({ zones, currentZone }: { zones: TrainingZones; curren
           ))}
         </tbody>
       </table>
+      {zones.hr_basis && <p className="mt-2 text-xs text-text-secondary" data-testid="zone-basis">{describeHrBasis(zones.hr_basis)}</p>}
       <p className="mt-2 text-xs text-text-tertiary">{zones.note}</p>
     </div>
   );
+}
+
+/** One plain sentence: which method the heart-rate zones used and the resting/max heart rate behind them (session 33). */
+export function describeHrBasis(b: HrBasis): string {
+  if (b.method === "none") return b.reason ?? "No heart-rate zones without a max heart rate.";
+  const max = `max ${formatNumber(b.max_hr)} bpm`;
+  if (b.method === "max_pct") return `% of max heart rate (${max}).${b.reason ? ` ${b.reason}` : ""}`;
+  const rest = formatNumber(b.resting_hr);
+  const from =
+    b.rhr_source === "setting"
+      ? "your setting"
+      : b.rhr_window
+        ? `median of ${b.rhr_readings} mornings, ${formatShortDate(b.rhr_window[0])}–${formatShortDate(b.rhr_window[1])}${b.rhr_source === "measured_stale" ? ", the latest available" : ""}`
+        : "measured";
+  return `Heart-rate reserve: resting ${rest} bpm (${from}), ${max}.`;
 }

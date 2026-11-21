@@ -12,7 +12,30 @@ from catch.core.models import AppSettings
 
 SETTINGS_ID = 1
 
-_ALLOWED_VALUES = {"zone_mode": {"hr", "power"}, "units": {"metric", "imperial"}}
+_ALLOWED_VALUES = {"zone_mode": {"hr", "power"}, "units": {"metric", "imperial"}, "hr_zone_method": {"hrr", "max_pct"}}
+_ZONE_ORDER = ("UT2", "UT1", "AT", "TR", "AN")
+
+
+def _validate_heart_rate(patch: dict, merged: dict) -> None:
+    """Session 33: the values heart-rate zones are built from. Checked on the merged result, so a patch can't leave max and
+    resting heart rate inconsistent with each other."""
+    def number(v) -> bool:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    max_hr, rest = merged.get("max_hr"), merged.get("resting_hr")
+    if "max_hr" in patch and max_hr is not None and not (number(max_hr) and 120 <= max_hr <= 230):
+        raise ValueError("Max heart rate must be between 120 and 230 bpm.")
+    if "resting_hr" in patch and rest is not None and not (number(rest) and 30 <= rest <= 100):
+        raise ValueError("Resting heart rate must be between 30 and 100 bpm.")
+    if ("max_hr" in patch or "resting_hr" in patch) and number(max_hr) and number(rest) and max_hr - rest < 40:
+        raise ValueError("Max heart rate must be at least 40 bpm above resting heart rate.")
+    if "zones" in patch:
+        for table in ("hr_pct", "hrr_pct", "power_pct"):
+            values = [merged["zones"][table].get(z) for z in _ZONE_ORDER]
+            if not all(number(v) and 0 < v <= 150 for v in values) or any(b <= a for a, b in zip(values, values[1:])):
+                raise ValueError(f"Zone percentages ({table}) must be numbers that increase from UT2 to AN.")
+            if table != "power_pct" and values[-1] > 100:
+                raise ValueError("Heart-rate zone percentages can't be above 100.")
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -59,6 +82,7 @@ def update_settings(session: Session, patch: dict) -> dict:
         session.add(row)
     current_overrides = json.loads(row.data_json) if row.data_json else {}
     merged_overrides = _deep_merge(current_overrides, patch)
+    _validate_heart_rate(patch, _deep_merge(DEFAULT_SETTINGS, merged_overrides))
     row.data_json = json.dumps(merged_overrides)
     row.updated_at = datetime.now(timezone.utc)
     session.commit()

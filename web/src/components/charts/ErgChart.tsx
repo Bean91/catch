@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { hrZoneForHr } from "../../lib/hrZone";
+import { zoneForBpm } from "../../lib/zoneColors";
 import { formatDistance, formatSplit } from "../../lib/format";
 import type { Stroke, ZoneName } from "../../lib/types";
 import type { Domain } from "../../lib/useChartInteraction";
@@ -52,8 +52,7 @@ function nearestStroke(strokes: Stroke[], distance: number): Stroke | null {
 
 export function ErgChart({
   strokes,
-  maxHr,
-  hrPct,
+  hrBoundsBpm,
   domain,
   fullDomain,
   onDomainChange,
@@ -63,8 +62,8 @@ export function ErgChart({
   onHoverInterval,
 }: {
   strokes: Stroke[];
-  maxHr: number | null;
-  hrPct: Record<string, number>;
+  /** Each zone's lower bound in bpm, from the workout's own zone basis (server-computed — no zone maths here). */
+  hrBoundsBpm: Record<string, number>;
   domain: Domain;
   fullDomain: Domain;
   onDomainChange: (domain: Domain) => void;
@@ -126,7 +125,7 @@ export function ErgChart({
   let prevZone: ZoneName | null = null;
   let segStart = 0;
   withDistance.forEach((s, i) => {
-    const zone = hrZoneForHr(s.hr, maxHr, hrPct) as ZoneName | null;
+    const zone = zoneForBpm(s.hr, hrBoundsBpm);
     const d = s.distance_cum as number;
     if (zone !== prevZone) {
       if (prevZone != null) bandSegments.push({ zone: prevZone, x0: segStart, x1: d, interval: s.interval_index ?? 0 });

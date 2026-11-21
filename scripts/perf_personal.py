@@ -8,6 +8,7 @@ runs one full score recompute, then times the main read endpoints and the writes
 statements each request issues. No network: the scheduler is never started and no provider is connected.
 
     uv run python scripts/perf_personal.py --years 3 --repeat 7 [--json out.json]
+    uv run python scripts/perf_personal.py --years 3 --only settings      # session 33: every Settings request + a concurrent burst
 """
 
 from __future__ import annotations
@@ -74,6 +75,58 @@ READS = (
     "/api/gym/muscle-readiness",
     "/api/status",
 )
+
+
+# Session 33: every request the Settings page makes when it opens (docs/performance.md "Settings").
+SETTINGS_READS = (
+    "/api/settings",
+    "/api/connections",
+    "/api/sync/status",
+    "/api/time-zone",
+    "/api/me",
+    "/api/push/subscriptions",
+    "/api/nutrition/targets",
+    "/api/illness/backtest",
+    "/api/coach/settings",
+    "/api/coach/tokens",
+    "/api/ai/providers",
+)
+
+
+def burst(client: TestClient, urls: list[str], rounds: int) -> dict:
+    """Every Settings request at once from parallel threads, the way the page fires them, repeated `rounds` times. Reports each
+    request's median latency inside the burst and the median time until the last one finished (what a user waits for)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    per: dict[str, list[float]] = {u: [] for u in urls}
+    walls: list[float] = []
+    statuses: dict[str, int] = {}
+    for _ in range(rounds):
+        t0 = time.perf_counter()
+
+        def one(u: str) -> tuple[str, float, int]:
+            s0 = time.perf_counter()
+            r = client.get(u)
+            return u, (time.perf_counter() - s0) * 1000, r.status_code
+
+        with ThreadPoolExecutor(max_workers=len(urls)) as pool:
+            for u, ms, status in pool.map(one, urls):
+                per[u].append(ms)
+                statuses[u] = status
+        walls.append((time.perf_counter() - t0) * 1000)
+    return {
+        "wall_p50_ms": round(statistics.median(walls), 1),
+        "requests": [{"url": u, "status": statuses[u], "p50_ms": round(statistics.median(v), 1)} for u, v in per.items()],
+    }
+
+
+def seed_ai_credential() -> None:
+    """A configured provider so the AI cards exercise their real path (a stored, sealed key) — never used for a network call."""
+    from catch.coach import settings as coach_settings
+
+    with Session(core_db.engine) as s:
+        coach_settings.set_credential(s, "anthropic", "sk-ant-perf-only-not-a-real-key-000000", OWNER)
+        coach_settings.update_coach_settings(s, {"provider": "anthropic", "models": {"anthropic": "claude-sonnet-5-5"}}, OWNER)
 
 
 def seed(years: int, rng: random.Random) -> dict:
@@ -170,6 +223,7 @@ def main() -> int:
     ap.add_argument("--repeat", type=int, default=7)
     ap.add_argument("--seed", type=int, default=32)
     ap.add_argument("--json", help="write the results here as JSON")
+    ap.add_argument("--only", choices=("all", "settings"), default="all")
     args = ap.parse_args()
 
     import catch.main as main_module
@@ -189,29 +243,40 @@ def main() -> int:
         recompute_scores(s)
     full_recompute_ms = (time.perf_counter() - t0) * 1000
 
+    seed_ai_credential()
     counter = Counter()
     event.listen(core_db.engine, "before_cursor_execute", counter)
     results = []
+    settings_burst = None
     with TestClient(main_module.app) as client:
         assert client.post("/api/login", json={"password": PASSWORD}).status_code == 200
         today = date.today()
-        for url in READS:
+        for url in SETTINGS_READS:
+            results.append(measure(client, "GET", url, args.repeat, counter))
+        results.append(measure(client, "PUT", "/api/settings", max(2, args.repeat // 2), counter, {"notifications": {"quiet_hours_start": "22:30"}}))
+        settings_burst = burst(client, list(SETTINGS_READS), args.repeat)
+        for url in READS if args.only == "all" else ():
             url = url.format(from_=(today - timedelta(days=35)).isoformat(), to=(today + timedelta(days=7)).isoformat())
             results.append(measure(client, "GET", url, args.repeat, counter))
-        results.append(measure(client, "POST", "/api/checkins", max(2, args.repeat // 2), counter,
-                               {"date": today.isoformat(), "soreness": 2, "stress": 2, "mood": 4, "sleep_quality": 4}))
-        latest = client.get("/api/activities?limit=1").json()
-        items = latest.get("items", latest) if isinstance(latest, dict) else latest
-        if items:
-            results.append(measure(client, "PATCH", f"/api/activities/{items[0]['id']}", max(2, args.repeat // 2), counter, {"rpe": 6}))
+        if args.only == "all":
+            results.append(measure(client, "POST", "/api/checkins", max(2, args.repeat // 2), counter,
+                                   {"date": today.isoformat(), "soreness": 2, "stress": 2, "mood": 4, "sleep_quality": 4}))
+            latest = client.get("/api/activities?limit=1").json()
+            items = latest.get("items", latest) if isinstance(latest, dict) else latest
+            if items:
+                results.append(measure(client, "PATCH", f"/api/activities/{items[0]['id']}", max(2, args.repeat // 2), counter, {"rpe": 6}))
     event.remove(core_db.engine, "before_cursor_execute", counter)
 
     out = {"years": args.years, "seeded": counts, "seed_s": round(seed_s, 1), "full_recompute_ms": round(full_recompute_ms),
-           "results": results}
+           "results": results, "settings_burst": settings_burst}
     print(f"seeded {counts} in {seed_s:.1f}s; full recompute {full_recompute_ms:.0f} ms")
     print(f"{'method':6} {'endpoint':55} {'status':>6} {'p50 ms':>8} {'max ms':>8} {'SQL':>6} {'bytes':>9}")
     for r in results:
         print(f"{r['method']:6} {r['url'][:55]:55} {r['status']:>6} {r['p50_ms']:>8} {r['max_ms']:>8} {r['sql']:>6} {r['bytes']:>9}")
+    if settings_burst:
+        print(f"\nSettings burst ({len(SETTINGS_READS)} requests at once): last one done after {settings_burst['wall_p50_ms']} ms (median)")
+        for r in settings_burst["requests"]:
+            print(f"  {r['url'][:45]:45} {r['status']:>4} {r['p50_ms']:>8} ms")
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=2))
     return 0

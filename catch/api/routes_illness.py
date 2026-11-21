@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from catch.core import tenant
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -69,22 +69,33 @@ def mark_backtest(day: date, body: MarkRequest = Body(...), db: Session = Depend
 
 
 @router.get("/api/illness/backtest")
-def illness_backtest(db: Session = Depends(get_db)):
+def illness_backtest(days: int = Query(365, ge=1, le=3660), db: Session = Depends(get_db)):
     """Task Part B.4: every night history would have flagged (watch or likely), with
     whatever the athlete has marked right/wrong so far, plus precision over what's actually
-    been marked (never over everything — most nights will simply be unmarked)."""
-    rows = db.exec(select(DailyScore).where(DailyScore.illness_json.is_not(None)).order_by(DailyScore.date)).all()
-    acks = {a.date: a for a in db.exec(select(IllnessAck)).all()}
+    been marked (never over everything — most nights will simply be unmarked).
+
+    Session 33: reads only the date and the stored illness result (no recomputation, and not the recovery/strain/load JSON of
+    every day), the last `days` days (default a year), and skips the "none" nights in SQL — this card used to load every
+    daily_scores row ever, all columns, to show a handful of nights."""
+    from catch.core import localtime
+
+    since = localtime.today(db) - timedelta(days=days)
+    rows = db.exec(
+        select(DailyScore.date, DailyScore.illness_json)
+        .where(DailyScore.date >= since, DailyScore.illness_json.is_not(None), DailyScore.illness_json.not_like('%"level": "none"%'))
+        .order_by(DailyScore.date)
+    ).all()
+    acks = {a.date: a for a in db.exec(select(IllnessAck).where(IllnessAck.date >= since)).all()}
 
     flagged = []
-    for row in rows:
-        illness = json.loads(row.illness_json)
+    for day, illness_json in rows:
+        illness = json.loads(illness_json)
         if illness["level"] == "none":
             continue
-        ack = acks.get(row.date)
+        ack = acks.get(day)
         flagged.append(
             {
-                "date": row.date,
+                "date": day,
                 "level": illness["level"],
                 "deviated_count": illness["deviated_count"],
                 "explanation": illness["explanation"],

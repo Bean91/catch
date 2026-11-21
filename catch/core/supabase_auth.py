@@ -172,6 +172,9 @@ class SessionLiveness:
         self._lock = threading.Lock()
         self._alive: dict[str, float] = {}
         self._dead: set[str] = set()
+        # Session 33: one lookup per session id at a time. The Settings page sends ~12 requests at once; on a cache miss each
+        # used to run its own query (its own pooled connection) for the same answer.
+        self._inflight: dict[str, threading.Lock] = {}
 
     def reset(self) -> None:
         with self._lock:
@@ -192,7 +195,22 @@ class SessionLiveness:
             seen = self._alive.get(session_id)
             if seen is not None and now - seen < ttl:
                 return True
-        live = query(session_id)
+            gate = self._inflight.setdefault(session_id, threading.Lock())
+        with gate:
+            with self._lock:
+                if session_id in self._dead:
+                    return False
+                seen = self._alive.get(session_id)
+                if seen is not None and self._clock() - seen < ttl:
+                    return True
+            live = query(session_id)
+            self._record(session_id, live, now)
+        with self._lock:
+            if self._inflight.get(session_id) is gate and not gate.locked():
+                self._inflight.pop(session_id, None)
+        return live
+
+    def _record(self, session_id: str, live: bool, now: float) -> None:
         with self._lock:
             if not live:
                 self._dead.add(session_id)
@@ -203,7 +221,6 @@ class SessionLiveness:
                 if len(self._alive) > self._max:
                     self._alive.clear()
                 self._alive[session_id] = now
-        return live
 
 
 liveness = SessionLiveness()

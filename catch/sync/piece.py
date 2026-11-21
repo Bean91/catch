@@ -15,7 +15,15 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from catch.analytics.erg_test import actual_splits
-from catch.analytics.piece import aggregate_from_splits, find_best_window, standard_distance_m, validate_splits
+from catch.analytics.piece import (
+    DEFAULT_MODALITY,
+    aggregate_from_splits,
+    find_best_window,
+    split_m_for,
+    standard_distance_m,
+    totals_only_splits,
+    validate_splits,
+)
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.technique import interval_summary
 from catch.analytics.zones_samples import drop_dropouts, hr_recovery_drop, smooth, time_in_zone_seconds
@@ -52,11 +60,34 @@ def _resolve_and_rescore(session: Session, canonical_id: int) -> None:
     recompute_scores(session)
 
 
+def _after_save(session: Session, piece: Piece, *, align: bool) -> list[str]:
+    """Alignment and rescoring run after the piece (and its photo) are committed. A failure here must never turn a saved piece
+    into an error response — the athlete would retry and save it twice (session 33 photo bug). Logged; the piece is returned
+    with a warning, and the next resolve or sync picks the derived values up."""
+    warnings: list[str] = []
+    piece_id, canonical_id = piece.id, piece.canonical_id
+    try:
+        if align:
+            _auto_align(session, piece)
+        _resolve_and_rescore(session, canonical_id)
+    except Exception:
+        logger.exception("post-save step failed for piece %s", piece_id)
+        session.rollback()
+        warnings.append("Saved. The heart-rate window and scores will update on the next sync.")
+    refreshed = session.get(Piece, piece_id)
+    if refreshed is not None:
+        session.refresh(refreshed)
+    return warnings
+
+
 def piece_dict(piece: Piece, has_photo: bool = False) -> dict:
+    modality = piece.modality or DEFAULT_MODALITY
     return {
         "id": piece.id,
         "canonical_id": piece.canonical_id,
         "piece_type": piece.piece_type,
+        "modality": modality,
+        "split_unit_m": split_m_for(modality),
         "distance_m": piece.distance_m,
         "duration_s": piece.duration_s,
         "avg_split_s": piece.avg_split_s,
@@ -127,6 +158,11 @@ def _mark_typed_hr(splits: list[dict]) -> list[dict]:
     return splits
 
 
+def default_modality_for(session: Session, canonical_id: int) -> str:
+    canonical = session.get(CanonicalActivity, canonical_id)
+    return "bike" if canonical is not None and canonical.sport_family == "cycling" else DEFAULT_MODALITY
+
+
 def create_piece(
     session: Session,
     canonical_id: int,
@@ -139,15 +175,28 @@ def create_piece(
     source: str = "manual",
     notes: Optional[str] = None,
     force: bool = False,
+    modality: Optional[str] = None,
+    avg_rate: Optional[float] = None,
+    avg_watts: Optional[float] = None,
+    photo: Optional[tuple[bytes, str]] = None,
 ) -> tuple[Optional[Piece], dict]:
     """Returns (piece_or_None, validation). `piece` is None (nothing saved) when validation
     fails and `force` isn't set — task Part B.3's "highlight, don't silently correct": the
-    athlete sees exactly which rows disagree and either fixes them or explicitly saves anyway."""
+    athlete sees exactly which rows disagree and either fixes them or explicitly saves anyway.
+
+    Session 33: a piece known only by its totals (no split rows) is saved as one whole-piece row; `photo` (bytes, content type,
+    already validated by the caller) is stored in the same transaction as the piece, so neither can exist without the other.
+    `validation["warnings"]` carries any post-save notice."""
+    modality = modality or default_modality_for(session, canonical_id)
+    if not splits:
+        splits = totals_only_splits(distance_m, duration_s, avg_rate, avg_watts)
+        if not splits:
+            raise ValueError("Enter the piece's total distance or time (or its splits).")
     splits = _mark_typed_hr(splits)
-    agg = aggregate_from_splits(splits)
+    agg = aggregate_from_splits(splits, modality)
     total_distance = distance_m if distance_m is not None else agg["distance_m"]
     total_duration = duration_s if duration_s is not None else agg["duration_s"]
-    validation = validate_splits(splits, total_distance, total_duration)
+    validation = validate_splits(splits, total_distance, total_duration, modality)
     # A standard-type piece whose splits carry no distance at all (e.g. a pure paste with no
     # per-row distance) still has a real, known total distance — falling back to None here
     # would silently drop the piece out of every distance-keyed reader (PBs, predict, the
@@ -158,27 +207,36 @@ def create_piece(
     if not validation["ok"] and not force:
         return None, validation
 
+    if total_distance and total_duration and agg["avg_split_s"] is None:
+        agg["avg_split_s"] = total_duration / total_distance * split_m_for(modality)
     piece = Piece(
         canonical_id=canonical_id,
         piece_type=piece_type,
+        modality=modality,
         distance_m=total_distance,
         duration_s=total_duration,
         avg_split_s=agg["avg_split_s"],
-        avg_rate=agg["avg_rate"],
-        avg_watts=agg["avg_watts"],
+        avg_rate=agg["avg_rate"] if agg["avg_rate"] is not None else avg_rate,
+        avg_watts=agg["avg_watts"] if agg["avg_watts"] is not None else avg_watts,
         drag_factor=drag_factor,
         splits_json=json.dumps(splits),
         source=source,
         notes=notes,
     )
     session.add(piece)
-    session.commit()
+    try:
+        if photo is not None:
+            session.flush()
+            session.add(PiecePhoto(piece_id=piece.id, image=photo[0], content_type=photo[1]))
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     session.refresh(piece)
 
     # Auto-suggest a window immediately (task Part D.1) — best-effort; a piece with nowhere
     # to align (no member has samples long enough yet) just stays unaligned until one does.
-    _auto_align(session, piece)
-    _resolve_and_rescore(session, canonical_id)
+    validation = {**validation, "warnings": _after_save(session, piece, align=True)}
     return piece, validation
 
 
@@ -191,6 +249,7 @@ def update_piece(
     duration_s: Optional[float] = None,
     notes: Optional[str] = None,
     force: bool = False,
+    modality: Optional[str] = None,
 ) -> tuple[Optional[Piece], dict]:
     """`distance_m`/`duration_s` are the *independent* "total" the athlete entered or the
     screen showed (task Part C.1's "enter the total and splits and it checks they match") —
@@ -201,16 +260,25 @@ def update_piece(
     piece = session.get(Piece, piece_id)
     if piece is None:
         raise ValueError(f"No piece with id {piece_id}")
+    if modality is not None and modality != piece.modality:
+        piece.modality = modality
+        # The split basis changed (500 m <-> 1000 m): re-derive the stored pace from the totals.
+        if splits is None:
+            agg = aggregate_from_splits(json.loads(piece.splits_json or "[]"), modality)
+            piece.avg_split_s = agg["avg_split_s"] or (
+                piece.duration_s / piece.distance_m * split_m_for(modality) if piece.duration_s and piece.distance_m else None
+            )
+    modality = piece.modality or DEFAULT_MODALITY
     validation = {"ok": True, "issues": []}
     if splits is not None:
         splits = _mark_typed_hr(splits)
         target_distance = distance_m if distance_m is not None else piece.distance_m
         target_duration = duration_s if duration_s is not None else piece.duration_s
-        validation = validate_splits(splits, target_distance, target_duration)
+        validation = validate_splits(splits, target_distance, target_duration, modality)
         if not validation["ok"] and not force:
             return None, validation
         piece.splits_json = json.dumps(splits)
-        agg = aggregate_from_splits(splits)
+        agg = aggregate_from_splits(splits, modality)
         piece.distance_m = target_distance if target_distance is not None else agg["distance_m"]
         piece.duration_s = target_duration if target_duration is not None else agg["duration_s"]
         piece.avg_split_s = agg["avg_split_s"]
@@ -222,7 +290,7 @@ def update_piece(
         existing_splits = json.loads(piece.splits_json) if piece.splits_json else []
         target_distance = distance_m if distance_m is not None else piece.distance_m
         target_duration = duration_s if duration_s is not None else piece.duration_s
-        validation = validate_splits(existing_splits, target_distance, target_duration)
+        validation = validate_splits(existing_splits, target_distance, target_duration, modality)
         if not validation["ok"] and not force:
             return None, validation
         piece.distance_m = target_distance
@@ -235,7 +303,7 @@ def update_piece(
     session.refresh(piece)
     if piece.window_activity_id is not None:
         _apply_alignment(session, piece, piece.window_activity_id, piece.window_start_s)
-    _resolve_and_rescore(session, piece.canonical_id)
+    validation = {**validation, "warnings": _after_save(session, piece, align=False)}
     return piece, validation
 
 
@@ -300,7 +368,10 @@ def _apply_alignment(session: Session, piece: Piece, activity_id: int, start_s: 
         return
 
     settings = get_settings(session)
-    max_hr = settings.get("max_hr")
+    from catch.api.routes_activities import workout_hr_basis
+
+    canonical = session.get(CanonicalActivity, piece.canonical_id)
+    basis = workout_hr_basis(session, canonical, settings) if canonical is not None else None
     hr_full = samples["hr"]
     window_hr = hr_full[start_s:end_s]
 
@@ -328,12 +399,19 @@ def _apply_alignment(session: Session, piece: Piece, activity_id: int, start_s: 
     piece.splits_json = json.dumps(splits)
 
     cleaned = drop_dropouts([v for v in window_hr])
-    tiz = time_in_zone_seconds(smooth(cleaned), max_hr, settings) if any(v is not None for v in cleaned) else None
+    tiz = time_in_zone_seconds(smooth(cleaned), basis) if any(v is not None for v in cleaned) else None
     piece.time_in_zone_json = json.dumps(tiz) if tiz else None
     piece.hr_recovery_bpm = hr_recovery_drop(hr_full, end_s - 1, 60)
 
     session.add(piece)
     session.commit()
+
+
+def refresh_piece_zones(session: Session, piece: Piece) -> None:
+    """Re-derive an aligned piece's time in zone (and derived split HR) from its stored window — after the zone basis changes
+    (settings, or a resting-HR reading the window depends on). The window itself is never moved."""
+    if piece.window_activity_id is not None and piece.window_start_s is not None and not piece.has_intervals:
+        _apply_alignment(session, piece, piece.window_activity_id, piece.window_start_s)
 
 
 def _auto_align(session: Session, piece: Piece) -> bool:
@@ -370,8 +448,16 @@ def align_piece(session: Session, piece_id: int, *, activity_id: Optional[int] =
 # --- Part D.3: refine the activity's own zones/strain for the piece's window --------------
 
 
+_FAMILY_BY_MODALITY = {"rowing_erg": "rowing", "bike": "cycling"}
+
+
 def power_member_and_samples(
-    session: Session, canonical_id: int, members: list[Activity], power_member: Optional[Activity], power_samples: Optional[dict]
+    session: Session,
+    canonical_id: int,
+    members: list[Activity],
+    power_member: Optional[Activity],
+    power_samples: Optional[dict],
+    sport_family: Optional[str] = None,
 ) -> tuple[Optional[Activity], Optional[dict]]:
     """Called from catch/sync/canonical.py's _resolve_zones. Overlays each aligned piece's
     own per-split watts onto its window — never a flat average over the whole window, and
@@ -380,7 +466,15 @@ def power_member_and_samples(
     is used purely as a vessel so the overlay still reaches the zones pipeline — this never
     changes canonical.avg_power or any field-priority display value, only the power array
     this one resolve pass computes zones/strain from."""
-    pieces = [p for p in list_pieces_for_canonical(session, canonical_id) if p.window_activity_id is not None and p.window_start_s is not None]
+    # Session 33: only a piece on the activity's own kind of machine refines its power — rowing-formula watts typed on a rowing
+    # piece must never reach a cycling session's TSS, nor a bike piece a rowing session's zones.
+    pieces = [
+        p
+        for p in list_pieces_for_canonical(session, canonical_id)
+        if p.window_activity_id is not None
+        and p.window_start_s is not None
+        and (sport_family is None or _FAMILY_BY_MODALITY.get(p.modality or "rowing_erg") == sport_family)
+    ]
     if not pieces:
         return power_member, power_samples
 
@@ -482,7 +576,7 @@ def _absorb(session: Session, piece: Piece, concept2_activity: Activity, interva
     new_splits = _splits_from_concept2(session, concept2_activity.id, interval_index)
     if new_splits:
         piece.splits_json = json.dumps(new_splits)
-        agg = aggregate_from_splits(new_splits)
+        agg = aggregate_from_splits(new_splits, piece.modality)
         piece.distance_m = agg["distance_m"] or piece.distance_m
         piece.duration_s = agg["duration_s"] or piece.duration_s
         piece.avg_split_s = agg["avg_split_s"]
@@ -518,7 +612,8 @@ def absorb_concept2_piece_results(session: Session) -> int:
        this just finds which Stroke.interval_index group matches the piece's own signature.
     """
     absorbed = 0
-    unlinked = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False))).all()
+    # Session 33: RowErg results only, onto rowing erg pieces only — a BikeErg result's stroke pace is per 1000 m.
+    unlinked = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False), Piece.modality == "rowing_erg")).all()
     for piece in unlinked:
         canonical = session.get(CanonicalActivity, piece.canonical_id)
         if canonical is None or piece.distance_m is None or piece.duration_s is None:
@@ -527,7 +622,7 @@ def absorb_concept2_piece_results(session: Session) -> int:
         # Case 2: a Concept2 member already lives on this same canonical (whole-session
         # record) — look for a matching interval group inside its own strokes.
         same_canonical_concept2 = session.exec(
-            select(Activity).where(Activity.canonical_id == piece.canonical_id, Activity.source == "concept2")
+            select(Activity).where(Activity.canonical_id == piece.canonical_id, Activity.source == "concept2", Activity.type == "rower")
         ).first()
         if same_canonical_concept2 is not None and same_canonical_concept2.id is not None:
             indices = session.exec(
@@ -559,7 +654,7 @@ def absorb_concept2_piece_results(session: Session) -> int:
         if day is None:
             continue
         candidates = session.exec(
-            select(Activity).where(Activity.source == "concept2", Activity.canonical_id != piece.canonical_id)
+            select(Activity).where(Activity.source == "concept2", Activity.type == "rower", Activity.canonical_id != piece.canonical_id)
         ).all()
         for candidate in candidates:
             if candidate.start is None or localtime.day_of(session, candidate) != day:
@@ -605,7 +700,7 @@ def piece_pb_candidates(session: Session) -> list[dict]:
     A.1: "pieces count in the test center like Concept2 results" — this is the PB half of
     that). Excludes any piece Part D.4 already absorbed into a real Concept2 result, whose
     own Activity row is already a PB candidate via the normal path."""
-    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False))).all()
+    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False), Piece.modality == "rowing_erg")).all()
     out = []
     for p in pieces:
         if not p.distance_m or not p.duration_s:
@@ -633,7 +728,9 @@ def confirmed_piece_pace_candidates(session: Session, cutoff: datetime) -> list[
     must be judged by when the effort happened, not when it was typed in, exactly like every
     other "recent" window in this app (predict_lookback_days elsewhere always means the
     activity's date)."""
-    pieces = session.exec(select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False), Piece.distance_m >= 1000)).all()
+    pieces = session.exec(
+        select(Piece).where(Piece.concept2_activity_id.is_(None), Piece.has_intervals.is_(False), Piece.modality == "rowing_erg", Piece.distance_m >= 1000)
+    ).all()
     out = []
     for p in pieces:
         if not p.duration_s:

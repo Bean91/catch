@@ -133,7 +133,13 @@ def _normalize_splits(rows: list[dict], total_duration_s: float | None) -> list[
     return rows
 
 
-async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str | None = None) -> dict:
+_BIKE_NOTE = (
+    " This photo is of a BikeErg: its pace is shown per 1000 m, not per 500 m. Transcribe it exactly as displayed; the rate "
+    "column is cadence (rpm)."
+)
+
+
+async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type: str, owner_id: str | None = None, *, modality: str = "rowing_erg") -> dict:
     """Returns a piece draft: {splits, distance_m, duration_s, avg_rate, avg_watts,
     drag_factor, notes, validation, cost_usd} — never saved here (task Part B.2/B.4's "ending
     in the same editable review table" as typed entry; the photo itself is attached only
@@ -146,7 +152,7 @@ async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type:
             session,
             "piece_photo_estimate",
             VisionRequest(
-                system=_SYSTEM_PROMPT,
+                system=_SYSTEM_PROMPT + (_BIKE_NOTE if modality == "bike" else ""),
                 user_text="Transcribe this PM5 screen exactly as shown.",
                 image_bytes=image_bytes,
                 media_type=media_type,
@@ -165,9 +171,17 @@ async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type:
     distance_m = result.get("total_distance_m")
     splits = _normalize_splits(splits, total_duration_s)
 
+    from catch.analytics.erg_test import detect_test_type
     from catch.analytics.piece import validate_splits
 
+    # Session 33: the type the screen's totals imply, pre-selected for the athlete to confirm on review — before this, a photo
+    # always saved as whatever type was chosen before the photo (2000m by default), so a 5k could land in the 2k PBs.
+    detected_type = detect_test_type(distance_m, total_duration_s, result.get("avg_rate"))
+    if detected_type == "30min_r20" and modality == "bike":
+        detected_type = None
     return {
+        "modality": modality,
+        "detected_piece_type": detected_type,
         "splits": splits,
         "distance_m": distance_m,
         "duration_s": total_duration_s,
@@ -175,7 +189,7 @@ async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type:
         "avg_rate": result.get("avg_rate"),
         "avg_watts": result.get("avg_watts"),
         "drag_factor": result.get("drag_factor"),
-        "validation": validate_splits(splits, distance_m, total_duration_s),
+        "validation": validate_splits(splits, distance_m, total_duration_s, modality),
         "notes": " ".join(notes) if notes else "",
         "cost_usd": turn_cost,
     }

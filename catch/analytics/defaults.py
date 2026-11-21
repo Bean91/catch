@@ -10,9 +10,18 @@ DEFAULT_SETTINGS: dict = {
     # physiology we verified against this athlete. Flagged to the user as "defaults, confirm
     # with your coach" wherever a zone table is returned.
     "zones": {
+        # % of max HR — used when the athlete picks "% of max HR", or as the stated fallback when no resting HR is known.
         "hr_pct": {"UT2": 60, "UT1": 70, "AT": 80, "TR": 87, "AN": 93},
+        # Session 33: % of heart-rate reserve (Karvonen: resting + (max − resting) × %). UT2 59 / UT1 67 / AT 75 / TR 85 are the
+        # lower bounds of the GB Rowing Team training matrix's HRR bands as published secondary sources quote it (the matrix PDF
+        # itself is no longer online); no published HRR band for AN was found, so 95 is Catch's own choice. docs/analytics.md §3.
+        "hrr_pct": {"UT2": 59, "UT1": 67, "AT": 75, "TR": 85, "AN": 95},
         "power_pct": {"UT2": 55, "UT1": 65, "AT": 75, "TR": 85, "AN": 95},
     },
+    # Session 33: "hrr" (heart-rate reserve, the default) or "max_pct" (% of max HR).
+    "hr_zone_method": "hrr",
+    # Session 33: a resting HR the athlete enters to override the measured one (median of the 14 days before each workout).
+    "resting_hr": None,
     # Banister TRIMP: duration_min * HRr * 0.64 * e^(trimp_exponent * HRr), HRr = (avg_hr -
     # resting_hr) / (max_hr - resting_hr). 1.92 is Banister's male coefficient (1.67 female);
     # exposed as a flat number rather than a gender field since this is a single-user app.

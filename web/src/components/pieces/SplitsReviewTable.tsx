@@ -1,4 +1,5 @@
-import { formatSplit } from "../../lib/format";
+import { formatSplit, splitUnitLabel } from "../../lib/format";
+import { SPLIT_M, rateUnit, type PieceModality } from "../../lib/pieceSplits";
 import type { PieceSplitRow, PieceValidation } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
 
@@ -10,12 +11,15 @@ export function SplitsReviewTable({
   validation,
   onChange,
   readOnly = false,
+  modality = "rowing_erg",
 }: {
   splits: PieceSplitRow[];
   validation: PieceValidation | null;
   onChange?: (splits: PieceSplitRow[]) => void;
   readOnly?: boolean;
+  modality?: PieceModality;
 }) {
+  const unit = splitUnitLabel(SPLIT_M[modality]);
   const tableIssues = (validation?.issues ?? []).filter((i) => i.split_index === null);
   const issuesByRow = new Map<number, string[]>();
   for (const issue of validation?.issues ?? []) {
@@ -30,6 +34,10 @@ export function SplitsReviewTable({
   const remove = (i: number) => {
     if (!onChange) return;
     onChange(splits.filter((_, idx) => idx !== i).map((row, idx) => ({ ...row, split_index: idx + 1 })));
+  };
+  const add = () => {
+    if (!onChange) return;
+    onChange([...splits, { split_index: splits.length + 1, distance_m: null, split_s: null, rate: null, watts: null, hr: null }]);
   };
 
   return (
@@ -50,8 +58,8 @@ export function SplitsReviewTable({
             <tr className="text-left text-xs text-text-tertiary">
               <th className="py-1 font-normal">#</th>
               <th className="py-1 font-normal">Distance (m)</th>
-              <th className="py-1 font-normal">Split</th>
-              <th className="py-1 font-normal">Rate</th>
+              <th className="py-1 font-normal">Split {unit}</th>
+              <th className="py-1 font-normal">{modality === "bike" ? "Cadence" : "Rate"} ({rateUnit(modality)})</th>
               <th className="py-1 font-normal">Watts</th>
               <th className="py-1 font-normal">HR</th>
               {!readOnly && <th className="py-1 font-normal" aria-hidden="true" />}
@@ -136,6 +144,12 @@ export function SplitsReviewTable({
           </tbody>
         </table>
       </div>
+      {!readOnly && splits.length === 0 && <p className="text-xs text-text-tertiary">No splits — the piece is saved from its totals. Add splits if you have them.</p>}
+      {!readOnly && (
+        <button type="button" onClick={add} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-accent">
+          + Add split
+        </button>
+      )}
       {Array.from(issuesByRow.entries()).map(([idx, messages]) => (
         <p key={idx} className="text-xs text-band-red-text">
           Split {idx}: {messages.join(" ")}

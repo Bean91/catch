@@ -89,6 +89,7 @@ def resolve_days(session: Session, days: Iterable[date]) -> int:
     priority = get_settings(session)["wellness_priority"]
     by_day = _readings_by_day(session, day_list)
     changed = 0
+    rhr_changed: list[date] = []
     for day in day_list:
         resolved = {}
         for signal in SIGNALS:
@@ -102,6 +103,7 @@ def resolve_days(session: Session, days: Iterable[date]) -> int:
             row = DailyWellness(date=day, source=next(iter(resolved.values())).source)
             session.add(row)
         before = (json.dumps({c: getattr(row, c) for c in _written_columns()}, default=str), row.field_sources_json)
+        rhr_before = row.resting_hr
         sources = json.loads(row.field_sources_json) if row.field_sources_json else {}
         for signal, winner in resolved.items():
             integer = signal in ("resting_hr", "sleep_seconds")
@@ -116,8 +118,33 @@ def resolve_days(session: Session, days: Iterable[date]) -> int:
         if before != after:
             row.updated_at = datetime.now(timezone.utc)
             changed += 1
+        if row.resting_hr != rhr_before:
+            rhr_changed.append(day)
     session.commit()
+    if rhr_changed:
+        rezone_after_resting_hr_change(session, rhr_changed)
     return changed
+
+
+def rezone_after_resting_hr_change(session: Session, days: list[date]) -> int:
+    """Session 33: a workout's heart-rate-reserve zones use the median resting HR of the 14 days before it (and its strain the day's
+    own resting HR), so a changed reading re-resolves only the workouts on that day and the 14 after it — bounded, never history.
+    Their cached zones (and each aligned piece's) then match the new readings."""
+    from datetime import timedelta
+
+    from catch.analytics.hr_basis import WINDOW_DAYS
+    from catch.core.models import CanonicalActivity, Piece
+    from catch.sync.canonical import resolve_canonical
+    from catch.sync.piece import refresh_piece_zones
+
+    first, last = min(days), max(days) + timedelta(days=WINDOW_DAYS)
+    ids = session.exec(select(CanonicalActivity.id).where(CanonicalActivity.local_date >= first, CanonicalActivity.local_date <= last)).all()
+    for cid in ids:
+        resolve_canonical(session, cid)
+    if ids:
+        for piece in session.exec(select(Piece).where(Piece.canonical_id.in_(ids), Piece.window_activity_id.is_not(None))).all():
+            refresh_piece_zones(session, piece)
+    return len(ids)
 
 
 def _written_columns() -> list[str]:

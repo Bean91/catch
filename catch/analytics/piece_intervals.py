@@ -14,27 +14,36 @@ from typing import Optional
 TARGET_TYPES = ("distance", "time")
 MAX_INTERVALS = 100
 RATE_RANGE = (14.0, 50.0)
+# Session 33: a bike interval's split is per 1000 m and its "rate" is pedal cadence (rpm).
+_SPLIT_M = {"rowing_erg": 500.0, "bike": 1000.0}
+_RATE_RANGES = {"rowing_erg": (RATE_RANGE, "Stroke rate", "spm"), "bike": ((30.0, 150.0), "Cadence", "rpm")}
+
+
+def _split_m(modality: Optional[str]) -> float:
+    return _SPLIT_M.get(modality or "rowing_erg", 500.0)
 MAX_WORK_DISTANCE_M = 100_000.0
 MAX_DURATION_S = 12 * 3600.0
-# Split (s/500m) and the row's own time/distance may disagree this much before it's flagged —
+# Split (s per 500 m rowing / 1000 m bike) and the row's own time/distance may disagree this much before it's flagged —
 # generous because a typed split is read off a PM5 screen and rounded.
 _SPLIT_TOLERANCE_PCT = 0.03
 _NUMERIC = ("work_distance_m", "work_duration_s", "rest_duration_s", "avg_split_s", "avg_watts", "avg_rate", "avg_hr", "max_hr", "calories")
 
 
-def derived_split_s(row: dict) -> Optional[float]:
+def derived_split_s(row: dict, modality: Optional[str] = None) -> Optional[float]:
     if row.get("avg_split_s") is not None:
         return row["avg_split_s"]
     d, t = row.get("work_distance_m"), row.get("work_duration_s")
     if d and t and d > 0:
-        return t / d * 500.0
+        return t / d * _split_m(modality)
     return None
 
 
-def validate_intervals(rows: list[dict]) -> dict:
+def validate_intervals(rows: list[dict], modality: Optional[str] = None) -> dict:
     """Same `{ok, issues: [{index, field, message}]}` shape as piece.validate_splits. Never
     corrects a row. `index` is the row's position in the list (None = list-level)."""
     issues: list[dict] = []
+    split_m = _split_m(modality)
+    (rate_lo, rate_hi), rate_label, rate_unit = _RATE_RANGES.get(modality or "rowing_erg", _RATE_RANGES["rowing_erg"])
 
     def add(index: Optional[int], field: Optional[str], message: str) -> None:
         issues.append({"index": index, "field": field, "message": message})
@@ -63,14 +72,14 @@ def validate_intervals(rows: list[dict]) -> dict:
             if r.get(f) is not None and r[f] > MAX_DURATION_S:
                 add(i, f, "Duration is implausibly long.")
         rate = r.get("avg_rate")
-        if rate is not None and not (RATE_RANGE[0] <= rate <= RATE_RANGE[1]):
-            add(i, "avg_rate", f"Stroke rate should be {RATE_RANGE[0]:.0f}-{RATE_RANGE[1]:.0f} spm.")
+        if rate is not None and not (rate_lo <= rate <= rate_hi):
+            add(i, "avg_rate", f"{rate_label} should be {rate_lo:.0f}-{rate_hi:.0f} {rate_unit}.")
         if r.get("max_hr") is not None and r.get("avg_hr") is not None and r["max_hr"] < r["avg_hr"]:
             add(i, "max_hr", "Max HR can't be below average HR.")
         if r.get("avg_hr") is not None and not (30 <= r["avg_hr"] <= 230):
             add(i, "avg_hr", "Average HR is outside a plausible range.")
         if r.get("avg_split_s") is not None and d and t and d > 0:
-            implied = t / d * 500.0
+            implied = t / d * split_m
             if abs(implied - r["avg_split_s"]) > max(1.0, implied * _SPLIT_TOLERANCE_PCT):
                 add(i, "avg_split_s", "Split doesn't match this interval's distance and time.")
     return {"ok": not issues, "issues": issues}
@@ -127,7 +136,7 @@ def _weighted(rows: list[dict], field: str) -> Optional[float]:
     return num / den if den else None
 
 
-def summarize_intervals(rows: list[dict]) -> dict:
+def summarize_intervals(rows: list[dict], modality: Optional[str] = None) -> dict:
     """Totals and weighted averages. The piece-level split is total time / total distance over
     the rows that carry *both* (not a mean of interval splits, and not distorted by a row that
     only has one); watts/rate/HR are weighted by work time."""
@@ -148,7 +157,8 @@ def summarize_intervals(rows: list[dict]) -> dict:
         "work_duration_s": work_duration or None,
         "rest_duration_s": rest or None,
         "total_duration_s": (work_duration + rest) or None,
-        "avg_split_s": (both_t / both_d * 500.0) if both_d else None,
+        "avg_split_s": (both_t / both_d * _split_m(modality)) if both_d else None,
+        "split_unit_m": _split_m(modality),
         "avg_watts": _weighted(rows, "avg_watts"),
         "avg_rate": _weighted(rows, "avg_rate"),
         "avg_hr": _weighted(rows, "avg_hr"),

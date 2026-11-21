@@ -434,8 +434,11 @@ def get_logo(club_id: str, db: Session = Depends(get_db)):
 @router.put("/{club_id}/logo")
 async def put_logo(club_id: str, request: Request, db: Session = Depends(get_db)):
     _throttle()
+    from starlette.concurrency import run_in_threadpool
+
     data = await request.body()
-    return _call(svc.put_logo, db, club_id, (request.headers.get("content-type") or "").split(";")[0].strip(), data)
+    # The database work runs in the threadpool: an async route must never wait for a pooled connection on the event loop.
+    return await run_in_threadpool(_call, svc.put_logo, db, club_id, (request.headers.get("content-type") or "").split(";")[0].strip(), data)
 
 
 @router.delete("/{club_id}/logo")

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { confirmTest, fetchPbs, fetchProjection, fetchTestCandidates, fetchTests, isMock } from "../lib/api";
+import { confirmTest, fetchBikePieces, fetchPbs, fetchProjection, fetchTestCandidates, fetchTests, isMock } from "../lib/api";
 import { isPublic } from "../lib/deployment";
 import { formatDistance, formatDuration, formatShortDate, formatTimeTenths } from "../lib/format";
 import { ERG_TEST_TYPES, type ErgTestType } from "../lib/types";
@@ -21,6 +21,7 @@ export function TestCenterPage() {
   const candidatesQuery = useQuery({ queryKey: ["test-candidates"], queryFn: fetchTestCandidates });
   const testsQuery = useQuery({ queryKey: ["tests", filter], queryFn: () => fetchTests(filter ?? undefined) });
   const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
+  const bikeQuery = useQuery({ queryKey: ["tests", "bike-pieces"], queryFn: fetchBikePieces });
   const projectionQuery = useQuery({
     queryKey: ["test-projection", filter],
     queryFn: () => fetchProjection(filter!),
@@ -156,6 +157,27 @@ export function TestCenterPage() {
           </div>
         )}
       </Card>
+
+      {bikeQuery.data && bikeQuery.data.length > 0 && (
+        <Card title="Bike pieces">
+          <p className="mb-2 text-xs text-text-tertiary">Pace per 1000 m. Bike pieces are kept apart from rowing tests, PBs and the 2k estimate.</p>
+          <div className="flex flex-col gap-2" data-testid="bike-pieces">
+            {bikeQuery.data.map((t) => (
+              <Link
+                key={`bike-${t.piece_id}`}
+                to={`/tests/piece/${t.piece_id}`}
+                className="flex items-center justify-between gap-2 rounded-md border border-border p-3 transition-colors hover:border-accent/40"
+              >
+                <div className="text-sm text-text-primary">
+                  {t.test_type} — {t.date ? formatShortDate(t.date) : "—"}
+                  <span className="ml-2 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-text-tertiary">Bike</span>
+                </div>
+                <div className="font-mono-nums text-sm text-text-secondary">{formatDuration(t.duration_s)}</div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <PacingPlanDialog open={planOpen} onOpenChange={setPlanOpen} />
       <AddPieceDialog

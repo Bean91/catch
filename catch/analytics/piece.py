@@ -18,11 +18,22 @@ from catch.analytics.erg_math import watts_from_pace
 # `max_avg_rate` gate is a test-detection heuristic that doesn't apply here: a piece's type is
 # always explicitly chosen by the athlete (photo/typed entry), never auto-detected.
 PIECE_TYPES = ("500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom")
+
+# Session 33: a piece is on a rowing erg or a bike. The split basis is the machine's own display
+# unit (a PM5 on a RowErg shows pace per 500 m, on a BikeErg per 1000 m), so every pace below is
+# "seconds per split_m metres" for the piece's modality, never a rowing pace relabelled.
+MODALITIES = ("rowing_erg", "bike")
+DEFAULT_MODALITY = "rowing_erg"
+SPLIT_M_BY_MODALITY = {"rowing_erg": 500.0, "bike": 1000.0}
+# "30min_r20" is a rowing rate-capped test; it has no bike meaning.
+PIECE_TYPES_BY_MODALITY = {"rowing_erg": PIECE_TYPES, "bike": tuple(t for t in PIECE_TYPES if t != "30min_r20")}
 _DISTANCE_BY_TYPE = {"500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000}
 _DURATION_BY_TYPE = {"30min_r20": 1800, "60min": 3600}
 
 _MIN_PLAUSIBLE_RATE = 14.0
 _MAX_PLAUSIBLE_RATE = 50.0
+# A bike's "rate" is pedal cadence in rpm, a different range from a stroke rate in spm.
+_RATE_RANGE_BY_MODALITY = {"rowing_erg": (_MIN_PLAUSIBLE_RATE, _MAX_PLAUSIBLE_RATE, "spm"), "bike": (30.0, 150.0, "rpm")}
 # PM5 watts are integers, splits are tenths of a second — at a 1:38/500m split, 0.1s is
 # ~1.1W (see watts_from_pace's slope there), so a couple of watts of "natural" rounding
 # disagreement between a typed/photo split and its implied watts is expected, not a real
@@ -32,6 +43,28 @@ _WATTS_TOLERANCE_FLOOR = 2.0
 _WATTS_TOLERANCE_PCT = 0.01
 _DEFAULT_SPLIT_DISTANCE_M = 500.0
 _DEFAULT_TIME_SPLIT_S = 300.0  # 5-minute default rows for a duration-only piece with no fixed splits
+
+
+def split_m_for(modality: Optional[str]) -> float:
+    return SPLIT_M_BY_MODALITY.get(modality or DEFAULT_MODALITY, _DEFAULT_SPLIT_DISTANCE_M)
+
+
+def check_modality(modality: Optional[str], piece_type: str) -> Optional[str]:
+    """A sentence when this modality/type pair is not allowed, else None."""
+    if modality not in MODALITIES:
+        return f"modality must be one of {list(MODALITIES)}"
+    if piece_type not in PIECE_TYPES_BY_MODALITY[modality]:
+        return f"{piece_type} is a rowing-only piece type; choose another type for a bike piece."
+    return None
+
+
+def totals_only_splits(distance_m: Optional[float], duration_s: Optional[float], rate: Optional[float] = None, watts: Optional[float] = None) -> list[dict]:
+    """One whole-piece row for a piece known only by its totals (a PM5 screen with no splits table,
+    which is what the vision call returns for many photos). Without it such a piece could never be
+    saved — the session 33 photo bug."""
+    if distance_m is None and duration_s is None:
+        return []
+    return [{"split_index": 1, "distance_m": distance_m, "split_s": duration_s, "rate": rate, "watts": watts, "hr": None}]
 
 
 def standard_distance_m(piece_type: str) -> Optional[float]:
@@ -45,7 +78,9 @@ def standard_distance_m(piece_type: str) -> Optional[float]:
     return _DISTANCE_BY_TYPE.get(piece_type)
 
 
-def default_splits(piece_type: str, distance_m: Optional[float] = None, duration_s: Optional[float] = None) -> list[dict]:
+def default_splits(
+    piece_type: str, distance_m: Optional[float] = None, duration_s: Optional[float] = None, modality: Optional[str] = None
+) -> list[dict]:
     """Template rows to seed the typed-entry form (task Part C.1 — "piece type sets
     defaults, e.g. 2k = 4 x 500m rows"). Every value is None (nothing timed yet); the caller
     fills in real numbers as the athlete types or pastes."""
@@ -55,7 +90,7 @@ def default_splits(piece_type: str, distance_m: Optional[float] = None, duration
         duration_s = _DURATION_BY_TYPE[piece_type]
 
     if distance_m:
-        n = max(1, round(distance_m / _DEFAULT_SPLIT_DISTANCE_M))
+        n = max(1, round(distance_m / split_m_for(modality)))
         per_split_distance = distance_m / n
         return [
             {"split_index": i + 1, "distance_m": round(per_split_distance * (i + 1), 1), "split_s": None, "rate": None, "watts": None, "hr": None}
@@ -87,13 +122,17 @@ def watts_for_split(split_s: float, distance_delta_m: float = _DEFAULT_SPLIT_DIS
     return watts_from_pace(pace_per_500)
 
 
-def validate_splits(rows: list[dict], total_distance_m: Optional[float], total_duration_s: Optional[float]) -> dict:
+def validate_splits(
+    rows: list[dict], total_distance_m: Optional[float], total_duration_s: Optional[float], modality: Optional[str] = None
+) -> dict:
     """Task Part B.3: never silently "corrects" a row — just flags which ones disagree, with
     the specific tolerance that triggered, so the athlete can go fix the one real misread
     rather than guess which of several numbers is wrong. `issues` is empty (and `ok: True`)
     when every check passes or there isn't enough data filled in yet to check it."""
     issues: list[dict] = []
     n = len(rows)
+    modality = modality or DEFAULT_MODALITY
+    rate_lo, rate_hi, rate_unit = _RATE_RANGE_BY_MODALITY[modality]
     defined_splits = [r["split_s"] for r in rows if r.get("split_s") is not None]
 
     if total_duration_s is not None and defined_splits and len(defined_splits) == n:
@@ -125,15 +164,17 @@ def validate_splits(rows: list[dict], total_distance_m: Optional[float], total_d
 
     for i, row in enumerate(rows):
         split_s, rate, watts = row.get("split_s"), row.get("rate"), row.get("watts")
-        if rate is not None and not (_MIN_PLAUSIBLE_RATE <= rate <= _MAX_PLAUSIBLE_RATE):
+        if rate is not None and not (rate_lo <= rate <= rate_hi):
             issues.append(
                 {
                     "split_index": row["split_index"],
                     "field": "rate",
-                    "message": f"{rate:g} spm is outside the plausible {_MIN_PLAUSIBLE_RATE:g}-{_MAX_PLAUSIBLE_RATE:g} range.",
+                    "message": f"{rate:g} {rate_unit} is outside the plausible {rate_lo:g}-{rate_hi:g} range.",
                 }
             )
-        if split_s is not None and watts is not None and split_s > 0:
+        # The pace<->watts formula is Concept2's RowErg one; BikeErg and road-bike power don't follow it
+        # (catch/sync/concept2_client.py WATTS_DERIVABLE_TYPES), so a bike's typed watts are never checked against its pace.
+        if modality == "rowing_erg" and split_s is not None and watts is not None and split_s > 0:
             distance_delta = _row_distance_delta(rows, i) or _DEFAULT_SPLIT_DISTANCE_M
             expected = watts_for_split(split_s, distance_delta)
             tolerance_w = max(_WATTS_TOLERANCE_FLOOR, expected * _WATTS_TOLERANCE_PCT)
@@ -149,9 +190,9 @@ def validate_splits(rows: list[dict], total_distance_m: Optional[float], total_d
     return {"ok": len(issues) == 0, "issues": issues}
 
 
-def aggregate_from_splits(rows: list[dict]) -> dict:
+def aggregate_from_splits(rows: list[dict], modality: Optional[str] = None) -> dict:
     """Totals/averages for the piece's own summary fields, derived from its splits rather
-    than re-entered separately. avg_split_s is pace per 500 m — total time / total distance,
+    than re-entered separately. avg_split_s is pace per split_m (500 m rowing, 1000 m bike) — total time / total distance,
     what the PM5's own summary row shows. (Session 31, launch audit L-10: it used to be the
     plain mean of the split *durations*, which is only right when every split is exactly
     500 m — a short last split or 1000 m/timed splits gave a wrong average.) avg_rate and
@@ -161,13 +202,14 @@ def aggregate_from_splits(rows: list[dict]) -> dict:
     watts = [r["watts"] for r in rows if r.get("watts") is not None]
     duration_s = sum(defined_splits) if len(defined_splits) == len(rows) and rows else None
     distance_m = rows[-1]["distance_m"] if rows and rows[-1].get("distance_m") is not None else None
+    split_m = split_m_for(modality)
     avg_split_s = None
     if duration_s is not None and distance_m:
-        avg_split_s = duration_s / distance_m * 500.0
+        avg_split_s = duration_s / distance_m * split_m
     else:
         timed = [(r["split_s"], _row_distance_delta(rows, i)) for i, r in enumerate(rows) if r.get("split_s") is not None]
         if timed and all(d for _, d in timed):
-            avg_split_s = sum(t for t, _ in timed) / sum(d for _, d in timed) * 500.0
+            avg_split_s = sum(t for t, _ in timed) / sum(d for _, d in timed) * split_m
     return {
         "duration_s": duration_s,
         "distance_m": distance_m,

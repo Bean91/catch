@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 from catch.analytics.defaults import DEFAULT_SETTINGS
-from catch.analytics.zones import ZONE_ORDER, zone_for_hr
+from catch.analytics.zones import ZONE_ORDER, HrBasis, hr_zone_bounds, zone_for_hr
 
 
 def banister_trimp(
@@ -199,15 +199,16 @@ def hr_sample_durations(ordered_t_hr: list[tuple[float, float | None]]) -> list[
     return out
 
 
-def time_in_zone(samples: list[tuple[float, float]], max_hr: float | None, settings: dict | None = None) -> dict[str, float]:
+def time_in_zone(samples: list[tuple[float, float]], basis: HrBasis | None) -> dict[str, float]:
     """samples: [(seconds_at_this_hr, hr), ...]. Needs per-sample HR — only available for
     strokes with hr data (Concept2); Garmin-only sessions have no sample-level HR without
     parsing the FIT file, so this returns all-zero zone totals for those."""
     totals = {z: 0.0 for z in ZONE_ORDER}
-    if not samples or not max_hr:
+    bounds = hr_zone_bounds(basis) if basis is not None else {}
+    if not samples or not bounds:
         return totals
     for duration, hr in samples:
-        zone = zone_for_hr(hr, max_hr, settings)
+        zone = zone_for_hr(hr, basis, bounds)
         if zone:
             totals[zone] += duration
     return totals

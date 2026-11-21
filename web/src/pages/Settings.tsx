@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchConnections, fetchSettings, fetchSyncStatus, isMock, saveSettings } from "../lib/api";
+import { fetchConnections, fetchSettings, isMock, saveSettings } from "../lib/api";
 import { STATUS_GLYPH, STATUS_LABEL } from "../lib/connections";
 import { formatRelativeTime } from "../lib/format";
 import { useTheme } from "../lib/theme";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
+import { ErrorState } from "../components/ui/EmptyState";
 import { MoonIcon, SunIcon } from "../components/shell/icons";
 import { CoachSettingsCard } from "../components/coach/CoachSettingsCard";
 import { NutritionTargetsCard } from "../components/nutrition/NutritionTargetsCard";
@@ -17,6 +18,7 @@ import { RecoveryInputsCard } from "../components/settings/RecoveryInputsCard";
 import { AccountCard } from "../components/settings/AccountCard";
 import { isPublic } from "../lib/deployment";
 import { TimeZoneCard } from "../components/settings/TimeZoneCard";
+import { HrZonesCard } from "../components/settings/HrZonesCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
@@ -24,11 +26,13 @@ const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { theme, toggle } = useTheme();
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
-  const statusQuery = useQuery({ queryKey: ["sync-status"], queryFn: fetchSyncStatus });
+  // Session 33: every card loads on its own — no card waits for another's request, and a failed one shows its own Retry. Stable
+  // settings are kept for 5 minutes so moving between Settings pages doesn't refetch them.
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings, staleTime: 5 * 60_000 });
   // Launch audit L-32: list only the sources this deployment offers (Garmin BYOK can be switched off), never one Connections says
-  // "isn't available" for. Until the list loads, every source shows, as before.
-  const connectionsQuery = useQuery({ queryKey: ["connections"], queryFn: fetchConnections });
+  // "isn't available" for. Session 33: the status line comes from this same response (it carries last sync and status), so the
+  // page no longer also calls /api/sync/status, which rebuilt the same cards on the server.
+  const connectionsQuery = useQuery({ queryKey: ["connections"], queryFn: fetchConnections, staleTime: 60_000 });
   const offered = SOURCES.filter((s) => connectionsQuery.data?.connections.find((c) => c.provider === s)?.available ?? true);
 
   const [form, setForm] = useState<Settings | null>(null);
@@ -43,17 +47,17 @@ export function SettingsPage() {
     onSuccess: (updated) => {
       setDirty(false);
       queryClient.setQueryData(["settings"], updated);
+      // Zone boundaries and every workout's cached zones follow the saved values (recalculated server-side).
+      queryClient.invalidateQueries({ queryKey: ["zones"] });
+      queryClient.invalidateQueries({ queryKey: ["workout"] });
     },
   });
 
-  if (settingsQuery.isLoading || !form) {
-    return (
-      <div className="flex flex-col gap-4">
-        <CardSkeleton lines={2} />
-        <CardSkeleton lines={2} />
-      </div>
-    );
-  }
+  const formPending = settingsQuery.isError ? (
+    <ErrorState message="Couldn't load your settings." onRetry={() => settingsQuery.refetch()} />
+  ) : (
+    <CardSkeleton lines={3} />
+  );
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setForm((f) => (f ? { ...f, [key]: value } : f));
@@ -73,8 +77,10 @@ export function SettingsPage() {
         }
       >
         <div className="flex flex-col gap-3" data-testid="connected-sources">
-          {offered.map((source) => {
-            const status = statusQuery.data?.find((s) => s.source === source);
+          {connectionsQuery.isError && <ErrorState message="Couldn't load your connected sources." onRetry={() => connectionsQuery.refetch()} />}
+          {connectionsQuery.isLoading && <CardSkeleton lines={2} />}
+          {connectionsQuery.data && offered.map((source) => {
+            const status = connectionsQuery.data.connections.find((c) => c.provider === source);
             const connected = status?.connected ?? false;
             const state = status?.status ?? "disconnected";
             return (
@@ -145,9 +151,13 @@ export function SettingsPage() {
         </Card>
       )}
 
+      {!form ? formPending : (
+        <>
       <RecoveryInputsCard settings={form} />
 
-      <Card title="Zones">
+      <HrZonesCard form={form} update={update} />
+
+      <Card title="Power zones">
         <div className="mb-3 flex gap-2">
           {(["hr", "power"] as const).map((mode) => (
             <button
@@ -163,11 +173,10 @@ export function SettingsPage() {
           ))}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full max-w-md min-w-[360px] text-sm">
+          <table className="w-full max-w-md text-sm">
             <thead>
               <tr className="text-left text-xs text-text-tertiary">
                 <th className="py-1 font-normal">Zone</th>
-                <th className="py-1 font-normal">% max HR</th>
                 <th className="py-1 font-normal">% 2k watts</th>
               </tr>
             </thead>
@@ -175,16 +184,6 @@ export function SettingsPage() {
               {ZONE_ORDER.map((zone) => (
                 <tr key={zone}>
                   <td className="py-1.5 text-text-primary">{zone}</td>
-                  <td className="py-1.5">
-                    <input
-                      type="number"
-                      value={form.zones.hr_pct[zone]}
-                      onChange={(e) =>
-                        update("zones", { ...form.zones, hr_pct: { ...form.zones.hr_pct, [zone]: Number(e.target.value) } })
-                      }
-                      className="font-mono-nums w-20 rounded-md border border-border bg-surface-2 px-2 py-1.5 text-text-primary"
-                    />
-                  </td>
                   <td className="py-1.5">
                     <input
                       type="number"
@@ -200,7 +199,7 @@ export function SettingsPage() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-text-tertiary">{"Defaults — confirm with your coach before training off them."}</p>
+        <p className="mt-2 text-xs text-text-tertiary">{"Which table workout screens open on. Defaults — confirm with your coach before training off them."}</p>
       </Card>
 
       <Card title="Cross-source matching">
@@ -327,6 +326,8 @@ export function SettingsPage() {
           </label>
         </div>
       </Card>
+        </>
+      )}
 
       {/* Session 31 (launch audit L-22): a metric/imperial toggle sat here, but nothing read it — every figure stays metric — so it
           is gone until units are actually implemented. The stored `units` setting is untouched. */}
@@ -339,19 +340,6 @@ export function SettingsPage() {
         </Link>
       </Card>
 
-      <Card title="Profile">
-        <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
-          <label className="flex items-center gap-3 text-sm text-text-secondary">
-            Max HR
-            <input
-              type="number"
-              value={form.max_hr ?? ""}
-              onChange={(e) => update("max_hr", e.target.value ? Number(e.target.value) : null)}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
-            />
-          </label>
-        </div>
-      </Card>
 
       <Card title="Appearance">
         <button
@@ -382,7 +370,7 @@ export function SettingsPage() {
           at the cost of needing to scroll to it rather than it always being visible — a
           standard, unsurprising tradeoff for a settings form. Only mounted once there's
           something to save. */}
-      {dirty && (
+      {dirty && form && (
         <div className="flex justify-end">
           <button
             type="button"

@@ -220,6 +220,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def add_piece(
         piece_type: Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
         canonical_id: Optional[int] = None,
+        modality: Optional[Literal["rowing_erg", "bike"]] = None,
         text: Optional[str] = None,
         splits: Optional[list[dict]] = None,
         distance_m: Optional[float] = None,
@@ -234,9 +235,11 @@ def build_server(backend: ToolBackend) -> MCPServer:
         then call again with the same data and confirm=true once they agree. canonical_id
         defaults to the most recent workout. For interval work (e.g. 4 x 500m with 1:00 rest) pass
         piece_type='custom' and repeat={count, distance_m or duration_s, rest_s}, or an explicit
-        intervals list for variable structures."""
+        intervals list for variable structures. modality: 'rowing_erg' (splits per 500 m) or 'bike'
+        (splits per 1000 m); defaults from the workout's sport, and a bike piece never counts toward
+        rowing PBs, tests or the 2k estimate."""
         return await _call(
-            "add_piece", piece_type=piece_type, canonical_id=canonical_id, text=text, splits=splits,
+            "add_piece", piece_type=piece_type, canonical_id=canonical_id, modality=modality, text=text, splits=splits,
             distance_m=distance_m, duration_s=duration_s, repeat=repeat, intervals=intervals, confirm=confirm,
         )
 

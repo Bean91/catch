@@ -84,6 +84,8 @@ import type {
   WorkoutListItem,
   WorkoutsPage,
   ZoneRow,
+  HrBasis,
+  ZonesSettingsView,
   Exercise,
   GymRow,
   GymStation,
@@ -95,7 +97,7 @@ import type {
 } from "./types";
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
-import { aggregateFromSplits, defaultSplits, validateSplits, wattsForSplit } from "./pieceSplits";
+import { SPLIT_M, aggregateFromSplits, defaultSplits, totalsOnlySplits, validateSplits, wattsForSplit, type PieceModality } from "./pieceSplits";
 
 // "illness_watch"/"illness_likely" (session 15 Part B): not in the task's own fixture list,
 // added so the illness card's two non-"none" states have somewhere to screenshot/test from
@@ -509,13 +511,27 @@ export function mockWorkoutsPage(category: WorkoutCategory | undefined, cursor: 
   return { items, next_cursor: nextIndex < all.length ? String(nextIndex) : null };
 }
 
+// Session 33: heart-rate-reserve zones at max 190 / resting 50 (the GB Rowing % of HRR defaults).
 const MOCK_ZONES: ZoneRow[] = [
-  { zone: "UT2", hr_pct_lo: 60, hr_pct_hi: 70, hr_lo: 114, hr_hi: 133, power_pct_lo: 55, power_pct_hi: 65, power_lo: 143, power_hi: 169 },
-  { zone: "UT1", hr_pct_lo: 70, hr_pct_hi: 80, hr_lo: 133, hr_hi: 152, power_pct_lo: 65, power_pct_hi: 75, power_lo: 169, power_hi: 195 },
-  { zone: "AT", hr_pct_lo: 80, hr_pct_hi: 87, hr_lo: 152, hr_hi: 165, power_pct_lo: 75, power_pct_hi: 85, power_lo: 195, power_hi: 221 },
-  { zone: "TR", hr_pct_lo: 87, hr_pct_hi: 93, hr_lo: 165, hr_hi: 177, power_pct_lo: 85, power_pct_hi: 95, power_lo: 221, power_hi: 247 },
-  { zone: "AN", hr_pct_lo: 93, hr_pct_hi: null, hr_lo: 177, hr_hi: null, power_pct_lo: 95, power_pct_hi: null, power_lo: 247, power_hi: null },
+  { zone: "UT2", hr_pct_lo: 59, hr_pct_hi: 67, hr_lo: 132.6, hr_hi: 143.8, power_pct_lo: 55, power_pct_hi: 65, power_lo: 143, power_hi: 169 },
+  { zone: "UT1", hr_pct_lo: 67, hr_pct_hi: 75, hr_lo: 143.8, hr_hi: 155, power_pct_lo: 65, power_pct_hi: 75, power_lo: 169, power_hi: 195 },
+  { zone: "AT", hr_pct_lo: 75, hr_pct_hi: 85, hr_lo: 155, hr_hi: 169, power_pct_lo: 75, power_pct_hi: 85, power_lo: 195, power_hi: 221 },
+  { zone: "TR", hr_pct_lo: 85, hr_pct_hi: 95, hr_lo: 169, hr_hi: 183, power_pct_lo: 85, power_pct_hi: 95, power_lo: 221, power_hi: 247 },
+  { zone: "AN", hr_pct_lo: 95, hr_pct_hi: null, hr_lo: 183, hr_hi: null, power_pct_lo: 95, power_pct_hi: null, power_lo: 247, power_hi: null },
 ];
+
+export const MOCK_HR_BASIS: HrBasis = {
+  method: "hrr",
+  requested_method: "hrr",
+  max_hr: 190,
+  resting_hr: 50,
+  bounds_pct: { UT2: 59, UT1: 67, AT: 75, TR: 85, AN: 95 },
+  bounds_bpm: { UT2: 132.6, UT1: 143.8, AT: 155, TR: 169, AN: 183 },
+  rhr_source: "measured",
+  rhr_window: [shiftDate(TODAY, -14), shiftDate(TODAY, -1)],
+  rhr_readings: 13,
+  reason: null,
+};
 
 const MOCK_STRENGTH_MUSCULAR_BY_MUSCLE: Record<string, number> = { quadriceps: 1800, glutes: 1600, hamstrings: 900, chest: 1100, triceps: 650, abdominals: 300 };
 
@@ -532,7 +548,7 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
   return {
     ...base,
     local_date: localDate,
-    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them." },
+    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them.", hr_basis: MOCK_HR_BASIS },
     hr_zone: base.avg_hr ? "UT1" : null,
     day_note:
       id % 3 === 0
@@ -672,7 +688,7 @@ export function mockActivitySamples(id: number): ActivitySamplesResponse {
     max_hr_observed: baseHr + 22,
     min_hr_observed: baseHr - 18,
     zones: workout.zones,
-    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them." },
+    zones_config: { zones: MOCK_ZONES, note: "Zone boundaries are defaults — confirm with your coach before training off them.", hr_basis: MOCK_HR_BASIS },
     session_label: workout.session_label,
     laps: [{ offset_s: 0, duration_s: n }],
     hr_recovery: { session_end: 22, per_lap: [{ offset_s: 0, recovery_bpm: 22 }] },
@@ -838,8 +854,14 @@ export function mockTestCandidates(): ErgTestCandidate[] {
 
 export function mockTests(type?: ErgTestType): ErgTestSummary[] {
   const confirmed = MOCK_WORKOUTS.filter((w) => (w.tags ?? []).includes("test") && (!type || w.test_type === type)).map(workoutToTestSummary);
-  const pieces = MOCK_PIECES.filter((p) => !type || p.piece_type === type).map(pieceToTestSummary);
+  const pieces = MOCK_PIECES.filter((p) => p.modality !== "bike" && !p.has_intervals && (!type || p.piece_type === type)).map(pieceToTestSummary);
   return [...confirmed, ...pieces].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+export function mockBikePieces(): ErgTestSummary[] {
+  return MOCK_PIECES.filter((p) => p.modality === "bike" && !p.has_intervals)
+    .map((p) => ({ ...pieceToTestSummary(p), modality: "bike" as const, split_unit_m: 1000 }))
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
 }
 
 function mockEvenSplits(distanceM: number, totalS: number, n: number): { split_index: number; distance_m: number; actual_split_s: number; actual_cum_s: number }[] {
@@ -916,6 +938,8 @@ const MOCK_PIECES: Piece[] = [
     id: 1,
     canonical_id: PIECE_HOST_CANONICAL_ID,
     piece_type: "2000m",
+    modality: "rowing_erg",
+    split_unit_m: 500,
     distance_m: 2000,
     duration_s: 392.4,
     avg_split_s: 98.1,
@@ -1068,39 +1092,57 @@ export function mockPieces(canonicalId: number): Piece[] {
   return MOCK_PIECES.filter((p) => p.canonical_id === canonicalId);
 }
 
-export function mockPieceTemplate(pieceType: ErgTestType, distanceM?: number, durationS?: number): PieceSplitRow[] {
-  return defaultSplits(pieceType, distanceM, durationS);
+export function mockPieceTemplate(pieceType: ErgTestType, distanceM?: number, durationS?: number, modality: PieceModality = "rowing_erg"): PieceSplitRow[] {
+  return defaultSplits(pieceType, distanceM, durationS, modality);
 }
 
 export function createMockPiece(
   canonicalId: number,
-  body: { piece_type: ErgTestType; splits: PieceSplitRow[]; intervals?: PieceInterval[]; distance_m?: number | null; duration_s?: number | null; drag_factor?: number | null; source?: string; notes?: string | null; force?: boolean },
+  body: {
+    piece_type: ErgTestType;
+    splits: PieceSplitRow[];
+    intervals?: PieceInterval[];
+    distance_m?: number | null;
+    duration_s?: number | null;
+    drag_factor?: number | null;
+    source?: string;
+    notes?: string | null;
+    force?: boolean;
+    modality?: PieceModality;
+    avg_rate?: number | null;
+    avg_watts?: number | null;
+  },
 ): { piece: Piece | null; validation: PieceValidation } {
+  const modality: PieceModality = body.modality ?? "rowing_erg";
   if (body.intervals) {
     const ivValidation = mockValidateIntervals(body.intervals);
     if ((!ivValidation.ok && !body.force) || body.intervals.length === 0) return { piece: null, validation: { ok: false, issues: ivValidation.issues.map((i) => ({ split_index: i.index, index: i.index, field: i.field ?? "", message: i.message })) } };
-    const ivPiece = { ...MOCK_PIECES[0], id: nextMockPieceId++, canonical_id: canonicalId, piece_type: body.piece_type, drag_factor: null, source: "manual" as const, window_activity_id: null, window_start_s: null, window_end_s: null, time_in_zone: null, hr_recovery_bpm: null, notes: body.notes ?? null, has_photo: false, created_at: new Date().toISOString() };
+    const ivPiece = { ...MOCK_PIECES[0], id: nextMockPieceId++, canonical_id: canonicalId, piece_type: body.piece_type, modality, split_unit_m: SPLIT_M[modality], drag_factor: null, source: "manual" as const, window_activity_id: null, window_start_s: null, window_end_s: null, time_in_zone: null, hr_recovery_bpm: null, notes: body.notes ?? null, has_photo: false, created_at: new Date().toISOString() };
     mockFinishIntervals(ivPiece, body.intervals);
     MOCK_PIECES.push(ivPiece);
     return { piece: ivPiece, validation: { ok: true, issues: [] } };
   }
-  const agg = aggregateFromSplits(body.splits);
+  const splits = body.splits.length ? body.splits : totalsOnlySplits(body.distance_m ?? null, body.duration_s ?? null, body.avg_rate ?? null, body.avg_watts ?? null);
+  if (!splits.length) return { piece: null, validation: { ok: false, issues: [{ split_index: null, field: "total_distance", message: "Enter the piece's total distance or time (or its splits)." }] } };
+  const agg = aggregateFromSplits(splits, modality);
   const distance = body.distance_m ?? agg.distance_m;
   const duration = body.duration_s ?? agg.duration_s;
-  const validation = validateSplits(body.splits, distance, duration);
+  const validation = validateSplits(splits, distance, duration, modality);
   if (!validation.ok && !body.force) return { piece: null, validation };
 
   const piece: Piece = {
     id: nextMockPieceId++,
     canonical_id: canonicalId,
     piece_type: body.piece_type,
+    modality,
+    split_unit_m: SPLIT_M[modality],
     distance_m: distance,
     duration_s: duration,
-    avg_split_s: agg.avg_split_s,
-    avg_rate: agg.avg_rate,
-    avg_watts: agg.avg_watts,
+    avg_split_s: agg.avg_split_s ?? (distance && duration ? (duration / distance) * SPLIT_M[modality] : null),
+    avg_rate: agg.avg_rate ?? body.avg_rate ?? null,
+    avg_watts: agg.avg_watts ?? body.avg_watts ?? null,
     drag_factor: body.drag_factor ?? null,
-    splits: body.splits,
+    splits,
     source: (body.source as Piece["source"]) ?? "manual",
     window_activity_id: MOCK_WORKOUTS.find((w) => w.id === canonicalId)?.sources[0]?.activity_id ?? null,
     window_start_s: 60,
@@ -1122,16 +1164,21 @@ export function createMockPiece(
 
 export function updateMockPiece(
   pieceId: number,
-  body: { splits?: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; notes?: string | null; force?: boolean },
+  body: { splits?: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; notes?: string | null; force?: boolean; modality?: PieceModality },
 ): { piece: Piece | null; validation: PieceValidation } {
   const piece = MOCK_PIECES.find((p) => p.id === pieceId);
   if (!piece) return { piece: null, validation: { ok: false, issues: [] } };
+  if (body.modality && body.modality !== piece.modality) {
+    piece.modality = body.modality;
+    piece.split_unit_m = SPLIT_M[body.modality];
+    piece.avg_split_s = piece.distance_m && piece.duration_s ? (piece.duration_s / piece.distance_m) * SPLIT_M[body.modality] : null;
+  }
   if (body.splits) {
     const targetDistance = body.distance_m ?? piece.distance_m;
     const targetDuration = body.duration_s ?? piece.duration_s;
-    const validation = validateSplits(body.splits, targetDistance, targetDuration);
+    const validation = validateSplits(body.splits, targetDistance, targetDuration, piece.modality);
     if (!validation.ok && !body.force) return { piece: null, validation };
-    const agg = aggregateFromSplits(body.splits);
+    const agg = aggregateFromSplits(body.splits, piece.modality);
     piece.splits = body.splits;
     piece.distance_m = targetDistance ?? agg.distance_m;
     piece.duration_s = targetDuration ?? agg.duration_s;
@@ -1161,10 +1208,10 @@ export function alignMockPiece(pieceId: number, activityId?: number, startS?: nu
   return piece;
 }
 
-export function uploadMockPiecePhoto(pieceId: number): { has_photo: true } {
+export function uploadMockPiecePhoto(pieceId: number): { has_photo: true; piece?: Piece } {
   const piece = MOCK_PIECES.find((p) => p.id === pieceId);
   if (piece) piece.has_photo = true;
-  return { has_photo: true };
+  return { has_photo: true, piece };
 }
 
 export function deleteMockPiecePhoto(pieceId: number): boolean {
@@ -1174,8 +1221,28 @@ export function deleteMockPiecePhoto(pieceId: number): boolean {
   return true;
 }
 
-export function mockPiecePhotoEstimate(): PiecePhotoEstimate {
+/** `?mockphoto=totals` returns a screen with totals and no splits table — the shape that used to make a piece unsaveable. */
+export function mockPiecePhotoEstimate(modality: PieceModality = "rowing_erg"): PiecePhotoEstimate {
+  const totalsOnly = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mockphoto") === "totals";
+  if (totalsOnly) {
+    return {
+      modality,
+      detected_piece_type: "5000m",
+      splits: [],
+      distance_m: 5000,
+      duration_s: 1185.0,
+      avg_split_s: 118.5,
+      avg_rate: 26,
+      avg_watts: null,
+      drag_factor: 120,
+      validation: { ok: true, issues: [] },
+      notes: "Only the totals were visible on this screen.",
+      cost_usd: 0.01,
+    };
+  }
   return {
+    modality,
+    detected_piece_type: "2000m",
     splits: TASK_2K_SPLITS.map((s) => ({ ...s, hr: null, hr_source: null })),
     distance_m: 2000,
     duration_s: 392.4,
@@ -1569,8 +1636,11 @@ type PbEntryLike = NonNullable<PersonalBests[string]>;
 let MOCK_SETTINGS: Settings = {
   zones: {
     hr_pct: { UT2: 60, UT1: 70, AT: 80, TR: 87, AN: 93 },
+    hrr_pct: { UT2: 59, UT1: 67, AT: 75, TR: 85, AN: 95 },
     power_pct: { UT2: 55, UT1: 65, AT: 75, TR: 85, AN: 95 },
   },
+  hr_zone_method: "hrr",
+  resting_hr: null,
   trimp_exponent: 1.92,
   srpe_to_trimp_scale: 50 / 300,
   strain_log_a: 2.54,
@@ -2730,4 +2800,46 @@ export function rateMockRecommendation(id: number, rating: RecommendationRating)
   const updated = { ...row, rating };
   MOCK_RECOMMENDATIONS = MOCK_RECOMMENDATIONS.map((r) => (r.id === id ? updated : r));
   return updated;
+}
+
+/** GET /api/zones — computed from the mock settings exactly as the server would (Karvonen or % of max), so the Settings card's
+ * table moves when the mock form is saved. */
+export function mockZonesView(): ZonesSettingsView {
+  const settings = MOCK_SETTINGS;
+  const max = settings.max_hr;
+  const rest = settings.resting_hr ?? 50;
+  const hrr = settings.hr_zone_method === "hrr" && max != null && max - rest >= 40;
+  const pct = hrr ? settings.zones.hrr_pct : settings.zones.hr_pct;
+  const names = ["UT2", "UT1", "AT", "TR", "AN"];
+  const bounds: Record<string, number> = {};
+  for (const z of names) if (max != null) bounds[z] = hrr ? rest + ((max - rest) * pct[z]) / 100 : (max * pct[z]) / 100;
+  const basis: HrBasis = {
+    ...MOCK_HR_BASIS,
+    method: max == null ? "none" : hrr ? "hrr" : "max_pct",
+    requested_method: settings.hr_zone_method,
+    max_hr: max,
+    resting_hr: rest,
+    rhr_source: settings.resting_hr != null ? "setting" : "measured",
+    rhr_window: settings.resting_hr != null ? null : MOCK_HR_BASIS.rhr_window,
+    bounds_pct: pct,
+    bounds_bpm: bounds,
+    reason: max == null ? "Set your max heart rate in Settings to see heart-rate zones." : null,
+  };
+  return {
+    basis,
+    zones: MOCK_ZONES.map((row, i) => ({
+      ...row,
+      hr_pct_lo: max == null ? null : pct[names[i]],
+      hr_pct_hi: max == null || i === 4 ? null : pct[names[i + 1]],
+      hr_lo: bounds[names[i]] ?? null,
+      hr_hi: i === 4 ? null : (bounds[names[i + 1]] ?? null),
+    })),
+    note: "Zone boundaries are defaults — confirm with your coach before training off them.",
+    method: settings.hr_zone_method,
+    max_hr: max,
+    resting_hr_setting: settings.resting_hr,
+    hrr_pct: settings.zones.hrr_pct,
+    hr_pct: settings.zones.hr_pct,
+    observed_max_hr: { value: 188, date: shiftDate(TODAY, -40) },
+  };
 }

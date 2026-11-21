@@ -45,7 +45,7 @@ def _erg_canonicals_with_concept2_member(session: Session, since: datetime | Non
     return [(c, first_member[c.id]) for c in rows if c.id in first_member]
 
 
-def _piece_rows(session: Session, test_type: str | None = None, since: datetime | None = None) -> list[dict]:
+def _piece_rows(session: Session, test_type: str | None = None, since: datetime | None = None, modality: str = "rowing_erg") -> list[dict]:
     """Session 17 (see PLAN.md Part A.1/A.2): pieces count in the test center exactly like
     confirmed Concept2 results — "kind": "piece" plus a "piece_id" distinguish a row here from
     a confirmed-test row (which uses the canonical id as its own detail id), since a piece's
@@ -54,7 +54,9 @@ def _piece_rows(session: Session, test_type: str | None = None, since: datetime 
     from catch.core.models import Piece
 
     # Session 19: an interval piece isn't one continuous effort — it never becomes a test row.
-    pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(False))).all()
+    # Session 33: the test center (and everything that reads list_tests — the 2k estimate, PBs, performance trends) is rowing
+    # erg only; bike pieces are listed separately by list_bike_pieces.
+    pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(False), Piece.modality == modality)).all()
     ids = sorted({p.canonical_id for p in pieces if p.canonical_id is not None})
     canonicals = {c.id: c for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(ids))).all()} if ids else {}
     out = []
@@ -69,6 +71,8 @@ def _piece_rows(session: Session, test_type: str | None = None, since: datetime 
         out.append(
             {
                 "kind": "piece",
+                "modality": p.modality,
+                "split_unit_m": 1000.0 if p.modality == "bike" else 500.0,
                 "piece_id": p.id,
                 "canonical_id": p.canonical_id,
                 "activity_id": None,
@@ -87,6 +91,13 @@ def _piece_rows(session: Session, test_type: str | None = None, since: datetime 
     return out
 
 
+def list_bike_pieces(session: Session) -> list[dict]:
+    """Bike pieces, newest first, for their own section of the test center — never mixed into rowing tests or PBs."""
+    out = _piece_rows(session, modality="bike")
+    out.sort(key=lambda r: r["start"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return out
+
+
 def list_tests(session: Session, test_type: str | None = None, since: datetime | None = None) -> list[dict]:
     out = []
     for canonical, member in _erg_canonicals_with_concept2_member(session, since):
@@ -99,6 +110,8 @@ def list_tests(session: Session, test_type: str | None = None, since: datetime |
         out.append(
             {
                 "kind": "test",
+                "modality": "rowing_erg",
+                "split_unit_m": 500.0,
                 "piece_id": None,
                 "canonical_id": canonical.id,
                 "activity_id": member.id,

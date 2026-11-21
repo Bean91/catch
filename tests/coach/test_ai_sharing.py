@@ -159,12 +159,12 @@ def test_chat_refuses_until_consent_and_sends_no_provider_request(session, monke
 
 
 def test_photo_features_need_the_photos_category(session):
-    assert asyncio.run(vision_available(session))["reason"] == "sharing_off"
+    assert vision_available(session)["reason"] == "sharing_off"
     ai_sharing.update(session, acknowledge=True, categories={"wellness": True})
     with pytest.raises(VisionError, match="switched off"):
         asyncio.run(run_vision(session, "meal", object()))  # refused before the request is even looked at
     ai_sharing.update(session, acknowledge=False, categories={"photos": True})
-    assert asyncio.run(vision_available(session))["reason"] != "sharing_off"
+    assert vision_available(session)["reason"] != "sharing_off"
 
 
 def test_denied_calls_and_mcp_calls_land_in_the_audit_log_without_their_arguments(session):

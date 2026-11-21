@@ -1,0 +1,20 @@
+{
+  "_comment": "Session 33: shared by tests/analytics/test_piece_modality.py and web/src/lib/pieceSplits.test.ts. Pace is per 500 m on a rowing erg and per 1000 m on a bike; the rowing pace->watts check never applies to a bike.",
+  "aggregate": [
+    {"name": "rowing 2k totals", "modality": "rowing_erg", "rows": [{"split_index": 1, "distance_m": 2000, "split_s": 392.4, "rate": null, "watts": null, "hr": null}], "avg_split_s": 98.1},
+    {"name": "bike 2k totals", "modality": "bike", "rows": [{"split_index": 1, "distance_m": 2000, "split_s": 392.4, "rate": null, "watts": null, "hr": null}], "avg_split_s": 196.2},
+    {"name": "bike 1000 m splits", "modality": "bike", "rows": [{"split_index": 1, "distance_m": 1000, "split_s": 100.0, "rate": 92, "watts": 250, "hr": null}, {"split_index": 2, "distance_m": 2000, "split_s": 102.0, "rate": 94, "watts": 240, "hr": null}], "avg_split_s": 101.0},
+    {"name": "rowing 500 m splits", "modality": "rowing_erg", "rows": [{"split_index": 1, "distance_m": 500, "split_s": 96.8, "rate": 32, "watts": null, "hr": null}, {"split_index": 2, "distance_m": 1000, "split_s": 98.9, "rate": 30, "watts": null, "hr": null}], "avg_split_s": 97.85}
+  ],
+  "validate": [
+    {"name": "cadence is fine on a bike", "modality": "bike", "rows": [{"split_index": 1, "distance_m": 1000, "split_s": 100.0, "rate": 90, "watts": null, "hr": null}], "fields": []},
+    {"name": "90 is not a stroke rate", "modality": "rowing_erg", "rows": [{"split_index": 1, "distance_m": 500, "split_s": 100.0, "rate": 90, "watts": null, "hr": null}], "fields": ["rate"]},
+    {"name": "bike watts are never checked against pace", "modality": "bike", "rows": [{"split_index": 1, "distance_m": 1000, "split_s": 100.0, "rate": null, "watts": 999, "hr": null}], "fields": []},
+    {"name": "rowing watts must match the split", "modality": "rowing_erg", "rows": [{"split_index": 1, "distance_m": 500, "split_s": 100.0, "rate": null, "watts": 999, "hr": null}], "fields": ["watts"]}
+  ],
+  "default_rows": [
+    {"piece_type": "2000m", "modality": "rowing_erg", "distances": [500, 1000, 1500, 2000]},
+    {"piece_type": "2000m", "modality": "bike", "distances": [1000, 2000]},
+    {"piece_type": "5000m", "modality": "bike", "distances": [1000, 2000, 3000, 4000, 5000]}
+  ]
+}

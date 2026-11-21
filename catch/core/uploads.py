@@ -16,7 +16,7 @@ PHOTO_LIMIT = 6 * MB  # the web client downsizes to ~1500 px first; Storage's ow
 LOGO_LIMIT = 300 * 1024  # 256 KB of image plus slack; the service enforces the exact figure
 TOOL_BODY_LIMIT = 64 * 1024
 
-_PHOTO_PATHS = re.compile(r"^/api/(nutrition/photo-estimate|activities/[^/]+/pieces/photo-estimate|pieces/[^/]+/photo)$")
+_PHOTO_PATHS = re.compile(r"^/api/(nutrition/photo-estimate|activities/[^/]+/pieces/(photo-estimate|with-photo)|pieces/[^/]+/photo)$")
 _LOGO_PATH = re.compile(r"^/api/clubs/[^/]+/logo$")
 
 

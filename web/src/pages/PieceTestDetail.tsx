@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { fetchPieceTestDetail } from "../lib/api";
-import { formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
+import { formatDistance, formatDuration, formatShortDate, formatSplit, splitUnitLabel } from "../lib/format";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
@@ -39,6 +39,7 @@ export function PieceTestDetailPage() {
         </Link>
         <div className="mt-1 flex items-center justify-between gap-2">
           <h1 className="text-lg font-semibold text-text-primary">
+            {piece.modality === "bike" ? "Bike " : ""}
             {test_type} piece — {activity.local_date ? formatShortDate(activity.local_date) : "—"}
           </h1>
           <Link to={`/workouts/${activity.id}`} className="text-xs text-text-tertiary transition-colors hover:text-text-secondary">
@@ -47,6 +48,12 @@ export function PieceTestDetailPage() {
         </div>
         <p className="font-mono-nums text-sm text-text-secondary">
           {formatDistance(piece.distance_m)} in {formatDuration(piece.duration_s)}
+          {piece.avg_split_s != null && (
+            <>
+              {" "}· {formatSplit(piece.avg_split_s)}
+              {splitUnitLabel(piece.split_unit_m)}
+            </>
+          )}
           {w_per_kg != null && <> · {w_per_kg.toFixed(2)} W/kg</>}
         </p>
       </div>

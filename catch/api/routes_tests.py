@@ -30,6 +30,12 @@ def get_tests(test_type: str | None = Query(None, alias="type"), db: Session = D
     return {"tests": erg_test.list_tests(db, test_type)}
 
 
+@router.get("/api/tests/bike-pieces")
+def get_bike_pieces(db: Session = Depends(get_db)):
+    """Session 33: bike pieces in their own list — pace per 1000 m, never mixed into rowing tests, PBs or the 2k estimate."""
+    return {"pieces": erg_test.list_bike_pieces(db)}
+
+
 def _find_plan_for(db: Session, distance_m: float | None, test_type: str | None) -> dict | None:
     """Best-effort match: the most recently generated plan whose target distance is within
     1% of this test's own distance — standard test distances are fixed numbers (2000m is
@@ -162,11 +168,15 @@ def get_piece_test_detail(piece_id: int, db: Session = Depends(get_db)):
     splits = json.loads(piece.splits_json) if piece.splits_json else []
     points = points_from_splits(splits)
 
-    plan = _find_plan_for(db, piece.distance_m, piece.piece_type)
-    analysis = pacing_analysis(points, piece.distance_m, plan) if piece.distance_m else None
+    rowing = (piece.modality or "rowing_erg") == "rowing_erg"
+    # The pacing segments (start / middle 1000 m / sprint), pacing plans and w/kg are rowing-erg concepts; a bike piece gets its
+    # splits and comparison with earlier bike pieces of the same type only.
+    plan = _find_plan_for(db, piece.distance_m, piece.piece_type) if rowing else None
+    analysis = pacing_analysis(points, piece.distance_m, plan) if piece.distance_m and rowing else None
 
     this_date = localtime.day_of(db, canonical).isoformat() if canonical.start else None
-    same_type = [t for t in erg_test.list_tests(db, piece.piece_type) if not (t["kind"] == "piece" and t["piece_id"] == piece_id)]
+    pool = erg_test.list_tests(db, piece.piece_type) if rowing else [t for t in erg_test.list_bike_pieces(db) if t["test_type"] == piece.piece_type]
+    same_type = [t for t in pool if not (t["kind"] == "piece" and t["piece_id"] == piece_id)]
     earlier = max(
         (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None
     )
@@ -179,5 +189,5 @@ def get_piece_test_detail(piece_id: int, db: Session = Depends(get_db)):
         "plan": plan,
         "pacing_analysis": analysis,
         "compare_to_earlier": earlier,
-        "w_per_kg": w_per_kg(piece.avg_watts, weight_kg),
+        "w_per_kg": w_per_kg(piece.avg_watts, weight_kg) if rowing else None,
     }

@@ -283,7 +283,7 @@ def _resolve_zones(
     # typed/photo 2k piece still gets a real power-zone label below.
     from catch.sync.piece import power_member_and_samples
 
-    power_member, power_samples = power_member_and_samples(session, canonical.id, members, power_member, power_samples)
+    power_member, power_samples = power_member_and_samples(session, canonical.id, members, power_member, power_samples, canonical.sport_family)
     has_power = bool(power_samples) and any(v is not None for v in power_samples["power"])
 
     # Reset once up front (session 15) rather than only inside each branch below that might
@@ -322,6 +322,12 @@ def _resolve_zones(
         return
 
     max_hr = settings.get("max_hr")
+    # Session 33: zones use the heart-rate-reserve basis for this workout's own day (resting HR = median of the 14 days before
+    # it); stored with the zone seconds below so every screen shows what was actually used. TRIMP keeps that day's own resting
+    # HR (unchanged strain model — docs/analytics.md §3).
+    from catch.sync.hr_basis import basis_for_day
+
+    basis = basis_for_day(session, canonical.local_date or (localtime.local_date_at(session, canonical.start) if canonical.start else None), settings)
     hr_zones: dict = {}
     hr_trimp: Optional[float] = None
     hr_moving_s = 0.0
@@ -335,7 +341,7 @@ def _resolve_zones(
         # account's real backfill: ~0.5% of real HR samples get dropped on average, so the
         # default 30s flatline threshold isn't eating legitimate steady-state HR.
         hr_cleaned = drop_dropouts(hr_for_ui)
-        hr_zones = time_in_zone_seconds(smooth(hr_cleaned), max_hr, settings)
+        hr_zones = time_in_zone_seconds(smooth(hr_cleaned), basis)
         hr_moving_s = float(usable_n)
         resting_hr = _resting_hr_for(session, canonical.start, canonical.local_date)
         hr_trimp = banister_trimp_from_samples(hr_cleaned, resting_hr, max_hr, settings["trimp_exponent"])
@@ -413,7 +419,7 @@ def _resolve_zones(
     if trimp is not None and power_tss is None:
         canonical.strain_method = "trimp_samples"
 
-    canonical.zones_json = json.dumps({"hr": hr_zones or None, "power": power_zones})
+    canonical.zones_json = json.dumps({"hr": hr_zones or None, "power": power_zones, "basis": basis.as_dict()})
     canonical.strain_trimp = trimp
     canonical.session_label = label
     canonical.auto_trimmed_tail_s = hr_trimmed_s or None
@@ -431,4 +437,10 @@ def resolve_all_canonicals(session: Session) -> int:
     ids = session.exec(select(CanonicalActivity.id)).all()
     for canonical_id in ids:
         resolve_canonical(session, canonical_id)
+    # Session 33: an aligned piece's time in zone is cached from the same basis — refresh it with the workouts.
+    from catch.core.models import Piece
+    from catch.sync.piece import refresh_piece_zones
+
+    for piece in session.exec(select(Piece).where(Piece.window_activity_id.is_not(None))).all():
+        refresh_piece_zones(session, piece)
     return len(ids)

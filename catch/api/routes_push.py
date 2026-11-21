@@ -116,6 +116,9 @@ def list_subscriptions(db: Session = Depends(get_db), owner_id: str = Depends(cu
     if not tenant.is_public():
         return rows
     web = [{"id": r.id, "kind": "web", "endpoint": r.endpoint, "label": r.label, "created_at": r.created_at, "last_seen_at": r.last_seen_at} for r in rows]
+    # Give this request's pooled connection back before the native-token store opens its own (session 33): holding one while
+    # waiting for a second is how a burst of requests starves a three-connection pool.
+    db.commit()
     return web + native_push_store.list_for(owner_id)
 
 

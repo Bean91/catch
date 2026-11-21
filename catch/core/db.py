@@ -161,6 +161,10 @@ _NEW_COLUMNS = {
 }
 _NEW_COLUMNS["activities"].update({"local_date": "DATE", "local_tz": "TEXT"})
 _NEW_COLUMNS["canonical_activities"].update({"local_date": "DATE", "local_tz": "TEXT"})
+# Session 33: combined merges (docs/analytics.md §31) and erg/bike pieces.
+_NEW_COLUMNS["canonical_activities"]["merge_mode"] = "TEXT"
+_NEW_COLUMNS.setdefault("merge_log", {})["snapshot_json"] = "TEXT"
+_NEW_COLUMNS["pieces"]["modality"] = "TEXT NOT NULL DEFAULT 'rowing_erg'"
 
 
 _SESSION32_INDEXES = (

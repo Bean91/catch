@@ -5,6 +5,7 @@ import math
 import pytest
 
 from catch.analytics.defaults import DEFAULT_SETTINGS
+from catch.analytics.zones import hr_basis
 from catch.analytics.strain import banister_trimp, daily_activity_trimp, session_strain, srpe_load, time_in_zone
 
 
@@ -47,7 +48,7 @@ def test_session_strain_insufficient_data():
 
 def test_time_in_zone_buckets_by_hr_pct_of_max():
     samples = [(60.0, 100.0), (60.0, 150.0), (60.0, 180.0)]
-    totals = time_in_zone(samples, max_hr=190)
+    totals = time_in_zone(samples, hr_basis({**DEFAULT_SETTINGS, "max_hr": 190, "hr_zone_method": "max_pct"}))
     # 100/190=52.6% (<60, clamps to UT2), 150/190=78.9% (UT1), 180/190=94.7% (AN).
     assert totals["UT2"] == pytest.approx(60.0)
     assert totals["UT1"] == pytest.approx(60.0)
@@ -57,7 +58,7 @@ def test_time_in_zone_buckets_by_hr_pct_of_max():
 
 
 def test_time_in_zone_without_max_hr_returns_zeros():
-    totals = time_in_zone([(60.0, 150.0)], max_hr=None)
+    totals = time_in_zone([(60.0, 150.0)], hr_basis(DEFAULT_SETTINGS))
     assert all(v == 0.0 for v in totals.values())
 
 

@@ -78,6 +78,8 @@ import {
   mockIntervalComparisons,
   mockPieceTemplate,
   mockPiecePhotoEstimate,
+  mockBikePieces,
+  mockZonesView,
   mockPieceTestDetail,
   createMockPiece,
   updateMockPiece,
@@ -153,6 +155,7 @@ import {
   putMockActivityRoute,
   refreshMockWeather,
 } from "./mockGps";
+import type { PieceModality } from "./pieceSplits";
 import type {
   OnWaterResponse,
   RouteDetailData,
@@ -217,6 +220,7 @@ import type {
   SavedMealItem,
   SavedMealRow,
   Settings,
+  ZonesSettingsView,
   SeriesResponse,
   StrengthSetRow,
   StrengthTemplate,
@@ -555,6 +559,13 @@ export async function fetchTestCandidates(): Promise<ErgTestCandidate[]> {
   return candidates;
 }
 
+/** Session 33: bike pieces, listed apart from rowing tests and PBs. */
+export async function fetchBikePieces(): Promise<ErgTestSummary[]> {
+  if (isMock) return delay(mockBikePieces());
+  const { pieces } = await request<{ pieces: ErgTestSummary[] }>("/api/tests/bike-pieces");
+  return pieces;
+}
+
 export async function fetchTests(type?: ErgTestType): Promise<ErgTestSummary[]> {
   if (isMock) return delay(mockTests(type));
   const search = new URLSearchParams();
@@ -603,9 +614,9 @@ export async function fetchPieces(canonicalId: number): Promise<Piece[]> {
   return pieces;
 }
 
-export async function fetchPieceTemplate(canonicalId: number, pieceType: ErgTestType, distanceM?: number, durationS?: number): Promise<PieceSplitRow[]> {
-  if (isMock) return delay(mockPieceTemplate(pieceType, distanceM, durationS));
-  const search = new URLSearchParams({ type: pieceType });
+export async function fetchPieceTemplate(canonicalId: number, pieceType: ErgTestType, distanceM?: number, durationS?: number, modality: PieceModality = "rowing_erg"): Promise<PieceSplitRow[]> {
+  if (isMock) return delay(mockPieceTemplate(pieceType, distanceM, durationS, modality));
+  const search = new URLSearchParams({ type: pieceType, modality });
   if (distanceM) search.set("distance_m", String(distanceM));
   if (durationS) search.set("duration_s", String(durationS));
   const { splits } = await request<{ splits: PieceSplitRow[] }>(`/api/activities/${canonicalId}/pieces/template?${search.toString()}`);
@@ -623,6 +634,33 @@ export interface CreatePieceBody {
   source?: "manual" | "photo";
   notes?: string | null;
   force?: boolean;
+  modality?: PieceModality;
+  /** Totals a PM5 screen showed without a splits table. */
+  avg_rate?: number | null;
+  avg_watts?: number | null;
+}
+
+async function multipart<T>(path: string, form: FormData): Promise<T> {
+  const res = await authedFetch(path, { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : res.statusText);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** Session 33: the piece and its PM5 photo in one request and one server transaction — either both are saved or neither. */
+export async function createPieceWithPhoto(canonicalId: number, body: CreatePieceBody, photo: Blob): Promise<CreatePieceResult> {
+  if (isMock) {
+    const result = createMockPiece(canonicalId, body);
+    if (result.piece) uploadMockPiecePhoto(result.piece.id);
+    return delay(result, 300);
+  }
+  const form = new FormData();
+  form.append("payload", JSON.stringify(body));
+  form.append("photo", photo, "pm5.jpg");
+  return multipart<CreatePieceResult>(`/api/activities/${canonicalId}/pieces/with-photo`, form);
 }
 
 export async function createPiece(canonicalId: number, body: CreatePieceBody): Promise<CreatePieceResult> {
@@ -635,17 +673,12 @@ export async function createPiece(canonicalId: number, body: CreatePieceBody): P
 }
 
 // Multipart, like the nutrition photo-estimate — the only other upload this app does.
-export async function estimatePiecePhoto(canonicalId: number, photo: Blob): Promise<PiecePhotoEstimate> {
-  if (isMock) return delay(mockPiecePhotoEstimate(), 1200);
+export async function estimatePiecePhoto(canonicalId: number, photo: Blob, modality: PieceModality = "rowing_erg"): Promise<PiecePhotoEstimate> {
+  if (isMock) return delay(mockPiecePhotoEstimate(modality), 1200);
   const form = new FormData();
   form.append("photo", photo, "pm5.jpg");
-  const res = await authedFetch(`/api/activities/${canonicalId}/pieces/photo-estimate`, { method: "POST", body: form });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-    throw new ApiError(res.status, body.detail ?? res.statusText);
-  }
-  return res.json() as Promise<PiecePhotoEstimate>;
+  form.append("modality", modality);
+  return multipart<PiecePhotoEstimate>(`/api/activities/${canonicalId}/pieces/photo-estimate`, form);
 }
 
 export interface UpdatePieceBody {
@@ -654,6 +687,7 @@ export interface UpdatePieceBody {
   duration_s?: number | null;
   notes?: string | null;
   force?: boolean;
+  modality?: PieceModality;
 }
 
 export async function updatePiece(pieceId: number, body: UpdatePieceBody): Promise<CreatePieceResult> {
@@ -682,17 +716,12 @@ export async function alignPiece(pieceId: number, activityId?: number, startS?: 
   });
 }
 
-export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ has_photo: true }> {
+/** Add or replace the photo of an existing piece. */
+export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ has_photo: true; piece?: Piece }> {
   if (isMock) return delay(uploadMockPiecePhoto(pieceId), 400);
   const form = new FormData();
   form.append("photo", photo, "pm5.jpg");
-  const res = await authedFetch(`/api/pieces/${pieceId}/photo`, { method: "POST", body: form });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-    throw new ApiError(res.status, body.detail ?? res.statusText);
-  }
-  return res.json() as Promise<{ has_photo: true }>;
+  return multipart<{ has_photo: true; piece?: Piece }>(`/api/pieces/${pieceId}/photo`, form);
 }
 
 /** A piece's PM5 photo as an object URL, or null. An <img src> cannot send the bearer token a public/native build authenticates
@@ -777,6 +806,12 @@ export async function fetchPieceTestDetail(pieceId: number): Promise<PieceTestDe
 export async function fetchSettings(): Promise<Settings> {
   if (isMock) return delay(mockSettings());
   return request<Settings>("/api/settings");
+}
+
+/** Session 33: the heart-rate zones a workout today would use, with the resting and max heart rate behind them. */
+export async function fetchZones(): Promise<ZonesSettingsView> {
+  if (isMock) return delay(mockZonesView());
+  return request<ZonesSettingsView>("/api/zones");
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {

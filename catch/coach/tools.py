@@ -127,8 +127,10 @@ def _predict_2k_tool(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _get_zones(session: Session, args: dict, ctx: dict) -> dict:
+    from catch.sync.hr_basis import current_basis
+
     settings = get_settings(session)
-    zones = training_zones(max_hr=settings.get("max_hr"), settings=settings)
+    zones = training_zones(current_basis(session, settings), settings=settings)
     return {**zones, "zone_mode": settings.get("zone_mode")}
 
 
@@ -550,7 +552,7 @@ def _rate_recommendation(session: Session, args: dict, ctx: dict) -> dict:
 _PIECE_TIME_RE = re.compile(r"\d+:\d+(?:\.\d+)?")
 
 
-def _parse_piece_free_text(piece_type: str, text: str) -> tuple[list[dict], float | None]:
+def _parse_piece_free_text(piece_type: str, text: str, modality: str = "rowing_erg") -> tuple[list[dict], float | None]:
     """Session 17 Part E: "my 2k was 6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7" -> split
     rows + the total time. The first m:ss token is always the total; every token after it is
     one split, in order — matching the task's own example exactly. When the split count
@@ -567,7 +569,7 @@ def _parse_piece_free_text(piece_type: str, text: str) -> tuple[list[dict], floa
     if not split_tokens:
         return [], total_s
 
-    template = default_splits(piece_type, duration_s=total_s)
+    template = default_splits(piece_type, duration_s=total_s, modality=modality)
     if len(template) == len(split_tokens):
         rows = []
         for row, tok in zip(template, split_tokens):
@@ -587,7 +589,7 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
     saves without the athlete seeing the parsed table. canonical_id defaults to the most
     recent activity with a start time (the session the athlete is presumably still talking
     about) when omitted."""
-    from catch.analytics.piece import PIECE_TYPES, aggregate_from_splits, validate_splits
+    from catch.analytics.piece import PIECE_TYPES, aggregate_from_splits, check_modality, split_m_for, validate_splits
     from catch.core.models import CanonicalActivity
     from catch.sync import piece as piece_sync
 
@@ -602,8 +604,13 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
     if canonical_id is None or session.get(CanonicalActivity, canonical_id) is None:
         return {"saved": False, "message": "No activity found to attach this piece to — ask which workout it belongs to."}
 
+    # Session 33: rowing erg (split per 500 m) or bike (split per 1000 m); defaults from the workout's sport.
+    modality = args.get("modality") or piece_sync.default_modality_for(session, canonical_id)
+    if (problem := check_modality(modality, piece_type)) is not None:
+        raise ValueError(problem)
+
     if args.get("intervals") or args.get("repeat"):
-        return _add_interval_piece(session, args, piece_type, canonical_id)
+        return _add_interval_piece(session, args, piece_type, canonical_id, modality)
 
     splits = args.get("splits")
     total_duration_s = args.get("duration_s")
@@ -611,13 +618,13 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
         text = args.get("text")
         if not text:
             raise ValueError("Provide either `text` or a structured `splits` list.")
-        splits, parsed_total = _parse_piece_free_text(piece_type, text)
+        splits, parsed_total = _parse_piece_free_text(piece_type, text, modality)
         total_duration_s = total_duration_s or parsed_total
 
-    agg = aggregate_from_splits(splits)
+    agg = aggregate_from_splits(splits, modality)
     distance_m = args.get("distance_m") or agg["distance_m"]
     duration_s = total_duration_s or agg["duration_s"]
-    validation = validate_splits(splits, distance_m, duration_s)
+    validation = validate_splits(splits, distance_m, duration_s, modality)
 
     if not args.get("confirm"):
         return {
@@ -625,6 +632,8 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
             "preview": splits,
             "validation": validation,
             "piece_type": piece_type,
+            "modality": modality,
+            "split_unit_m": split_m_for(modality),
             "canonical_id": canonical_id,
             "message": "Preview only — confirm this table with the athlete, then call add_piece again with confirm=true.",
         }
@@ -633,12 +642,12 @@ def _add_piece(session: Session, args: dict, ctx: dict) -> dict:
     # confirm=true means they've seen them and still want it saved as typed (task's "manual
     # entry always works" — the same athlete-facing issues list is still on the response).
     piece, validation = piece_sync.create_piece(
-        session, canonical_id, piece_type, splits, distance_m=distance_m, duration_s=duration_s, source="manual", force=True
+        session, canonical_id, piece_type, splits, distance_m=distance_m, duration_s=duration_s, source="manual", force=True, modality=modality
     )
     return {"saved": True, "piece": piece_sync.piece_dict(piece), "validation": validation}
 
 
-def _add_interval_piece(session: Session, args: dict, piece_type: str, canonical_id: int) -> dict:
+def _add_interval_piece(session: Session, args: dict, piece_type: str, canonical_id: int, modality: str = "rowing_erg") -> dict:
     """Session 19: a piece made of intervals — either `repeat` ({count, distance_m|duration_s,
     rest_s}, expanded by the same expand_repeat the API/UI use) or an explicit `intervals`
     list. Same preview-then-confirm contract as the splits path."""
@@ -651,18 +660,19 @@ def _add_interval_piece(session: Session, args: dict, piece_type: str, canonical
         rows = expand_repeat(int(r["count"]), work_distance_m=r.get("distance_m"), work_duration_s=r.get("duration_s"), rest_duration_s=r.get("rest_s"))
     else:
         rows = [{**row, "position": i} for i, row in enumerate(args["intervals"])]
-    validation = validate_intervals(rows)
+    validation = validate_intervals(rows, modality)
     if not args.get("confirm"):
         return {
             "saved": False,
             "preview": rows,
-            "summary": summarize_intervals(rows),
+            "summary": summarize_intervals(rows, modality),
+            "modality": modality,
             "validation": validation,
             "piece_type": piece_type,
             "canonical_id": canonical_id,
             "message": "Preview only — confirm these intervals with the athlete, then call add_piece again with confirm=true.",
         }
-    piece, validation = intervals_sync.create_interval_piece(session, canonical_id, rows, piece_type=piece_type, force=True)
+    piece, validation = intervals_sync.create_interval_piece(session, canonical_id, rows, piece_type=piece_type, force=True, modality=modality)
     return {"saved": True, "piece": piece_sync.piece_payload(session, piece), "validation": validation}
 
 
@@ -1252,7 +1262,9 @@ TOOLS: dict[str, dict[str, Any]] = {
             "Add a piece (a segment of a workout, e.g. a 2k inside a longer row) from free text like 'my 2k was "
             "6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7' or a structured splits list. Always call once without "
             "confirm=true first to preview the parsed table for the athlete to check, then call again with the "
-            "same data and confirm=true once they've confirmed it's right."
+            "same data and confirm=true once they've confirmed it's right. modality is 'rowing_erg' (splits per 500 m, "
+            "rate in spm) or 'bike' (splits per 1000 m, cadence in rpm); it defaults from the workout's sport. A bike "
+            "piece never counts toward rowing PBs, tests or the 2k estimate."
         ),
         "input_schema": {
             "type": "object",
@@ -1262,6 +1274,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                     "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
                 },
                 "canonical_id": {"type": "integer", "description": "Which workout this piece belongs to. Defaults to the most recent workout."},
+                "modality": {"type": "string", "enum": ["rowing_erg", "bike"], "description": "Rowing erg (split per 500 m) or bike (split per 1000 m). Defaults from the workout's sport."},
                 "text": {"type": "string", "description": "Free text containing the total time followed by each split, e.g. '6:32.4, splits 1:36.8, 1:38.9, 1:39.0, 1:37.7'."},
                 "splits": {
                     "type": "array",

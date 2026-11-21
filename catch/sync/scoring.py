@@ -575,6 +575,22 @@ def model_is_current(session: Session) -> bool:
         return False
 
 
+def zones_model_is_current(session: Session) -> bool:
+    """Session 33: whether the newest workout with cached zones was resolved with the current zone model (heart-rate reserve, basis
+    stored). One indexed read; no cached zones at all counts as current."""
+    from catch.analytics.zones import ZONES_MODEL
+
+    row = session.exec(
+        select(CanonicalActivity.zones_json).where(CanonicalActivity.zones_json.is_not(None)).order_by(CanonicalActivity.start.desc()).limit(1)
+    ).first()
+    if row is None:
+        return True
+    try:
+        return ((json.loads(row) or {}).get("basis") or {}).get("model") == ZONES_MODEL
+    except ValueError:
+        return False
+
+
 def ensure_current_model(session: Session) -> bool:
     """Recompute everything once when the newest stored row predates SCORING_MODEL. Idempotent."""
     if model_is_current(session):

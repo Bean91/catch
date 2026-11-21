@@ -395,6 +395,11 @@ def food_log_dict(session: Session, row: FoodLog) -> dict:
 # --- Targets and summaries (task Part B.5/B.6/B.7) --------------------------------------
 
 
+def read_targets_settings(session: Session) -> NutritionTarget:
+    """The stored targets, or the defaults (not saved) when none are stored — a read never writes (session 33)."""
+    return session.get(NutritionTarget, tenant.pk(1)) or NutritionTarget(id=1)
+
+
 def get_targets_settings(session: Session) -> NutritionTarget:
     row = session.get(NutritionTarget, tenant.pk(1))
     if row is None:
@@ -431,9 +436,17 @@ def _trailing_kcal_target(session: Session, today: date_, days: int = 7) -> floa
 def _resolved_weight_kg(session: Session) -> tuple[float | None, str | None]:
     """Latest resolved body-comp weight regardless of source — Withings OAuth may still be
     incomplete, so this never hard-requires it (unlike the task's literal "Withings weight"
-    phrasing); the source is always labelled so the UI can say which scale it came from."""
-    rows = body_comp.resolve_daily(session)
-    for entry in reversed(rows):
+    phrasing); the source is always labelled so the UI can say which scale it came from.
+
+    Session 33: resolves only the day of the newest weigh-in (one indexed query) instead of every weigh-in ever — the Settings and
+    Nutrition targets card used to read and day-bucket the whole body-composition history to show one number."""
+    from catch.core.models import BodyComp
+
+    latest = session.exec(select(BodyComp).where(BodyComp.weight_kg.is_not(None)).order_by(BodyComp.ts.desc()).limit(1)).first()
+    if latest is None or latest.ts is None:
+        return None, None
+    day = localtime.day_of(session, latest)
+    for entry in reversed(body_comp.resolve_daily(session, day - timedelta(days=1), day + timedelta(days=1))):
         if entry.get("weight") is not None:
             return entry["weight"], entry.get("weight_source")
     return None, None
@@ -449,7 +462,7 @@ def today_training_tier(session: Session, today: date_) -> str:
 
 def compute_targets(session: Session, today: date_ | None = None) -> dict:
     today = today or localtime.today(session)
-    settings_row = get_targets_settings(session)
+    settings_row = read_targets_settings(session)
     settings = {
         "protein_g_per_kg": settings_row.protein_g_per_kg,
         "carb_g_per_kg_rest": settings_row.carb_g_per_kg_rest,

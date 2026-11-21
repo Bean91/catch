@@ -10,7 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
-from catch.analytics.zones import training_zones, zone_for_hr
+from catch.analytics.zones import basis_from_dict, training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.core.models import Activity, ActivitySamples, ActivityTrack, CanonicalActivity, DailyScore, Note
 from catch.core.settings_store import get_settings
@@ -192,6 +192,16 @@ def list_activities(
 # exercised): see PLAN.md's session 12 notes.
 
 
+def workout_hr_basis(db: Session, canonical: CanonicalActivity, settings: dict):
+    """The heart-rate zone basis this workout's cached zones were computed with (stored in zones_json since session 33), so the
+    zone table, the chart bands and the zone seconds always agree; a workout with no cached zones uses its own day's basis."""
+    from catch.sync.hr_basis import basis_for_day, canonical_day
+
+    stored = (json.loads(canonical.zones_json) or {}).get("basis") if canonical.zones_json else None
+    basis = basis_from_dict(stored)
+    return basis if basis is not None else basis_for_day(db, canonical_day(db, canonical), settings)
+
+
 @router.get("/api/activities/duplicates")
 def list_duplicates(db: Session = Depends(get_db)):
     from catch.sync.matching import list_flagged_duplicates
@@ -214,8 +224,9 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
     data["local_date"] = local_date
     data["recorded_local_date"] = _recorded_day(db, canonical)
     data["strain"] = _activity_strain(db, canonical)
-    data["zones_config"] = training_zones(max_hr=settings.get("max_hr"), settings=settings)
-    data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
+    basis = workout_hr_basis(db, canonical, settings)
+    data["zones_config"] = training_zones(basis, settings=settings)
+    data["hr_zone"] = zone_for_hr(canonical.avg_hr, basis)
     data["day_note"] = note
     data["has_samples"] = any(db.get(ActivitySamples, m.id) is not None for m in members)
     # Session 20: a flag only — the track itself is GET /api/activities/{id}/track.

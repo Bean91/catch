@@ -257,6 +257,10 @@ class CanonicalActivity(OwnedStrict, SQLModel, table=True):
     # catch/sync/scoring.py. Cached here at resolve time, same pattern as strain_trimp.
     muscular_load_au: Optional[float] = None
     muscular_by_muscle_json: Optional[str] = None
+    # Session 33 (docs/analytics.md §31): None = the members are duplicate recordings of one session (one value picked per
+    # field); "combined" = the user merged consecutive/overlapping recordings into one workout, resolved per time-overlap
+    # cluster and summed across clusters so nothing is dropped or counted twice.
+    merge_mode: Optional[str] = None
     # Session 17 (see PLAN.md Part D.4) — set when a PM5-only Concept2 result (its own,
     # otherwise-orphan canonical) gets absorbed into a piece on a *different* canonical,
     # rather than merged into it. Merging would let this short recording's own
@@ -313,9 +317,12 @@ class MergeLog(OwnedStrict, SQLModel, table=True):
     canonical_id: int
     source: str
     external_id: str
-    action: str  # "auto_merge" | "manual_merge" | "split" | "not_duplicate"
+    action: str  # "auto_merge" | "manual_merge" | "split" | "not_duplicate" | "combine" | "uncombine"
     score: Optional[float] = None
     reason: Optional[str] = None
+    # Session 33: for "combine", everything undo needs to give each merged-away workout back (its id, overrides, member
+    # keys, pieces, plans, notes, feedback, publication). Kept by retention while the combined workout exists.
+    snapshot_json: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -1077,6 +1084,9 @@ class Piece(OwnedStrict, SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     canonical_id: int = Field(foreign_key="canonical_activities.id", index=True)
     piece_type: str  # one of catch/analytics/piece.py's PIECE_TYPES
+    # Session 33: "rowing_erg" (pace per 500 m) | "bike" (pace per 1000 m, no pace->watts formula). Every piece older than
+    # this column is a rowing erg piece. Only rowing_erg pieces reach rowing readers (2k, PBs, test center, leaderboards).
+    modality: str = "rowing_erg"
     distance_m: Optional[float] = None
     duration_s: Optional[float] = None
     avg_split_s: Optional[float] = None

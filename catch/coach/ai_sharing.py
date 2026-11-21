@@ -115,10 +115,13 @@ def tool_decision(session: Session, name: str) -> dict | None:
 
 # Tools whose payload mixes categories: the part that belongs to another category is removed when that one is off.
 _NOTE_KEYS = {"notes", "rpe", "day_note"}
+# Session 33: heart-rate zones carry the resting heart rate they were built from — a wellness figure inside a workouts tool.
+_RESTING_HR_KEYS = {"resting_hr", "rhr_source", "rhr_window", "rhr_readings"}
 _MIXED = {
     "get_today": {"notes_checkins": {"checkin"}, "calendar_library": {"upcoming_events", "next_event", "next_race"}},
     "list_workouts": {"notes_checkins": _NOTE_KEYS},
-    "get_workout": {"notes_checkins": _NOTE_KEYS},
+    "get_workout": {"notes_checkins": _NOTE_KEYS, "wellness": _RESTING_HR_KEYS},
+    "get_zones": {"wellness": _RESTING_HR_KEYS},
 }
 
 

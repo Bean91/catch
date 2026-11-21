@@ -17,6 +17,12 @@ export function formatSplit(secondsPer500: number | null | undefined): string {
   return formatTimeTenths(secondsPer500);
 }
 
+/** Session 33: the unit a split is per — "/500m" on a rowing erg, "/1000m" on a bike. The value itself is already per that unit
+ * (the server computes it), so this only labels; it never converts. */
+export function splitUnitLabel(unitM: number | null | undefined): string {
+  return unitM === 1000 ? "/1000m" : "/500m";
+}
+
 export function formatDuration(totalSeconds: number | null | undefined): string {
   if (totalSeconds == null || !Number.isFinite(totalSeconds)) return "—";
   const total = Math.round(totalSeconds);

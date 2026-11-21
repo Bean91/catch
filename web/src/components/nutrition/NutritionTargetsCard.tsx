@@ -4,12 +4,13 @@ import { fetchNutritionTargets, saveNutritionTargets } from "../../lib/api";
 import type { NutritionTargetSettings } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { CardSkeleton } from "../ui/Skeleton";
+import { ErrorState } from "../ui/EmptyState";
 
 const inputCls = "font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary";
 
 export function NutritionTargetsCard() {
   const queryClient = useQueryClient();
-  const targetsQuery = useQuery({ queryKey: ["nutrition-targets"], queryFn: fetchNutritionTargets });
+  const targetsQuery = useQuery({ queryKey: ["nutrition-targets"], queryFn: fetchNutritionTargets, staleTime: 5 * 60_000 });
   const [form, setForm] = useState<NutritionTargetSettings | null>(null);
   const [dirty, setDirty] = useState(false);
 
@@ -27,7 +28,15 @@ export function NutritionTargetsCard() {
     },
   });
 
-  if (targetsQuery.isLoading || !form) return <CardSkeleton lines={3} />;
+  if (!form) {
+    return targetsQuery.isError ? (
+      <Card title="Nutrition targets">
+        <ErrorState message="Couldn't load your nutrition targets." onRetry={() => targetsQuery.refetch()} />
+      </Card>
+    ) : (
+      <CardSkeleton lines={3} />
+    );
+  }
 
   function update<K extends keyof NutritionTargetSettings>(key: K, value: NutritionTargetSettings[K]) {
     setForm((f) => (f ? { ...f, [key]: value } : f));

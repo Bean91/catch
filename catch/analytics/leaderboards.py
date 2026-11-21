@@ -54,11 +54,15 @@ def eligible_board(
     erg_type: str | None = None,
     has_intervals: bool = False,
     is_piece: bool = False,
+    modality: str = "rowing_erg",
 ) -> Optional[tuple[str, int]]:
     """(board_key, ranked integer) for a result that exactly matches a board, else None. Never the 2% tolerance the test
     center uses to *suggest* a type: a 1,960 m piece is not a 2k. A Concept2 result must also be a RowErg, fixed
     distance/time, uninterrupted effort; a typed piece has no workout type to check."""
     if has_intervals or not distance_m or not duration_s or distance_m <= 0 or duration_s <= 0:
+        return None
+    # Session 33: every board is a RowErg board; a bike piece is never ranked on one.
+    if is_piece and modality != "rowing_erg":
         return None
     if not is_piece and erg_type != "rower":
         return None

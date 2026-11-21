@@ -9,9 +9,12 @@ from catch.analytics.zones_samples import (
     smooth,
     time_in_zone_seconds,
 )
-from catch.analytics.zones import ZONE_ORDER
+from catch.analytics.defaults import DEFAULT_SETTINGS
+from catch.analytics.zones import ZONE_ORDER, hr_basis
 
 MAX_HR = 190.0
+# These fixtures were written for % of max HR zones; session 33 kept that method available, so they state it explicitly.
+_PCT_MAX = hr_basis({**DEFAULT_SETTINGS, "max_hr": MAX_HR, "hr_zone_method": "max_pct"})
 RESTING_HR = 50.0
 WARMUP_HR = 118.0  # UT2 (>=60% of 190=114, <70%=133)
 HARD_HR = 180.0  # AN (>=93% of 190=176.7)
@@ -30,7 +33,7 @@ def _quality_bar_profile() -> list[float]:
 
 def test_quality_bar_profile_label_is_never_ut2():
     profile = _quality_bar_profile()
-    zones = time_in_zone_seconds(smooth(profile), MAX_HR)
+    zones = time_in_zone_seconds(smooth(profile), _PCT_MAX)
     label = session_label(zones, moving_time_s=len(profile))
     assert not label.startswith("UT2")
     assert label.startswith("AN") or label.startswith("TR")
@@ -50,7 +53,7 @@ def test_quality_bar_profile_strain_exceeds_a_steady_ut2_piece_of_the_same_avera
 
 def test_time_in_zone_sums_real_seconds_not_whole_session_average():
     profile = _quality_bar_profile()
-    zones = time_in_zone_seconds(profile, MAX_HR)
+    zones = time_in_zone_seconds(profile, _PCT_MAX)
     assert zones["AN"] == 600.0  # exactly the 10 real minutes, not a share of the average
     assert zones["UT2"] == 45 * 60.0
 

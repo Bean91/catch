@@ -12,7 +12,7 @@ import math
 from typing import Optional
 
 from catch.analytics.defaults import DEFAULT_SETTINGS
-from catch.analytics.zones import ZONE_ORDER, zone_for_hr, zone_for_power
+from catch.analytics.zones import ZONE_ORDER, HrBasis, hr_zone_bounds, zone_for_hr, zone_for_power
 
 DEFAULT_SMOOTHING_WINDOW_S = 5
 DEFAULT_MIN_ZONE_MINUTES = 3.0
@@ -64,19 +64,19 @@ def smooth(samples: list[Optional[float]], window_s: int = DEFAULT_SMOOTHING_WIN
     return out
 
 
-def time_in_zone_seconds(hr_samples: list[Optional[float]], max_hr: Optional[float], settings: dict | None = None) -> dict[str, float]:
+def time_in_zone_seconds(hr_samples: list[Optional[float]], basis: Optional[HrBasis]) -> dict[str, float]:
     """Sums *actual* seconds in each zone from per-sample HR, rather than bucketing the
     whole session into the zone for its average — the specific fix the task's motivating
     case needs. Each sample represents 1 second by construction (catch/sync/samples.py
-    resamples onto a 1 Hz grid)."""
-    settings = settings or DEFAULT_SETTINGS
+    resamples onto a 1 Hz grid). Session 33: boundaries come from `basis` (heart-rate reserve by default)."""
     totals = {z: 0.0 for z in ZONE_ORDER}
-    if not max_hr:
+    bounds = hr_zone_bounds(basis) if basis is not None else {}
+    if not bounds:
         return totals
     for hr in hr_samples:
         if hr is None:
             continue
-        zone = zone_for_hr(hr, max_hr, settings)
+        zone = zone_for_hr(hr, basis, bounds)
         if zone:
             totals[zone] += 1.0
     return totals

@@ -41,11 +41,13 @@ export function IntervalEditor({
   onChange,
   canonicalId,
   issues = [],
+  modality = "rowing_erg",
 }: {
   rows: PieceInterval[];
   onChange: (rows: PieceInterval[]) => void;
   canonicalId: number;
   issues?: IntervalValidationIssue[];
+  modality?: "rowing_erg" | "bike";
 }) {
   const [count, setCount] = useState(4);
   const [mode, setMode] = useState<IntervalTarget>("distance");
@@ -190,7 +192,7 @@ export function IntervalEditor({
               {open[i] && (
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   <Num label="Watts" value={r.avg_watts} onChange={(v) => patch(i, { avg_watts: v })} />
-                  <Num label="Rate (spm)" value={r.avg_rate} onChange={(v) => patch(i, { avg_rate: v })} />
+                  <Num label={modality === "bike" ? "Cadence (rpm)" : "Rate (spm)"} value={r.avg_rate} onChange={(v) => patch(i, { avg_rate: v })} />
                   <Num label="Calories" value={r.calories} onChange={(v) => patch(i, { calories: v })} />
                   <Num label="Avg HR" value={r.avg_hr} onChange={(v) => patch(i, { avg_hr: v })} />
                   <Num label="Max HR" value={r.max_hr} onChange={(v) => patch(i, { max_hr: v })} />

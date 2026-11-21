@@ -120,3 +120,27 @@ describe("parseSplitsPaste", () => {
     expect(r.map((x) => x.rate)).toEqual(vector.rates);
   });
 });
+
+// Session 33: rowing erg vs bike — the same vectors tests/analytics/test_piece_modality.py runs, so the two implementations agree
+// on the split unit (500 m vs 1000 m), the rate/cadence range and when the pace->watts check applies.
+describe("modality (shared vectors)", () => {
+  type Modality = "rowing_erg" | "bike";
+  const unitPath = fileURLToPath(new URL("../../../tests/fixtures/pieces/split_unit_vectors.json", import.meta.url));
+  const unit = JSON.parse(readFileSync(unitPath, "utf-8")) as {
+    aggregate: { name: string; modality: Modality; rows: SplitRow[]; avg_split_s: number }[];
+    validate: { name: string; modality: Modality; rows: SplitRow[]; fields: string[] }[];
+    default_rows: { piece_type: "2000m" | "5000m"; modality: Modality; distances: number[] }[];
+  };
+
+  it.each(unit.aggregate)("average split: $name", (c) => {
+    expect(aggregateFromSplits(c.rows, c.modality).avg_split_s).toBeCloseTo(c.avg_split_s, 6);
+  });
+
+  it.each(unit.validate)("validation: $name", (c) => {
+    expect(validateSplits(c.rows, null, null, c.modality).issues.map((i) => i.field).sort()).toEqual([...c.fields].sort());
+  });
+
+  it.each(unit.default_rows)("template rows: $modality $piece_type", (c) => {
+    expect(defaultSplits(c.piece_type, null, null, c.modality).map((r) => r.distance_m)).toEqual(c.distances);
+  });
+});
