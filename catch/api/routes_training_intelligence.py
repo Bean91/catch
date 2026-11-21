@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
+from catch.core import localtime
 from catch.core.models import Recommendation
 from catch.core.settings_store import get_settings
 from catch.sync import training_intelligence
@@ -88,7 +89,7 @@ def dismiss_recommendation(id: int, db: Session = Depends(get_db)):
     # parsed-evidence/`active`-flag shape (routes_tests.py-style consistency: a mutation
     # response should match its sibling GET's row shape, not a different one the caller then
     # has to reconcile).
-    return training_intelligence.recommendation_dict(db.get(Recommendation, id))
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id), localtime.today(db))
 
 
 @router.post("/api/training-intelligence/recommendations/{id}/save")
@@ -98,7 +99,7 @@ def save_recommendation(id: int, body: SaveRequest = Body(...), db: Session = De
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return training_intelligence.recommendation_dict(db.get(Recommendation, id))
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id), localtime.today(db))
 
 
 @router.post("/api/training-intelligence/recommendations/{id}/rate")
@@ -111,4 +112,4 @@ def rate_recommendation(id: int, body: RateRequest = Body(...), db: Session = De
     row.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(row)
-    return training_intelligence.recommendation_dict(db.get(Recommendation, id))
+    return training_intelligence.recommendation_dict(db.get(Recommendation, id), localtime.today(db))

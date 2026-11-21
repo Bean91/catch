@@ -16,8 +16,10 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from catch.analytics.planning import aware_utc, local_date
+from catch.analytics.planning import aware_utc
 from catch.core import principal as pr
+from catch.core import localtime
+from catch.sync.activity_days import canonical_in_days
 from catch.core.models import CanonicalActivity, CoachFeedback, CoachFeedbackRevision, Event, Piece, PlannedWorkout, TechniqueNote
 from catch.core.principal import Principal
 
@@ -82,7 +84,7 @@ def _canonical_label(session: Session, canonical_id: Optional[int]) -> Optional[
     c = session.get(CanonicalActivity, canonical_id)
     if c is None:
         return None
-    day = local_date(c.start) if c.start else None
+    day = localtime.day_of(session, c) if c.start else None
     return {"id": c.id, "title": c.title or c.sport_family or "Workout", "date": day.isoformat() if day else None}
 
 
@@ -95,14 +97,9 @@ def _require_canonical(session: Session, canonical_id: Any) -> int:
 def resolve_workout_on(session: Session, day: date) -> int:
     """For callers (a coach) who know a date but no id. Exactly one workout that local day, or a
     clear error naming how many — never a guess."""
-    from catch.sync import planning
 
-    # Bounded in SQL by the local day's UTC range (the same bucketing the calendar uses) — never
-    # a scan of every workout, which the Pi's memory budget can't afford.
-    lo, hi = planning.pl.local_day_utc_range(day, planning._tz())
-    matches = session.exec(
-        select(CanonicalActivity).where(CanonicalActivity.start >= lo, CanonicalActivity.start < hi, CanonicalActivity.absorbed_into_piece_id.is_(None))
-    ).all()
+    # Bounded to that one local day (each workout's own stamped day) — never a scan of every workout.
+    matches = canonical_in_days(session, day, day, CanonicalActivity.absorbed_into_piece_id.is_(None))
     if not matches:
         raise CoachingError(f"No workout on {day.isoformat()}")
     if len(matches) > 1:
@@ -389,14 +386,14 @@ def _feedback_create_fields(session: Session, owner_id: str, principal: Principa
     if fields.get("workout_date") and "canonical_id" not in links:
         links["canonical_id"] = resolve_workout_on(session, _date(fields["workout_date"], "workout_date"))
     out.update(_check_links(session, owner_id, links))
-    out["entry_date"] = _date(fields.get("entry_date", fields.get("date")), "date") or planning_today()
+    out["entry_date"] = _date(fields.get("entry_date", fields.get("date")), "date") or planning_today(session)
     return out
 
 
-def planning_today() -> date:
+def planning_today(session: Session | None = None) -> date:
     from catch.sync import planning
 
-    return planning.today()
+    return planning.today(session)
 
 
 def create_feedback(session: Session, owner_id: str, principal: Principal, fields: dict, via: str = "web") -> CoachFeedback:

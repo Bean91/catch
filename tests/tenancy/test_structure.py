@@ -112,7 +112,7 @@ def test_the_club_tables_match_the_migration_and_are_not_owned():
 
 def test_migration_0002_covers_exactly_the_tables_the_models_declare():
     m = _migration("0002_security")
-    later = set(_migration("0004_provider_connections").TABLES) | set(_migration("0005_leaderboards").TABLES) | set(_migration("0006_clubs").TABLES) | set(_migration("0008_security_review").TABLES) | set(_migration("0009_native_apps").TABLES)  # tables added after 0002's frozen list, each with its own RLS
+    later = set(_migration("0004_provider_connections").TABLES) | set(_migration("0005_leaderboards").TABLES) | set(_migration("0006_clubs").TABLES) | set(_migration("0008_security_review").TABLES) | set(_migration("0009_native_apps").TABLES) | set(_migration("0011_time_zones_onboarding").TABLES)  # tables added after 0002's frozen list, each with its own RLS
     owned, shared = _classes(OwnedStrict), _classes(OwnedOrShared)
     assert set(m.OWNED) | later == set(owned) and set(m.SHARED) == set(shared)
     assert not set(m.OWNED) & later
@@ -124,8 +124,8 @@ def test_migration_0002_covers_exactly_the_tables_the_models_declare():
 
 def test_the_baseline_snapshot_creates_every_table_and_only_those():
     sql = (ROOT / "migrations" / "versions" / "0001_baseline.sql").read_text()
-    mig4, mig5, mig6, mig8, mig9 = _migration("0004_provider_connections"), _migration("0005_leaderboards"), _migration("0006_clubs"), _migration("0008_security_review"), _migration("0009_native_apps")
-    later = set(mig4.TABLES) | set(mig5.TABLES) | set(mig5.GLOBAL) | set(mig6.TABLES) | set(mig6.GLOBAL) | set(mig8.TABLES) | set(mig8.GLOBAL) | set(mig9.TABLES) | set(mig9.GLOBAL)
+    mig4, mig5, mig6, mig8, mig9, mig11 = _migration("0004_provider_connections"), _migration("0005_leaderboards"), _migration("0006_clubs"), _migration("0008_security_review"), _migration("0009_native_apps"), _migration("0011_time_zones_onboarding")
+    later = set(mig4.TABLES) | set(mig5.TABLES) | set(mig5.GLOBAL) | set(mig6.TABLES) | set(mig6.GLOBAL) | set(mig8.TABLES) | set(mig8.GLOBAL) | set(mig9.TABLES) | set(mig9.GLOBAL) | set(mig11.TABLES)
     assert set(re.findall(r"^CREATE TABLE (\w+) \(", sql, flags=re.M)) | later == set(SQLModel.metadata.tables)
 
 

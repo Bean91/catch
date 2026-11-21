@@ -86,7 +86,8 @@ def find_candidate_pairs(session: Session) -> list[tuple[Activity, Activity, Mat
     rows = session.exec(select(Activity).where(Activity.start.is_not(None))).all()
     by_day: dict = defaultdict(list)
     for a in rows:
-        day = a.start.astimezone().date()
+        # A prefilter only (pairs further apart than minutes always score 0), so any one consistent calendar works: the UTC one.
+        day = a.start.date()
         for offset in (-1, 0, 1):
             by_day[day + timedelta(days=offset)].append(a)
 

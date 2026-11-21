@@ -406,7 +406,7 @@ def _training_suggestion_suppressed(context: dict, settings: dict) -> str | None
         return "recovery's green reading has no physiological component (hrv/resting_hr/sleep) behind it"
     niggle_days = context.get("niggle_streak_days", 0)
     if niggle_days >= settings.get("niggle_flag_min_days", 3):
-        return f"a niggle has been logged for {niggle_days} days running"
+        return f"a training issue has been logged for {niggle_days} days running"
     load = context.get("load") or {}
     if load.get("band") not in ("optimal", "undertraining"):
         return f"acute:chronic load band is '{load.get('band')}'"

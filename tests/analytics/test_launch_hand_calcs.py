@@ -8,9 +8,9 @@ import pytest
 from catch.analytics.cycling_load import cycling_tss, estimate_ftp_watts
 from catch.analytics.erg_math import pace_from_watts, watts_from_pace
 from catch.analytics.load import ewma
-from catch.analytics.predict import predict_2k
+from catch.analytics.predict import implied_2k_time
 from catch.analytics.recovery import recovery_score
-from catch.analytics.strain import banister_trimp, daily_activity_strain
+from catch.analytics.strain import banister_trimp, daily_activity_trimp
 from catch.analytics.strength import epley_e1rm
 
 
@@ -35,14 +35,13 @@ def test_concept2_round_numbers():
 
 # -- Paul's law as implemented: 2k pace = pace - 5 * log2(d / 2000)
 def test_paul_law_extrapolations_by_hand():
-    # 6k @ 1:50.0: log2(3) = 1.58496 -> 110 - 7.9248 = 102.075
-    out = predict_2k([{"distance_m": 6000, "pace_s_per_500": 110.0}])
-    assert out["components"][0]["predicted_2k_pace_s"] == pytest.approx(110 - 5 * math.log2(3))
-    assert out["components"][0]["predicted_2k_pace_s"] == pytest.approx(102.0752, abs=1e-3)
-    # 1k @ 1:30.0: log2(0.5) = -1 -> 90 + 5 = 95.0
-    assert predict_2k([{"distance_m": 1000, "pace_s_per_500": 90.0}])["components"][0]["predicted_2k_pace_s"] == pytest.approx(95.0)
+    # 6k @ 1:50.0: log2(3) = 1.58496 -> 110 - 7.9248 = 102.075 s/500 m -> 408.30 s.
+    assert implied_2k_time(6000, 1320.0) == pytest.approx(4 * (110 - 5 * math.log2(3)))
+    assert implied_2k_time(6000, 1320.0) / 4 == pytest.approx(102.0752, abs=1e-3)
+    # 1k @ 1:30.0: log2(0.5) = -1 -> 90 + 5 = 95.0 s/500 m.
+    assert implied_2k_time(1000, 180.0) / 4 == pytest.approx(95.0)
     # A real 2k at 1:40.0 predicts itself.
-    assert predict_2k([{"distance_m": 2000, "pace_s_per_500": 100.0}])["components"][0]["predicted_2k_pace_s"] == pytest.approx(100.0)
+    assert implied_2k_time(2000, 400.0) == pytest.approx(400.0)
 
 
 # -- Banister TRIMP = minutes * HRr * 0.64 * e^(1.92 * HRr)
@@ -102,12 +101,9 @@ def test_recovery_still_scores_from_any_one_physiological_input():
     assert out["value"] == pytest.approx(20 / 0.35)
 
 
-def test_activity_strain_does_not_average_a_missing_kcal_in_as_zero():
-    from catch.analytics.defaults import DEFAULT_SETTINGS
-
-    w, cap = DEFAULT_SETTINGS["daily_activity_strain_weight"], DEFAULT_SETTINGS["daily_activity_strain_cap"]
-    # 6000 steps: log1p(6000/2000) = log1p(3) = 1.3863 on its own; the old code halved it to 0.6931 by averaging in a 0 kcal term.
-    assert daily_activity_strain(6000, None)["value"] == pytest.approx(min(cap, w * math.log1p(3)))
-    # A real 0 kcal is still a real 0 and is averaged in.
-    assert daily_activity_strain(6000, 0)["value"] == pytest.approx(min(cap, w * math.log1p(3) / 2))
-    assert daily_activity_strain(None, None)["value"] == 0.0
+def test_daily_movement_does_not_read_a_missing_kcal_as_zero():
+    # Session 32 model: steps alone give their walking-minute TRIMP; a missing kcal is not a 0 that halves it (L-13 still holds).
+    per_min = 0.25 * 0.64 * math.exp(1.92 * 0.25)
+    assert daily_activity_trimp(6000, None)["load"] == pytest.approx(60 * per_min)
+    assert daily_activity_trimp(6000, 0)["load"] == pytest.approx(60 * per_min)
+    assert daily_activity_trimp(None, None)["load"] == 0.0

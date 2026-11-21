@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from catch.core.tenant import current_owner
-from catch.core import tenant
+from catch.core import localtime, tenant
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -25,8 +25,9 @@ _SYNC_STALE_HOURS = 36
 _GARMIN_KEY_WARN_DAYS = (14, 3, 1)
 
 
-def _now_local() -> datetime:
-    return datetime.now().astimezone()
+def _now_local(session: Session) -> datetime:
+    """Now, in the zone the athlete is in (catch.core.localtime) — quiet hours and the morning brief follow them when they travel."""
+    return localtime.now_local(session)
 
 
 def _minutes_of_day(dt: datetime) -> int:
@@ -55,9 +56,12 @@ def _type_enabled(settings: dict, type_: str) -> bool:
 
 
 def _sent_today(session: Session, type_: str, today: date | None = None) -> bool:
-    today = today or date.today()
-    rows = session.exec(select(NotificationLog).where(NotificationLog.type == type_)).all()
-    return any(r.sent_at.astimezone().date() == today for r in rows)
+    today = today or localtime.today(session)
+    start, end = localtime.day_range(session, today)
+    row = session.exec(
+        select(NotificationLog.id).where(NotificationLog.type == type_, NotificationLog.sent_at >= start, NotificationLog.sent_at < end)
+    ).first()
+    return row is not None
 
 
 def _gated_notify(session: Session, settings: dict, *, type_: str, title: str, body: str, deep_link: str | None = None) -> bool:
@@ -67,7 +71,7 @@ def _gated_notify(session: Session, settings: dict, *, type_: str, title: str, b
     not treated as delivered)."""
     if not _type_enabled(settings, type_):
         return False
-    if _in_quiet_hours(settings, _now_local()):
+    if _in_quiet_hours(settings, _now_local(session)):
         return False
     push.notify(session, type=type_, title=title, body=body, deep_link=deep_link)
     return True
@@ -80,7 +84,7 @@ def check_morning_brief(session: Session) -> None:
     settings = get_settings(session)
     if not _type_enabled(settings, "morning_brief") or _sent_today(session, "morning_brief"):
         return
-    cutoff = date.today() - timedelta(days=_WAKE_LOOKBACK_DAYS)
+    cutoff = localtime.today(session) - timedelta(days=_WAKE_LOOKBACK_DAYS)
     samples = session.exec(
         select(DailyWellness.wake_time_minutes).where(
             DailyWellness.date >= cutoff, DailyWellness.wake_time_minutes.is_not(None)
@@ -88,7 +92,7 @@ def check_morning_brief(session: Session) -> None:
     ).all()
     baseline = average_wake_time_minutes(list(samples))
     target = (baseline if baseline is not None else _DEFAULT_WAKE_MINUTES) + 30
-    now_m = _minutes_of_day(_now_local())
+    now_m = _minutes_of_day(_now_local(session))
     if not (target <= now_m < target + _MORNING_BRIEF_GRACE_MINUTES):
         return
 
@@ -135,7 +139,7 @@ def check_illness(session: Session) -> None:
             IllnessAck.dismissed == False,  # noqa: E712 - SQLAlchemy needs `== False`, not `is False`
         )
     ).all()
-    cutoff = date.today() - timedelta(days=1)
+    cutoff = localtime.today(session) - timedelta(days=1)
     for ack in acks:
         if ack.date < cutoff:
             ack.notified_at = datetime.now(timezone.utc)
@@ -191,7 +195,7 @@ def check_garmin_key_expiring(session: Session) -> None:
     expires_on = conn.credential_expires_on.isoformat() if conn and conn.credential_expires_on else settings.get("garmin_key_expires_on")
     if not expires_on or _sent_today(session, "garmin_key_expiring"):
         return
-    days_left = (date.fromisoformat(str(expires_on)) - date.today()).days
+    days_left = (date.fromisoformat(str(expires_on)) - localtime.today(session)).days
     if days_left not in _GARMIN_KEY_WARN_DAYS:
         return
     _gated_notify(
@@ -267,7 +271,7 @@ def check_test_reminder(session: Session) -> None:
         return
     # "Tomorrow" is the athlete's local calendar day (the same host-local day the calendar
     # buckets workouts into), via planning.today() so it's one definition app-wide.
-    tomorrow = planning.today() + timedelta(days=1)
+    tomorrow = planning.today(session) + timedelta(days=1)
     events = [
         e
         for e in planning.list_events(session, current_owner(), start=tomorrow, end=tomorrow)

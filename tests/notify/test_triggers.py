@@ -29,7 +29,7 @@ def test_morning_brief_syncs_first_and_reports_todays_recovery(session, monkeypa
     monkeypatch.setattr(scheduler_module, "run_sync", lambda source, days=3: sync_calls.append((source, days)))
     # No wake-time samples seeded -> falls back to the 7:30 default, so the target send
     # window is 8:00-10:00; pin "now" inside it.
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 5))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 5))
 
     today = date.today()
     session.add(DailyScore(date=today, recovery_json=json.dumps({"value": 72, "band": "green"})))
@@ -49,7 +49,7 @@ def test_morning_brief_does_not_fire_outside_its_window(session, monkeypatch):
     from catch.sync import scheduler as scheduler_module
 
     monkeypatch.setattr(scheduler_module, "run_sync", lambda source, days=3: None)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 6, 0))  # well before 8:00
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 6, 0))  # well before 8:00
 
     triggers.check_morning_brief(session)
 
@@ -74,7 +74,7 @@ def test_garmin_key_expiring_fires_only_on_the_three_warn_days(session, monkeypa
     # local, the default quiet hours), exactly like the morning_brief tests above already
     # guard against. Only the hour:minute matters here; check_garmin_key_expiring's own
     # day-math below uses the real date.today().
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     from catch.core.settings_store import update_settings
 
     for days_out, should_fire in [(14, True), (13, False), (3, True), (1, True), (0, False), (5, False)]:
@@ -91,7 +91,7 @@ def test_garmin_key_expiring_fires_only_on_the_three_warn_days(session, monkeypa
 
 def test_garmin_key_expiring_does_not_double_fire_same_day(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     from catch.core.settings_store import update_settings
 
     update_settings(session, {"garmin_key_expires_on": (date.today() + timedelta(days=14)).isoformat()})
@@ -105,7 +105,7 @@ def test_garmin_key_expiring_does_not_double_fire_same_day(session, monkeypatch)
 
 def test_illness_notifies_once_and_sets_notified_at(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     today = date.today()
     session.add(DailyScore(date=today, illness_json=json.dumps({"level": "likely", "explanation": "HRV and RHR both deviated."})))
     session.add(IllnessAck(date=today, first_flagged_at=datetime.now(timezone.utc)))
@@ -175,7 +175,7 @@ def test_illness_skips_a_dismissed_flag(session, monkeypatch):
 
 def test_test_reminder_fires_for_tomorrows_2k_test_with_a_pacing_plan(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     tomorrow = date.today() + timedelta(days=1)
     session.add(
         Event(
@@ -198,7 +198,7 @@ def test_test_reminder_fires_for_tomorrows_2k_test_with_a_pacing_plan(session, m
 
 def test_check_sync_stale_alerts_once_when_no_success_in_36h(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     from catch.core.models import SyncState
 
     stale_at = datetime.now(timezone.utc) - timedelta(hours=40)
@@ -247,7 +247,7 @@ def test_test_reminder_ignores_a_b_priority_race_tomorrow(session, monkeypatch):
     _no_vapid(monkeypatch)
     # Outside quiet hours, so a zero-row result proves the *event* was filtered out rather than
     # the send being silenced by the clock.
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     tomorrow = date.today() + timedelta(days=1)
     session.add(Event(name="Club regatta", date=tomorrow, type="race", priority="B"))
     session.commit()
@@ -276,7 +276,7 @@ def _reminders(session):
 
 def test_test_reminder_not_sent_for_today_the_day_after_or_a_finished_event(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     _event(session, date=date.today())
     _event(session, date=date.today() + timedelta(days=2))
     _event(session, result="6:40")
@@ -286,7 +286,7 @@ def test_test_reminder_not_sent_for_today_the_day_after_or_a_finished_event(sess
 
 def test_test_reminder_is_one_notification_per_day_even_across_ticks(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     _event(session)
     triggers.check_test_reminder(session)
     triggers.check_test_reminder(session)
@@ -295,7 +295,7 @@ def test_test_reminder_is_one_notification_per_day_even_across_ticks(session, mo
 
 def test_two_events_tomorrow_send_one_combined_notification_linking_to_the_calendar(session, monkeypatch):
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     _event(session, name="Morning test")
     _event(session, name="Afternoon race", type="race", priority="A")
     triggers.check_test_reminder(session)
@@ -307,10 +307,10 @@ def test_two_events_tomorrow_send_one_combined_notification_linking_to_the_calen
 def test_test_reminder_is_held_during_quiet_hours_then_sent_later(session, monkeypatch):
     _no_vapid(monkeypatch)
     _event(session)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 23, 30))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 23, 30))
     triggers.check_test_reminder(session)
     assert _reminders(session) == []
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 2, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 2, 8, 0))
     triggers.check_test_reminder(session)
     assert len(_reminders(session)) == 1
 
@@ -319,7 +319,7 @@ def test_test_reminder_respects_the_type_toggle(session, monkeypatch):
     from catch.core.settings_store import update_settings
 
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 1, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 1, 1, 8, 0))
     update_settings(session, {"notifications": {"types": {"test_reminder": False}}})
     _event(session)
     triggers.check_test_reminder(session)
@@ -335,14 +335,14 @@ def test_test_reminder_uses_the_athletes_local_tomorrow(session, monkeypatch):
     from catch.sync import planning
 
     _no_vapid(monkeypatch)
-    monkeypatch.setattr(triggers, "_now_local", lambda: datetime(2026, 6, 1, 8, 0))
+    monkeypatch.setattr(triggers, "_now_local", lambda *_: datetime(2026, 6, 1, 8, 0))
     instant = datetime(2026, 6, 2, 3, 0, tzinfo=timezone.utc)  # Jun 1 evening in New York, Jun 2 in UTC
     ny = ZoneInfo("America/New_York")
     _event(session, date=date(2026, 6, 2))
-    monkeypatch.setattr(planning, "today", lambda: pl.today_in(ny, instant))
+    monkeypatch.setattr(planning, "today", lambda *_: pl.today_in(ny, instant))
     triggers.check_test_reminder(session)
     assert len(_reminders(session)) == 1
-    monkeypatch.setattr(planning, "today", lambda: pl.today_in(timezone.utc, instant))
+    monkeypatch.setattr(planning, "today", lambda *_: pl.today_in(timezone.utc, instant))
     session.exec(__import__("sqlmodel").delete(NotificationLog))
     session.commit()
     triggers.check_test_reminder(session)  # in UTC "tomorrow" is Jun 3, so Jun 2's event is today

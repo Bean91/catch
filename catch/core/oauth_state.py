@@ -51,13 +51,19 @@ def _sign(key: bytes, body: str) -> str:
     return base64.urlsafe_b64encode(hmac.new(key, body.encode(), hashlib.sha256).digest()).decode().rstrip("=")
 
 
-def make(owner: str, provider: str, nonce: str, *, now: float | None = None, native: bool = False) -> str:
+# Session 32: where a web flow lands afterwards. A fixed word, never a URL — the callback maps it to one of these paths.
+RETURN_PATHS = {"connections": "/settings/connections", "onboarding": "/welcome"}
+
+
+def make(owner: str, provider: str, nonce: str, *, now: float | None = None, native: bool = False, return_to: str | None = None) -> str:
     keys = _keys()
     if not keys:
         raise OAuthStateError("The server has no secrets master key configured.")
     payload = {"o": owner, "p": provider, "n": nonce, "e": int((now if now is not None else time.time()) + TTL_SECONDS)}
     if native:
         payload["x"] = 1  # the flow ends in the store app (custom-scheme return), not a page
+    if return_to in RETURN_PATHS and return_to != "connections":
+        payload["r"] = return_to
     body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
     return f"{body}.{_sign(keys[0], body)}"
 
@@ -69,6 +75,12 @@ def verify(cookie: str | None, provider: str, state: str | None, *, now: float |
 
 def verify_full(cookie: str | None, provider: str, state: str | None, *, now: float | None = None) -> tuple[str, bool]:
     """(owner, started_from_the_native_app)."""
+    owner, native, _ = verify_details(cookie, provider, state, now=now)
+    return owner, native
+
+
+def verify_details(cookie: str | None, provider: str, state: str | None, *, now: float | None = None) -> tuple[str, bool, str]:
+    """(owner, started_from_the_native_app, return_to) — return_to is always a key of RETURN_PATHS."""
     if not cookie or not state or "." not in cookie:
         raise OAuthStateError("Invalid or missing OAuth state.")
     body, signature = cookie.rsplit(".", 1)
@@ -83,7 +95,8 @@ def verify_full(cookie: str | None, provider: str, state: str | None, *, now: fl
     if prov != provider or exp < (now if now is not None else time.time()) or not secrets.compare_digest(str(nonce).encode(), state.encode("utf-8", "replace")):
         raise OAuthStateError("Invalid or missing OAuth state.")
     _consume(str(nonce), exp, now if now is not None else time.time())
-    return owner, bool(payload.get("x"))
+    return_to = payload.get("r") if payload.get("r") in RETURN_PATHS else "connections"
+    return owner, bool(payload.get("x")), return_to
 
 
 # ---- native start tickets (session 30, docs/mobile/oauth-return.md) ----

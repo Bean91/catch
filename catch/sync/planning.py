@@ -20,10 +20,11 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from catch.analytics import localtime as lt
 from catch.analytics import planning as pl
+from catch.core import localtime
 from catch.analytics.erg_test import TEST_SPECS, detect_test_type, project_time
 from catch.analytics.piece import parse_time_token
-from catch.analytics.predict import predict_2k
 from catch.analytics.training_intelligence import _history_confidence
 from catch.analytics.zones import ZONE_ORDER
 from catch.core.models import CanonicalActivity, Event, PlannedWorkout, TrainingPhase
@@ -48,14 +49,15 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _tz():
-    """The zone completed workouts are bucketed in everywhere else in the app: the host's
-    local zone (None). See docs/calendar.md for why this isn't a setting."""
-    return None
+def _tz(session: Session | None = None):
+    """The athlete's current zone (catch.core.localtime — session 32 replaced the host-zone default; docs/time.md)."""
+    if session is not None:
+        return localtime.current_tz(session)
+    return lt.tz_for(localtime.ambient_zone_name())
 
 
-def today() -> date:
-    return pl.today_in(_tz())
+def today(session: Session | None = None) -> date:
+    return localtime.today(session) if session is not None else localtime.ambient_today()
 
 
 # --- Planned workouts -----------------------------------------------------------------------
@@ -500,7 +502,7 @@ def list_events(session: Session, owner_id: str, start: date | None = None, end:
 
 
 def upcoming_events(session: Session, owner_id: str, limit: int = 5, today_: date | None = None) -> list[dict]:
-    today_ = today_ or today()
+    today_ = today_ or today(session)
     return [event_dict(e, today_) for e in list_events(session, owner_id, start=today_)[:limit]]
 
 
@@ -708,15 +710,9 @@ def _completed_dict(c: CanonicalActivity, linked_to: int | None) -> dict:
 
 
 def _completed_in_range(session: Session, start: date, end: date) -> list[CanonicalActivity]:
-    lo, _ = pl.local_day_utc_range(start, _tz())
-    _, hi = pl.local_day_utc_range(end, _tz())
-    return list(
-        session.exec(
-            select(CanonicalActivity).where(
-                CanonicalActivity.start >= lo, CanonicalActivity.start < hi, CanonicalActivity.absorbed_into_piece_id.is_(None)
-            )
-        ).all()
-    )
+    from catch.sync.activity_days import canonical_in_days
+
+    return canonical_in_days(session, start, end, CanonicalActivity.absorbed_into_piece_id.is_(None))
 
 
 def _match_inputs(planned: list[PlannedWorkout], completed: list[CanonicalActivity]) -> tuple[list[dict], list[dict], set[tuple[int, int]]]:
@@ -724,7 +720,7 @@ def _match_inputs(planned: list[PlannedWorkout], completed: list[CanonicalActivi
     a_in = [
         {
             "id": c.id,
-            "local_date": pl.local_date(c.start, _tz()),
+            "local_date": c.local_date or pl.local_date(c.start, _tz()),
             "sport_family": c.sport_family,
             "category": c.category,
             "duration_min": (c.duration / 60.0) if c.duration else None,
@@ -742,12 +738,12 @@ def build_calendar(session: Session, owner_id: str, start: date, end: date) -> d
         raise PlanningError("'to' can't be before 'from'")
     if (end - start).days + 1 > MAX_CALENDAR_DAYS:
         raise PlanningError(f"Ask for at most {MAX_CALENDAR_DAYS} days at a time")
-    today_ = today()
+    today_ = today(session)
     planned = list_planned(session, owner_id, start, end)
     # Matching looks one day either side, so fetch that wider window of workouts and plans.
     wide_planned = list_planned(session, owner_id, start - timedelta(days=1), end + timedelta(days=1))
     completed_wide = _completed_in_range(session, start - timedelta(days=1), end + timedelta(days=1))
-    completed = [c for c in completed_wide if c.start is not None and start <= pl.local_date(c.start, _tz()) <= end]
+    completed = [c for c in completed_wide if c.start is not None and start <= localtime.day_of(session, c) <= end]
     link_by_canonical = {p.linked_canonical_id: p.id for p in wide_planned if p.linked_canonical_id is not None}
     events = list_events(session, owner_id, start, end)
     phases = [phase_dict(p, session) for p in list_phases(session, owner_id) if p.start_date <= end and p.end_date >= start]
@@ -762,7 +758,7 @@ def build_calendar(session: Session, owner_id: str, start: date, end: date) -> d
     for p in planned:
         days[p.date.isoformat()]["planned"].append(planned_dict(p, today_))
     for c in sorted(completed, key=lambda c: c.start):
-        days[pl.local_date(c.start, _tz()).isoformat()]["completed"].append(_completed_dict(c, link_by_canonical.get(c.id)))
+        days[localtime.day_of(session, c).isoformat()]["completed"].append(_completed_dict(c, link_by_canonical.get(c.id)))
     for e in events:
         days[e.date.isoformat()]["events"].append(event_dict(e, today_))
     for ph in phases:
@@ -784,7 +780,7 @@ def _completed_minutes_by_week(session: Session, first_week: date, last_week: da
     for a in _qualifying_activities(session, first_week, last_week + timedelta(days=7)):
         if a.start is None:
             continue
-        wk = pl.week_start(pl.local_date(a.start, _tz()))
+        wk = pl.week_start(localtime.day_of(session, a))
         bucket = out.setdefault(wk, {"minutes": 0.0, "sessions": 0, "strength_sessions": 0})
         bucket["minutes"] += (a.duration or 0.0) / 60.0
         bucket["sessions"] += 1
@@ -799,7 +795,7 @@ def _completed_zone_seconds(session: Session, week: date) -> dict[str, float] | 
     return None rather than a made-up number."""
     from catch.api.routes_analytics import trends_volume
 
-    this_week = pl.week_start(today())
+    this_week = pl.week_start(today(session))
     if week > this_week:
         return None
     back = (this_week - week).days // 7 + 1
@@ -813,7 +809,7 @@ def _completed_zone_seconds(session: Session, week: date) -> dict[str, float] | 
 def review_flags(session: Session, owner_id: str, first_week: date, n_weeks: int, settings: dict | None = None) -> list[dict]:
     settings = settings or get_settings(session)
     threshold = settings["planning"]["review_threshold_pct"]
-    today_ = today()
+    today_ = today(session)
     this_week = pl.week_start(today_)
     weeks = [first_week + timedelta(weeks=i) for i in range(n_weeks)]
     # Baseline = the 4 weeks of *completed* training before the earlier of "that week" and
@@ -874,7 +870,7 @@ def planned_load_context(session: Session, owner_id: str, settings: dict) -> dic
     """The one thing the recommendation engine gets from the plan: pre-computed review flags
     for this week and the next two. Passed in through the evaluator `context` so that
     training_intelligence.py itself never reads a planned row."""
-    this_week = pl.week_start(today())
+    this_week = pl.week_start(today(session))
     return {"flags": review_flags(session, owner_id, this_week, 3, settings)}
 
 
@@ -906,7 +902,7 @@ def event_projection(session: Session, owner_id: str, event_id: int) -> dict:
     the Paul's-law 2k estimate) and says what each rests on. No new model: if there isn't
     enough data the answer is `available: False` with the reason, not a guess."""
     event = _own_event(session, owner_id, event_id)
-    today_ = today()
+    today_ = today(session)
     settings = get_settings(session)
     test_type = event_test_type(event)
     goal_s = None
@@ -952,9 +948,9 @@ def event_projection(session: Session, owner_id: str, event_id: int) -> dict:
         "Erg results only: wind, current, water and race-day conditions are not modelled.",
     ]
     if test_type == "2000m":
-        p = predict_2k(rowing_predict.recent_rower_pieces(session, settings))
+        p = rowing_predict.estimate_2k(session, settings)
         base["predict_2k"] = p
-        assumptions.append("The 2k estimate scales recent efforts at other distances with Paul's law (about +5 s per 500 m for each doubling of distance).")
+        assumptions.append("The 2k estimate scales recent hard efforts at other distances with Paul's law (about +5 s per 500 m for each doubling of distance); it is an estimate, not a result.")
     base["assumptions"] = assumptions
 
     value = trend.get("value")
@@ -966,7 +962,9 @@ def event_projection(session: Session, owner_id: str, event_id: int) -> dict:
         return base
     base["available"] = True
     base["value_s"] = value
-    rng = trend.get("range") or (base["predict_2k"] or {}).get("range")
+    # Both in seconds of finishing time. (Before session 32 the fallback took the estimate's *pace* range, s/500 m, and the event
+    # page printed "6:50.0, likely 1:42.0 – 1:44.0".)
+    rng = trend.get("range") or (base["predict_2k"] or {}).get("range_s")
     base["uncertainty"] = (
         "The band is ±1 standard deviation of how far past results sit from the trend line — a rough guide to spread, not a guarantee."
         if trend.get("value") is not None
@@ -982,7 +980,7 @@ def event_projection(session: Session, owner_id: str, event_id: int) -> dict:
 
 def event_overview(session: Session, owner_id: str, event_id: int) -> dict:
     event = _own_event(session, owner_id, event_id)
-    today_ = today()
+    today_ = today(session)
     phase = phase_on(session, owner_id, today_) if event.date >= today_ else None
     upcoming = list_planned(session, owner_id, today_, max(event.date, today_))
     test_type = event_test_type(event)

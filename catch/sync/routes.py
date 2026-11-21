@@ -16,6 +16,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from catch.analytics.routes import eligible, history_stats, match, path_length_m, signature
+from catch.core import localtime
 from catch.core.models import Activity, ActivityTrack, ActivityWeather, Route
 from catch.core.settings_store import get_settings
 from catch.sync.tracks import family_of
@@ -280,7 +281,7 @@ def route_history(session: Session, route: Route, settings: Optional[dict] = Non
             "pinned": row.route_pinned,
         })
     stats = history_stats(sessions)
-    n_days = _history_days(session, datetime.now(timezone.utc).date())
+    n_days = _history_days(session, localtime.today(session))
     confidence = confidence_level(n_days, stats["n_sessions"], settings) if stats["n_sessions"] else "insufficient_data"
     note = None
     if stats["n_sessions"] < 2:

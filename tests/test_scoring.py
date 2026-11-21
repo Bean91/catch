@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from catch.core import tenant
 import json
+import math
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -59,8 +60,8 @@ def test_day_activities_counts_a_linked_pair_once(session):
     session.refresh(concept2)
     assert garmin.canonical_id == concept2.canonical_id
 
-    rows = scoring._day_activities(session, START + timedelta(days=9))
-    assert [r.id for r in rows] == [garmin.canonical_id]
+    strain = scoring.day_strain(session, START + timedelta(days=9), get_settings(session))
+    assert [c["canonical_id"] for c in strain["components"]] == [garmin.canonical_id]
 
 
 def test_recompute_scores_writes_a_row_per_day_and_calibrates_early(session):
@@ -167,21 +168,22 @@ def test_session_rpe_fallback_is_attached_by_calendar_date(session):
 
 
 def test_rest_day_with_15k_steps_stays_low(session):
-    """Task Part A.3's explicit example: a rest day (no activities logged) with 15k steps
-    must not look like a training session — the daily-activity component alone is capped at
-    `daily_activity_strain_cap` (default 1.5 of the 0-21 scale)."""
+    """Task Part A.3's example under session 32's one-curve model: 15k non-exercise steps are 150 easy-walking minutes, about 39
+    TRIMP-equivalent (below the 40 cap) — light, and below a steady hour on the erg (TRIMP ~77, strain ~11)."""
     day = START
     session.add(DailyWellness(date=day, resting_hr=50, steps=15000, active_kcal=550))
     session.commit()
 
     settings = get_settings(session)
     strain = scoring.day_strain(session, day, settings)
-    assert strain["value"] is not None
-    assert strain["value"] <= settings["daily_activity_strain_cap"]
-    assert strain["value"] < 10  # well within the "light" band
+    walking = 150 * 0.25 * 0.64 * math.exp(1.92 * 0.25)
+    assert strain["daily_activity"]["load"] == pytest.approx(walking)
+    assert strain["value"] == pytest.approx(2.54 * math.log1p(walking))
     assert strain["band"] == "light"
-    assert strain["trimp_like"] == 0.0  # never leaks into load/acute:chronic
+    assert strain["value"] < 2.54 * math.log1p(77)
+    assert strain["trimp_like"] == pytest.approx(walking)  # one load sum: training load sees daily movement too
     assert strain["daily_activity"]["steps"] == 15000
+    assert strain["daily_activity"]["share"] == pytest.approx(1.0)
 
 
 def test_daily_activity_excludes_a_logged_garmin_workouts_own_steps(session):
@@ -270,10 +272,11 @@ def test_heavy_squat_day_registers_meaningful_strain_at_zero_hr(session):
 
     settings = get_settings(session)
     strain = scoring.day_strain(session, day, settings)
-    assert strain["trimp_like"] == 0.0  # no HR at all.
+    assert strain["cardio"]["load"] == 0.0  # no HR at all.
     assert strain["value"] is not None
     assert strain["value"] >= 6.0  # a real, meaningful number — not "insufficient data".
     assert strain["muscular"]["value"] > 0
+    assert strain["muscular"]["share"] == pytest.approx(1.0)
 
 
 def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
@@ -308,11 +311,11 @@ def test_heavy_squat_day_beats_a_light_pump_day_beats_a_long_easy_erg(session):
 
     assert heavy["muscular"]["value"] > light["muscular"]["value"]
     assert light["muscular"]["value"] > erg["muscular"]["value"]
-    # Session 15: an HR-only erg (no power at all) now gets a small HR-trimp-derived muscular
-    # share instead of a hard 0 — see cardio_muscular_au_from_hr_trimp's docstring for why a
-    # power-only share left most real rowing/cycling sessions undersold.
-    assert erg["muscular"]["value"] > 0.0
+    # Session 32: a row's effort is already in its heart-rate TRIMP, so nothing of it is counted again as "muscular" in the day's
+    # load (the cardio-derived AU still feeds the muscle-readiness map). Before, an easy hour gained ~+3 to +6 from this.
+    assert erg["muscular"]["value"] == 0.0
     assert erg["cardio"]["value"] > 0  # the erg piece still registers plenty of cardio strain.
+    assert erg["value"] == pytest.approx(2.54 * math.log1p(erg["cardio"]["load"]))
 
 
 def test_muscular_strain_normalizes_against_28_day_baseline(session):

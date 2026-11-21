@@ -1,28 +1,41 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 from datetime import date as date_, datetime, timedelta, timezone
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
+
+from catch.analytics import localtime as lt
 
 from catch.analytics.nutrition import grams_for_quantity, nutrition_targets as _nutrition_targets_fn, scale_macros_per_100g, training_tier, under_fuelling_flag
 from catch.coach.memory import next_a_race
 from catch.core.config import settings as app_settings
-from catch.core.models import CanonicalActivity, DailyWellness, Food, FoodLog, MyFood, NutritionTarget, SavedMeal
+from catch.core.models import DailyWellness, Food, FoodLog, MyFood, NutritionTarget, SavedMeal
 from catch.sync import body_comp
+from catch.sync.activity_days import canonical_in_days
 from catch.sync.openfoodfacts_client import OpenFoodFactsClient
 from catch.sync.usda_client import UsdaClient
 
 _MACRO_FIELDS = ("kcal", "protein", "carbs", "fat", "fiber", "sugar", "sodium")
 
 
-def _local_day_utc_range(day: date_) -> tuple[datetime, datetime]:
-    # Same convention as catch/sync/scoring.py and catch/coach/cost.py.
-    local_midnight = datetime(day.year, day.month, day.day)
-    start_utc = local_midnight.astimezone(timezone.utc)
-    end_utc = (local_midnight + timedelta(days=1)).astimezone(timezone.utc)
-    return start_utc, end_utc
+def _logs_in_days(session: Session, first: date_, last: date_, meal: str | None = None) -> list[FoodLog]:
+    """Food logs on the athlete's local days [first, last], by each log's own stamped day (catch.core.localtime) — a meal eaten
+    abroad stays on the day it was eaten there. Rows logged before the stamp existed are placed by their instant."""
+    lo, _ = localtime.day_range(session, first - timedelta(days=1))
+    _, hi = localtime.day_range(session, last + timedelta(days=1))
+    stmt = select(FoodLog).where(
+        or_(
+            (FoodLog.local_date >= first) & (FoodLog.local_date <= last),
+            FoodLog.local_date.is_(None) & (FoodLog.ts >= lo) & (FoodLog.ts < hi),
+        )
+    )
+    if meal is not None:
+        stmt = stmt.where(FoodLog.meal == meal)
+    rows = session.exec(stmt.order_by(FoodLog.ts)).all()
+    return [r for r in rows if first <= localtime.day_of(session, r) <= last]
 
 
 def _food_per_100g(food: Food) -> dict:
@@ -308,15 +321,14 @@ def copy_day_logs(session: Session, from_day: date_, to_day: date_, meal: str | 
     data (not a byte-copy of the old row) so a since-corrected food doesn't carry a stale
     number forward. `meal` narrows this to one meal section (e.g. "copy yesterday's
     breakfast") — omit it to copy the whole day, as before."""
-    start, end = _local_day_utc_range(from_day)
-    stmt = select(FoodLog).where(FoodLog.ts >= start, FoodLog.ts < end)
-    if meal is not None:
-        stmt = stmt.where(FoodLog.meal == meal)
-    rows = session.exec(stmt.order_by(FoodLog.ts)).all()
-    day_delta = to_day - from_day
+    rows = _logs_in_days(session, from_day, from_day, meal)
+    day_delta = (to_day - from_day).days
     out = []
     for row in rows:
-        new_ts = row.ts + timedelta(days=day_delta.days)
+        # The same wall-clock time on the target day, in the zone the meal was logged in — not +N x 24 h, which drifted an
+        # hour across a daylight-saving change (launch audit L-15).
+        zone = lt.tz_for(row.local_tz) or localtime.zone_for_day(session, from_day)
+        new_ts = lt.shift_local_days(row.ts, day_delta, zone)
         out.append(create_food_log(session, ts=new_ts, meal=row.meal, food_id=row.food_id, quantity=row.quantity, unit=row.unit))
     return out
 
@@ -352,12 +364,14 @@ def delete_food_log(session: Session, log_id: int) -> bool:
 
 
 def list_food_logs(session: Session, from_: date_ | None = None, to: date_ | None = None) -> list[FoodLog]:
+    if from_ and to:
+        return _logs_in_days(session, from_, to)
     stmt = select(FoodLog).order_by(FoodLog.ts)
     if from_:
-        stmt = stmt.where(FoodLog.ts >= _local_day_utc_range(from_)[0])
+        stmt = stmt.where(FoodLog.ts >= localtime.day_range(session, from_)[0] - timedelta(days=1))
     if to:
-        stmt = stmt.where(FoodLog.ts < _local_day_utc_range(to)[1])
-    return session.exec(stmt).all()
+        stmt = stmt.where(FoodLog.ts < localtime.day_range(session, to)[1] + timedelta(days=1))
+    return [r for r in session.exec(stmt).all() if (not from_ or localtime.day_of(session, r) >= from_) and (not to or localtime.day_of(session, r) <= to)]
 
 
 def food_log_dict(session: Session, row: FoodLog) -> dict:
@@ -426,8 +440,7 @@ def _resolved_weight_kg(session: Session) -> tuple[float | None, str | None]:
 
 
 def today_training_tier(session: Session, today: date_) -> str:
-    start, end = _local_day_utc_range(today)
-    count = len(session.exec(select(CanonicalActivity.id).where(CanonicalActivity.start >= start, CanonicalActivity.start < end)).all())
+    count = len(canonical_in_days(session, today, today))
     race = next_a_race(session, today)
     days_to_go = race["days_to_go"] if race else None
     taper = race["taper"] if race else False
@@ -435,7 +448,7 @@ def today_training_tier(session: Session, today: date_) -> str:
 
 
 def compute_targets(session: Session, today: date_ | None = None) -> dict:
-    today = today or date_.today()
+    today = today or localtime.today(session)
     settings_row = get_targets_settings(session)
     settings = {
         "protein_g_per_kg": settings_row.protein_g_per_kg,
@@ -455,9 +468,7 @@ def compute_targets(session: Session, today: date_ | None = None) -> dict:
     return result
 
 
-def _day_totals(session: Session, day: date_) -> dict:
-    start, end = _local_day_utc_range(day)
-    rows = session.exec(select(FoodLog).where(FoodLog.ts >= start, FoodLog.ts < end)).all()
+def _totals(rows: list[FoodLog]) -> dict:
     totals = {field: 0.0 for field in _MACRO_FIELDS}
     for row in rows:
         for field in _MACRO_FIELDS:
@@ -467,6 +478,10 @@ def _day_totals(session: Session, day: date_) -> dict:
     # A food with no known kcal makes the day's intake a lower bound, not a total: the fuelling check must not read it as a deficit.
     kcal_complete = all(row.kcal is not None for row in rows)
     return {**totals, "has_log": len(rows) > 0, "kcal_complete": kcal_complete, "logs": rows}
+
+
+def _day_totals(session: Session, day: date_) -> dict:
+    return _totals(_logs_in_days(session, day, day))
 
 
 def daily_summary(session: Session, day: date_) -> dict:
@@ -484,11 +499,16 @@ def daily_summary(session: Session, day: date_) -> dict:
 
 
 def week_summary(session: Session, from_: date_, to: date_) -> dict:
+    # Two queries for the whole range (session 32), not two per day.
+    by_day: dict[date_, list[FoodLog]] = {}
+    for row in _logs_in_days(session, from_, to):
+        by_day.setdefault(localtime.day_of(session, row), []).append(row)
+    wellness_by_day = {w.date: w for w in session.exec(select(DailyWellness).where(DailyWellness.date >= from_, DailyWellness.date <= to)).all()}
     days = []
     cursor = from_
     while cursor <= to:
-        totals = _day_totals(session, cursor)
-        wellness = session.get(DailyWellness, tenant.pk(cursor))
+        totals = _totals(by_day.get(cursor, []))
+        wellness = wellness_by_day.get(cursor)
         expenditure = wellness.total_kcal if wellness else None
         days.append(
             {
@@ -504,7 +524,7 @@ def week_summary(session: Session, from_: date_, to: date_) -> dict:
 
     # Today is still accumulating (Garmin's total_kcal and the food log both grow through the day), so like _trailing_kcal_target
     # the fuelling check stops at yesterday; a day whose intake is a lower bound (a food with unknown kcal) counts as unlogged.
-    today = date_.today()
+    today = localtime.today(session)
     balances = [
         {"date": d["date"], "intake_kcal": d["intake_kcal"], "expenditure_kcal": d["expenditure_kcal"], "has_log": d["has_log"] and d["kcal_complete"]}
         for d in days

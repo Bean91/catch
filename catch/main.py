@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 
 from catch.api import (
     routes_account,
+    routes_onboarding,
+    routes_time,
     routes_activities,
     routes_internal,
     routes_ai,
@@ -181,6 +183,8 @@ app.include_router(routes_auth.router)
 app.include_router(routes_connections.router)
 app.include_router(routes_connections.callback_router)
 app.include_router(routes_account.router)
+app.include_router(routes_time.router)
+app.include_router(routes_onboarding.router)
 app.include_router(routes_privacy.router)
 app.include_router(routes_oauth.router)
 app.include_router(routes_internal.router)

@@ -101,8 +101,12 @@ def run_for_each_user(job: str, work: Callable[[], object], budget_s: float | No
 def _sync_work() -> None:
     """Credentials are resolved inside run_sync from this user's own connection row; the only things passed along are the source
     name and the owner context set by run_for_each_user."""
-    from catch.sync.scheduler import SOURCES, run_sync
+    from catch.sync.scheduler import SOURCES, run_maintenance, run_sync
 
+    try:
+        run_maintenance()  # session 32: a no-op once this user's data is on the current time-zone and strain model
+    except Exception:  # noqa: BLE001
+        logger.exception("maintenance failed for one user")
     for source in SOURCES:
         try:
             run_sync(source)

@@ -15,7 +15,8 @@ from catch.coach import tools
 from catch.core import principal as pr
 from catch.core import tenant
 from tests.tenancy.test_clubs_api import (  # noqa: F401  (fixtures and helpers shared with the API suite)
-    ALICE, BOB, CAROL, DAVE, ERIN, FRANK, activity, adult_club, admit_youth, call, challenge, env, invite, join, junior_club, make, profile,
+
+    ALICE, BOB, CAROL, DAVE, ERIN, FRANK, _users_on_the_test_hosts_calendar, activity, adult_club, admit_youth, call, challenge, env, invite, join, junior_club, make, profile,
 )
 
 

@@ -6,7 +6,7 @@ records (Part A.3's field priority) and, where samples exist, its zones/strain/s
 (Trends, Workouts, PBs, coach, MCP) sees. Called after every sync's matching pass and after
 any manual merge/split/edit so the cache in `canonical_activities` never goes stale."""
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -228,6 +228,7 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     canonical.max_hr = max_hr
     canonical.title = title
     canonical.field_sources_json = json.dumps(field_sources)
+    localtime.stamp_canonical(session, canonical, members)
 
     _resolve_zones(session, canonical, members, avg_hr, power_src, settings)
 
@@ -238,12 +239,12 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     return canonical
 
 
-def _resting_hr_for(session: Session, when: Optional[datetime]) -> Optional[float]:
+def _resting_hr_for(session: Session, when: Optional[datetime], day=None) -> Optional[float]:
     if when is None:
         return None
     from catch.core.models import DailyWellness
 
-    row = session.get(DailyWellness, tenant.pk(when.astimezone().date()))
+    row = session.get(DailyWellness, tenant.pk(day or localtime.local_date_at(session, when)))
     return row.resting_hr if row else None
 
 
@@ -311,7 +312,7 @@ def _resolve_zones(
         # (muscular_load_au was already reset to None above for rowing/cycling, so there's
         # nothing to clobber for any other sport_family reaching this branch.)
         if canonical.sport_family in ("rowing", "cycling") and canonical.avg_hr and canonical.duration:
-            resting_hr = _resting_hr_for(session, canonical.start)
+            resting_hr = _resting_hr_for(session, canonical.start, canonical.local_date)
             trimp = banister_trimp(
                 canonical.duration / 60.0, canonical.avg_hr, resting_hr, max_hr=settings.get("max_hr"),
                 trimp_exponent=settings["trimp_exponent"],
@@ -336,7 +337,7 @@ def _resolve_zones(
         hr_cleaned = drop_dropouts(hr_for_ui)
         hr_zones = time_in_zone_seconds(smooth(hr_cleaned), max_hr, settings)
         hr_moving_s = float(usable_n)
-        resting_hr = _resting_hr_for(session, canonical.start)
+        resting_hr = _resting_hr_for(session, canonical.start, canonical.local_date)
         hr_trimp = banister_trimp_from_samples(hr_cleaned, resting_hr, max_hr, settings["trimp_exponent"])
 
     power_zones: Optional[dict] = None
@@ -373,7 +374,7 @@ def _resolve_zones(
         # first real power data a rowing session here can have, which is exactly what exposed
         # it. Same shape as the cycling branch, just without an FTP-estimation fallback —
         # rowing_watts_2k already handles "not enough history yet" by returning None.
-        threshold_watts = rowing_watts_2k(session, settings)
+        threshold_watts = rowing_watts_2k(session, settings, before=canonical.start)
         if threshold_watts:
             power_zones = power_time_in_zone_seconds(smooth(power_for_ui), threshold_watts, settings)
 

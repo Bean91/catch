@@ -14,6 +14,7 @@ from sqlmodel import Session, func, select
 
 from catch.analytics import clubs as c
 from catch.analytics import leaderboards as lb
+from catch.core import localtime
 from catch.core.models import (
     CanonicalActivity, ClubAnnouncement, ClubChallenge, ClubMember, ClubMemberPrefs, ClubResult, ClubSession, ClubSessionParticipation,
 )
@@ -127,7 +128,7 @@ def create_session(session: Session, club_id: str, *, title: str, session_type: 
         raise ClubError("Start time looks like 06:30.")
     if duration_min is not None and not (1 <= duration_min <= 600) or distance_m is not None and not (1 <= distance_m <= 100000):
         raise ClubError("Duration is 1-600 minutes and distance 1-100,000 m.")
-    if abs((on - date.today()).days) > 400:
+    if abs((on - localtime.today(session)).days) > 400:
         raise ClubError("Choose a date within the next year.")
     status = _post_status(m.role, club.audience)
     row = ClubSession(club_id=club_id, created_by=me(), title=title, session_type=session_type, date=on, start_time=start_time or None, duration_min=duration_min,
@@ -146,7 +147,7 @@ def _participation_counts(session: Session, club_id: str) -> dict[int, int]:
 
 def calendar(session: Session, club_id: str, start: Optional[date] = None, end: Optional[date] = None) -> dict:
     club, m = require_member(session, club_id)
-    start = start or date.today() - timedelta(days=7)
+    start = start or localtime.today(session) - timedelta(days=7)
     end = end or start + timedelta(days=60)
     if (end - start).days > 400:
         raise ClubError("Ask for at most a year at a time.")
@@ -173,7 +174,7 @@ def link_workout(session: Session, club_id: str, session_id: int, canonical_id: 
     workout = session.get(CanonicalActivity, canonical_id)  # owner-scoped: someone else's workout is simply not found
     if workout is None or workout.start is None or _overrides(workout).get("exclude_from_totals"):
         raise ClubError("Not found.", 404)
-    if abs((workout.start.astimezone().date() - cs.date).days) > 1:
+    if abs((localtime.day_of(session, workout) - cs.date).days) > 1:
         raise ClubError("That workout isn't on this session's day.")
     prefs = session.get(ClubMemberPrefs, (club_id, me()))
     share = bool(prefs and prefs.share_numbers) if share_numbers is None else bool(share_numbers)
@@ -197,7 +198,7 @@ def unlink_workout(session: Session, club_id: str, session_id: int) -> dict:
 def team_summary(session: Session, club_id: str, start: Optional[date] = None, end: Optional[date] = None) -> dict:
     """Aggregates only: counts, and totals that appear only when at least three members chose to share a number. No person is ever a row."""
     club, m = require_member(session, club_id)
-    end = end or date.today()
+    end = end or localtime.today(session)
     start = start or end - timedelta(days=90)
     sessions = session.exec(select(ClubSession).where(ClubSession.club_id == club_id, ClubSession.status == "published", ClubSession.date >= start, ClubSession.date <= end)).all()
     ids = [s.id for s in sessions]

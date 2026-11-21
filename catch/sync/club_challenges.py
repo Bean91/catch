@@ -22,7 +22,9 @@ from catch.analytics import challenges as ch
 from catch.analytics import verification as vf
 from catch.analytics import clubs as c
 from catch.analytics import leaderboards as lb
-from catch.core.models import Activity, CanonicalActivity, ClubChallenge, ClubChallengeClaim, ClubChallengeEntry, ClubMember
+from catch.core import localtime
+from catch.core.models import Activity, ClubChallenge, ClubChallengeClaim, ClubChallengeEntry, ClubMember
+from catch.sync.activity_days import canonical_in_days
 from catch.sync import clubs as svc
 from catch.sync.clubs import ClubError, _value, audit, me, member_ref, require_member
 from catch.sync.tracks import family_of
@@ -36,18 +38,11 @@ def spec_of(row: ClubChallenge, audience: str) -> ch.ChallengeSpec:
     return ch.ChallengeSpec(row.metric, row.start_date, row.end_date, row.goal, audience, row.sport, row.target_per_week, row.day_cap_m, row.day_cap_s, row.min_session_s)
 
 
-def _local_day_bounds(d: date) -> tuple[datetime, datetime]:
-    from catch.sync.training_intelligence import _local_day_utc_range
-
-    return _local_day_utc_range(d)
-
-
 def member_activities(session: Session, spec: ch.ChallengeSpec) -> list[dict]:
     """The caller's own activities in the window, reduced to the only fields scoring may see. No health value is read: not heart rate, not
     wellness, not body composition."""
-    lo, _ = _local_day_bounds(spec.start)
-    _, hi = _local_day_bounds(spec.end)
-    canon = session.exec(select(CanonicalActivity).where(CanonicalActivity.start >= lo, CanonicalActivity.start < hi)).all()
+    # Each member's own local days (a club's dates are calendar dates; a member abroad counts a session on the day they did it).
+    canon = canonical_in_days(session, spec.start, spec.end)
     if not canon:
         return []
     members: dict[int, list[Activity]] = {}
@@ -72,7 +67,7 @@ def member_activities(session: Session, spec: ch.ChallengeSpec) -> list[dict]:
         except ValueError:
             excluded = False
         out.append({
-            "key": ch.activity_key(secret, first.source, str(first.external_id)) if first else f"typed-{k.id}", "date": k.start.astimezone().date(), "start": k.start,
+            "key": ch.activity_key(secret, first.source, str(first.external_id)) if first else f"typed-{k.id}", "date": localtime.day_of(session, k), "start": k.start,
             "duration_s": k.duration, "distance_m": k.distance, "sport_family": family_of(first) if first else None, "provider_sourced": first is not None,
             "excluded": excluded, "absorbed": k.absorbed_into_piece_id is not None, "board_key": board,
         })
@@ -86,7 +81,7 @@ def _excused(entry: ClubChallengeEntry) -> list[date]:
 def refresh_entry(session: Session, row: ClubChallenge, entry: ClubChallengeEntry, audience: str, *, today: Optional[date] = None) -> ch.Score:
     """Recompute this member's standing and claim the activities it relied on; an activity another account already holds is dropped and
     the score recomputed without it."""
-    today = today or date.today()
+    today = today or localtime.today(session)
     spec = spec_of(row, audience)
     acts = member_activities(session, spec)
     mine = {cl.activity_key for cl in session.exec(select(ClubChallengeClaim).where(ClubChallengeClaim.challenge_id == row.id, ClubChallengeClaim.owner_id == me())).all()}  # explicit: correctness must not depend on RLS hiding others' claims
@@ -118,7 +113,7 @@ def refresh_entry(session: Session, row: ClubChallenge, entry: ClubChallengeEntr
 
 def refresh_my_scores(session: Session) -> int:
     """After a sync, or when someone looks: every challenge this person is in that hasn't frozen. Only ever the caller's own entries."""
-    today, n = date.today(), 0
+    today, n = localtime.today(session), 0
     entries = session.exec(select(ClubChallengeEntry).where(ClubChallengeEntry.owner_id == me(), ClubChallengeEntry.status == "joined")).all()
     for entry in entries:
         row = session.get(ClubChallenge, entry.challenge_id)
@@ -146,8 +141,8 @@ def create_challenge(session: Session, club_id: str, *, title: str, metric: str,
     title_v = _value(c.validate_post, title, "x", club.audience)[0]
     desc = _value(c.validate_post, title, description, club.audience)[1] if (description or "").strip() else None
     spec = _value(ch.validate_challenge, metric=metric, start=start, end=end, goal=goal, audience=club.audience, sport=sport, target_per_week=target_per_week,
-                  day_cap_m=day_cap_m, day_cap_s=day_cap_s, min_session_s=min_session_s, today=date.today())
-    made = session.exec(select(func.count()).select_from(ClubChallenge).where(ClubChallenge.club_id == club_id, ClubChallenge.start_date >= date.today() - timedelta(days=1),
+                  day_cap_m=day_cap_m, day_cap_s=day_cap_s, min_session_s=min_session_s, today=localtime.today(session))
+    made = session.exec(select(func.count()).select_from(ClubChallenge).where(ClubChallenge.club_id == club_id, ClubChallenge.start_date >= localtime.today(session) - timedelta(days=1),
                                                                                ClubChallenge.status.in_(["pending", "active"]))).one()  # type: ignore[attr-defined]
     if made >= CHALLENGES_PER_DAY * 4:
         raise ClubError("This club has a lot of challenges running. Let some finish first.", 429)
@@ -169,7 +164,7 @@ def _my_entry(session: Session, challenge_id: int) -> Optional[ClubChallengeEntr
 def _row_dict(session: Session, club, mem: ClubMember, row: ClubChallenge, counts: dict[int, int]) -> dict:
     spec = spec_of(row, club.audience)
     entry = _my_entry(session, row.id)
-    today = date.today()
+    today = localtime.today(session)
     return {
         "id": row.id, "title": row.title, "description": row.description, "metric": row.metric, "sport": row.sport, "start": row.start_date.isoformat(), "end": row.end_date.isoformat(),
         "goal": row.goal, "status": row.status, "phase": ch.phase(spec, today) if row.status == "active" else row.status, "participants": counts.get(row.id, 0),
@@ -210,11 +205,11 @@ def get_challenge(session: Session, club_id: str, challenge_id: int) -> dict:
     spec = spec_of(row, club.audience)
     entry = _my_entry(session, challenge_id)
     detail = None
-    if entry and entry.status == "joined" and row.status == "active" and ch.phase(spec, date.today()) != "closed":
+    if entry and entry.status == "joined" and row.status == "active" and ch.phase(spec, localtime.today(session)) != "closed":
         detail = refresh_entry(session, row, entry, club.audience).detail
         session.commit()
     elif entry and entry.status == "joined" and row.status == "active":
-        detail = ch.score(spec, member_activities(session, spec), as_of=date.today(), excused_weeks=_excused(entry)).detail  # frozen: shown, never rewritten
+        detail = ch.score(spec, member_activities(session, spec), as_of=localtime.today(session), excused_weeks=_excused(entry)).detail  # frozen: shown, never rewritten
     counts = {challenge_id: sum(1 for _ in standings(session, club, row))}
     head = _row_dict(session, club, m, row, counts)
     if detail is not None and entry is not None:
@@ -235,7 +230,7 @@ def join_challenge(session: Session, club_id: str, challenge_id: int) -> dict:
     if row is None or row.club_id != club_id or row.status != "active":
         raise ClubError("Not found.", 404)
     spec = spec_of(row, club.audience)
-    if not ch.can_join(spec, date.today()):
+    if not ch.can_join(spec, localtime.today(session)):
         raise ClubError("This challenge has ended.", 409)
     entry = _my_entry(session, challenge_id) or ClubChallengeEntry(challenge_id=challenge_id, owner_id=me(), club_id=club_id)
     entry.status = "joined"
@@ -272,7 +267,7 @@ def excuse_week(session: Session, club_id: str, challenge_id: int, week: date, e
     monday = ch.monday(week)
     if monday not in ch.week_starts(row.start_date, row.end_date):
         raise ClubError("That week isn't part of this challenge.")
-    if ch.phase(spec_of(row, club.audience), date.today()) == "closed":
+    if ch.phase(spec_of(row, club.audience), localtime.today(session)) == "closed":
         raise ClubError("This challenge has settled.", 409)
     weeks = {d for d in _excused(entry)}
     (weeks.add if excused else weeks.discard)(monday)

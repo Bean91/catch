@@ -12,7 +12,7 @@ duplicating CanonicalActivity.zones_json aggregation. All of these DB-facing imp
 set by catch.sync.scoring.recompute_scores importing routes_analytics.invalidate_series_cache
 the same way, to avoid a module-level import cycle between sync and api."""
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 import logging
 from collections import defaultdict
@@ -34,34 +34,27 @@ from catch.analytics.training_intelligence import (
     training_profile,
 )
 from catch.core.models import CanonicalActivity, DailyScore, DailyWellness, Piece, Recommendation
+from catch.sync.activity_days import canonical_in_days
 
 
 def _overrides(canonical: CanonicalActivity) -> dict:
     return json.loads(canonical.overrides_json) if canonical.overrides_json else {}
 
 
-def _local_day_utc_range(day: date) -> tuple[datetime, datetime]:
-    local_midnight = datetime(day.year, day.month, day.day)
-    return local_midnight.astimezone(timezone.utc), (local_midnight + timedelta(days=1)).astimezone(timezone.utc)
-
-
 def _qualifying_activities(session: Session, start: date, end: date) -> list[CanonicalActivity]:
     """CanonicalActivity rows with a local start date in [start, end), excluding
     exclude_from_totals — the same filter every other totals/consistency reader already uses
     (catch.sync.scoring._day_activities, routes_analytics.trends_volume)."""
-    start_utc, _ = _local_day_utc_range(start)
-    _, end_utc = _local_day_utc_range(end - timedelta(days=1))
-    rows = session.exec(select(CanonicalActivity).where(CanonicalActivity.start >= start_utc, CanonicalActivity.start < end_utc)).all()
+    if end <= start:
+        return []
+    rows = canonical_in_days(session, start, end - timedelta(days=1))
     return [a for a in rows if not _overrides(a).get("exclude_from_totals")]
 
 
 def _earliest_data_date(session: Session) -> date | None:
-    wellness_min = session.exec(select(DailyWellness.date).order_by(DailyWellness.date)).first()
-    activity_min = session.exec(
-        select(CanonicalActivity.start).where(CanonicalActivity.start.is_not(None)).order_by(CanonicalActivity.start)
-    ).first()
-    candidates = [d for d in (wellness_min, activity_min.astimezone().date() if activity_min else None) if d]
-    return min(candidates) if candidates else None
+    from catch.sync.scoring import _earliest_date
+
+    return _earliest_date(session)
 
 
 def _history_days(session: Session, today: date) -> int:
@@ -75,7 +68,7 @@ def _history_days(session: Session, today: date) -> int:
 def gather_performance_trends(session: Session, settings: dict, piece_type: str | None = None) -> dict:
     from catch.sync.erg_test import list_tests
 
-    cutoff = date.today() - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
+    cutoff = localtime.today(session) - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
     rows = [r for r in list_tests(session, piece_type) if r.get("date") and date.fromisoformat(r["date"]) >= cutoff]
     by_type: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
@@ -94,15 +87,18 @@ def gather_interval_comparisons(session: Session, settings: dict) -> dict:
     from catch.analytics.training_intelligence import compare_equivalent_intervals
     from catch.sync.piece_intervals import interval_row, list_interval_rows
 
-    cutoff = date.today() - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
-    today = date.today()
+    cutoff = localtime.today(session) - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
+    today = localtime.today(session)
     n_history_days = _history_days(session, today)
     by_sig: dict[str, list[dict]] = defaultdict(list)
-    for p in session.exec(select(Piece).where(Piece.has_intervals.is_(True))).all():
-        canonical = session.get(CanonicalActivity, p.canonical_id)
+    pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(True))).all()
+    canonical_ids = sorted({p.canonical_id for p in pieces if p.canonical_id is not None})
+    canonicals = {c.id: c for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(canonical_ids))).all()} if canonical_ids else {}
+    for p in pieces:
+        canonical = canonicals.get(p.canonical_id)
         if canonical is None or canonical.start is None:
             continue
-        d = canonical.start.astimezone().date()
+        d = localtime.day_of(session, canonical)
         if d < cutoff:
             continue
         rows = [interval_row(r) for r in list_interval_rows(session, p.id)]
@@ -131,7 +127,7 @@ def gather_training_distribution(session: Session, settings: dict, weeks: int = 
     for a in activities:
         if a.sport_family != "strength" or not a.duration:
             continue
-        local_date = a.start.astimezone().date()
+        local_date = localtime.day_of(session, a)
         bucket_week = local_date - timedelta(days=local_date.weekday())
         if bucket_week in strength_minutes:
             strength_minutes[bucket_week] += a.duration / 60.0
@@ -160,7 +156,7 @@ def _clamped_window(session: Session, today: date, weeks: int) -> tuple[date, da
 def gather_training_consistency(session: Session, settings: dict, weeks: int | None = None) -> dict:
     ti = settings["training_intelligence"]
     weeks = weeks or ti["consistency_lookback_weeks"]
-    today = date.today()
+    today = localtime.today(session)
     range_start, range_end = _clamped_window(session, today, weeks)
     activities = _qualifying_activities(session, range_start, range_end)
     elapsed_days = max(0, (range_end - range_start).days)
@@ -168,13 +164,13 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
 
     by_week: dict[date, list[CanonicalActivity]] = defaultdict(list)
     for a in activities:
-        local_date = a.start.astimezone().date()
+        local_date = localtime.day_of(session, a)
         bucket_week = local_date - timedelta(days=local_date.weekday())
         by_week[bucket_week].append(a)
 
     total_sessions = len(activities)
     strength_sessions = sum(1 for a in activities if a.sport_family == "strength")
-    active_days = {a.start.astimezone().date() for a in activities}
+    active_days = {localtime.day_of(session, a) for a in activities}
     rest_days = elapsed_days - len(active_days)
 
     concentrated_block = False
@@ -189,7 +185,7 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
             continue
         by_day: dict[date, float] = defaultdict(float)
         for a in acts:
-            by_day[a.start.astimezone().date()] += a.duration or 0.0
+            by_day[localtime.day_of(session, a)] += a.duration or 0.0
         top_two = sorted(by_day.values(), reverse=True)[:2]
         if sum(top_two) / week_total >= ti["concentrated_block_max_day_share"]:
             concentrated_block = True
@@ -245,15 +241,15 @@ def gather_training_consistency(session: Session, settings: dict, weeks: int | N
 # --- Insights ------------------------------------------------------------------------------------
 
 
-def _weekday_counts(activities: list[CanonicalActivity]) -> dict[int, int]:
+def _weekday_counts(session: Session, activities: list[CanonicalActivity]) -> dict[int, int]:
     counts: dict[int, int] = defaultdict(int)
     for a in activities:
-        counts[a.start.astimezone().weekday()] += 1
+        counts[localtime.day_of(session, a).weekday()] += 1
     return dict(counts)
 
 
-def _max_gap_days(activities: list[CanonicalActivity], range_start: date, range_end: date) -> int | None:
-    days = sorted({a.start.astimezone().date() for a in activities})
+def _max_gap_days(session: Session, activities: list[CanonicalActivity], range_start: date, range_end: date) -> int | None:
+    days = sorted({localtime.day_of(session, a) for a in activities})
     points = [range_start, *days, range_end]
     gaps = [(points[i + 1] - points[i]).days for i in range(len(points) - 1)]
     return max(gaps) if gaps else None
@@ -302,7 +298,7 @@ def _recovery_after_high_strain(session: Session, start: date, end: date) -> tup
 
 def gather_training_insights(session: Session, settings: dict) -> list[dict]:
     ti = settings["training_intelligence"]
-    today = date.today()
+    today = localtime.today(session)
     weeks = ti["consistency_lookback_weeks"]
     range_start, range_end = _clamped_window(session, today, weeks)
     activities = _qualifying_activities(session, range_start, range_end)
@@ -327,13 +323,13 @@ def gather_training_insights(session: Session, settings: dict) -> list[dict]:
 
     pairs, baseline_avg = _recovery_after_high_strain(session, range_start, range_end)
     context = {
-        "weekday_counts": _weekday_counts(activities),
+        "weekday_counts": _weekday_counts(session, activities),
         "recovery_after_high_strain": pairs,
         "recovery_baseline_avg": baseline_avg,
         "fast_start_flags": _fast_start_flags(session),
         "zone_pct_recent": _pct(recent_weeks),
         "zone_pct_baseline": _pct(baseline_weeks),
-        "max_gap_days": _max_gap_days(activities, range_start, range_end),
+        "max_gap_days": _max_gap_days(session, activities, range_start, range_end),
     }
     return training_insights(context, settings)
 
@@ -370,7 +366,7 @@ def _recent_note(session: Session, today: date) -> str | None:
 
 
 def gather_training_profile(session: Session, settings: dict) -> dict:
-    today = date.today()
+    today = localtime.today(session)
     score_row = session.get(DailyScore, tenant.pk(today))
     load = json.loads(score_row.load_json) if score_row and score_row.load_json else {"value": None, "band": "insufficient_data"}
     recovery = json.loads(score_row.recovery_json) if score_row and score_row.recovery_json else {"value": None, "band": "calibrating"}
@@ -406,12 +402,11 @@ def gather_training_profile(session: Session, settings: dict) -> dict:
 # --- Recommendations -----------------------------------------------------------------------------
 
 
-def is_active(row: Recommendation, today: date | None = None) -> bool:
-    today = today or date.today()
+def is_active(row: Recommendation, today: date) -> bool:
     return not row.dismissed and row.last_confirmed_on >= today - timedelta(days=1)
 
 
-def recommendation_dict(row: Recommendation) -> dict:
+def recommendation_dict(row: Recommendation, today: date) -> dict:
     return {
         "id": row.id,
         "date": row.date,
@@ -424,7 +419,7 @@ def recommendation_dict(row: Recommendation) -> dict:
         "dismissed": row.dismissed,
         "saved": row.saved,
         "rating": row.rating,
-        "active": is_active(row),
+        "active": is_active(row, today),
     }
 
 
@@ -444,9 +439,10 @@ def list_recommendations(session: Session, status: str = "active", type_: str | 
     if status == "dismissed":
         stmt = stmt.where(Recommendation.dismissed.is_(True))
     elif status == "active":
-        stmt = stmt.where(Recommendation.dismissed.is_(False), Recommendation.last_confirmed_on >= date.today() - timedelta(days=1))
+        stmt = stmt.where(Recommendation.dismissed.is_(False), Recommendation.last_confirmed_on >= localtime.today(session) - timedelta(days=1))
     rows = session.exec(stmt.order_by(Recommendation.created_at.desc()).limit(_MAX_RECOMMENDATIONS)).all()
-    return [recommendation_dict(r) for r in rows]
+    today = localtime.today(session)
+    return [recommendation_dict(r, today) for r in rows]
 
 
 def _missing_hr_pct(session: Session, lookback_n: int) -> tuple[float | None, int]:
@@ -496,10 +492,8 @@ def _upsert_recommendation(session: Session, type_name: str, result: dict, today
     existing = session.exec(
         select(Recommendation).where(Recommendation.rule_key == result["rule_key"]).order_by(Recommendation.created_at.desc())
     ).first()
-    # .astimezone() (not a bare .date()) — created_at is UTC-aware, today is a local-calendar
-    # date, and comparing a raw UTC date against it is the exact day-boundary bug class
-    # scoring.py's own _local_day_utc_range docstring already warns about.
-    if existing is not None and existing.created_at.astimezone().date() >= today - timedelta(days=cooldown_days):
+    # created_at is a UTC instant and `today` a local calendar day: compare in the athlete's zone (catch.core.localtime).
+    if existing is not None and localtime.local_date_at(session, existing.created_at) >= today - timedelta(days=cooldown_days):
         # Re-confirming must also refresh title/body/confidence/evidence — every body quotes
         # today's own numbers ("Today's recovery score is 30," "today 1.62"), so bumping only
         # last_confirmed_on would leave the coach asserting an earlier day's numbers as

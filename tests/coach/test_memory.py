@@ -115,7 +115,7 @@ def test_memory_block_flags_a_niggle_past_the_min_days(session):
     session.commit()
 
     block = memory.memory_block(session)
-    assert "Niggle flag" in block
+    assert "Training issue flag" in block and "niggle" not in block.lower()
     assert "left knee" in block
 
 

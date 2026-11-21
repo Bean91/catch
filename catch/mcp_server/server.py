@@ -66,7 +66,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
     async def get_today() -> dict:
         """Today's recovery, strain, sleep, HRV/resting-HR trend, latest erg piece, predicted
         2k, the next A-priority race with days-to-go and a taper flag, today's subjective
-        check-in and niggle flag, and the illness early-warning level (none/watch/likely)."""
+        check-in and training-issue flag, and the illness early-warning level (none/watch/likely)."""
         return await _call("get_today")
 
     @mcp.tool()

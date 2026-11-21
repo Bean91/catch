@@ -84,7 +84,7 @@ def put_expiry(provider: str, body: ExpiryBody, db: Session = Depends(get_db)):
 
 
 @router.post("/api/connections/{provider}/oauth/start")
-def oauth_start(provider: str, response: Response, native: bool = False, owner_id: str = Depends(current_owner_id)):
+def oauth_start(provider: str, response: Response, native: bool = False, return_to: str | None = None, owner_id: str = Depends(current_owner_id)):
     """Bearer-authenticated; returns the provider's authorize URL (the browser then navigates there — a redirect from here
     couldn't carry the bearer). Sets the signed state cookie the callback needs."""
     if _provider_or_404(provider) not in OAUTH_PROVIDERS:
@@ -92,7 +92,9 @@ def oauth_start(provider: str, response: Response, native: bool = False, owner_i
     _throttle(owner_id)
     if native:
         return {"authorize_url": native_start_url(provider, owner_id)}
-    url = authorize_url_for(provider, response, owner_id)
+    if return_to is not None and return_to not in oauth_state.RETURN_PATHS:
+        raise HTTPException(status_code=422, detail="Unknown return page.")
+    url = authorize_url_for(provider, response, owner_id, return_to=return_to)
     return {"authorize_url": url}
 
 
@@ -116,7 +118,7 @@ def native_start_url(provider: str, owner_id: str) -> str:
     return f"{settings.base_url.rstrip('/')}/auth/{provider}/native-start?ticket={ticket}"
 
 
-def authorize_url_for(provider: str, response: Response, owner_id: str) -> str:
+def authorize_url_for(provider: str, response: Response, owner_id: str, return_to: str | None = None) -> str:
     from catch.sync import concept2_client, whoop_client, withings_client
 
     configured = {"withings": withings_client.configured, "whoop": whoop_client.configured, "concept2": concept2_client.oauth_configured}[provider]
@@ -124,7 +126,7 @@ def authorize_url_for(provider: str, response: Response, owner_id: str) -> str:
         raise HTTPException(status_code=409, detail=f"{provider.capitalize()} sign-in isn't set up on this server.")
     nonce = oauth_state.new_nonce(provider)
     url = {"withings": withings_client.authorize_url, "whoop": whoop_client.authorize_url, "concept2": concept2_client.authorize_url}[provider](nonce)
-    response.set_cookie(oauth_state.cookie_name(provider), oauth_state.make(owner_id, provider, nonce), **oauth_state.cookie_kwargs())
+    response.set_cookie(oauth_state.cookie_name(provider), oauth_state.make(owner_id, provider, nonce, return_to=return_to), **oauth_state.cookie_kwargs())
     return url
 
 
@@ -194,14 +196,14 @@ def oauth_callback(
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(status_code=404, detail="Unknown provider")
     try:
-        owner, from_app = oauth_state.verify_full(request.cookies.get(oauth_state.cookie_name(provider)), provider, state)
+        owner, from_app, return_to = oauth_state.verify_details(request.cookies.get(oauth_state.cookie_name(provider)), provider, state)
     except oauth_state.OAuthStateError:
         raise HTTPException(status_code=400, detail="Invalid or missing OAuth state") from None
 
     def done(result: str) -> RedirectResponse:
         # Started from the store app: hand control back to it through its custom scheme (the app also handles https links, but a
         # redirect that stays on this domain is opened by the browser, not by the app).
-        target = f"{settings.native_url_scheme}://settings/connections" if from_app else "/settings/connections"
+        target = f"{settings.native_url_scheme}://settings/connections" if from_app else oauth_state.RETURN_PATHS[return_to]
         redirect = RedirectResponse(f"{target}?provider={provider}&result={result}", status_code=303)
         redirect.delete_cookie(oauth_state.cookie_name(provider), path="/")
         return redirect

@@ -21,6 +21,7 @@ from catch.api import (
     routes_training_intelligence,
     routes_wellness,
 )
+from catch.core import localtime
 from catch.core.models import Activity, DailyScore, Food, Note
 from catch.core.principal import Principal, may_call_tool
 from catch.core.settings_store import get_settings
@@ -138,7 +139,7 @@ def _get_nutrition(session: Session, args: dict, ctx: dict) -> dict:
     prompt)."""
     from catch.sync import nutrition as nutrition_module
 
-    to = _parse_date(args.get("to")) or date.today()
+    to = _parse_date(args.get("to")) or localtime.today(session)
     from_ = _parse_date(args.get("from")) or (to - timedelta(days=6))
     return nutrition_module.week_summary(session, from_, to)
 
@@ -366,7 +367,7 @@ def _log_strength(session: Session, args: dict, ctx: dict) -> dict:
 def _get_strength(session: Session, args: dict, ctx: dict) -> dict:
     from catch.sync import gym
 
-    to = _parse_date(args.get("to")) or date.today()
+    to = _parse_date(args.get("to")) or localtime.today(session)
     from_ = _parse_date(args.get("from")) or (to - timedelta(days=28))
     exercise_id = args.get("exercise_id")
     if exercise_id is None and args.get("exercise_name"):
@@ -751,7 +752,7 @@ def _get_event(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _get_training_phase(session: Session, args: dict, ctx: dict) -> dict:
-    day = _parse_date(args.get("date")) or planning.today()
+    day = _parse_date(args.get("date")) or planning.today(session)
     phase = planning.phase_on(session, current_owner(), day)
     summary = planning.build_week_summary(session, current_owner(), day)
     return {

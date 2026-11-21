@@ -12,6 +12,7 @@ import httpx
 from sqlmodel import Session
 
 from catch.analytics.erg_math import watts_from_pace
+from catch.core import localtime
 from catch.core.config import settings
 from catch.sync import connections
 from catch.sync.providers.base import ProviderAuthError, ProviderRateLimited, ProviderUnavailable
@@ -180,7 +181,7 @@ def fetch_profile(session: Session, transport: httpx.BaseTransport | None = None
         return get_profile(http)
 
 
-def _result_end_utc(item: dict) -> datetime | None:
+def _result_end_utc(item: dict, zone_at=None) -> datetime | None:
     # Per the docs, `date` is the workout's *end* time as stored on the monitor, local time
     # unless `timezone`/`date_utc` are set (both can be null for older/simpler entries).
     date_utc = item.get("date_utc")
@@ -196,8 +197,13 @@ def _result_end_utc(item: dict) -> datetime | None:
             return naive.replace(tzinfo=ZoneInfo(tz_name)).astimezone(timezone.utc)
         except Exception:
             pass
-    # No tz info at all: best-effort assume UTC. Documented limitation (see
-    # docs/concept2-endpoints.md) — revisit once real results carry a timezone.
+    # No zone at all (older/simpler entries): `date` is the monitor's local wall-clock time, so read it in the zone the athlete
+    # was in then (catch.core.localtime's timeline, looked up at that wall-clock time read as UTC — off by at most the offset,
+    # which never crosses a period boundary in practice). Session 32; before, this assumed UTC (launch audit L-24).
+    if zone_at is not None:
+        tz = zone_at(naive.replace(tzinfo=timezone.utc))
+        if tz is not None:
+            return naive.replace(tzinfo=tz).astimezone(timezone.utc)
     return naive.replace(tzinfo=timezone.utc)
 
 
@@ -207,8 +213,8 @@ def _result_duration_seconds(item: dict) -> float:
     return work_time + rest_time
 
 
-def _result_start_utc(item: dict) -> datetime | None:
-    end = _result_end_utc(item)
+def _result_start_utc(item: dict, zone_at=None) -> datetime | None:
+    end = _result_end_utc(item, zone_at)
     if end is None:
         return None
     return end - timedelta(seconds=_result_duration_seconds(item))
@@ -227,14 +233,14 @@ def _avg_power(item: dict) -> float | None:
     return None
 
 
-def _activity_fields(item: dict) -> dict:
+def _activity_fields(item: dict, zone_at=None) -> dict:
     heart_rate = item.get("heart_rate") or {}
     workout = item.get("workout")
     raw = {k: v for k, v in item.items() if k not in ("stroke_data", "strokes")}
     return {
         "type": item.get("type"),
         "workout_type": item.get("workout_type"),
-        "start": _result_start_utc(item),
+        "start": _result_start_utc(item, zone_at),
         "duration": _result_duration_seconds(item) or None,
         "distance": item.get("distance"),
         "avg_hr": heart_rate.get("average"),
@@ -332,7 +338,7 @@ def sync(
     http = http or _client(session)
     _seed_max_hr(session, http)
 
-    from_date = date_.today() - timedelta(days=days) if (days and not updated_after) else None
+    from_date = localtime.today(session) - timedelta(days=days) if (days and not updated_after) else None
     to_date = None
     if window is not None:  # a history-import window: exactly these days, whatever the incremental cursor says
         from_date, to_date, updated_after = window[0], window[1], None
@@ -345,7 +351,7 @@ def sync(
         # "skip the fetch if stroke_data is already here" shortcut could mistake that flag for
         # real data and crash enumerating it. Always fetch the full result instead.
         detail = get_result_detail(http, item["id"], include="strokes,metadata")
-        activity = upsert_activity(session, SOURCE, str(item["id"]), **_activity_fields(detail))
+        activity = upsert_activity(session, SOURCE, str(item["id"]), **_activity_fields(detail, localtime.timeline(session).tz_at))
         strokes = _extract_strokes(detail)
         if strokes:
             strokes_total += upsert_strokes(session, activity.id, strokes)

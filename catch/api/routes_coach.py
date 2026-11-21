@@ -21,6 +21,7 @@ from catch.coach.providers import registry
 from catch.coach.providers.base import ProviderError
 from catch.core.db import get_session
 from catch.core.owner import current_owner_id
+from catch.core import localtime
 from catch.core.models import ApiToken, CoachConversation, CoachMessage
 from catch.core.principal import ATHLETE_ROLE, COACH_ROLE, Principal, may_call_tool
 
@@ -383,7 +384,7 @@ def create_event(body: EventRequest, db: Session = Depends(get_db)):
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return memory._event_dict(event, date.today())
+    return memory._event_dict(event, localtime.today(db))
 
 
 @coach_router.put("/api/coach/memory/events/{event_id}")
@@ -392,7 +393,7 @@ def edit_event(event_id: int, body: dict = Body(...), db: Session = Depends(get_
         event = memory.update_event(db, event_id, **body)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return memory._event_dict(event, date.today())
+    return memory._event_dict(event, localtime.today(db))
 
 
 class GoalRequest(BaseModel):

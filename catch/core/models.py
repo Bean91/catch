@@ -25,6 +25,34 @@ class UserProfile(SQLModel, table=True):
     display_name: Optional[str] = None
     email: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
+    # Session 32 (docs/time.md): the athlete's *home* zone, an IANA name ("Europe/Paris"), chosen in onboarding or Settings.
+    # NULL = not chosen yet (the Pi falls back to its host zone, the public build to UTC until a device reports one).
+    timezone: Optional[str] = None
+    # Follow the phone's zone while travelling (the per-record timeline in user_zone_periods). Off = one zone for everything.
+    # NULL reads as on, so a row created by the Supabase sign-up trigger needs no default.
+    follow_device_zone: Optional[bool] = None
+    # Session 32 onboarding: "completed" once finished (existing accounts were backfilled to it by migration 0011), else NULL.
+    onboarding_state: Optional[str] = None
+    onboarding_step: Optional[int] = None
+    onboarding_json: Optional[str] = None
+    onboarding_completed_at: Optional[datetime] = None
+
+
+class UserZonePeriod(OwnedStrict, SQLModel, table=True):
+    """Session 32 (docs/time.md): where the athlete was — a zone in effect from `start_utc` until the next period. Written only by
+    catch.core.localtime from a phone/browser report (`source="device"`, an IANA name) or an offset a watch recorded on a workout or
+    a night's sleep (`source="garmin"|"whoop"|…`, an IANA name when it matches one, else "+09:00"). Never edited by hand; the
+    athlete's controls are the home zone and the follow switch on user_profiles."""
+
+    __tablename__ = "user_zone_periods"
+    __table_args__ = (Index("ix_user_zone_periods_owner_start", "owner_id", "start_utc"),)
+
+    owner_id: str = owner_field()
+    id: Optional[int] = Field(default=None, primary_key=True)
+    start_utc: datetime
+    tz: str
+    source: str
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class DailyWellness(OwnedStrict, SQLModel, table=True):
@@ -95,7 +123,12 @@ class Activity(OwnedStrict, SQLModel, table=True):
     no code after that migration reads it."""
 
     __tablename__ = "activities"
-    __table_args__ = (UniqueConstraint("owner_id", "source", "external_id", name="uq_activity_source_external_id"),)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "source", "external_id", name="uq_activity_source_external_id"),
+        # Session 32: these two existed only on SQLite (core/db.py); Postgres scanned per canonical / per day without them.
+        Index("ix_activities_canonical_id", "canonical_id"),
+        Index("ix_activities_owner_start", "owner_id", "start"),
+    )
 
     owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -156,6 +189,10 @@ class Activity(OwnedStrict, SQLModel, table=True):
     # (e.g. Concept2, which has no device_info concept at all).
     origin: Optional[str] = None
     canonical_id: Optional[int] = Field(default=None, foreign_key="canonical_activities.id")
+    # Session 32 (docs/time.md): the calendar day and zone this record happened in, stamped on write by catch.core.localtime
+    # (provider offset > timeline > account zone > home). Never changed by the athlete moving later.
+    local_date: Optional[date_] = None
+    local_tz: Optional[str] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -168,6 +205,10 @@ class CanonicalActivity(OwnedStrict, SQLModel, table=True):
     introducing a second caching strategy."""
 
     __tablename__ = "canonical_activities"
+    __table_args__ = (
+        Index("ix_canonical_activities_owner_local_date", "owner_id", "local_date"),
+        Index("ix_canonical_activities_owner_start", "owner_id", "start"),
+    )
 
     owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -230,6 +271,9 @@ class CanonicalActivity(OwnedStrict, SQLModel, table=True):
     # can't silently return a short page — see this column's sibling `category`'s docstring
     # for the exact class of bug a Python-side post-filter risks).
     absorbed_into_piece_id: Optional[int] = Field(default=None, foreign_key="pieces.id")
+    # Session 32: the day/zone of the best member (or the athlete's "Change day" override) — what every day-bucketed reader uses.
+    local_date: Optional[date_] = None
+    local_tz: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
@@ -297,6 +341,7 @@ class ActivitySamples(OwnedStrict, SQLModel, table=True):
 
 class Stroke(OwnedStrict, SQLModel, table=True):
     __tablename__ = "strokes"
+    __table_args__ = (Index("ix_strokes_activity_id", "activity_id"),)
 
     owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -341,7 +386,10 @@ class DailyScore(OwnedStrict, SQLModel, table=True):
 
 class BodyComp(OwnedStrict, SQLModel, table=True):
     __tablename__ = "body_comp"
-    __table_args__ = (UniqueConstraint("owner_id", "source", "external_id", name="uq_bodycomp_source_external_id"),)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "source", "external_id", name="uq_bodycomp_source_external_id"),
+        Index("ix_body_comp_owner_ts", "owner_id", "ts"),
+    )
 
     owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -354,6 +402,8 @@ class BodyComp(OwnedStrict, SQLModel, table=True):
     muscle_kg: Optional[float] = None
     bone_kg: Optional[float] = None
     hydration_kg: Optional[float] = None
+    local_date: Optional[date_] = None  # session 32, see Activity.local_date
+    local_tz: Optional[str] = None
 
 
 class SyncState(OwnedStrict, SQLModel, table=True):
@@ -687,6 +737,7 @@ class FoodLog(OwnedStrict, SQLModel, table=True):
     change the athlete's past daily totals."""
 
     __tablename__ = "food_logs"
+    __table_args__ = (Index("ix_food_logs_owner_local_date", "owner_id", "local_date"),)
 
     owner_id: str = owner_field()
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -705,6 +756,8 @@ class FoodLog(OwnedStrict, SQLModel, table=True):
     # Set only on a coach/MCP `log_food` write or a saved photo-estimate item — distinguishes
     # an AI-assisted log from a manually-entered one without a separate table.
     estimated: bool = False
+    local_date: Optional[date_] = None  # session 32, see Activity.local_date
+    local_tz: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -2051,3 +2104,7 @@ class ModeratorAccess(SQLModel, table=True):
 from catch.core import tenant_hooks as _tenant_hooks  # noqa: E402
 
 _tenant_hooks.install()
+
+from catch.core import localtime as _localtime  # noqa: E402
+
+_localtime.install()

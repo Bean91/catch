@@ -33,7 +33,7 @@ function Slider({ label, value, onChange, lowLabel, highLabel }: { label: string
   );
 }
 
-/** Task Part A.1: 4 sliders + an optional niggle (body area + 1-3 severity) + a free-text
+/** Task Part A.1: 4 sliders + an optional training issue (body area + 1-3 severity) + a free-text
  * note, one screen, dismissible, editable later the same day. Soreness/stress/sleep-quality
  * sliders read 1=none/low/poor -> 5=severe/high/great; mood reads 1=low -> 5=high (see
  * catch/analytics/checkin.py's docstring for the matching scoring direction). */
@@ -99,7 +99,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
             <Slider label="Sleep quality" value={sleepQuality} onChange={setSleepQuality} lowLabel="Poor" highLabel="Great" />
 
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-text-primary">Niggle (optional)</span>
+              <span className="text-sm font-medium text-text-primary">Training issue (optional)</span>
               <select
                 value={niggleArea}
                 onChange={(e) => {
@@ -108,7 +108,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
                 }}
                 className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
               >
-                <option value="">No niggle today</option>
+                <option value="">No training issue today</option>
                 {NIGGLE_AREAS.map((a) => (
                   <option key={a} value={a}>
                     {a}
@@ -116,7 +116,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
                 ))}
               </select>
               {niggleArea && (
-                <div className="flex gap-2" role="radiogroup" aria-label="Niggle severity">
+                <div className="flex gap-2" role="radiogroup" aria-label="Training issue severity">
                   {[1, 2, 3].map((s) => (
                     <button
                       key={s}

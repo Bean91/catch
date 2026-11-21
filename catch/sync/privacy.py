@@ -49,7 +49,7 @@ DELETE_CATEGORIES: dict[str, dict] = {
     "memory": {"label": "Coach memory", "tables": ["athlete_facts", "goals"], "note": "The facts and goals the coach remembers about you."},
     "gps": {"label": "GPS tracks, routes and weather", "tables": ["activity_tracks", "routes", "activity_weather"], "note": "Location data attached to your workouts. The workouts themselves stay."},
     "media": {"label": "Uploaded photos", "tables": ["piece_photos"], "note": "Photos of erg screens you attached to pieces, including any stored files."},
-    "notes_checkins": {"label": "Notes and check-ins", "tables": ["notes", "checkins", "illness_acks"], "note": "Your workout notes, morning check-ins (including niggle notes) and illness-flag responses."},
+    "notes_checkins": {"label": "Notes and check-ins", "tables": ["notes", "checkins", "illness_acks"], "note": "Your workout notes, morning check-ins (including training issues) and illness-flag responses."},
     "nutrition": {"label": "Nutrition logs", "tables": ["food_logs", "my_foods", "saved_meals", "nutrition_targets"], "note": "Everything you logged or saved in Nutrition."},
     "wellness_body": {"label": "Recovery, sleep and body data", "tables": ["daily_wellness", "wellness_readings", "daily_scores", "body_comp"], "note": "HRV, sleep, resting heart rate, body composition and the scores computed from them. A connected source will import them again on its next sync — disconnect it first if you want them gone for good."},
     "notification_log": {"label": "Notification history", "tables": ["notification_log"], "note": "The record of notifications Catch sent you."},

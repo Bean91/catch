@@ -10,7 +10,7 @@ install). **Nothing is sent until you have read this and agreed, and every categ
 
 1. The coach's instructions (fixed text).
 2. A short summary of what you've told the coach: upcoming events, goals and remembered facts (category "Coach memory" / "Calendar"), today's
-   check-in and niggle ("Notes and check-ins"), the illness early-warning and the top recommendation ("Recovery…"). Sections for categories that are
+   check-in and any training issue ("Notes and check-ins"), the illness early-warning and the top recommendation ("Recovery…"). Sections for categories that are
    off are left out.
 3. The conversation so far (your messages, the coach's replies, the tools it called and their results), trimmed to roughly 60,000 tokens.
 4. The list of tools the coach may call (names and descriptions, no data).

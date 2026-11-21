@@ -27,6 +27,7 @@ from catch.analytics.strength import (
     distribute_to_muscles,
     set_muscular_au,
 )
+from catch.core import localtime
 from catch.core.models import (
     Activity,
     CanonicalActivity,
@@ -236,14 +237,14 @@ def get_or_create_todays_session_id(session: Session) -> str:
     was logged today (from the app or an earlier coach turn in the same conversation), so
     chatting several exercises over a conversation doesn't fragment one real workout into
     several canonical activities. A new UUID starts a fresh session otherwise."""
-    today = datetime.now(timezone.utc).astimezone().date()
+    today = localtime.today(session)
     rows = session.exec(
         select(StrengthSet)
         .where(StrengthSet.deleted.is_(False), StrengthSet.source == "catch")
         .order_by(StrengthSet.created_at.desc())
     ).all()
     for r in rows:
-        if r.created_at.astimezone().date() == today:
+        if localtime.local_date_at(session, r.created_at) == today:
             activity = session.get(Activity, r.activity_id)
             if activity and activity.source == SESSION_SOURCE:
                 return activity.external_id
@@ -261,7 +262,7 @@ def list_sets_in_range(session: Session, from_, to, exercise_id: Optional[int] =
     ).all()
     out = []
     for r in rows:
-        local_day = r.created_at.astimezone().date()
+        local_day = localtime.local_date_at(session, r.created_at)
         if not (from_ <= local_day <= to):
             continue
         if exercise_id is not None and r.exercise_id != exercise_id:
@@ -300,7 +301,7 @@ def _history_for_pr(session: Session, exercise_id: int, exclude_client_id: str) 
         out.append(
             WorkingSet(
                 exercise_id=r.exercise_id,
-                date=r.created_at.date().isoformat(),
+                date=localtime.local_date_at(session, r.created_at).isoformat(),
                 reps=r.reps,
                 effective_load_kg=r.effective_load_kg,
                 set_type=r.set_type,
@@ -370,7 +371,7 @@ def upsert_set(session: Session, client_session_id: str, set_data: dict) -> dict
     history = _history_for_pr(session, row.exercise_id, client_id)
     working_set = WorkingSet(
         exercise_id=row.exercise_id,
-        date=row.created_at.date().isoformat(),
+        date=localtime.local_date_at(session, row.created_at).isoformat(),
         reps=row.reps,
         effective_load_kg=row.effective_load_kg,
         set_type=row.set_type,
@@ -464,8 +465,8 @@ def last_session_sets_for_exercise(session: Session, exercise_id: int, before: O
     rows = [r for r in rows if before is None or r.created_at < before]
     if not rows:
         return []
-    last_day = rows[0].created_at.date()
-    same_day = [r for r in rows if r.created_at.date() == last_day]
+    last_day = localtime.local_date_at(session, rows[0].created_at)
+    same_day = [r for r in rows if localtime.local_date_at(session, r.created_at) == last_day]
     same_day.sort(key=lambda r: r.seq)
     return [_set_out(r) for r in same_day]
 
@@ -580,51 +581,6 @@ def muscle_readiness(session: Session, now: Optional[datetime] = None) -> dict:
         for muscle, au in json.loads(r.muscular_by_muscle_json).items():
             totals[muscle] = totals.get(muscle, 0.0) + au
     return {"window_hours": READINESS_WINDOW_HOURS, "by_muscle": totals}
-
-
-def _local_day_utc_range(day) -> tuple[datetime, datetime]:
-    # Same local-day -> UTC-range computation as catch/sync/scoring.py's own helper
-    # (duplicated, not imported, to avoid a gym.py<->scoring.py import cycle — both files call
-    # into each other's module at different points in the sync pipeline).
-    local_midnight = datetime(day.year, day.month, day.day)
-    start_utc = local_midnight.astimezone(timezone.utc)
-    end_utc = (local_midnight + timedelta(days=1)).astimezone(timezone.utc)
-    return start_utc, end_utc
-
-
-def muscle_baseline_and_today(session: Session, day) -> tuple[dict[str, float], dict[str, list[float]]]:
-    """For catch/sync/scoring.py's day-level strain combine: `day`'s own per-muscle AU totals,
-    and each muscle's trailing-28-day *daily* totals (one number per day it appears, missing
-    days simply absent — catch/analytics/strength.py's normalize_muscle_au only needs an
-    average) for catch/analytics/strength.py's normalize_muscle_au baseline."""
-    start, end = _local_day_utc_range(day)
-    today_rows = session.exec(
-        select(CanonicalActivity).where(
-            CanonicalActivity.start >= start, CanonicalActivity.start < end, CanonicalActivity.muscular_by_muscle_json.is_not(None)
-        )
-    ).all()
-    today: dict[str, float] = {}
-    for r in today_rows:
-        for muscle, au in json.loads(r.muscular_by_muscle_json).items():
-            today[muscle] = today.get(muscle, 0.0) + au
-
-    baseline_start, _ = _local_day_utc_range(day - timedelta(days=BASELINE_WINDOW_DAYS))
-    history_rows = session.exec(
-        select(CanonicalActivity).where(
-            CanonicalActivity.start >= baseline_start, CanonicalActivity.start < start, CanonicalActivity.muscular_by_muscle_json.is_not(None)
-        )
-    ).all()
-    by_day_muscle: dict[tuple, float] = {}
-    for r in history_rows:
-        local_day = r.start.astimezone().date()
-        for muscle, au in json.loads(r.muscular_by_muscle_json).items():
-            key = (local_day, muscle)
-            by_day_muscle[key] = by_day_muscle.get(key, 0.0) + au
-    baseline: dict[str, list[float]] = {}
-    for (_, muscle), au in by_day_muscle.items():
-        baseline.setdefault(muscle, []).append(au)
-
-    return today, baseline
 
 
 # -- importing Garmin watch-counted sets as a draft (task Part B.2) -------------------------
@@ -747,7 +703,7 @@ def confirm_draft_set(
     history = _history_for_pr(session, exercise_id, client_id)
     working_set = WorkingSet(
         exercise_id=exercise_id,
-        date=row.created_at.date().isoformat(),
+        date=localtime.local_date_at(session, row.created_at).isoformat(),
         reps=row.reps,
         effective_load_kg=effective,
         set_type=row.set_type,

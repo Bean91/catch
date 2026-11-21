@@ -72,62 +72,113 @@ def session_strain(
     }
 
 
-def daily_activity_strain(
-    non_exercise_steps: float | None,
-    non_exercise_active_kcal: float | None,
-    settings: dict | None = None,
-) -> dict:
-    """Session 13 (see PLAN.md Part A): a small, capped, diminishing-returns contribution
-    from non-exercise daily movement (Garmin's whole-day steps/active-kcal, with any logged
-    activity's own steps/kcal already subtracted by the caller). Averages a log1p of steps
-    and of active kcal (each divided by an illustrative "one unit of noticeable activity"
-    scale — 2000 steps, 150 kcal — not a validated physiological constant) so a very high
-    non-exercise day saturates near the cap instead of scaling linearly, then applies
-    `weight` before capping at `cap`. Returns 0 (not None) when there's nothing to add —
-    the caller always has a number to add onto strain's `value`."""
+def strain_from_load(load: float, settings: dict | None = None) -> float:
+    """The one 0-21 mapping: min(21, strain_log_a * ln(1 + load)), load in TRIMP units."""
     settings = settings or DEFAULT_SETTINGS
-    cap = settings["daily_activity_strain_cap"]
-    weight = settings["daily_activity_strain_weight"]
-    # Only the measures that exist are averaged: a missing kcal used to enter as 0 and halve a real step count's share.
-    terms = []
+    return min(21.0, settings["strain_log_a"] * math.log1p(load)) if load > 0 else 0.0
+
+
+def strength_baseline_au(previous_session_au: list[float], settings: dict | None = None) -> tuple[float, str]:
+    """The athlete's own typical strength session (median AU of earlier sessions in the baseline window), or the documented
+    default until `strength_baseline_min_sessions` exist. Returns (au, "personal" | "default")."""
+    settings = settings or DEFAULT_SETTINGS
+    values = sorted(v for v in previous_session_au if v and v > 0)
+    if len(values) < settings["strength_baseline_min_sessions"]:
+        return float(settings["strength_default_baseline_au"]), "default"
+    mid = len(values) // 2
+    median = values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
+    return float(median), "personal"
+
+
+def muscular_trimp_equivalent(session_au: float | None, baseline_au: float, settings: dict | None = None) -> float:
+    """A strength session's muscular AU in TRIMP units: (AU / the athlete's typical session AU) x strength_ref_trimp, capped at
+    strength_session_cap_ratio typical sessions. Relative to the athlete's own norm, so heavy absolute loads don't outweigh
+    rowing and light lifters aren't ignored."""
+    settings = settings or DEFAULT_SETTINGS
+    if not session_au or session_au <= 0 or baseline_au <= 0:
+        return 0.0
+    ratio = min(settings["strength_session_cap_ratio"], session_au / baseline_au)
+    return ratio * settings["strength_ref_trimp"]
+
+
+def strength_session_load(hr_trimp: float | None, srpe_trimp: float | None, muscular_eq: float) -> tuple[float, str]:
+    """How a lifting session's load is formed, never counting the same effort twice:
+    - heart rate recorded: HR TRIMP + the muscular equivalent (HR undersells lifting; the two measure different stress);
+    - only a session RPE: max(sRPE TRIMP, muscular equivalent) — a perceived-exertion rating already includes the lifting;
+    - neither: the muscular equivalent alone."""
+    if hr_trimp is not None:
+        return hr_trimp + muscular_eq, "hr_plus_muscular"
+    if srpe_trimp is not None:
+        return (max(srpe_trimp, muscular_eq), "srpe" if srpe_trimp >= muscular_eq else "muscular")
+    return muscular_eq, "muscular"
+
+
+def daily_activity_trimp(non_exercise_steps: float | None, non_exercise_active_kcal: float | None, settings: dict | None = None) -> dict:
+    """Non-exercise movement in TRIMP units: steps / steps_per_min = easy-walking minutes (active kcal / kcal_per_min when
+    steps are missing), times Banister's per-minute TRIMP at `daily_activity_hrr`, capped. Any logged workout's own steps
+    and kcal are subtracted by the caller first."""
+    settings = settings or DEFAULT_SETTINGS
+    hrr = settings["daily_activity_hrr"]
+    per_min = hrr * 0.64 * math.exp(settings["trimp_exponent"] * hrr)
+    minutes, basis = None, None
     if non_exercise_steps is not None:
-        terms.append(math.log1p(max(0.0, non_exercise_steps) / 2000.0))
-    if non_exercise_active_kcal is not None:
-        terms.append(math.log1p(max(0.0, non_exercise_active_kcal) / 150.0))
-    raw = sum(terms) / len(terms) if terms else 0.0
-    value = min(cap, weight * raw)
+        minutes, basis = max(0.0, non_exercise_steps) / settings["daily_activity_steps_per_min"], "steps"
+    elif non_exercise_active_kcal is not None:
+        minutes, basis = max(0.0, non_exercise_active_kcal) / settings["daily_activity_kcal_per_min"], "active_kcal"
+    load = min(settings["daily_activity_trimp_cap"], minutes * per_min) if minutes else 0.0
     return {
-        "value": value,
+        "load": load,
+        "minutes": minutes,
+        "basis": basis,
         "steps": non_exercise_steps,
         "active_kcal": non_exercise_active_kcal,
         "explanation": (
-            f"Non-exercise steps ({non_exercise_steps if non_exercise_steps is not None else 0:.0f}) and "
-            f"active kcal ({non_exercise_active_kcal if non_exercise_active_kcal is not None else 0:.0f}) "
-            f"log-scaled and averaged, weight={weight}, capped at {cap} of the 0-21 scale."
+            "No daily step or activity total." if basis is None else
+            f"{minutes:.0f} min of easy walking ({basis.replace('_', ' ')}) x {per_min:.2f} TRIMP/min at {hrr:.0%} HRR"
+            f" = {load:.1f} (cap {settings['daily_activity_trimp_cap']:.0f})."
         ),
     }
 
 
-def muscular_strain_component(total_normalized_au: float, settings: dict | None = None) -> dict:
-    """Session 14 (see PLAN.md Part C.2) — the muscular half of the day's 0-21 strain, kept on
-    the same log-saturation shape as the cardio half (`strain_log_a`) rather than inventing an
-    unrelated curve, with its own constant/weight so a heavy lifting day can register
-    meaningful strain *even at zero cardio trimp* — `catch/sync/scoring.py`'s `day_strain`
-    adds this directly onto the cardio component rather than feeding it into the same
-    log(1+trimp) call, so neither accidentally saturates the other out."""
+def day_load_strain(sessions: list[dict], daily_activity: dict, settings: dict | None = None) -> dict:
+    """Session 32 (docs/analytics.md §4): the day's strain from ONE load sum through ONE curve.
+
+    `sessions` are [{"canonical_id", "title", "kind": "cardio"|"strength", "load", "method", ...}] (load None = not scoreable);
+    `daily_activity` is `daily_activity_trimp`'s result. Shares are each part's fraction of the load, so the displayed parts of
+    the strain gauge always add up to the headline and nothing is counted twice."""
     settings = settings or DEFAULT_SETTINGS
-    if total_normalized_au <= 0:
-        return {"value": 0.0, "total_normalized_au": 0.0, "explanation": "No muscular load logged."}
-    log_a = settings["muscular_strain_log_a"]
-    weight = settings["muscular_strain_weight"]
-    value = min(21.0, weight * log_a * math.log1p(total_normalized_au))
+    scored = [s for s in sessions if s.get("load") is not None]
+    cardio = sum(s["load"] for s in scored if s["kind"] == "cardio")
+    muscular_parts = [s.get("muscular_load", 0.0) for s in scored if s["kind"] == "strength"]
+    strength_total = sum(s["load"] for s in scored if s["kind"] == "strength")
+    muscular = sum(muscular_parts)
+    strength_other = strength_total - muscular  # the HR/sRPE part of a lifting session
+    daily = daily_activity.get("load") or 0.0
+    total = cardio + strength_total + daily
+    value = strain_from_load(total, settings)
+    if sessions and not scored and daily <= 0:
+        return {"value": None, "band": "insufficient_data", "load": 0.0, "cardio_load": 0.0, "muscular_load": 0.0,
+                "daily_activity_load": 0.0, "shares": {}, "sessions": sessions,
+                "explanation": "No session that day had enough data (heart rate, a session RPE or logged sets) to score."}
+
+    def share(x: float) -> float:
+        return x / total if total > 0 else 0.0
+
+    for s in sessions:
+        s["share"] = share(s["load"]) if s.get("load") is not None else None
+    shares = {"cardio": share(cardio + strength_other), "muscular": share(muscular), "daily_activity": share(daily)}
     return {
         "value": value,
-        "total_normalized_au": total_normalized_au,
+        "band": strain_band(value),
+        "load": total,
+        "cardio_load": cardio + strength_other,
+        "muscular_load": muscular,
+        "daily_activity_load": daily,
+        "shares": shares,
+        "sessions": sessions,
         "explanation": (
-            f"Muscular AU ({total_normalized_au:.0f}, per-muscle-group-normalized against a 28-day "
-            f"baseline, summed) -> {value:.1f} via log-saturation (muscular_strain_log_a={log_a}, "
-            f"weight={weight})."
+            f"Day load {total:.1f} TRIMP-equivalent (heart-rate/RPE {cardio + strength_other:.1f}, muscular {muscular:.1f},"
+            f" daily movement {daily:.1f}) -> strain {value:.1f} via {settings['strain_log_a']} x ln(1 + load)."
         ),
     }
 

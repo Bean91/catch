@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 import math
 import threading
+from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
+from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from catch.analytics.body import smooth_weight
 from catch.analytics.downsample import bucket_value_bounds, lttb_indices
 from catch.analytics.erg_math import w_per_kg
-from catch.analytics.predict import predict_2k
 from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, training_zones, zone_for_hr
@@ -23,6 +24,7 @@ from catch.coach.memory import next_a_race as _next_a_race
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, CheckIn, DailyScore, DailyWellness, Stroke
 from catch.core.settings_store import get_settings, update_settings
 from catch.sync import body_comp, nutrition, rowing_predict
+from catch.sync.activity_days import canonical_in_days
 from catch.analytics.samples_codec import unpack_series
 from catch.sync.canonical import pick_hr
 
@@ -117,7 +119,7 @@ def _baseline_band(component: dict | None, log_space: bool) -> dict | None:
 
 
 def _latest_erg(db: Session) -> dict | None:
-    stmt = select(Activity).where(Activity.source == "concept2").order_by(Activity.start.desc())
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(Activity.source == "concept2", Activity.start.is_not(None)).order_by(Activity.start.desc())
     row = db.exec(stmt).first()
     if row is None:
         return None
@@ -133,7 +135,7 @@ def _latest_erg(db: Session) -> dict | None:
 
 @router.get("/api/today")
 def today(db: Session = Depends(get_db)):
-    today_date = date.today()
+    today_date = localtime.today(db)
     score_row = db.get(DailyScore, tenant.pk(today_date))
     wellness = db.get(DailyWellness, tenant.pk(today_date))
     recovery = _score_dict(score_row.recovery_json) if score_row else None
@@ -157,6 +159,8 @@ def today(db: Session = Depends(get_db)):
         # whenever they're not in the same timezone). An actual timestamp lets the client show
         # real data age without assuming anything about either side's timezone.
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # Session 32: the zone "today" was read in, so the client never derives a day from the browser's own clock.
+        "time_zone": localtime.current_zone_name(db),
         "recovery": recovery,
         "sleep_last_night": (
             {
@@ -294,23 +298,35 @@ def trends(
 # `recompute_scores` (catch/sync/scoring.py) — the single choke point already run after every
 # sync, backfill, settings PUT, and note POST (see that file's docstring).
 _series_cache_lock = threading.Lock()
-_series_cache: dict[tuple[str, str], list[dict]] = {}  # (owner, metric): one process serves many users
+# (owner, metric) -> series, least recently used first. Bounded (session 32): one public process serves many users, and an
+# unbounded dict grew by every user's every metric for the life of the process.
+_series_cache: OrderedDict[tuple[str, str], list[dict]] = OrderedDict()
+SERIES_CACHE_MAX = 256
 
 
-def invalidate_series_cache() -> None:
+def invalidate_series_cache(owner: str | None = None) -> None:
+    """Drop one owner's cached series (a recompute for them), or everything (tests)."""
     with _series_cache_lock:
-        _series_cache.clear()
+        if owner is None:
+            _series_cache.clear()
+            return
+        for key in [k for k in _series_cache if k[0] == owner]:
+            del _series_cache[key]
 
 
 def _cached_full_series(db: Session, metric: str) -> list[dict]:
     key = (tenant.current_owner(), metric)
     with _series_cache_lock:
         cached = _series_cache.get(key)
-    if cached is not None:
-        return cached
+        if cached is not None:
+            _series_cache.move_to_end(key)
+            return cached
     full = _metric_series(db, metric, None, None)
     with _series_cache_lock:
         _series_cache[key] = full
+        _series_cache.move_to_end(key)
+        while len(_series_cache) > SERIES_CACHE_MAX:
+            _series_cache.popitem(last=False)
     return full
 
 
@@ -358,12 +374,6 @@ def series(
     return {"series": out}
 
 
-def _date_bounds(from_: date | None, to: date | None) -> tuple[datetime | None, datetime | None]:
-    start = datetime.combine(from_, datetime.min.time(), tzinfo=timezone.utc) if from_ else None
-    end = datetime.combine(to, datetime.max.time(), tzinfo=timezone.utc) if to else None
-    return start, end
-
-
 def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
     # Smoothed over *all* history, not just the requested range — otherwise the smoothed
     # line at the start of a narrow range (e.g. "4w") would have no trailing context and
@@ -389,52 +399,32 @@ def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict
 
 
 def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
-    start, end = _date_bounds(from_, to)
-    stmt = select(Activity).where(Activity.source == "concept2", Activity.avg_power.is_not(None))
+    start, end = localtime.date_bounds(db, from_, to)
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(Activity.source == "concept2", Activity.avg_power.is_not(None))
     if start:
         stmt = stmt.where(Activity.start >= start)
     if end:
-        stmt = stmt.where(Activity.start <= end)
+        stmt = stmt.where(Activity.start < end)
     rows = db.exec(stmt.order_by(Activity.start)).all()
+    weights = body_comp.WeightLookup(db)
     out = []
     for a in rows:
-        weight_kg = _nearest_weight_kg(db, a.start)
+        weight_kg = weights.nearest(a.start)
         value = w_per_kg(a.avg_power, weight_kg)
         if value is not None and a.start is not None:
             # activity_id lets the frontend chart open this exact workout on tap (interaction
             # spec #4) — /api/series already passes any extra per-point keys through verbatim.
             # It's the *canonical* id (session 8/12 — see PLAN.md): /workouts/:id now routes
             # to GET /api/activities/{canonical_id}, never a raw per-source Activity id.
-            out.append({"date": a.start.date(), "value": value, "activity_id": a.canonical_id})
+            out.append({"date": localtime.day_of(db, a), "value": value, "activity_id": a.canonical_id})
     return out
 
 
 def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
-    """One point per qualifying effort: that single piece's own Paul's-law extrapolation to
-    2000m (same formula `/api/predict/2k` uses, but per-piece rather than averaged across
-    several recent pieces) — a trend of "what would today's piece alone predict," distinct
-    from the Today screen's multi-piece ensemble estimate."""
-    start, end = _date_bounds(from_, to)
-    stmt = select(Activity).where(
-        Activity.source == "concept2",
-        Activity.type == "rower",
-        Activity.distance.is_not(None),
-        Activity.duration.is_not(None),
-    )
-    if start:
-        stmt = stmt.where(Activity.start >= start)
-    if end:
-        stmt = stmt.where(Activity.start <= end)
-    rows = db.exec(stmt.order_by(Activity.start)).all()
-    out = []
-    for a in rows:
-        if a.workout_type not in _CONTINUOUS_WORKOUT_TYPES or not a.distance or a.distance < 1000 or a.start is None:
-            continue
-        pace = (a.duration / a.distance) * 500.0
-        result = predict_2k([{"distance_m": a.distance, "pace_s_per_500": pace, "label": a.start.date().isoformat()}])
-        if result["value"] is not None:
-            out.append({"date": a.start.date(), "value": result["predicted_time_s"], "activity_id": a.canonical_id})
-    return out
+    """Historical, per effort: the 2k each qualifying effort implies on its own (Paul's law) — labelled as such in the UI, and
+    never the current estimate (which weighs several efforts) or a measured result. Same evidence rules as the estimate
+    (session 32): declared tests/pieces and hard continuous rows only."""
+    return rowing_predict.implied_2k_history(db, get_settings(db), from_, to)
 
 
 def _nearest_weight_kg(db: Session, when: datetime | None) -> float | None:
@@ -449,20 +439,24 @@ def _nearest_weight_kg(db: Session, when: datetime | None) -> float | None:
 def erg_results(
     from_: datetime | None = Query(None, alias="from"),
     to: datetime | None = Query(None),
+    limit: int = Query(500, ge=1, le=5000),
     db: Session = Depends(get_db),
 ):
     from_, to = as_utc(from_), as_utc(to)
-    stmt = select(Activity).where(Activity.source == "concept2")
+    # Session 32: raw_json (the provider's whole record, ~2 KB a row) is no longer sent — nothing in the app read it, and a
+    # three-year history made this a 2 MB response; weights are resolved once, not re-resolved per row.
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(Activity.source == "concept2")
     if from_:
         stmt = stmt.where(Activity.start >= from_)
     if to:
         stmt = stmt.where(Activity.start <= to)
-    rows = db.exec(stmt.order_by(Activity.start.desc())).all()
+    rows = db.exec(stmt.order_by(Activity.start.desc()).limit(limit)).all()
 
+    weights = body_comp.WeightLookup(db)
     out = []
     for a in rows:
-        weight_kg = _nearest_weight_kg(db, a.start)
-        out.append({**a.model_dump(), "weight_kg": weight_kg, "w_per_kg": w_per_kg(a.avg_power, weight_kg)})
+        weight_kg = weights.nearest(a.start)
+        out.append({**a.model_dump(exclude={"raw_json"}), "weight_kg": weight_kg, "w_per_kg": w_per_kg(a.avg_power, weight_kg)})
     return out
 
 
@@ -566,7 +560,7 @@ def erg_strokes(
 
 
 def _predict_2k(db: Session, settings: dict) -> dict:
-    return predict_2k(rowing_predict.recent_rower_pieces(db, settings))
+    return rowing_predict.estimate_2k(db, settings)
 
 
 @router.get("/api/predict/2k")
@@ -665,23 +659,20 @@ def _estimated_zone_totals(activity: CanonicalActivity, max_hr: float | None, se
 def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get_db)):
     settings = get_settings(db)
     max_hr = settings.get("max_hr")
-    today = date.today()
+    today = localtime.today(db)
     this_week_start = today - timedelta(days=today.weekday())
     week_starts = [this_week_start - timedelta(weeks=i) for i in range(weeks)][::-1]
     range_start, range_end = week_starts[0], this_week_start + timedelta(days=7)
 
-    # Session 8/12 (see PLAN.md): one row per canonical activity — the matching engine
-    # already guarantees that, so no per-source dedup logic is needed here anymore. A
-    # canonical's cached zones_json (Part E — real per-sample HR, not the whole-session
-    # average) is preferred; only a canonical with no samples at all falls back to the old
-    # whole-duration estimate.
-    stmt = select(CanonicalActivity).where(CanonicalActivity.start.is_not(None))
-    activities = [a for a in db.exec(stmt).all() if not json.loads(a.overrides_json or "{}").get("exclude_from_totals")]
+    # One row per canonical activity (the matching engine guarantees one per session). A canonical's cached zones_json (real
+    # per-sample HR) is preferred; only one with no samples falls back to the whole-duration estimate. Session 32: only the
+    # weeks asked for are read (by each workout's own local day), not the whole history.
+    activities = [a for a in canonical_in_days(db, range_start, range_end - timedelta(days=1)) if not json.loads(a.overrides_json or "{}").get("exclude_from_totals")]
 
     buckets: dict[date, dict[str, float]] = {w: {z: 0.0 for z in ZONE_ORDER} for w in week_starts}
     estimated_weeks: set[date] = set()
     for a in activities:
-        local_date = a.start.astimezone().date()
+        local_date = localtime.day_of(db, a)
         if local_date < range_start or local_date >= range_end:
             continue
         bucket_week = local_date - timedelta(days=local_date.weekday())
@@ -727,11 +718,12 @@ def _pb_entry(candidate: dict | None) -> dict | None:
     }
 
 
-def _candidate_from_activity(a: Activity) -> dict:
+def _candidate_from_activity(db: Session, a: Activity) -> dict:
+    day = localtime.day_of(db, a)
     return {
         "distance": a.distance,
         "duration": a.duration,
-        "date": a.start.date().isoformat() if a.start else None,
+        "date": day.isoformat() if day else None,
         "canonical_id": a.canonical_id,
         "piece_id": None,
     }
@@ -744,13 +736,13 @@ def personal_bests(db: Session = Depends(get_db)):
     # type=="rower" only — a SkiErg/BikeErg 2k isn't the same PB, and only continuous
     # workouts (same restriction _predict_2k uses) since interval/piece sets mix rest into
     # duration.
-    stmt = select(Activity).where(
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(
         Activity.source == "concept2",
         Activity.type == "rower",
         Activity.distance.is_not(None),
         Activity.duration.is_not(None),
     )
-    continuous = [_candidate_from_activity(a) for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
+    continuous = [_candidate_from_activity(db, a) for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
     # Session 17 (see PLAN.md Part A.1) — confirmed pieces count toward PBs too, exactly like
     # a standalone Concept2 result; piece_pb_candidates already excludes any piece absorbed
     # into a real Concept2 result (that result is already in `continuous` above).

@@ -34,12 +34,12 @@ def get_calendar(from_: date_ = Query(..., alias="from"), to: date_ = Query(...)
 
 @router.get("/api/calendar/week-summary")
 def get_week_summary(week_start: date_ | None = Query(None), db: Session = Depends(get_db)):
-    return _guard(lambda: sp.build_week_summary(db, current_owner(), week_start or sp.today()))
+    return _guard(lambda: sp.build_week_summary(db, current_owner(), week_start or sp.today(db)))
 
 
 @router.get("/api/calendar/phase")
 def get_phase_on(on: date_ | None = Query(None, alias="date"), db: Session = Depends(get_db)):
-    day = on or sp.today()
+    day = on or sp.today(db)
     phase = sp.phase_on(db, current_owner(), day)
     from catch.core.settings_store import get_settings
 
@@ -164,7 +164,7 @@ class EventCreate(BaseModel):
 def list_events(
     from_: date_ | None = Query(None, alias="from"), to: date_ | None = Query(None), db: Session = Depends(get_db)
 ):
-    today = sp.today()
+    today = sp.today(db)
     return {"events": [sp.event_dict(e, today) for e in sp.list_events(db, current_owner(), from_, to)]}
 
 

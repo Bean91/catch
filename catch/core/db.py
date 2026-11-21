@@ -147,7 +147,29 @@ _NEW_COLUMNS = {
         # Session 16 (see PLAN.md Part A) — see IllnessAck's docstring in models.py.
         "notified_at": "TEXT",
     },
+    # Session 32 (docs/time.md): home zone, follow switch, onboarding; per-record local day/zone.
+    "user_profiles": {
+        "timezone": "TEXT",
+        "follow_device_zone": "BOOLEAN",
+        "onboarding_state": "TEXT",
+        "onboarding_step": "INTEGER",
+        "onboarding_json": "TEXT",
+        "onboarding_completed_at": "TEXT",
+    },
+    "food_logs": {"local_date": "DATE", "local_tz": "TEXT"},
+    "body_comp": {"local_date": "DATE", "local_tz": "TEXT"},
 }
+_NEW_COLUMNS["activities"].update({"local_date": "DATE", "local_tz": "TEXT"})
+_NEW_COLUMNS["canonical_activities"].update({"local_date": "DATE", "local_tz": "TEXT"})
+
+
+_SESSION32_INDEXES = (
+    ("ix_activities_owner_start", "activities", "owner_id, start"),
+    ("ix_canonical_activities_owner_local_date", "canonical_activities", "owner_id, local_date"),
+    ("ix_canonical_activities_owner_start", "canonical_activities", "owner_id, start"),
+    ("ix_body_comp_owner_ts", "body_comp", "owner_id, ts"),
+    ("ix_food_logs_owner_local_date", "food_logs", "owner_id, local_date"),
+)
 
 
 def _owner_columns() -> dict[str, dict[str, str]]:
@@ -196,6 +218,9 @@ def _migrate_columns() -> None:
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_activities_canonical_id ON activities(canonical_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_strength_sets_activity_id ON strength_sets(activity_id)")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_gym_stations_gym_id ON gym_stations(gym_id)")
+        # Session 32 — declared on the models too (a fresh file gets them from create_all; Postgres from migration 0011).
+        for name, table, cols in _SESSION32_INDEXES:
+            conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {name} ON {table}({cols})")
         conn.commit()
 
 

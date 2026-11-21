@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from catch.core.tenant import current_owner
 from catch.coach import untrusted
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 from datetime import date, timedelta
 from typing import Any
@@ -146,7 +146,7 @@ def _goal_dict(g: Goal) -> dict:
 def recall(session: Session, query: str | None = None) -> list[dict]:
     """Expired facts (valid_until in the past) are filtered here, at read time, rather than
     deleted — so a fact that turns out to matter again isn't gone, just no longer surfaced."""
-    today = date.today()
+    today = localtime.today(session)
     needle = (query or "").strip().lower()
 
     facts = session.exec(select(AthleteFact)).all()
@@ -185,7 +185,7 @@ def update_fact(session: Session, fact_id: int, **fields: Any) -> AthleteFact:
 def list_all(session: Session) -> dict:
     """Unfiltered listing for the Memory settings page — unlike recall(), this includes
     expired facts (flagged, not hidden) so the athlete can see what dropped out and why."""
-    today = date.today()
+    today = localtime.today(session)
     facts = session.exec(select(AthleteFact)).all()
     events = session.exec(select(Event)).all()
     goals = session.exec(select(Goal)).all()
@@ -197,7 +197,7 @@ def list_all(session: Session) -> dict:
 
 
 def next_a_race(session: Session, today: date | None = None) -> dict | None:
-    today = today or date.today()
+    today = today or localtime.today(session)
     stmt = select(Event).where(Event.type == "race", Event.priority == "A", Event.date >= today).order_by(Event.date)
     row = session.exec(stmt).first()
     if row is None:
@@ -221,7 +221,7 @@ def memory_block(session: Session, allowed: set[str] | None = None) -> str:
     def ok(section: str) -> bool:  # `allowed` None = no restriction (the web UI and tests); the chat passes what the person agreed to send
         return allowed is None or MEMORY_SECTION_CATEGORY[section] in allowed
 
-    today = date.today()
+    today = localtime.today(session)
     events = session.exec(select(Event).where(Event.date >= today).order_by(Event.date)).all() if ok("events") else []
     goals = session.exec(select(Goal).where(Goal.status == "active")).all() if ok("memory") else []
     facts = session.exec(select(AthleteFact)).all() if ok("memory") else []
@@ -266,7 +266,7 @@ def memory_block(session: Session, allowed: set[str] | None = None) -> str:
     settings = get_settings(session)
     today_checkin = session.get(CheckIn, tenant.pk(today)) if ok("checkin") else None
     if not ok("checkin"):
-        pass  # not shared with the AI: neither the sliders nor the niggle line
+        pass  # not shared with the AI: neither the sliders nor the training-issue line
     elif today_checkin is not None:
         bits = [f"soreness {today_checkin.soreness}/5" if today_checkin.soreness else None]
         bits += [f"stress {today_checkin.stress}/5" if today_checkin.stress else None]
@@ -286,7 +286,7 @@ def memory_block(session: Session, allowed: set[str] | None = None) -> str:
         day -= timedelta(days=1)
     if niggle_streak >= settings["niggle_flag_min_days"]:
         area = untrusted.wrap_for_prompt(today_checkin.niggle_area, max_chars=60) if today_checkin and today_checkin.niggle_area else None
-        lines.append(f"Niggle flag: {area or 'a niggle'} has been logged for {niggle_streak} days running — ask about it.")
+        lines.append(f"Training issue flag: {area or 'a training issue'} has been logged for {niggle_streak} days running — ask about it.")
 
     score_row = session.get(DailyScore, tenant.pk(today))
     illness = json.loads(score_row.illness_json) if ok("illness") and score_row and score_row.illness_json else None

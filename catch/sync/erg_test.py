@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from sqlmodel import Session, select
 
 from catch.analytics.erg_test import detect_test_type
+from catch.core import localtime
 from catch.core.models import Activity, CanonicalActivity, Event
 from catch.sync.rowing_predict import CONTINUOUS_WORKOUT_TYPES
 
@@ -63,7 +64,7 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
                 "activity_id": None,
                 "test_type": p.piece_type,
                 "title": canonical.title if canonical else None,
-                "date": canonical.start.date().isoformat() if canonical and canonical.start else None,
+                "date": localtime.day_of(session, canonical).isoformat() if canonical and canonical.start else None,
                 "start": canonical.start if canonical else None,
                 "distance_m": p.distance_m,
                 "duration_s": p.duration_s,
@@ -93,7 +94,7 @@ def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
                 "activity_id": member.id,
                 "test_type": this_type,
                 "title": canonical.title,
-                "date": canonical.start.date().isoformat() if canonical.start else None,
+                "date": localtime.day_of(session, canonical).isoformat() if canonical.start else None,
                 "start": canonical.start,
                 "distance_m": member.distance,
                 "duration_s": member.duration,
@@ -131,7 +132,7 @@ def list_candidates(session: Session) -> list[dict]:
                 "activity_id": member.id,
                 "suggested_test_type": suggested,
                 "title": canonical.title,
-                "date": canonical.start.date().isoformat() if canonical.start else None,
+                "date": localtime.day_of(session, canonical).isoformat() if canonical.start else None,
                 "distance_m": member.distance,
                 "duration_s": member.duration,
                 "avg_stroke_rate": member.stroke_rate,
@@ -146,7 +147,7 @@ def next_relevant_event(session: Session, today: date | None = None) -> Event | 
     catch/coach/memory.py's next_a_race (which hard-filters to an A-priority race): a pacing
     plan is just as often for an upcoming 2k_test as a race, and the task says "the next
     event," not "the next A race"."""
-    today = today or date.today()
+    today = today or localtime.today(session)
     return session.exec(select(Event).where(Event.date >= today).order_by(Event.date)).first()
 
 

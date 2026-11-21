@@ -64,11 +64,22 @@ def me(request: Request, db: Session = Depends(get_db)):
     owner = tenant.current_owner()
     profile = db.get(UserProfile, owner)
     claims = getattr(request.state, "claims", None)
+    from catch.core import localtime
+
+    zone = localtime.preferences(db)
     return {
         "id": owner,
         "email": (profile.email if profile else None) or (claims.email if claims else None),
         "display_name": profile.display_name if profile else None,
         "deployment": settings.deployment,
+        # Session 32 (docs/time.md): the zone every date in this account is read in right now, and the local "today" — the client
+        # uses these instead of its own clock, so a laptop on another zone never shows a different day.
+        "timezone": zone["timezone"],
+        "follow_device_zone": zone["follow_device_zone"],
+        "current_zone": zone["current_zone"],
+        "today": zone["today"],
+        "onboarding": {"state": "completed" if profile is not None and profile.onboarding_state == "completed" else "pending",
+                       "show": settings.is_public and not (profile is not None and profile.onboarding_state == "completed")},
     }
 
 

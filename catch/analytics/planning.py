@@ -11,6 +11,7 @@ Two rules govern the whole module:
     `tz` (a tzinfo, or None for the host's local zone — what the rest of the app uses). The DB
     layer passes None; tests pass real zones so the day-boundary cases are covered."""
 
+from catch.analytics import localtime as _lt
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Any
 
@@ -44,11 +45,9 @@ MATCH_THRESHOLD = 0.6
 
 
 def local_date(dt: datetime, tz: tzinfo | None = None) -> date:
-    """The calendar day an instant falls on. A naive datetime is read as UTC (SQLite hands
-    timezone-aware columns back naive; every stored instant in this app is UTC)."""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(tz).date()
+    """The calendar day an instant falls on in `tz` (UTC when none is given — callers pass the athlete's zone from
+    catch.core.localtime). A naive datetime is read as UTC: every stored instant in this app is UTC."""
+    return _lt.local_date(dt, tz or timezone.utc)
 
 
 def aware_utc(dt: datetime | None) -> datetime | None:
@@ -77,10 +76,7 @@ def days_to_go(event_date: date, today: date) -> int:
 def local_day_utc_range(day: date, tz: tzinfo | None = None) -> tuple[datetime, datetime]:
     """[start, end) of a local calendar day as UTC instants — DST-safe, since the end is the
     *next local midnight*, not start + 24 h."""
-    start = datetime(day.year, day.month, day.day, tzinfo=tz) if tz else datetime(day.year, day.month, day.day).astimezone()
-    nxt = day + timedelta(days=1)
-    end = datetime(nxt.year, nxt.month, nxt.day, tzinfo=tz) if tz else datetime(nxt.year, nxt.month, nxt.day).astimezone()
-    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+    return _lt.day_utc_range(day, tz or timezone.utc)
 
 
 # --- Recurrence -----------------------------------------------------------------------------

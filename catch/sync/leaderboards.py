@@ -14,6 +14,7 @@ from sqlmodel import Session, func, select
 from catch.analytics import leaderboards as lb
 from catch.analytics import verification as vf
 from catch.core import config, secret_store, tenant
+from catch.core import localtime
 from catch.core.models import Activity, CanonicalActivity, LeaderboardSettings, Piece, ProviderConnection, ResultPublication
 from catch.sync import leaderboard_store as store
 
@@ -237,7 +238,7 @@ def _result_from_ref(session: Session, ref: dict) -> dict:
         meta = vf.concept2_meta(a)
         has_intervals = bool(a.intervals_json and '"intervals"' in a.intervals_json)
         elig = lb.eligible_board(distance_m=a.distance, duration_s=a.duration, workout_type=a.workout_type, erg_type=a.type, has_intervals=has_intervals)
-        return {"kind": kind, "id": a.id, "activity": a, "piece": None, "meta": meta, "elig": elig, "date": a.start.date() if a.start else None,
+        return {"kind": kind, "id": a.id, "activity": a, "piece": None, "meta": meta, "elig": elig, "date": localtime.day_of(session, a) if a.start else None,
                 "digest": _activity_digest(a), "result_id": str(a.external_id)}
     if kind == "piece":
         p = session.get(Piece, ref.get("id"))
@@ -245,7 +246,7 @@ def _result_from_ref(session: Session, ref: dict) -> dict:
             raise LeaderboardError("Not found.", 404)
         canonical = session.get(CanonicalActivity, p.canonical_id)
         elig = lb.eligible_board(distance_m=p.distance_m, duration_s=p.duration_s, has_intervals=p.has_intervals, is_piece=True)
-        return {"kind": kind, "id": p.id, "activity": None, "piece": p, "meta": {}, "elig": elig, "date": canonical.start.date() if canonical and canonical.start else None,
+        return {"kind": kind, "id": p.id, "activity": None, "piece": p, "meta": {}, "elig": elig, "date": localtime.day_of(session, canonical) if canonical and canonical.start else None,
                 "digest": _piece_digest(p), "result_id": str(p.id)}
     raise LeaderboardError("kind must be concept2_result or piece")
 

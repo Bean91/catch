@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
+from catch.core import localtime
 from catch.sync.body_comp import resolve_daily
 from catch.sync.upsert import upsert_body_comp
 
@@ -34,7 +35,9 @@ class ManualWeightRequest(BaseModel):
 def post_manual_weight(body: ManualWeightRequest = Body(...), db: Session = Depends(get_db)):
     """Part D.3 — the app works with no scale at all: a manually entered weight, always the
     last-resort source regardless of `body_comp_priority`'s configured order."""
-    ts = datetime.combine(body.date, datetime.min.time(), tzinfo=timezone.utc)
+    # Noon on that local day, in the athlete's zone (session 32): midnight UTC filed a weigh-in under the previous day west of UTC.
+    tz = localtime.zone_for_day(db, body.date)
+    ts = datetime(body.date.year, body.date.month, body.date.day, 12, tzinfo=tz).astimezone(timezone.utc)
     row = upsert_body_comp(db, source="manual", external_id=body.date.isoformat(), ts=ts, weight_kg=body.weight_kg)
 
     from catch.sync.scoring import recompute_scores

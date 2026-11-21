@@ -14,6 +14,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from catch.analytics import health_import as h
+from catch.core import localtime
 from catch.core.models import Activity, CanonicalActivity, HealthConsent, Piece, WellnessReading
 from catch.sync import connections, wellness_readings
 from catch.sync.upsert import upsert_activity
@@ -118,14 +119,14 @@ def import_batch(db: Session, platform: str, workouts: list[dict], readings: lis
         upsert_activity(
             db, platform, w["external_id"], type=w["type"], start=w["start"], duration=w["duration"], distance=w["distance"], calories=w["calories"],
             avg_hr=w["avg_hr"], max_hr=w["max_hr"], workout_type=None,
-            raw_json=json.dumps({"origin_app": w["origin_app"], "origin_id": w["origin_id"]}),  # provenance: which app actually recorded it
+            raw_json=json.dumps({"origin_app": w["origin_app"], "origin_id": w["origin_id"], "utc_offset_minutes": w["utc_offset_minutes"]}),  # provenance: which app actually recorded it
             title_hint=None,
         )
         out["workouts"] += 1
 
     for raw in readings:
         try:
-            r = h.validate_reading(raw if isinstance(raw, dict) else {})
+            r = h.validate_reading(raw if isinstance(raw, dict) else {}, today=localtime.today(db))
         except h.Invalid:
             out["skipped_invalid"] += 1
             continue

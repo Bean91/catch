@@ -5,24 +5,33 @@ reported one, with a per-metric source priority (Settings, default Withings firs
 second; a user-entered "manual" reading is always the last resort regardless of that order).
 Never averages two scales; always says which source a value came from."""
 
-from datetime import date as date_
+from bisect import bisect_left
+from datetime import date as date_, timedelta
 from typing import Optional
 
 from sqlmodel import Session, select
 
+from catch.core import localtime
 from catch.core.models import BodyComp
 from catch.core.settings_store import get_settings
 
 _METRIC_COLUMNS = {"weight": "weight_kg", "fat_pct": "fat_pct", "muscle_kg": "muscle_kg"}
+_MARGIN = timedelta(days=1)
 
 
 def resolve_daily(session: Session, from_: Optional[date_] = None, to: Optional[date_] = None) -> list[dict]:
-    rows = session.exec(select(BodyComp)).all()
+    stmt = select(BodyComp)
+    # A ±1-day margin on the timestamp, then the exact local day below: a weigh-in's day is the zone it happened in.
+    if from_:
+        stmt = stmt.where(BodyComp.ts >= localtime.day_range(session, from_)[0] - _MARGIN)
+    if to:
+        stmt = stmt.where(BodyComp.ts < localtime.day_range(session, to)[1] + _MARGIN)
+    rows = session.exec(stmt).all()
     by_day: dict[date_, list[BodyComp]] = {}
     for r in rows:
         if r.ts is None:
             continue
-        day = r.ts.astimezone().date()
+        day = localtime.day_of(session, r)
         by_day.setdefault(day, []).append(r)
 
     priority = get_settings(session)["body_comp_priority"]
@@ -60,15 +69,27 @@ def resolve_daily(session: Session, from_: Optional[date_] = None, to: Optional[
     return out
 
 
+class WeightLookup:
+    """Every day's resolved weight, resolved once — for a request that needs the weight near many workouts (an erg-results
+    list, a W/kg trend). Session 32: each lookup used to re-read and re-resolve the whole body-composition history."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        daily = [d for d in resolve_daily(session) if d["weight"] is not None]
+        self._days = [d["date"] for d in daily]
+        self._weights = [d["weight"] for d in daily]
+
+    def nearest(self, when) -> Optional[float]:
+        if when is None or not self._days:
+            return None
+        target = localtime.local_date_at(self._session, when)
+        i = bisect_left(self._days, target)
+        candidates = [j for j in (i - 1, i) if 0 <= j < len(self._days)]
+        best = min(candidates, key=lambda j: (abs((self._days[j] - target).days), j))
+        return self._weights[best]
+
+
 def nearest_resolved_weight_kg(session: Session, when) -> Optional[float]:
     """Nearest *day* with a resolved weight (priority-aware — see resolve_daily), not just
-    whichever raw BodyComp row happens to sit closest in wall-clock time; replaces the old
-    cross-source-blind nearest-row lookup `_nearest_weight_kg` used before session 8/12."""
-    if when is None:
-        return None
-    daily = [d for d in resolve_daily(session) if d["weight"] is not None]
-    if not daily:
-        return None
-    target_day = when.astimezone().date()
-    closest = min(daily, key=lambda d: abs((d["date"] - target_day).days))
-    return closest["weight"]
+    whichever raw BodyComp row happens to sit closest in wall-clock time."""
+    return WeightLookup(session).nearest(when)

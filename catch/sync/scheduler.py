@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import logging
 import threading
 from datetime import date, datetime, timedelta, timezone
@@ -77,13 +77,18 @@ def run_sync(source: str, days: int = 3, *, manual: bool = False) -> dict:
                     return _skip(source, "already running")
                 claimed = True
             state.record_attempt(session, source)
+            started = datetime.now(timezone.utc) - timedelta(seconds=5)
             try:
                 result = _sync_provider(session, source, days)
                 state.record_success(session, source, cursor=str(int(datetime.now(timezone.utc).timestamp())))
                 connections.mark_ok(session, source)
-                from catch.sync.scoring import recompute_scores
+                from catch.sync.scoring import changed_since, recompute_scores
 
-                recompute_scores(session)
+                # Session 32: a watch that recorded a new zone (the athlete travelled) moves "today" even if Catch isn't opened,
+                # and only the days this sync touched are recomputed, not the whole history.
+                localtime.learn_from_records(session, started)
+                session.commit()
+                recompute_scores(session, since=changed_since(session, started))
                 _refresh_club_challenges(session)
                 if source == "garmin":
                     _post_garmin_enrichment(session)
@@ -126,8 +131,8 @@ def _sync_provider(session, source: str, days: int) -> dict:
         from catch.sync.garmin_client import GarminClient
 
         client = GarminClient(session)
-        start = date.today().fromordinal(date.today().toordinal() - days)
-        end = date.today()
+        end = localtime.today(session)
+        start = end - timedelta(days=days)
         return {
             "health_rows": client.sync_health(start, end),
             "activities": client.sync_activities(start, end, FIT_DIR),
@@ -161,7 +166,7 @@ def start_backfill(session, source: str, days: int | None = None) -> None:
     if row is None:
         row = SyncState(source=source)
         session.add(row)
-    row.backfill_cursor = (date.today() - timedelta(days=span)).isoformat() if span > 0 else None
+    row.backfill_cursor = (localtime.today(session) - timedelta(days=span)).isoformat() if span > 0 else None
     session.commit()
     connections.mark_ok(session, source)
 
@@ -182,7 +187,7 @@ def _advance_backfill(session, source: str) -> dict | None:
         row.backfill_cursor = None
         session.commit()
         return None
-    today = date.today()
+    today = localtime.today(session)
     window_end = min(cursor + timedelta(days=BACKFILL_WINDOW_DAYS - 1), today)
     try:
         result = _sync_window(session, source, cursor, window_end)
@@ -268,6 +273,20 @@ def check_notifications() -> None:
                 logger.exception("notification check failed: %s", name)
 
 
+def run_maintenance() -> dict:
+    """Session 32: once per owner, bring stored data up to the current model — stamp each record's local day and zone, learn the
+    travel timeline from history, and recompute every score when the strain model changed. A no-op (a few small queries) after
+    the first run. Personal: at startup and daily; public: before each user's sync tick."""
+    from catch.sync.scoring import ensure_current_model, recompute_scores
+
+    with get_session() as session:
+        stamped = localtime.ensure_backfilled(session)
+        if stamped:
+            recompute_scores(session)
+            return {"backfilled": True, "recomputed": True}
+        return {"backfilled": False, "recomputed": ensure_current_model(session)}
+
+
 def run_retention() -> None:
     from sqlmodel import Session
 
@@ -305,6 +324,9 @@ def start_scheduler() -> BackgroundScheduler | None:
         replace_existing=True,
     )
     scheduler.add_job(run_retention, trigger=IntervalTrigger(hours=24, jitter=1800), id="retention", replace_existing=True)
+    # First run a minute after start (never blocking startup), then daily.
+    scheduler.add_job(run_maintenance, trigger=IntervalTrigger(hours=24), next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+                      id="maintenance", replace_existing=True)
     scheduler.start()
     _scheduler = scheduler
     return scheduler

@@ -13,6 +13,7 @@ from catch.analytics.piece import points_from_splits
 from catch.api import routes_activities, routes_analytics
 from catch.api.deps import get_db, require_auth
 from catch.coach.memory import next_a_race
+from catch.core import localtime
 from catch.core.models import CanonicalActivity, Event
 from catch.sync import body_comp, erg_test, piece as piece_sync
 
@@ -90,7 +91,7 @@ def get_projection(test_type: str = Query(..., alias="type"), db: Session = Depe
     ]
     history.sort(key=lambda h: h[0])
     race = next_a_race(db)
-    target_date = race["date"] if race else date.today() + timedelta(days=90)
+    target_date = race["date"] if race else localtime.today(db) + timedelta(days=90)
     result = project_time(history, target_date)
     result["target_date"] = target_date
     result["target_event"] = race
@@ -164,7 +165,7 @@ def get_piece_test_detail(piece_id: int, db: Session = Depends(get_db)):
     plan = _find_plan_for(db, piece.distance_m, piece.piece_type)
     analysis = pacing_analysis(points, piece.distance_m, plan) if piece.distance_m else None
 
-    this_date = canonical.start.date().isoformat() if canonical.start else None
+    this_date = localtime.day_of(db, canonical).isoformat() if canonical.start else None
     same_type = [t for t in erg_test.list_tests(db, piece.piece_type) if not (t["kind"] == "piece" and t["piece_id"] == piece_id)]
     earlier = max(
         (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None

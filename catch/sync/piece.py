@@ -19,6 +19,7 @@ from catch.analytics.piece import aggregate_from_splits, find_best_window, stand
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.technique import interval_summary
 from catch.analytics.zones_samples import drop_dropouts, hr_recovery_drop, smooth, time_in_zone_seconds
+from catch.core import localtime
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, MergeLog, Piece, PieceInterval, PiecePhoto, Stroke
 from catch.core.settings_store import get_settings
 
@@ -554,14 +555,14 @@ def absorb_concept2_piece_results(session: Session) -> int:
         # Case 1: search every *other* canonical's lone Concept2 member for the same local
         # day + distance/duration signature — skipping one already absorbed into some other
         # piece, or that already has company (not the lone-PM5-result shape this case is for).
-        day = canonical.start.astimezone().date() if canonical.start else None
+        day = localtime.day_of(session, canonical) if canonical.start else None
         if day is None:
             continue
         candidates = session.exec(
             select(Activity).where(Activity.source == "concept2", Activity.canonical_id != piece.canonical_id)
         ).all()
         for candidate in candidates:
-            if candidate.start is None or candidate.start.astimezone().date() != day:
+            if candidate.start is None or localtime.day_of(session, candidate) != day:
                 continue
             candidate_canonical = session.get(CanonicalActivity, candidate.canonical_id)
             if candidate_canonical is None or candidate_canonical.absorbed_into_piece_id is not None:
@@ -614,7 +615,7 @@ def piece_pb_candidates(session: Session) -> list[dict]:
             {
                 "distance": p.distance_m,
                 "duration": p.duration_s,
-                "date": canonical.start.date().isoformat() if canonical and canonical.start else None,
+                "date": localtime.day_of(session, canonical).isoformat() if canonical and canonical.start else None,
                 "canonical_id": p.canonical_id,
                 "piece_id": p.id,
             }
@@ -640,5 +641,5 @@ def confirmed_piece_pace_candidates(session: Session, cutoff: datetime) -> list[
         canonical = session.get(CanonicalActivity, p.canonical_id)
         if canonical is None or canonical.start is None or canonical.start < cutoff:
             continue
-        out.append({"distance_m": p.distance_m, "duration_s": p.duration_s, "label": canonical.start.date().isoformat()})
+        out.append({"distance_m": p.distance_m, "duration_s": p.duration_s, "label": localtime.day_of(session, canonical).isoformat()})
     return out

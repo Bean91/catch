@@ -27,7 +27,7 @@ CATEGORIES: dict[str, dict] = {
     "wellness": {"label": "Recovery, sleep and body data", "health": True, "description": "HRV, resting heart rate, sleep, recovery, strain, illness early-warning, body composition, load and trends."},
     "workouts": {"label": "Workouts and training", "health": True, "description": "Your workouts (including titles and any notes imported from Garmin, Concept2 or Whoop, and workouts imported from Apple Health or Health Connect), zones, erg tests and pieces, strength sets, GPS-derived summaries (never raw coordinates) and weather, and the training-intelligence readouts."},
     "nutrition": {"label": "Nutrition", "health": True, "description": "Foods you logged, calories and macros, targets."},
-    "notes_checkins": {"label": "Notes and check-ins", "health": True, "description": "Your workout notes and RPE, and today's check-in sliders and niggle."},
+    "notes_checkins": {"label": "Notes and check-ins", "health": True, "description": "Your workout notes and RPE, and today's check-in sliders and any training issue."},
     "memory": {"label": "Coach memory", "health": True, "description": "The goals, injuries, schedule and preferences the coach remembers about you."},
     "calendar_library": {"label": "Calendar, plans and library", "health": False, "description": "Events and races, planned sessions, training phases, workout templates, technique notes and coach feedback."},
     "photos": {"label": "Photos you ask the coach to read", "health": True, "description": "A meal photo or a PM5 screen photo, sent once to your provider to be read and not stored by Catch."},

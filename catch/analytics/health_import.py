@@ -86,6 +86,19 @@ def parse_instant(v: Any, what: str) -> datetime:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def _iso_offset_minutes(v: Any) -> Optional[int]:
+    """The UTC offset a phone wrote into a workout's local start time ("…T07:00:00+09:00"), kept so the workout's day is the day
+    where it happened (session 32, docs/time.md). None for "Z"/UTC-only or offset-less strings: nothing was said about the zone."""
+    if not isinstance(v, str) or v.endswith("Z"):
+        return None
+    try:
+        d = datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    off = d.utcoffset()
+    return int(off.total_seconds() // 60) if off is not None else None
+
+
 def _text(v: Any) -> Optional[str]:
     if v is None:
         return None
@@ -100,6 +113,7 @@ def validate_workout(w: dict, *, now: Optional[datetime] = None) -> dict:
     if not isinstance(ext, str) or not 1 <= len(ext) <= 200:
         raise Invalid("a workout has no id")
     start, end = parse_instant(w.get("start"), "start"), parse_instant(w.get("end"), "end")
+    offset = _iso_offset_minutes(w.get("start"))
     if end <= start or end - start > timedelta(hours=24):
         raise Invalid("a workout's length is not plausible")
     if start > now + timedelta(hours=1) or start < now - timedelta(days=MAX_HISTORY_DAYS):
@@ -111,6 +125,7 @@ def validate_workout(w: dict, *, now: Optional[datetime] = None) -> dict:
         "external_id": ext, "type": _text(w.get("type")) or "other", "start": start, "duration": (end - start).total_seconds(),
         "distance": _num(w.get("distance_m"), 0, 500_000, "distance"), "calories": _num(w.get("energy_kcal"), 0, 20_000, "energy"),
         "avg_hr": avg_hr, "max_hr": max_hr, "origin_app": _text(w.get("origin_app")), "origin_id": _text(w.get("origin_id")),
+        "utc_offset_minutes": offset,
     }
 
 

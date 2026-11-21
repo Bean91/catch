@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import json
 from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import or_
+from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from catch.analytics.zones import training_zones, zone_for_hr
@@ -60,7 +61,7 @@ def _parse_cursor(cursor: str | None) -> tuple[datetime, int] | None:
 def _activity_strain(db: Session, canonical: CanonicalActivity, strain_by_date: dict[date, dict] | None = None) -> dict | None:
     if canonical.start is None:
         return None
-    local_date = canonical.start.astimezone().date()
+    local_date = localtime.day_of(db, canonical)
     if strain_by_date is not None:
         day_strain = strain_by_date.get(local_date)
     else:
@@ -133,7 +134,7 @@ def list_activities(
     cursor: str | None = Query(None, description="opaque, from the previous page's next_cursor"),
     db: Session = Depends(get_db),
 ):
-    from_, to = as_utc(from_), as_utc(to)
+    from_, to = localtime.naive_to_utc(db, from_), localtime.naive_to_utc(db, to)
     # Session 17 (see PLAN.md Part D.4) — a canonical absorbed into a piece (its own,
     # otherwise-orphan Concept2 result that Part D.4 linked into a longer session's piece
     # rather than merging) never shows up as its own Workouts row — that effort is already
@@ -158,12 +159,12 @@ def list_activities(
     stmt = stmt.order_by(CanonicalActivity.start.desc(), CanonicalActivity.id.desc()).limit(limit)
     rows = db.exec(stmt).all()
 
-    all_members = db.exec(select(Activity).where(Activity.canonical_id.in_([r.id for r in rows]))).all() if rows else []
+    all_members = db.exec(select(Activity).options(defer(Activity.raw_json)).where(Activity.canonical_id.in_([r.id for r in rows]))).all() if rows else []
     members_by_canonical: dict[int, list[Activity]] = {}
     for m in all_members:
         members_by_canonical.setdefault(m.canonical_id, []).append(m)
 
-    dates = {r.start.astimezone().date() for r in rows if r.start is not None}
+    dates = {localtime.day_of(db, r) for r in rows if r.start is not None}
     score_rows = db.exec(select(DailyScore).where(DailyScore.date.in_(dates))).all() if dates else []
     strain_by_date = {s.date: json.loads(s.strain_json) for s in score_rows if s.strain_json}
 
@@ -206,7 +207,7 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
 
     settings = get_settings(db)
     members = _members(db, canonical_id)
-    local_date = canonical.start.astimezone().date() if canonical.start else None
+    local_date = localtime.day_of(db, canonical) if canonical.start else None
     note = db.exec(select(Note).where(Note.date == local_date)).first() if local_date else None
 
     data = _canonical_payload(db, canonical, members)

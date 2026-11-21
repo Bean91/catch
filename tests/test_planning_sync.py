@@ -540,11 +540,20 @@ def test_projection_for_non_erg_distance_is_declined_honestly(session):
     assert out["available"] is False and out["trend"] is None
 
 
-def test_projection_with_too_little_history_gives_reason_and_no_number(session):
+def test_projection_with_too_little_history_for_a_trend_falls_back_to_the_2k_estimate_in_seconds(session):
+    """Session 32: one confirmed 2k is real evidence, so a 2k event gets the 2k *estimate* (labelled as such) when there are too few
+    results for a trend line — and its range is in seconds of finishing time. It used to be the estimate's pace range (s/500 m),
+    which the event page printed as "6:50.0, likely 1:42.0 – 1:44.0"."""
     ev = sp.create_event(session, OWNER, {"name": "2k", "date": MON + timedelta(days=40), "type": "2k_test", "distance": "2000m"})
     _confirmed_test(session, MON - timedelta(days=30), 420.0)
     out = sp.event_projection(session, OWNER, ev.id)
-    assert out["available"] is False and "at least 3" in out["reason"] and out["test_type"] == "2000m"
+    assert out["test_type"] == "2000m" and out["trend"]["value"] is None and "at least 3" in out["trend"]["explanation"]
+    assert out["available"] is True and out["value_s"] == pytest.approx(420.0)
+    lo, hi = out["range_s"]
+    assert 400 < lo < 420 < hi < 440  # seconds, around a 7:00 finish — not a ~1:45 pace
+    assert out["predict_2k"]["measured_2k"]["latest"]["time_s"] == 420.0
+    assert any("an estimate, not a result" in a for a in out["assumptions"])
+    assert "Only 1 result" in out["uncertainty"]
 
 
 def test_projection_shows_data_assumptions_and_uncertainty(session):

@@ -36,7 +36,7 @@ DEFAULT_SETTINGS: dict = {
     # check-in the other four behave exactly as before this key existed. ~0.15 target share
     # per the task; its real effective share once added is weight/(1+weight) ≈ 13%.
     "recovery_weights": {"hrv": 0.4, "resting_hr": 0.25, "sleep": 0.2, "prior_strain": 0.15, "checkin": 0.15},
-    # Task Part A.3: a niggle lasting this many consecutive days (or more) is flagged to the
+    # Task Part A.3: a training issue (stored as niggle_* fields) lasting this many consecutive days (or more) is flagged to the
     # coach as worth asking about.
     "niggle_flag_min_days": 3,
     "recovery_green": 67,
@@ -100,21 +100,30 @@ DEFAULT_SETTINGS: dict = {
     # "likely watch left running" and exclude it from UI averages; never from stored samples.
     "auto_trim_enabled": True,
     "auto_trim_min_idle_s": 120,
-    # Session 13 (see PLAN.md Part A) — non-exercise steps/active-kcal (Garmin daily totals
-    # minus whatever a logged Garmin activity already contributed) added onto the 0-21
-    # strain `value` only, never into `trimp_like`/load, so a high-step rest day never
-    # inflates acute:chronic load or looks like a training session. `cap` is the max points
-    # this component can ever add; `weight` scales the log-curve input before the cap is
-    # applied. See `catch/analytics/strain.py`'s `daily_activity_strain` and
-    # docs/analytics.md.
+    # Session 32 (docs/analytics.md §4): one strain curve over one load sum, in TRIMP units. A strength session enters as
+    # its muscular AU scaled to the athlete's own typical session, and non-exercise movement as walking-minute TRIMP —
+    # nothing is ever added in 0-21 space. See catch/analytics/strain.py's day_load_strain.
+    #
+    # A *typical* strength session for this athlete (the median of their own sessions' AU over `strength_baseline_days`)
+    # counts as `strength_ref_trimp` — the session-RPE TRIMP of a hard hour of lifting: RPE 7 x 60 min x srpe_to_trimp_scale
+    # (50/300) = 70, about a steady hour's row (~77). So kilograms lifted only matter relative to the athlete's own norm.
+    "strength_ref_trimp": 70.0,
+    "strength_baseline_days": 56,
+    "strength_baseline_min_sessions": 3,
+    # Until three sessions exist: ~4 exercises x 4 sets x 5 reps x 60 kg x the 7-reps-in-reserve intensity factor (0.81).
+    "strength_default_baseline_au": 4000.0,
+    # One session can count at most this many typical sessions (a mis-typed 1000 kg set can't dominate a day).
+    "strength_session_cap_ratio": 2.5,
+    # Non-exercise steps -> minutes of easy walking (100 steps/min) -> Banister TRIMP/min at 25 % heart-rate reserve
+    # (0.25 x 0.64 x e^(1.92 x 0.25) ≈ 0.26 per minute; casual walking sits around 20-30 % HRR). Active kcal is used only
+    # when steps are missing, at 4 kcal per walking minute. Capped so a very long walking day stays below a hard session.
+    "daily_activity_steps_per_min": 100.0,
+    "daily_activity_hrr": 0.25,
+    "daily_activity_kcal_per_min": 4.0,
+    "daily_activity_trimp_cap": 40.0,
+    # Pre-session-32 knobs, no longer read (kept so a stored settings patch that names them still validates).
     "daily_activity_strain_cap": 1.5,
     "daily_activity_strain_weight": 1.0,
-    # Session 14 (see PLAN.md Part C.2) — the muscular half of daily strain, same
-    # log-saturation shape as strain_log_a (catch/analytics/strain.py's
-    # muscular_strain_component). Calibrated so an all-out heavy-squat-day's typical AU total
-    # (several thousand, summed across the quads/glutes/hamstrings/core it loads — see
-    # tests/analytics/test_strain.py) lands around "high" on its own, at zero cardio trimp —
-    # task Part C.2's "a heavy lifting day with low HR must still register meaningful strain."
     "muscular_strain_log_a": 1.1,
     "muscular_strain_weight": 1.0,
     # Session 15 (see PLAN.md Part B) — illness early-warning. Each signal is a z-score vs.

@@ -14,7 +14,7 @@ how your data is used (the "controller", in GDPR terms) — **[counsel: confirm 
 
 * **Account:** your email and a password hash (held by Supabase Auth), and a display name if you give one. To sign you in.
 * **Training and health data you connect or enter:** workouts and heart rate, power, GPS tracks, sleep, HRV, resting heart rate, body
-  measurements, nutrition logs, workout notes, morning check-ins (including niggle notes), goals and injuries you tell the coach. To give you
+  measurements, nutrition logs, workout notes, morning check-ins (including training issues), goals and injuries you tell the coach. To give you
   training analysis. Much of this is **health data**, which many laws treat as a special category.
 * **Credentials you provide:** AI provider keys and tokens for Garmin, Withings, Whoop and Concept2, stored encrypted and never shown back.
 * **What you publish on purpose:** a handle, an age band you declare, leaderboard results and club activity.

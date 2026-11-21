@@ -81,7 +81,7 @@ export function TodayPage({ forceCheckin = false }: { forceCheckin?: boolean } =
           // Never colour-only (DESIGN.md) — the band dot is paired with this text either way.
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-text-primary">
             <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: "var(--band-yellow)" }} />
-            {data.checkin.niggle_area} — {data.checkin.niggle_streak_days} days running
+            Training issue: {data.checkin.niggle_area} — {data.checkin.niggle_streak_days} days running
           </span>
         ) : (
           <span />

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from catch.analytics.defaults import DEFAULT_SETTINGS
-from catch.analytics.strain import banister_trimp, daily_activity_strain, session_strain, srpe_load, time_in_zone
+from catch.analytics.strain import banister_trimp, daily_activity_trimp, session_strain, srpe_load, time_in_zone
 
 
 def test_banister_trimp_hand_check():
@@ -59,34 +61,25 @@ def test_time_in_zone_without_max_hr_returns_zeros():
     assert all(v == 0.0 for v in totals.values())
 
 
-def test_daily_activity_strain_zero_when_no_data():
-    result = daily_activity_strain(None, None, DEFAULT_SETTINGS)
-    assert result["value"] == 0.0
+def test_daily_activity_trimp_zero_when_no_data():
+    result = daily_activity_trimp(None, None, DEFAULT_SETTINGS)
+    assert result["load"] == 0.0
     assert result["steps"] is None
 
 
-def test_daily_activity_strain_diminishing_returns():
-    low = daily_activity_strain(4000, 150, DEFAULT_SETTINGS)
-    high = daily_activity_strain(16000, 700, DEFAULT_SETTINGS)
-    # Quadrupling steps/kcal doesn't come close to quadrupling the contribution.
-    assert low["value"] > 0
-    assert high["value"] < 4 * low["value"]
+def test_daily_activity_trimp_is_walking_minutes_at_easy_heart_rate():
+    # 10,000 steps = 100 easy-walking minutes x Banister per-minute TRIMP at 25 % HRR (0.25 x 0.64 x e^0.48 = 0.2586).
+    per_min = 0.25 * 0.64 * math.exp(1.92 * 0.25)
+    assert daily_activity_trimp(10000, None, DEFAULT_SETTINGS)["load"] == pytest.approx(100 * per_min)
+    # Steps win over kcal; kcal is used only without steps (400 kcal / 4 per minute = 100 minutes).
+    assert daily_activity_trimp(10000, 9999, DEFAULT_SETTINGS)["basis"] == "steps"
+    assert daily_activity_trimp(None, 400, DEFAULT_SETTINGS)["load"] == pytest.approx(100 * per_min)
 
 
-def test_daily_activity_strain_respects_cap_and_weight():
-    settings = {**DEFAULT_SETTINGS, "daily_activity_strain_cap": 1.5, "daily_activity_strain_weight": 1.0}
-    result = daily_activity_strain(30000, 1500, settings)
-    assert result["value"] == pytest.approx(1.5)
-
-    zero_weight = {**DEFAULT_SETTINGS, "daily_activity_strain_weight": 0.0}
-    assert daily_activity_strain(30000, 1500, zero_weight)["value"] == 0.0
-
-    higher_cap = {**DEFAULT_SETTINGS, "daily_activity_strain_cap": 5.0, "daily_activity_strain_weight": 1.0}
-    assert daily_activity_strain(30000, 1500, higher_cap)["value"] < 5.0
+def test_daily_activity_trimp_is_capped():
+    assert daily_activity_trimp(60000, None, DEFAULT_SETTINGS)["load"] == pytest.approx(DEFAULT_SETTINGS["daily_activity_trimp_cap"])
 
 
-def test_daily_activity_strain_negative_inputs_clamp_to_zero():
-    # A workout's own steps/kcal can exceed the day's Garmin total on a short/odd sync
-    # window; never show a negative non-exercise contribution.
-    result = daily_activity_strain(-500, -50, DEFAULT_SETTINGS)
-    assert result["value"] == 0.0
+def test_daily_activity_trimp_negative_inputs_clamp_to_zero():
+    # A workout's own steps/kcal can exceed the day's wearable total on an odd sync window; never a negative contribution.
+    assert daily_activity_trimp(-500, -50, DEFAULT_SETTINGS)["load"] == 0.0

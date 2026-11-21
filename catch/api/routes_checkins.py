@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 from datetime import date, datetime, timedelta, timezone
 from datetime import date as date_
 
@@ -38,15 +38,16 @@ def _validate(body: CheckInRequest) -> None:
         if value is not None and not (1 <= value <= 5):
             raise HTTPException(status_code=422, detail=f"{field} must be between 1 and 5")
     if body.niggle_severity is not None and not (1 <= body.niggle_severity <= 3):
-        raise HTTPException(status_code=422, detail="niggle_severity must be between 1 and 3")
+        raise HTTPException(status_code=422, detail="Training issue severity must be 1, 2 or 3.")
     if body.niggle_severity is not None and not body.niggle_area:
-        raise HTTPException(status_code=422, detail="niggle_severity requires niggle_area")
+        raise HTTPException(status_code=422, detail="Choose the body area for the training issue first.")
 
 
 @router.get("/api/checkins/today")
 def get_today_checkin(db: Session = Depends(get_db)):
-    row = db.get(CheckIn, tenant.pk(date.today()))
-    return {"date": date.today(), "completed": row is not None, "checkin": row}
+    today = localtime.today(db)
+    row = db.get(CheckIn, tenant.pk(today))
+    return {"date": today, "completed": row is not None, "checkin": row}
 
 
 @router.get("/api/checkins")
@@ -66,7 +67,7 @@ def list_checkins(
 @router.post("/api/checkins")
 def post_checkin(body: CheckInRequest = Body(...), db: Session = Depends(get_db)):
     _validate(body)
-    day = body.date or date.today()
+    day = body.date or localtime.today(db)
     row = db.get(CheckIn, tenant.pk(day))
     if row is None:
         row = CheckIn(date=day)
@@ -94,7 +95,7 @@ def post_checkin(body: CheckInRequest = Body(...), db: Session = Depends(get_db)
 
 def niggle_streak_days(db: Session, through: date) -> int:
     """How many consecutive days up to and including `through` have a niggle recorded —
-    task Part A.3's "a niggle that lasts 3+ days" flag, shared by GET /api/today and the
+    task Part A.3's "a training issue that lasts 3+ days" flag, shared by GET /api/today and the
     coach's memory block (catch/coach/memory.py) so both agree on one number."""
     streak = 0
     day = through

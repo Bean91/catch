@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from catch.core import localtime
 from catch.core.models import AiUsageEvent, CoachConversation, CoachMessage
 
 _RATE_KEYS = ("input", "output", "cache_write", "cache_read")
@@ -31,17 +32,8 @@ def estimate_cost_usd(prices: dict | None, usage: dict) -> float | None:
     return total / 1_000_000
 
 
-def _local_day_utc_range(day: date) -> tuple[datetime, datetime]:
-    # Matches catch/sync/scoring.py's day convention: a naive datetime's .astimezone() is
-    # defined to assume the system's own local timezone.
-    local_midnight = datetime(day.year, day.month, day.day)
-    start_utc = local_midnight.astimezone(timezone.utc)
-    end_utc = (local_midnight + timedelta(days=1)).astimezone(timezone.utc)
-    return start_utc, end_utc
-
-
 def _todays_rows(session: Session, owner_id: str, today: date | None):
-    start, end = _local_day_utc_range(today or date.today())
+    start, end = localtime.day_range(session, today or localtime.today(session))
     coach_rows = session.exec(
         select(CoachMessage.cost_usd, CoachMessage.usage_json)
         .join(CoachConversation, CoachConversation.id == CoachMessage.conversation_id)

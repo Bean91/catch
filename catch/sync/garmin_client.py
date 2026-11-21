@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from catch.core import tenant
+from catch.core import localtime, tenant
 import base64
 import json
 import logging
@@ -456,7 +456,7 @@ class GarminClient:
         return 0
 
     def backfill(self, days: int, fit_dir: Path, window_days: int = 30) -> dict[str, int]:
-        end_date = date_.today()
+        end_date = localtime.today(self.db)
         start_date = end_date - timedelta(days=days)
         totals = {"activities": 0, "health_rows": 0, "weight_rows": 0}
         cursor = start_date

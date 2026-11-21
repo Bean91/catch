@@ -20,6 +20,15 @@ from catch.sync.upsert import upsert_activity
 from tests.tenancy import kit
 from tests.tenancy.conftest import bearer
 
+@pytest.fixture(autouse=True)
+def _users_on_the_test_hosts_calendar(monkeypatch):
+    """These tests build dates with the host's date.today(); a public account with no zone chosen reads days in UTC (session 32,
+    docs/time.md), so give these accounts the host's zone. Time-zone behaviour itself is tested in tests/test_localtime.py."""
+    from catch.core import localtime
+
+    monkeypatch.setattr(localtime, "fallback_zone_name", localtime.host_zone_name)
+
+
 ALICE, BOB = kit.ALICE, kit.BOB
 CAROL, DAVE, ERIN, FRANK = (f"{n}{n}{n}{n}{n}{n}{n}{n}-{n}{n}{n}{n}-4{n}{n}{n}-8{n}{n}{n}-{n * 12}" for n in "3457")
 MOD = "99999999-9999-4999-8999-999999999999"
