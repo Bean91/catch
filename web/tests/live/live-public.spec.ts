@@ -4,8 +4,8 @@ const MAILPIT = process.env.CATCH_TEST_MAILPIT_URL ?? "http://127.0.0.1:54324";
 test.use({ viewport: { width: 1280, height: 1100 } }); // the sidebar's Log out sits below the fold of a 720 px window
 test.skip(!process.env.CATCH_TEST_SUPABASE_URL, "needs a local Supabase stack (see playwright.live.config.ts)");
 
-const PASSWORD = "correct-horse-battery-staple";
-const NEW_PASSWORD = "an-entirely-new-passphrase";
+const PASSWORD = "Correct-horse-battery-staple-9";
+const NEW_PASSWORD = "An-entirely-new-passphrase-7";
 
 async function mailLink(request: APIRequestContext, email: string, contains: RegExp): Promise<string> {
   for (let i = 0; i < 40; i++) {
@@ -78,7 +78,8 @@ test("sign up → confirm by email → the app renders under the real CSP → re
   // 2. sign up: with confirmation required, the app says "check your email"
   await page.getByRole("button", { name: "New here? Create an account" }).click();
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByLabel("Confirm password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("status")).toContainText("Check your email");
 
@@ -111,19 +112,20 @@ test("sign up → confirm by email → the app renders under the real CSP → re
   await page.getByRole("button", { name: "Reset password" }).click();
   await expect(page.getByRole("status")).toContainText("If that address has an account");
   await page.goto(await mailLink(request, email, /reset|recover/i));
-  await expect(page.getByLabel("New password")).toBeVisible({ timeout: 15_000 });
-  await page.getByLabel("New password").fill(NEW_PASSWORD);
+  await expect(page.getByLabel("New password", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel("New password", { exact: true }).fill(NEW_PASSWORD);
+  await page.getByLabel("Confirm new password", { exact: true }).fill(NEW_PASSWORD);
   await page.getByRole("button", { name: "Save password" }).click();
-  await expect(page.getByLabel("New password")).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByLabel("New password", { exact: true })).toHaveCount(0, { timeout: 15_000 });
 
   console.log("step 7");
   // 7. the old password no longer works, the new one does
   await logOut(page);
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("alert")).toHaveText("Incorrect email or password.");
-  await page.getByLabel("Password").fill(NEW_PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(NEW_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByLabel("Email")).toHaveCount(0, { timeout: 15_000 });
   expect(await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp)).toEqual([]);

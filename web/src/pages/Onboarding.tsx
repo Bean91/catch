@@ -8,7 +8,7 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { fetchConnections, fetchMe, fetchOnboarding, putOnboarding, putTimeZone, saveSettings, startOnboardingSync } from "../lib/api";
 import { PROVIDES, statusLabel } from "../lib/connections";
 import { deviceZone, setActiveZone, zoneLabel } from "../lib/localTime";
-import type { ConnectionCard as Conn, ProviderId } from "../lib/types";
+import type { ConnectionCard as Conn, Me, ProviderId } from "../lib/types";
 
 const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Importing", "All set"];
 const PRIMARY = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
@@ -55,6 +55,8 @@ export function OnboardingPage() {
     mutationFn: () => putOnboarding({ complete: true, skipped }),
     onSuccess: (s) => {
       qc.setQueryData(["onboarding"], s);
+      // Before navigating: the landing page's "send a new account to setup" check reads this cached value.
+      qc.setQueryData<Me>(["me"], (me) => (me ? { ...me, onboarding: { state: "completed", show: false } } : me));
       void qc.invalidateQueries({ queryKey: ["me"] });
       navigate("/", { replace: true });
     },

@@ -40,7 +40,7 @@ async function signIn(page: Page, userId = "user-a", token = "token-a") {
   await page.route(`${GOTRUE}/token?grant_type=password`, (route) => json(route, 200, session(userId, token)));
   await page.goto("/");
   await page.getByLabel("Email").fill("a@example.com");
-  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery-staple");
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
@@ -51,10 +51,24 @@ test("the public build asks for an email and a password, and says so plainly whe
   await expect(page.getByLabel("Email")).toBeVisible();
   await page.getByRole("button", { name: "New here? Create an account" }).click();
   await page.getByLabel("Email").fill("n@example.com");
-  await page.getByLabel("Password").fill("short");
+  // Session 32: the requirements are listed before submitting and tick off as they're met.
+  const rules = page.getByTestId("password-rules");
+  await expect(rules.locator("li")).toHaveCount(5);
+  await expect(rules.locator('li[data-met="true"]')).toHaveCount(0);
+  await page.getByLabel("Password", { exact: true }).fill("short");
+  await page.getByLabel("Confirm password", { exact: true }).fill("short");
+  await expect(rules.locator('li[data-met="true"]')).toHaveCount(1); // lowercase only
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("alert")).toContainText("at least 8 characters");
-  await page.getByLabel("Password").fill("long-enough-password");
+  await page.getByLabel("Password", { exact: true }).fill("long-enough-password");
+  await expect(rules.locator('li[data-met="true"]')).toHaveCount(3); // length, lowercase, the hyphen as a symbol
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("alert")).toContainText("uppercase letter");
+  await page.getByLabel("Password", { exact: true }).fill("Long-enough-passw0rd");
+  await expect(rules.locator('li[data-met="true"]')).toHaveCount(5);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("alert")).toContainText("don't match");
+  await page.getByLabel("Confirm password", { exact: true }).fill("Long-enough-passw0rd");
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
@@ -79,7 +93,7 @@ test("a wrong password shows one generic message", async ({ page }) => {
   await page.route(`${GOTRUE}/token?grant_type=password`, (route) => json(route, 400, { code: "invalid_credentials", message: "Invalid login credentials" }));
   await page.goto("/");
   await page.getByLabel("Email").fill("a@example.com");
-  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("alert")).toHaveText("Incorrect email or password.");
 });
@@ -181,4 +195,25 @@ test("an old sign-in is asked to sign in again before an account can be deleted,
   await expect(page.getByRole("button", { name: "Sign out and sign in again" })).toBeVisible();
   expect(attempts).toBe(1);
   await expect(page.getByLabel("Email")).toHaveCount(0); // still signed in: the refusal changed nothing
+});
+
+
+test("each password field has its own show/hide button", async ({ page }) => {
+  await mockBackend(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "New here? Create an account" }).click();
+  const pw = page.getByLabel("Password", { exact: true });
+  const confirm = page.getByLabel("Confirm password", { exact: true });
+  await pw.fill("Secret-pass1");
+  await confirm.fill("Secret-pass1");
+  await expect(pw).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Show password" }).click();
+  await expect(pw).toHaveAttribute("type", "text");
+  await expect(confirm).toHaveAttribute("type", "password"); // independent
+  await expect(page.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Show confirm password" }).click();
+  await expect(confirm).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Hide password" }).click();
+  await expect(pw).toHaveAttribute("type", "password");
+  await expect(confirm).toHaveAttribute("type", "text");
 });
