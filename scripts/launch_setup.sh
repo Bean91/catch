@@ -32,7 +32,7 @@ pg_dump "$DATABASE_ADMIN_URL" -Fc -n catch -n catch_private -n catch_club -f "$D
 chmod 600 "$DUMP"; ls -lh "$DUMP"
 
 step "Migrating the database"
-uv run catch db current
+uv run catch db current || true   # exits non-zero while the DB is behind this build, which is expected before the upgrade
 uv run catch db upgrade
 uv run catch db current
 unset DATABASE_ADMIN_URL ENC_PW
