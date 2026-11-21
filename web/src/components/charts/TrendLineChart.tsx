@@ -1,3 +1,4 @@
+import { toISODate } from "../../lib/dates";
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EventMarker } from "../../lib/chartAnnotations";
@@ -167,7 +168,7 @@ export function TrendLineChart({
   }
 
   const describeDomain = (d: Domain) =>
-    `Showing ${formatShortDate(new Date(d.min).toISOString().slice(0, 10))} to ${formatShortDate(new Date(d.max).toISOString().slice(0, 10))}`;
+    `Showing ${formatShortDate(toISODate(new Date(d.min)))} to ${formatShortDate(toISODate(new Date(d.max)))}`;
   const rangeLabel = describeDomain(domain);
   const announcedRangeLabel = describeDomain(announcedDomain);
 
@@ -310,7 +311,7 @@ function buildDateTicks(domain: Domain, plotWidthPx: number): { ms: number; labe
   const ticks: { ms: number; label: string }[] = [];
   const start = Math.ceil(domain.min / DAY_MS) * DAY_MS;
   for (let ms = start; ms <= domain.max; ms += stepDays * DAY_MS) {
-    ticks.push({ ms, label: formatShortDate(new Date(ms).toISOString().slice(0, 10)) });
+    ticks.push({ ms, label: formatShortDate(toISODate(new Date(ms))) });
   }
   return ticks;
 }

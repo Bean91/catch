@@ -1,3 +1,4 @@
+import { todayISO, toISODate } from "../../lib/dates";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSeries } from "../../lib/api";
@@ -16,7 +17,7 @@ export default function ExpandedTrendChart({ metric, formatValue }: { metric: Tr
 
   const allQuery = useQuery({
     queryKey: ["series-all", metric],
-    queryFn: () => fetchSeries([metric], "1900-01-01", now.toISOString().slice(0, 10), 400),
+    queryFn: () => fetchSeries([metric], "1900-01-01", todayISO(), 400),
   });
   const allPoints = allQuery.data?.series[metric]?.points ?? [];
   const earliestMs = allPoints.length ? new Date(allPoints[0].date + "T00:00:00").getTime() : now.getTime() - 84 * DAY_MS;
@@ -56,8 +57,8 @@ export default function ExpandedTrendChart({ metric, formatValue }: { metric: Tr
   };
 
   const span = queryDomain.max - queryDomain.min;
-  const from = new Date(Math.max(fullDomain.min, queryDomain.min - span)).toISOString().slice(0, 10);
-  const to = new Date(Math.min(fullDomain.max, queryDomain.max + span)).toISOString().slice(0, 10);
+  const from = toISODate(new Date(Math.max(fullDomain.min, queryDomain.min - span)));
+  const to = toISODate(new Date(Math.min(fullDomain.max, queryDomain.max + span)));
   const seriesQuery = useQuery({
     queryKey: ["series", metric, from, to, 400],
     queryFn: () => fetchSeries([metric], from, to, 400),

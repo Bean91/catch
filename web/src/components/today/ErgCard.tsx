@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import type { ErgPiece, Predicted2k } from "../../lib/types";
-import { bandLabel, formatDistance, formatDuration, formatSplit, formatTimeTenths } from "../../lib/format";
-import { BandBadge } from "../ui/Badge";
+import { formatDistance, formatDuration, formatShortDate, formatSplit, formatTimeTenths } from "../../lib/format";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
 
@@ -25,31 +24,7 @@ export function ErgCard({ erg, predicted2k }: { erg: ErgPiece | null; predicted2
         <EmptyState message="No Concept2 results synced yet." />
       )}
 
-      <div className="mt-4 border-t border-border pt-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-text-tertiary">Predicted 2k</span>
-          {predicted2k.band !== "insufficient_data" && (
-            <BandBadge band={predicted2k.band === "high" ? "green" : predicted2k.band === "moderate" ? "yellow" : "red"} label={bandLabel(predicted2k.band)} />
-          )}
-        </div>
-        {predicted2k.value != null ? (
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono-nums text-2xl font-semibold text-text-primary">
-              {formatTimeTenths(predicted2k.predicted_time_s)}
-            </span>
-            {predicted2k.range && (
-              // Range shown as 2k times (pace * 4), matching the headline number's unit —
-              // not /500m paces sitting next to a total time, which reads as two different
-              // quantities at a glance.
-              <span className="font-mono-nums text-xs text-text-tertiary">
-                ({formatTimeTenths(predicted2k.range[0] * 4)}–{formatTimeTenths(predicted2k.range[1] * 4)})
-              </span>
-            )}
-          </div>
-        ) : (
-          <p className="mt-1 text-sm text-text-tertiary">Not enough recent continuous pieces to predict yet.</p>
-        )}
-      </div>
+      <TwoKEstimate p={predicted2k} />
     </Card>
   );
 }
@@ -59,6 +34,56 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-xs text-text-tertiary">{label}</div>
       <div className="font-mono-nums text-base font-medium text-text-primary">{value}</div>
+    </div>
+  );
+}
+
+const CONFIDENCE: Record<string, string> = { high: "High confidence", moderate: "Moderate confidence", low: "Low confidence" };
+
+/** Session 32: an estimate is labelled as one, in words, with its range and what it was built from — and a measured 2k, when there
+ * is one, is shown as its own line, never replaced by the estimate (DESIGN.md "Estimates and measurements"). */
+function TwoKEstimate({ p }: { p: Predicted2k }) {
+  const time = p.predicted_time_s ?? (p.value != null ? p.value * 4 : null);
+  const range = p.range_s ?? (p.range ? ([p.range[0] * 4, p.range[1] * 4] as [number, number]) : null);
+  const basis = (p.components ?? []).length;
+  const measured = p.measured_2k?.latest ?? null;
+  const confidence = p.confidence ?? p.band;
+  return (
+    <div className="mt-4 border-t border-border pt-3" data-testid="two-k">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-xs text-text-tertiary">
+          Estimated 2k
+          <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide">estimate</span>
+        </span>
+        {confidence !== "insufficient_data" && <span className="text-xs text-text-secondary">{CONFIDENCE[confidence] ?? confidence}</span>}
+      </div>
+      {time != null ? (
+        <>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+            <span className="font-mono-nums text-2xl font-semibold text-text-primary">{formatTimeTenths(time)}</span>
+            {range && (
+              <span className="font-mono-nums text-xs text-text-tertiary">
+                likely {formatTimeTenths(range[0])}–{formatTimeTenths(range[1])}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-text-tertiary">
+            From {basis} recent hard effort{basis === 1 ? "" : "s"}
+            {p.stale ? " — none in the last 4 months, so treat it loosely" : ""}. An estimate, not a result.
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 text-sm text-text-tertiary">{p.explanation || "Not enough recent hard efforts to estimate a 2k yet."}</p>
+      )}
+      {measured && (
+        <div className="mt-2 flex items-baseline justify-between text-xs">
+          <span className="text-text-secondary">Measured 2k</span>
+          <span className="font-mono-nums text-text-primary">
+            {formatTimeTenths(measured.time_s)}
+            <span className="ml-1 text-text-tertiary">{formatShortDate(measured.date)}</span>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

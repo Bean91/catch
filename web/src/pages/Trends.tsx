@@ -1,3 +1,4 @@
+import { todayISO, toISODate } from "../lib/dates";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -22,7 +23,7 @@ const METRICS: { value: TrendMetric; label: string; format: (v: number) => strin
   { value: "load_acr", label: "Load / form", format: (v) => v.toFixed(2) },
   { value: "weight", label: "Weight", format: (v) => `${v.toFixed(1)}kg` },
   { value: "w_per_kg", label: "W/kg", format: (v) => v.toFixed(2) },
-  { value: "predicted_2k", label: "Predicted 2k", format: (v) => formatTimeTenths(v) },
+  { value: "predicted_2k", label: "Implied 2k per hard effort", format: (v) => formatTimeTenths(v) },
 ];
 
 // Session 15 Part A.3 — check-in sliders as their own trend lines, kept out of the always-
@@ -54,7 +55,7 @@ function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
   const span = domain.max - domain.min;
   const min = Math.max(full.min, domain.min - span);
   const max = Math.min(full.max, domain.max + span);
-  return { from: new Date(min).toISOString().slice(0, 10), to: new Date(max).toISOString().slice(0, 10) };
+  return { from: toISODate(new Date(min)), to: toISODate(new Date(max)) };
 }
 
 const TAPPABLE_WORKOUT_METRICS = new Set<TrendMetric>(["w_per_kg", "predicted_2k"]);
@@ -71,7 +72,7 @@ export function TrendsPage() {
   // sparkline for the navigator — not re-fetched on every pan/zoom.
   const allQuery = useQuery({
     queryKey: ["series-all", metric],
-    queryFn: () => fetchSeries([metric], "1900-01-01", now.toISOString().slice(0, 10), 600),
+    queryFn: () => fetchSeries([metric], "1900-01-01", todayISO(), 600),
   });
   const allPoints = allQuery.data?.series[metric]?.points ?? [];
   const earliestMs = allPoints.length ? new Date(allPoints[0].date + "T00:00:00").getTime() : now.getTime() - 84 * DAY_MS;
@@ -146,7 +147,7 @@ export function TrendsPage() {
         (prev) =>
           writeChartUrlState(
             prev,
-            preset ? { preset, from: null, to: null } : { preset: null, from: new Date(next.min).toISOString().slice(0, 10), to: new Date(next.max).toISOString().slice(0, 10) },
+            preset ? { preset, from: null, to: null } : { preset: null, from: toISODate(new Date(next.min)), to: toISODate(new Date(next.max)) },
           ),
         { replace: true },
       );

@@ -20,7 +20,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 _PAGE_SIZE_DEFAULT = 30
 _PAGE_SIZE_MAX = 100
-_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type"}
+_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date"}
 # Session 15 (see PLAN.md Part C): the standard test types auto-detection/confirmation and
 # the pacing-plan generator both key on — "test" in `tags` plus one of these in `test_type`
 # (an override field, same free-form overrides_json dict every other edit already uses — no
@@ -212,6 +212,7 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
 
     data = _canonical_payload(db, canonical, members)
     data["local_date"] = local_date
+    data["recorded_local_date"] = _recorded_day(db, canonical)
     data["strain"] = _activity_strain(db, canonical)
     data["zones_config"] = training_zones(max_hr=settings.get("max_hr"), settings=settings)
     data["hr_zone"] = zone_for_hr(canonical.avg_hr, settings.get("max_hr"), settings)
@@ -246,6 +247,18 @@ class ActivityEditRequest(BaseModel):
     exclude_from_totals: bool | None = None
     tags: list[str] | None = None
     test_type: str | None = None
+    # Session 32 "Change day": the calendar day this workout counts on, for the rare case a device's zone was wrong. Within a day
+    # of the day it was recorded on; the workout's time itself never changes.
+    local_date: date | None = None
+
+
+def _recorded_day(db: Session, canonical: CanonicalActivity) -> date | None:
+    """The day the workout happened on by its own records, ignoring any "Change day" override."""
+    if canonical.start is None:
+        return None
+    probe = CanonicalActivity(start=canonical.start)
+    localtime.stamp_canonical(db, probe, _members(db, canonical.id))
+    return probe.local_date
 
 
 @router.patch("/api/activities/{canonical_id}")
@@ -257,9 +270,13 @@ def patch_activity(canonical_id: int, body: ActivityEditRequest = Body(...), db:
         raise HTTPException(status_code=422, detail="rpe must be between 0 and 10")
     if body.test_type is not None and body.test_type not in TEST_TYPES:
         raise HTTPException(status_code=422, detail=f"test_type must be one of {TEST_TYPES}")
+    if body.local_date is not None:
+        recorded = _recorded_day(db, canonical)
+        if recorded is None or abs((body.local_date - recorded).days) > 1:
+            raise HTTPException(status_code=422, detail="A workout can only move to the day before or after the day it was recorded on.")
 
     overrides = _overrides(canonical)
-    patch = body.model_dump(exclude_unset=True)
+    patch = body.model_dump(exclude_unset=True, mode="json")
     overrides.update(patch)
     canonical.overrides_json = json.dumps(overrides)
     db.add(canonical)

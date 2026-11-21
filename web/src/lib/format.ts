@@ -1,3 +1,4 @@
+import { formatInstantDate, zonedTodayISO } from "./localTime";
 // Round to tenths *before* splitting into minutes/seconds — otherwise 119.96 renders as
 // "1:60.0" instead of "2:00.0" (the seconds component rounding up past 60 independently).
 // Generic clock-with-tenths formatting: used for /500m splits (formatSplit below) and
@@ -57,22 +58,22 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   return `${days}d ago`;
 }
 
-// `date.toISOString().slice(0, 10)` gives the *UTC* date, which is already tomorrow for
-// anyone west of UTC in the evening — this app's "today" (the date pickers, the day view
-// default, "copy yesterday") must always mean the browser's own local calendar day.
-export function localDateString(d: Date = new Date()): string {
+// `date.toISOString().slice(0, 10)` gives the *UTC* date, which is already tomorrow for anyone west of UTC in the evening. With no
+// argument this is "today" in the account's current zone (lib/localTime.ts, session 32); with a Date it is that Date's local
+// calendar fields (for dates built as local midnights by the calendar math).
+export function localDateString(d?: Date): string {
+  if (d === undefined) return zonedTodayISO();
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-export function formatShortDate(iso: string): string {
-  // Accepts a bare "YYYY-MM-DD" (most callers, e.g. trend/sparkline points) or a full ISO
-  // datetime (workout.start) — only append a time-of-day when one isn't already there, or
-  // "2026-10-29T07:30:00.000Z" + "T00:00:00" would produce an unparseable string.
-  const d = iso.includes("T") ? new Date(iso) : new Date(iso + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+export function formatShortDate(iso: string, zone?: string | null): string {
+  // A bare "YYYY-MM-DD" is a calendar day already (never shifted by a zone); a full ISO datetime is an instant, shown on its day in
+  // `zone` (where it happened) or the account's current zone.
+  if (!iso.includes("T")) return new Date(iso + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatInstantDate(iso, zone);
 }
 
 const BAND_LABELS: Record<string, string> = {

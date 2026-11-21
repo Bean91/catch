@@ -27,7 +27,7 @@ const CAP_WORD = { yes: "Yes", no: "No", unknown: "Not published" } as const;
 
 /** One provider. Every provider uses this same card; only the way you connect differs (a sign-in page, a pasted key, or both). Nothing
  *  here ever holds a secret except the sheet, and that clears it. */
-export function ConnectionCard({ card }: { card: Card_ }) {
+export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "onboarding" }) {
   const queryClient = useQueryClient();
   const [sheet, setSheet] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -40,7 +40,7 @@ export function ConnectionCard({ card }: { card: Card_ }) {
   };
 
   const connect = useMutation({
-    mutationFn: () => startConnectionOAuth(card.provider),
+    mutationFn: () => startConnectionOAuth(card.provider, returnTo),
     onSuccess: (r) => {
       if (r.authorize_url) {
         if (isNative()) void import("@capacitor/browser").then(({ Browser }) => Browser.open({ url: r.authorize_url! }));

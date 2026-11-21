@@ -260,6 +260,8 @@ import * as mockCal from "./mockCalendar";
 import * as mockCoach from "./mockCoaching";
 import * as mockLib from "./mockLibrary";
 import * as mockClubs from "./mockClubs";
+import * as mockOnb from "./mockOnboarding";
+import type { Me, OnboardingState, TimeZonePrefs } from "./types";
 import type {
   Club, ClubAuditEvent, ClubBoard, ClubChallengeDetail, ClubChallengeRow, ClubInvite, ClubInvitePreview, ClubJoinRequestRow, ClubMember, ClubModDetail, ClubModReport, ClubMyRequest, ClubPost, ClubProfile,
   ClubRole, ClubSessionItem, ClubSummary, ClubsMine, NewChallengeInput, NewClubInput,
@@ -964,12 +966,13 @@ export async function putConnectionExpiry(provider: ProviderId, expiresOn: strin
 
 /** Returns the provider's sign-in URL (a redirect from the server couldn't carry the bearer token); the caller navigates to it. In the
  *  mock there is no provider page, so it completes in place and returns null. */
-export async function startConnectionOAuth(provider: ProviderId): Promise<{ authorize_url: string | null }> {
+export async function startConnectionOAuth(provider: ProviderId, returnTo?: "onboarding"): Promise<{ authorize_url: string | null }> {
   if (isMock) return delay(mockStartProviderOAuth(provider), 300);
   // The store app asks for a single-use ticket URL: the system browser (which has no bearer token) opens it and the server hands back
   // to the app through its custom URL scheme (docs/mobile/oauth-return.md).
   const native = isNative() ? "?native=true" : "";
-  return request(`/api/connections/${provider}/oauth/start${native}`, { method: "POST", credentials: "same-origin" });
+  const back = !isNative() && returnTo ? `${native ? "&" : "?"}return_to=${returnTo}` : "";
+  return request(`/api/connections/${provider}/oauth/start${native}${back}`, { method: "POST", credentials: "same-origin" });
 }
 
 export async function testConnection(provider: ProviderId): Promise<ConnectionTestResult> {
@@ -2202,3 +2205,41 @@ export async function moderateClub(id: string, action: string, reason: string, t
 }
 
 export type { ClubMyRequest, ClubProfile as ClubProfileType };
+
+
+// --- Session 32: who am I, time zone, first-run setup ---------------------------------------------------------------------------
+
+export async function fetchMe(): Promise<Me> {
+  if (isMock) return delay(mockOnb.mockMe());
+  return request<Me>("/api/me");
+}
+
+export async function fetchTimeZone(): Promise<TimeZonePrefs> {
+  if (isMock) return delay(mockOnb.mockTimeZone());
+  return request<TimeZonePrefs>("/api/time-zone");
+}
+
+export async function putTimeZone(patch: { timezone?: string | null; follow_device_zone?: boolean }): Promise<TimeZonePrefs> {
+  if (isMock) return delay(mockOnb.mockPutTimeZone(patch));
+  return request<TimeZonePrefs>("/api/time-zone", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+}
+
+export async function reportDeviceZone(timezone: string): Promise<{ changed: boolean; current_zone: string; today: string }> {
+  if (isMock) return delay(mockOnb.mockReportDeviceZone(timezone), 50);
+  return request("/api/time-zone/device", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timezone }) });
+}
+
+export async function fetchOnboarding(): Promise<OnboardingState> {
+  if (isMock) return delay(mockOnb.mockOnboarding());
+  return request<OnboardingState>("/api/onboarding");
+}
+
+export async function putOnboarding(patch: { step?: number; skipped?: ProviderId[]; complete?: boolean; restart?: boolean }): Promise<OnboardingState> {
+  if (isMock) return delay(mockOnb.mockPutOnboarding(patch));
+  return request<OnboardingState>("/api/onboarding", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+}
+
+export async function startOnboardingSync(): Promise<{ started: ProviderId[] }> {
+  if (isMock) return delay(mockOnb.mockStartOnboardingSync());
+  return request("/api/onboarding/start-sync", { method: "POST" });
+}

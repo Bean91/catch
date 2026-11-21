@@ -3,6 +3,8 @@
 // date, which is the wrong day for anyone east of UTC just after midnight and anyone west of
 // it in the evening — and never "+ 24 h" arithmetic, which a DST change turns into the wrong day.
 
+import { zonedTodayISO } from "./localTime";
+
 export function parseISODate(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -12,8 +14,9 @@ export function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Today in the account's current zone (lib/localTime.ts — the server's, not the browser's, when it has said). */
 export function todayISO(now: Date = new Date()): string {
-  return toISODate(now);
+  return zonedTodayISO(now);
 }
 
 export function addDays(iso: string, n: number): string {

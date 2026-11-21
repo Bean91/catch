@@ -1,3 +1,4 @@
+import { todayISO, toISODate } from "../lib/dates";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -27,7 +28,7 @@ function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
   const span = domain.max - domain.min;
   const min = Math.max(full.min, domain.min - span);
   const max = Math.min(full.max, domain.max + span);
-  return { from: new Date(min).toISOString().slice(0, 10), to: new Date(max).toISOString().slice(0, 10) };
+  return { from: toISODate(new Date(min)), to: toISODate(new Date(max)) };
 }
 
 export function BodyPage() {
@@ -39,7 +40,7 @@ export function BodyPage() {
   // and weekly-volume bars are — one shared view domain, interaction spec #6.
   const allQuery = useQuery({
     queryKey: ["series-all", "weight", "w_per_kg"],
-    queryFn: () => fetchSeries(["weight", "w_per_kg"], "1900-01-01", now.toISOString().slice(0, 10), 600),
+    queryFn: () => fetchSeries(["weight", "w_per_kg"], "1900-01-01", todayISO(), 600),
   });
   const weightAll = allQuery.data?.series.weight?.points ?? [];
   const earliestMs = weightAll.length ? new Date(weightAll[0].date + "T00:00:00").getTime() : now.getTime() - 60 * DAY_MS;
@@ -93,7 +94,7 @@ export function BodyPage() {
             prev,
             preset
               ? { preset, from: null, to: null }
-              : { preset: null, from: new Date(next.min).toISOString().slice(0, 10), to: new Date(next.max).toISOString().slice(0, 10) },
+              : { preset: null, from: toISODate(new Date(next.min)), to: toISODate(new Date(next.max)) },
           ),
         { replace: true },
       );
@@ -143,7 +144,7 @@ export function BodyPage() {
   const readings = bodyQuery.data ?? [];
   const latest = readings[readings.length - 1];
 
-  const [manualDate, setManualDate] = useState(now.toISOString().slice(0, 10));
+  const [manualDate, setManualDate] = useState(todayISO());
   const [manualWeight, setManualWeight] = useState("");
   const [savingManual, setSavingManual] = useState(false);
   const submitManualWeight = async (e: FormEvent) => {

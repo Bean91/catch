@@ -1,3 +1,4 @@
+import { todayISO, toISODate } from "../../lib/dates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -235,7 +236,7 @@ export function PostSheet({ open, onOpenChange, club }: Base & { club: Club }) {
 
 export function SessionSheet({ open, onOpenChange, club }: Base & { club: Club }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ title: "", session_type: "erg", date: new Date().toISOString().slice(0, 10), start_time: "", duration_min: "", description: "" });
+  const [f, setF] = useState({ title: "", session_type: "erg", date: todayISO(), start_time: "", duration_min: "", description: "" });
   const [note, setNote] = useState<string | null>(null);
   const s = useSubmit(() => createClubSession(club.club_id, { title: f.title, session_type: f.session_type, date: f.date, start_time: f.start_time || undefined, duration_min: f.duration_min ? Number(f.duration_min) : undefined, description: f.description || undefined }), (r) => {
     refreshClub(qc, club.club_id);
@@ -271,8 +272,8 @@ const METRICS: NewChallengeInput["metric"][] = ["distance", "time", "sessions", 
 
 export function ChallengeSheet({ open, onOpenChange, club }: Base & { club: Club }) {
   const qc = useQueryClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const [f, setF] = useState({ title: "", metric: "distance" as NewChallengeInput["metric"], goal: "", start: today, end: new Date(Date.now() + 27 * 86400000).toISOString().slice(0, 10), target: "3", sport: "rowing" as "rowing" | "any" });
+  const today = todayISO();
+  const [f, setF] = useState({ title: "", metric: "distance" as NewChallengeInput["metric"], goal: "", start: today, end: toISODate(new Date(Date.now() + 27 * 86400000)), target: "3", sport: "rowing" as "rowing" | "any" });
   const [note, setNote] = useState<string | null>(null);
   const unit = f.metric === "distance" ? "km" : f.metric === "time" ? "hours" : f.metric === "sessions" ? "sessions" : f.metric === "tests" ? "tests" : "weeks";
   const s = useSubmit(() => {

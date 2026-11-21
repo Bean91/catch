@@ -47,13 +47,14 @@ export interface Strain {
   /** Task Part A: non-exercise steps/active-kcal's own contribution to `value` — a separate
    * key, not one of `components` (those are per-canonical-workout and assume `canonical_id`
    * everywhere else they're read). */
-  daily_activity?: { value: number; steps: number | null; active_kcal: number | null };
-  /** Session 14 (see PLAN.md Part C): the cardio half of `value` (existing HR/power trimp,
-   * log-saturated) and the muscular half (per-muscle-group AU, normalized against a 28-day
-   * baseline, log-saturated) — summed together, then daily_activity added on top, to make
-   * `value`. Shown as a split on the Today strain gauge. */
-  cardio?: { value: number; trimp_like: number };
-  muscular?: { value: number; total_normalized_au: number; explanation: string };
+  daily_activity?: { value: number; share?: number; load?: number; minutes?: number | null; steps: number | null; active_kcal: number | null; explanation?: string };
+  /** Session 32 (docs/analytics.md §4): `value` is ONE curve over ONE load sum (TRIMP units): heart-rate/RPE load + lifting scaled
+   * to the athlete's own typical session + everyday movement. `cardio`/`muscular`/`daily_activity` are each part's *share* of that
+   * sum (`share`, 0–1) and of the headline (`value` = share x headline), so the three always add up to the number shown. */
+  load?: number;
+  model?: number;
+  cardio?: { value: number; trimp_like: number; load?: number; share?: number };
+  muscular?: { value: number; load?: number; share?: number; au?: number; baseline_au?: number; baseline_source?: "personal" | "default"; explanation: string };
   explanation: string;
 }
 
@@ -113,13 +114,41 @@ export interface ErgPiece {
   w_per_kg: number | null;
 }
 
+export interface Measured2kEntry {
+  time_s: number;
+  date: string;
+  canonical_id: number | null;
+  label: string | null;
+}
+
+export interface Predicted2kComponent {
+  distance_m: number;
+  duration_s: number;
+  date: string;
+  age_days: number;
+  effort: "declared" | "hr_verified" | "effort_unknown";
+  label: string | null;
+  canonical_id: number | null;
+  implied_2k_s: number;
+  weight: number;
+}
+
+/** Session 32: an *estimate* from recent hard efforts (Paul's law), never a measured result — the latest confirmed 2k test rides
+ * along separately in `measured_2k`. `value`/`range` are pace (s/500 m); `predicted_time_s`/`range_s` are finishing times. */
 export interface Predicted2k {
-  value: number | null; // predicted pace, seconds per 500m
-  range?: [number, number];
-  predicted_time_s?: number;
+  kind?: "estimate";
+  value: number | null;
+  range?: [number, number] | null;
+  predicted_time_s?: number | null;
+  range_s?: [number, number] | null;
   band: "high" | "moderate" | "low" | "insufficient_data";
-  components: unknown[];
+  confidence?: "high" | "moderate" | "low" | "insufficient_data";
+  stale?: boolean;
+  components: Predicted2kComponent[] | unknown[];
+  excluded_count?: number;
   explanation: string;
+  as_of?: string;
+  measured_2k?: { kind: "measured"; latest: Measured2kEntry; best_last_year: Measured2kEntry } | null;
 }
 
 export interface NextARace {
@@ -2666,4 +2695,37 @@ export interface NewChallengeInput {
   description?: string;
   sport?: "rowing" | "any";
   target_per_week?: number | null;
+}
+
+
+// --- Session 32 -----------------------------------------------------------------------------------------------------------------
+
+export interface OnboardingState {
+  state: "pending" | "completed";
+  step: number;
+  steps: ("welcome" | "connections" | "preferences" | "sync" | "done")[];
+  skipped: ProviderId[];
+  completed_at: string | null;
+  /** True only for a public account whose setup isn't finished — the Pi never sends its owner to setup. */
+  show: boolean;
+}
+
+export interface TimeZonePrefs {
+  timezone: string | null;
+  follow_device_zone: boolean;
+  current_zone: string;
+  fallback_zone: string;
+  today: string;
+}
+
+export interface Me {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  deployment: "personal" | "public";
+  timezone: string | null;
+  follow_device_zone: boolean;
+  current_zone: string;
+  today: string;
+  onboarding: { state: "pending" | "completed"; show: boolean };
 }

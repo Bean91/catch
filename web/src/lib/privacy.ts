@@ -1,3 +1,4 @@
+import { todayISO } from "./dates";
 import { isNative } from "./native/platform";
 import { authedFetch } from "./authedFetch";
 import { ApiError, isMock } from "./api";
@@ -85,7 +86,7 @@ export async function downloadExport(): Promise<void> {
     throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : res.statusText);
   }
   const blob = await res.blob();
-  const day = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const day = todayISO().replaceAll("-", "");
   if (isNative()) return shareExportNatively(blob, `catch-export-${day}.ndjson.gz`);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

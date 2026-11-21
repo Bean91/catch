@@ -31,16 +31,16 @@ export function StrainGauge({
   const pct = (value / MAX) * 100;
   const [lo, hi] = targetRange;
   const sessionComponents = (strain?.components ?? []).filter(isSessionComponent);
-  const dailyActivityComponent = strain?.daily_activity as
-    | { value: number; steps: number | null; active_kcal: number | null }
-    | undefined;
-  // Session 14 (see PLAN.md Part C.4): the gauge fill splits into cardio/muscular/daily
-  // segments — three opacities of the one accent, not a second hue, per DESIGN.md's "no
-  // other component introduces a new hue" rule; always paired with the legend text below.
+  const dailyActivityComponent = strain?.daily_activity;
+  // The gauge fill splits into heart-rate/muscular/everyday segments — three opacities of the one accent, not a second hue
+  // (DESIGN.md), always paired with the legend text. Session 32: each segment is that part's *share* of the day's one load sum, so
+  // the three always add up to the number shown; nothing is added together in 0–21 space any more.
   const cardioValue = strain?.cardio?.value ?? 0;
   const muscularValue = strain?.muscular?.value ?? 0;
   const dailyValue = dailyActivityComponent?.value ?? 0;
   const hasSplit = hasValue && (cardioValue > 0 || muscularValue > 0 || dailyValue > 0);
+  const pctOf = (share: number | undefined, part: number) =>
+    Math.round((share ?? (value > 0 ? part / value : 0)) * 100);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -101,13 +101,13 @@ export function StrainGauge({
             {hasSplit && (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-tertiary font-mono-nums">
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-accent" aria-hidden /> Cardio {cardioValue.toFixed(1)}
+                  <span className="h-2 w-2 rounded-full bg-accent" aria-hidden /> Cardio {pctOf(strain?.cardio?.share, cardioValue)}%
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-accent/60" aria-hidden /> Muscular {muscularValue.toFixed(1)}
+                  <span className="h-2 w-2 rounded-full bg-accent/60" aria-hidden /> Muscular {pctOf(strain?.muscular?.share, muscularValue)}%
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-accent/30" aria-hidden /> Daily activity {dailyValue.toFixed(1)}
+                  <span className="h-2 w-2 rounded-full bg-accent/30" aria-hidden /> Everyday movement {pctOf(dailyActivityComponent?.share, dailyValue)}%
                 </span>
               </div>
             )}
@@ -130,23 +130,26 @@ export function StrainGauge({
           <div className="mt-4 flex flex-col gap-2">
             {sessionComponents.length > 0 || dailyActivityComponent ? (
               <>
-                {sessionComponents.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-md bg-surface-2 px-3 py-2 text-sm">
-                    <span className="text-text-secondary">{String(c.title ?? "Session")}</span>
-                    <span className="font-mono-nums text-text-primary">
-                      {c.value == null ? "—" : `${(c.value as number).toFixed(1)}`}
-                      {hasValue && c.value != null && (
-                        <span className="ml-1 text-text-tertiary">
-                          ({Math.round(((c.value as number) / value) * 100)}%)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ))}
+                {sessionComponents.map((c, i) => {
+                  const share = typeof c.share === "number" ? (c.share as number) : null;
+                  const duplicate = c.duplicate_of != null;
+                  return (
+                    <div key={i} className="flex items-center justify-between rounded-md bg-surface-2 px-3 py-2 text-sm">
+                      <div className="flex flex-col">
+                        <span className="text-text-secondary">{String(c.title ?? "Session")}</span>
+                        {duplicate && <span className="text-xs text-text-tertiary">Same time as another workout — counted once</span>}
+                      </div>
+                      <span className="font-mono-nums text-text-primary">
+                        {/* A session's share of the day's load — shares add up to 100 % (session 32). */}
+                        {share == null ? "—" : `${Math.round(share * 100)}%`}
+                      </span>
+                    </div>
+                  );
+                })}
                 {dailyActivityComponent && (
                   <div className="flex items-center justify-between rounded-md bg-surface-2 px-3 py-2 text-sm">
                     <div className="flex flex-col">
-                      <span className="text-text-secondary">Daily activity</span>
+                      <span className="text-text-secondary">Everyday movement</span>
                       {(dailyActivityComponent.steps != null || dailyActivityComponent.active_kcal != null) && (
                         <span className="text-xs text-text-tertiary font-mono-nums">
                           {dailyActivityComponent.steps != null && `${dailyActivityComponent.steps.toLocaleString()} steps`}
@@ -157,14 +160,7 @@ export function StrainGauge({
                         </span>
                       )}
                     </div>
-                    <span className="font-mono-nums text-text-primary">
-                      {dailyActivityComponent.value.toFixed(1)}
-                      {hasValue && value > 0 && (
-                        <span className="ml-1 text-text-tertiary">
-                          ({Math.round((dailyActivityComponent.value / value) * 100)}%)
-                        </span>
-                      )}
-                    </span>
+                    <span className="font-mono-nums text-text-primary">{pctOf(dailyActivityComponent.share, dailyActivityComponent.value)}%</span>
                   </div>
                 )}
               </>

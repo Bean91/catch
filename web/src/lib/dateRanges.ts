@@ -1,3 +1,4 @@
+import { toISODate } from "./dates";
 export type TrendRange = "4w" | "12w" | "season" | "all";
 
 // "Season" has no single universal definition for rowing — picked the most recent past
@@ -15,7 +16,7 @@ export function rangeToFromTo(range: TrendRange): { from?: string; to?: string }
   const weeks = range === "4w" ? 4 : 12;
   const from = new Date(today);
   from.setDate(today.getDate() - weeks * 7);
-  return { from: from.toISOString().slice(0, 10) };
+  return { from: toISODate(from) };
 }
 
 export function rangeToWeeks(range: TrendRange): number {

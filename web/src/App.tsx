@@ -3,6 +3,7 @@ import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/shell/AppShell";
 import { CardSkeleton } from "./components/ui/Skeleton";
 import { useAuth } from "./lib/auth";
+import { useAccountTime } from "./lib/useAccountTime";
 import { isMock } from "./lib/api";
 import { isPublic } from "./lib/deployment";
 import { useDeepLinks } from "./lib/native/useDeepLinks";
@@ -52,6 +53,11 @@ const ClubChallengePage = lazy(() => import("./pages/ClubChallenge").then((m) =>
 const ClubJoinPage = lazy(() => import("./pages/ClubJoin").then((m) => ({ default: m.ClubJoinPage })));
 const HealthDataPage = lazy(() => import("./pages/HealthData").then((m) => ({ default: m.HealthDataPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
+
+function AccountTime() {
+  useAccountTime();
+  return null;
+}
 
 function RouteFallback() {
   return (
@@ -108,6 +114,7 @@ export function App() {
 
   return (
     <AppShell>
+      <AccountTime />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<TodayPage />} />

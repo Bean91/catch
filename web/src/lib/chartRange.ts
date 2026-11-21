@@ -1,3 +1,4 @@
+import { toISODate } from "./dates";
 // Pure range-preset <-> URL querystring helpers, shared by every Trends/Body chart so the
 // visible range survives reload and can be shared as a link (task spec, interaction #5).
 // Kept dependency-free (just URLSearchParams, which exists in both the browser and Vitest's
@@ -118,5 +119,5 @@ export function writeChartUrlState(params: URLSearchParams, state: ChartUrlState
 }
 
 export function domainToDateStrings(domain: DomainMs): { from: string; to: string } {
-  return { from: new Date(domain.min).toISOString().slice(0, 10), to: new Date(domain.max).toISOString().slice(0, 10) };
+  return { from: toISODate(new Date(domain.min)), to: toISODate(new Date(domain.max)) };
 }

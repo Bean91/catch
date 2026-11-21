@@ -1,4 +1,4 @@
-import type { ConnectionCard, ConnectionStatus } from "./types";
+import type { ConnectionCard, ConnectionStatus, ProviderId } from "./types";
 
 // Every status is a word AND a glyph, never colour alone (DESIGN.md "Provider connections").
 export const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -79,4 +79,13 @@ export const CAPABILITY_LABEL: Record<string, string> = {
   documented_rate_limits: "Published rate limits",
   documented_history_depth: "Published history depth",
   token_revocation: "Revocation by Catch",
+};
+
+
+/** Session 32 onboarding: what each source brings, in one line. */
+export const PROVIDES: Record<ProviderId, string> = {
+  garmin: "Workouts with heart rate and GPS, sleep, HRV, resting heart rate and daily steps — from your own Garmin Personal API key.",
+  withings: "Weight and body composition from your Withings scale.",
+  concept2: "Every Concept2 logbook result with splits, stroke data and its verified status.",
+  whoop: "Sleep, HRV and resting heart rate for recovery, plus workouts Whoop recorded.",
 };
