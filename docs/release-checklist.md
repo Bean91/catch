@@ -66,7 +66,7 @@ Blocker IDs (B-n) refer to [launch-audit.md](launch-audit.md#blockers).
 | Item | Status |
 |---|---|
 | Automated backups + a tested restore | **FAIL**: B-3. The local drill passes 15/15 and the runbook documents the auth.users trigger step |
-| Uptime alert on `/api/health` | **FAIL**: none configured (B-8) |
+| Uptime alert on `/api/health` | **PASS** once pushed: `.github/workflows/uptime.yml`, every 15 min, a failed run e-mails the owner (B-8) |
 | Alert on failing ticks (`cron.job_run_details`) | **FAIL**: none (B-8) |
 | Error visibility (platform logs) | OWNER: retention unknown (F-21) |
 
@@ -78,7 +78,7 @@ Blocker IDs (B-n) refer to [launch-audit.md](launch-audit.md#blockers).
 | Placeholders removed from the shipped legal pages | **FAIL**: "Contact: [to be filled in]" and counsel notes render publicly at `/legal/*` (L-25) |
 | Minimum-age / guardian rules confirmed by counsel (`MIN_PUBLISH_AGE=13`, guardian under 16) | OWNER |
 | Health-data processing basis (GDPR art. 9 etc.) for the regions served | OWNER |
-| Residual risk F-02 (MCP/REST confirmation is client-mediated) accepted in writing | OWNER (B-7) |
+| Residual risk F-02 (MCP/REST confirmation is client-mediated) accepted in writing | **PASS**: accepted by the owner 2026-11-20 (F-02 row in `docs/security-findings.md`) |
 
 ## 7. Provider approvals and live verification (Required for each provider offered)
 
