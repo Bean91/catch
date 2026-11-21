@@ -21,20 +21,51 @@ and the closest row at-or-after is nearer in time — and attaches both `weight_
 `w_per_kg` per row; `None` simply propagates through until Withings OAuth is completed (no
 `body_comp` rows exist yet as of session 2).
 
-## 2. 2k prediction (`predict.py`)
+## 2. 2k estimate (`predict.py`, `catch/sync/rowing_predict.py`) — rewritten session 32
 
-Paul's law: pace changes 5 seconds per 500m for every doubling of distance. For a known piece
-at `(distance, pace)`, the extrapolated 2k pace is `pace - 5 * log2(distance / 2000)`. Hand
-check: a 6k at 1:50.0/500m (110.0s) → `110 - 5*log2(3) = 102.08` (~1:42.1/500m), matching the
-task spec. Each recent "best piece" (one per distance, picked by the caller — `/api/predict/2k`
-uses the fastest Concept2 `rower` result per ~250m-rounded distance bucket, ≥1000m, last 6)
-gets its own extrapolation; `value` is their mean, `range` is `[min, max]`, and `band` reflects
-how many pieces agreed and how tight that range is (`high`: ≥3 pieces within 2s of each other;
-`moderate`: ≥2; `low`: 1). `/api/predict/2k` restricts candidate pieces to continuous workouts
-(`JustRow`/`FixedDistanceSplits`/`FixedTimeSplits`/no `workout_type`) within a configurable
-`predict_lookback_days` (default 180) — interval/piece sets mix work and rest into
-`Activity.duration` while `distance` stays work-only, which would corrupt the pace Paul's law
-needs, and the task asks for *recent* best pieces, not all-time ones.
+An **estimate**, never a result: every response says `"kind": "estimate"`, and the athlete's latest confirmed 2,000 m test is
+returned beside it as `measured_2k` (`latest`, `best_last_year`), exactly as recorded and never replaced. One implementation serves
+Today, `GET /api/predict/2k`, the coach/MCP `predict_2k` tool, an event's race projection and the rowing power-zone threshold.
+
+**The relation** is Paul's law, the standard rowing rule of thumb: pace rises about 5 s/500 m per doubling of distance, so one
+performance implies `2k_time = 4 x (pace_500 - 5 * log2(distance / 2000))`. Hand checks (`tests/analytics/test_predict.py`): 6k in 22:00
+→ 408.3 s; 5k in 18:00 → 405.6 s; 1k in 3:10 → 400.0 s; 500 m in 1:30 → 400.0 s; a 2k implies itself. Pace→watts stays Concept2's
+`2.80 / (pace/500)^3`.
+
+**Evidence** (`rowing_predict.evidence`, read through canonical activities so "exclude from totals" is respected):
+
+| Class | What | Weight |
+|---|---|---|
+| `declared` | a confirmed test or a confirmed single-effort piece (never a rate-capped `30min_r20`, never an interval piece) | 1.0 |
+| `hr_verified` | a continuous Concept2 row whose average heart rate is ≥ 85 % of max HR | 0.7 |
+| `effort_unknown` | a continuous row with no heart rate (could have been steady) | 0.3 |
+
+Never counted: a row whose heart rate shows it was steady (< 85 %), interval workouts, an untyped result with rest time (Concept2 adds
+rest into `duration`), anything outside 500 m–10 km (at most ~2 doublings of extrapolation), anything older than 365 days.
+
+**Model** (`predict_2k(points, as_of)`):
+1. Pool: when any declared/verified effort exists in the last 120 days, only the last 120 days are used; otherwise older data is a
+   fallback, flagged `stale` and capped at low confidence ("no hard effort in the last 4 months").
+2. Submaximal efforts can only make an estimate too slow, so points more than 4 % slower than the best **near-2k** effort (within one
+   doubling, when one exists) are dropped. The reference is near-2k because Paul's law from a 500 m usually flatters a sprint-strong
+   rower; a declared effort within one doubling of 2,000 m is never dropped (test: a 1:22 500 m can't discard a real 6:30 2k).
+3. Estimate = weighted median of the kept implied times; weight = `0.5^(age/60 days) x effort weight / (1 + |log2(d/2000)|)`.
+4. Range (seconds) = `sqrt(extrapolation² + spread² + 2 s²) + staleness`: extrapolation = 2 s/500 m per doubling (how far one athlete's
+   curve sits from 5 s — rowers measure roughly 3–7) × 4; spread = the weighted SD of the kept points; staleness = 0.5 s per week
+   after the newest point is 4 weeks old, capped at 10 s.
+5. Confidence: **high** needs ≥ 2 strong efforts in 90 days, one within a doubling of 2k, and a half-range ≤ 4 s; **moderate** needs a
+   strong effort within 1.6 doublings and a half-range ≤ 8 s; otherwise **low**; **insufficient_data** when nothing qualifies (or only
+   old no-HR rows). One effort is never "high".
+
+Legacy keys stay for old readers: `value` and `range` are pace (s/500 m), `predicted_time_s` and `range_s` finishing seconds, `band`
+= confidence. Before session 32 the selection kept the six *longest* buckets with no effort filter or recency weighting, and an
+event's fallback range was the pace range printed as times.
+
+**As of a date** (`estimate_2k(..., before=start)`): the rowing power-zone threshold (`rowing_watts_2k`) and its muscular tiers use
+only evidence up to that session's day, so a later full re-resolve never rewrites an old session's zones with today's fitness.
+
+**Limitations**: Paul's law is a population rule; a sprinter or a diesel will sit off it, which the range only partly covers. Heart
+rate verifies effort only when a strap recorded it; "max HR" is the setting (or the Concept2 profile's). On-water pieces are not used.
 
 ## 3. Training zones (`zones.py`)
 
@@ -72,14 +103,43 @@ the acute:chronic ratio relative to one that has it. The RPE comes from `notes` 
 calendar date (the schema has no per-activity RPE — if two sessions happen the same day, both
 get that day's single RPE value; a known simplification).
 
-**0-21 Whoop-style scale**: `min(21, strain_log_a * ln(1 + trimp_like))`, a log-saturation
-curve (not exponential decay) so strain climbs quickly from zero but flattens out approaching
-21. `strain_log_a = 2.54`, calibrated so a ~1h moderate session (`trimp_like≈50`) lands around
-strain 10, and a very hard multi-hour day (`trimp_like≈250`) lands around strain 14 — not
-authoritative, just a documented anchor. Bands: light (<10), moderate (<14), high (<18), all
-out (≥18). Multiple sessions in a day are **not** summed in 0-21 space (that would double-count
-toward "all out"); their `trimp_like` values are summed first, then the combined total goes
-through the log curve once.
+**0-21 Whoop-style scale — one curve over one load sum (session 32).** The day's strain is
+`min(21, strain_log_a * ln(1 + day_load))`, `strain_log_a = 2.54` (a steady hour's TRIMP ~77 → ~11; TRIMP 250 → ~14). `day_load` is a
+single sum in TRIMP units — nothing is ever added in 0-21 space:
+
+```
+day_load = Σ cardio sessions:   HR TRIMP (per-sample or average-HR Banister; cycling TSS as before, L-20) or, without HR, sRPE TRIMP
+         + Σ lifting sessions:  muscular equivalent (below), combined with that session's own HR / RPE
+         + everyday movement:   non-exercise walking minutes x Banister TRIMP/min at 25 % HRR (§4.1)
+```
+
+*Lifting* (`muscular_trimp_equivalent`): a session's muscular AU (§22) divided by the athlete's **own** typical session — the median AU
+of their strength sessions in the last 56 days (a documented 4,000 AU until 3 exist) — times `strength_ref_trimp = 70`, the
+session-RPE TRIMP of a hard hour of lifting (RPE 7 × 60 min × 50/300) and about a steady hour's row. Capped at 2.5 typical sessions.
+So kilograms only count relative to the athlete's norm: a 20,000 AU lifter and a 2,000 AU lifter doing their usual session add the
+same 70, and lifting can't swamp rowing (or vice versa). Combined without double-counting (`strength_session_load`): with heart rate,
+`HR TRIMP + equivalent` (HR undersells lifting; they measure different stress); with only a session RPE, `max(sRPE, equivalent)` (an
+RPE already includes the lifting); with neither, the equivalent.
+
+*Rows and rides add nothing "muscular".* Their effort is already in their TRIMP. The cardio-derived AU (§22's power tiers and the
+0.25 × TRIMP HR fallback) still feed the muscle-readiness map, never the day's load — before session 32 an easy hour on the erg gained
+about +3 to +6 strain from it.
+
+*Duplicates*: two cardio sessions from different sources that overlap by more than half of the shorter one (a watch's auto-detected
+workout beside the erg's own result the matcher didn't merge) count once — the larger load; the other is listed with `duplicate_of`.
+
+*Shares*: `cardio`, `muscular` and `daily_activity` carry `share` (fraction of `day_load`) and `value = share × headline`, and each
+session carries its `share` — they always add up to the number shown. A session's own `value` is its standalone strain (workout
+detail). `training_value` is the same curve over the sessions alone (no walking): recovery's "prior-day strain" input reads that, so
+its calibration is unchanged by everyday movement joining the headline. Bands: light (<10), moderate (<14), high (<18), all out (≥18).
+`strain_targets` moved up about a point (green 11–17, yellow 7–13, red 0–9) because 10,000 everyday steps now read about 8 alone.
+
+Worked examples (`tests/analytics/test_strain_model.py`, `tests/test_scoring_session32.py`): rest day with 8,000 steps → load 20.7,
+strain 7.8; easy erg hour (TRIMP 77), no steps → 11.1; two 60-TRIMP rows → 2.54 × ln(121) = 12.2 (adding two 0-21 scores would have
+said 20.9); row 77 + typical lift 70 + 6,000 steps → load 162.5, strain 12.9.
+
+Stored rows carry `"model": 2`; `catch.sync.scheduler.run_maintenance` (personal: a minute after start, then daily; public: before each
+user's sync tick) re-resolves every canonical and recomputes all days once when it finds older rows, then is a no-op.
 
 **Time in zone** needs per-sample HR, which only Concept2 strokes carry (`hr` field). A
 Garmin-only session (no linked Concept2 result) has no sample-level HR without parsing the FIT
@@ -89,69 +149,31 @@ demand by `GET /api/erg/{id}/strokes` (which already has the strokes loaded) rat
 cached — each stroke's HR-reading duration is `t` minus the previous stroke's `t` within the
 same interval (the first stroke of an interval gets its own `t`).
 
-### 4.1 Daily activity in strain (`daily_activity_strain`), session 13
+### 4.1 Everyday movement (`daily_activity_trimp`), session 13, rewritten session 32
 
-A small, capped, diminishing-returns contribution from **non-exercise** steps and active kcal
-(Garmin's whole-day `steps`/`active_kcal` totals, minus whatever a logged Garmin activity that
-day already contributed — `catch/sync/scoring.py`'s `_day_garmin_activity_totals`: sum of
-`Activity.steps` and `max(0, calories - bmr_kcal)` for every Garmin-sourced activity starting
-that local day, regardless of a canonical's `exclude_from_totals` flag, since the physical
-steps happened either way; Concept2-only sessions are never subtracted — Concept2 never
-contributes to Garmin's own daily wellness totals in the first place, so there's nothing of
-its to double-subtract).
-
-Both clamp at ≥0 (an activity's own steps/kcal can exceed the day's current Garmin total on an
-odd sync window — e.g. the activity synced before that day's usersummary did), then:
+The wearable's whole-day steps (or active kcal when there are no steps) minus every logged workout's own share: a Garmin-recorded
+activity's steps and `calories - bmr_kcal`, and any on-foot workout recorded elsewhere (its steps, or its minutes × 100 steps/min when it
+has none) — so a walk logged by Whoop or a phone is never counted twice. Then:
 
 ```
-steps_term = log1p(non_exercise_steps / 2000)
-kcal_term  = log1p(non_exercise_active_kcal / 150)
-raw        = (steps_term + kcal_term) / 2
-value      = min(cap, weight * raw)
+minutes = non_exercise_steps / 100            (or non_exercise_active_kcal / 4)
+load    = min(40, minutes * 0.25 * 0.64 * e^(1.92 * 0.25))      # ≈ 0.26 TRIMP per easy-walking minute
 ```
 
-2000 steps / 150 kcal are illustrative "one unit of noticeable non-exercise activity" scales,
-not validated physiological constants — like several other defaults in this file, flagged as a
-coaching default rather than a standard. `cap` (default 1.5) and `weight` (default 1.0) are
-both `Settings` keys (`daily_activity_strain_cap`/`_weight`), editable in Settings, and changing
-either triggers the usual full `recompute_scores` (same as every other settings PUT).
-
-**Added to strain's 0-21 `value` only, after the log-saturation curve — never into
-`trimp_like`/`rowing_trimp_like`.** This is deliberate: `load_json`/`rowing_load_json`'s
-acute:chronic EWMA is built from the `trimp_like` series (`recompute_scores`'s
-`trimp_series`), so a high-step rest day must never inflate training load or look like a
-training session there, only nudge the single day's displayed strain number by at most `cap`
-points. `day_strain`'s result dict carries the component separately as a `daily_activity` key
-(`{"value", "steps", "active_kcal", "explanation"}`), not inside `components` — every reader of
-`components` (Workouts list, WorkoutDetail) assumes each entry is a per-canonical session with
-a `canonical_id`, so mixing in a non-session entry there would break that assumption. The web
-`StrainGauge` breakdown dialog reads `daily_activity` directly and shows it as its own row with
-its share of the total `value`.
-
-Two of `day_strain`'s three return paths needed the component added, not just the "normal"
-combined-sessions path, both confirmed with tests (`tests/test_scoring.py`):
-- **No activities logged that day** (previously a flat `0.0`/`"light"`): now
-  `min(21, daily_activity_value)`, banded normally via `strain_band`. The task's explicit
-  example — a rest day with 15k steps — stays well under 10 ("light") with the default cap.
-- **Activities exist but none had enough data to score** (previously `None`/
-  `"insufficient_data"` unconditionally): if the daily-activity component is also 0, that's
-  unchanged; but if there's real non-exercise data, the day now reports that value/band instead
-  of a flat "insufficient data" — the day's *workout* genuinely couldn't be scored, but there's
-  still a real (if small) strain number to show.
-
-Today's small, secondary "N,NNN steps · NNN active kcal" line (task Part A.4) shows the
-**whole day's** Garmin totals (`GET /api/today`'s top-level `daily_activity` key), not the
-non-exercise-only figure inside `strain_today.daily_activity` — those are two different
-numbers by design (the breakdown's is deliberately the smaller, workout-subtracted one).
+Casual walking sits around 20–30 % of heart-rate reserve; 0.25 is the documented assumption (`daily_activity_hrr`), with
+`daily_activity_steps_per_min`, `daily_activity_kcal_per_min` and the cap `daily_activity_trimp_cap` beside it in
+`analytics/defaults.py`. The load enters the one sum above (and so acute/chronic load). Today's "N,NNN steps" line is still the
+whole day's totals; the breakdown's figure is the non-exercise one. The pre-session-32 keys `daily_activity_strain_cap/_weight` and
+`muscular_strain_log_a/_weight` are no longer read (kept so a stored settings patch still validates).
 
 ## 5. Load (`load.py`)
 
-Acute (7-day) and chronic (42-day) EWMA of each day's `trimp_like` total (not the compressed
-0-21 strain — EWMA needs a linear quantity), `λ = 2/(N+1)` per Williams et al. 2017, series
-zero-filled for rest days and seeded with its own first value. `form = chronic - acute`
-(positive = fresher, negative = more fatigued — standard CTL-ATL framing). `acute:chronic`
-ratio bands follow Gabbett 2016's "sweet spot": `<0.8` undertraining, `0.8-1.3` optimal,
-`1.3-1.5` caution, `>1.5` high risk.
+Acute (7-day) and chronic (42-day) EWMA of each day's `day_load` (§4 — the linear TRIMP-unit sum, not the compressed 0-21 strain;
+EWMA needs a linear quantity), `λ = 2/(N+1)` per Williams et al. 2017, series zero-filled for rest days and seeded with its own first
+value. Since session 32 lifting and everyday movement are in that sum, so a strength-only week registers load (it entered as 0
+before). `form = chronic - acute`; `acute:chronic` bands follow Gabbett 2016's "sweet spot": `<0.8` undertraining, `0.8-1.3`
+optimal, `1.3-1.5` caution, `>1.5` high risk. Rowing-only load stays the rowing sessions' load alone. The EWMA formula itself is
+unchanged (L-19 still applies). A day the athlete skipped by crossing the date line enters as a zero-load day, like rest.
 
 ## 6. Recovery (`recovery.py`)
 
@@ -272,13 +294,11 @@ window — median is what keeps a single-day outlier (bad scale reading, a post-
 dehydration dip) from moving the smoothed line, which a mean would. Used by the Body screen's
 smoothed weight line; `GET /api/trends?metric=weight` itself still returns the raw points.
 
-## 13. Predicted-2k trend vs. the Today-screen estimate, session 4
+## 13. Implied-2k trend vs. the 2k estimate, session 4 (relabelled session 32)
 
-`GET /api/trends?metric=predicted_2k` is **not** the same number as `/api/predict/2k`/Today's
-`predicted_2k`: the trend is one point per qualifying piece, each extrapolated to 2000m on its
-own (same Paul's-law formula, single piece); Today's headline number averages several recent
-best pieces into one ensemble estimate. Documented here specifically so the two numbers next
-to each other don't look like a bug.
+`GET /api/trends?metric=predicted_2k` is **historical and per effort**: one point per qualifying effort (§2's evidence rules), each
+the 2k that effort alone implies — labelled "Implied 2k per hard effort" in the UI, never as an estimate or a result. Today's
+estimate weighs several efforts (§2). The two differ by design.
 
 ## 14. "Garmin key expiry," session 4
 
@@ -561,28 +581,9 @@ well past normal doesn't blow the day's strain out on its own. A muscle with no 
 history yet (first-ever session) uses its raw today value — there's nothing to normalize
 against, and treating that as "0× baseline" would wrongly zero out a real first session.
 
-**Daily strain's cardio/muscular split** (`catch/sync/scoring.py`'s `day_strain`, task Part
-C.2): the existing cardio half (HR/power `trimp_like`, §4's log-saturation curve) and a new
-muscular half go through their **own independent log-saturation curves**, then sum as 0-21
-values, with daily-activity (§4.1) added last:
-
-```
-cardio_component    = min(21, strain_log_a * ln(1 + total_trimp_like))
-muscular_component  = min(21, muscular_strain_weight * muscular_strain_log_a * ln(1 + Σ normalized_muscle_au))
-value                = min(21, cardio_component + muscular_component + daily_activity_value)
-```
-
-Keeping the two curves independent (rather than feeding a combined cardio+muscular number
-through one curve) is what guarantees the task's explicit requirement: **a heavy lifting day
-with low/no HR must still register meaningful strain** — `cardio_component` can be exactly 0
-while `muscular_component` alone lands "high." `muscular_strain_log_a` (default 1.1) and
-`muscular_strain_weight` (default 1.0) are both `Settings` keys, calibrated so a realistic
-heavy squat day's AU total (summed across the several muscle groups a squat loads, each
-getting full/half credit — see `tests/test_scoring.py`'s heavy-squat/light-pump/long-erg
-comparison) lands around "high" at zero cardio trimp. `day_strain`'s result dict carries
-`cardio: {value, trimp_like}` and `muscular: {value, total_normalized_au, explanation}`
-alongside the existing `daily_activity` key, for the Today strain gauge's three-way split and
-workout detail's per-session breakdown.
+**Daily strain's muscular part** — superseded in session 32: lifting now enters the one load sum as a TRIMP equivalent relative
+to the athlete's own typical session (§4), not through its own 0-21 curve added onto cardio's. `normalize_muscle_au` still shapes the
+muscle-readiness view only.
 
 **Cardio's own small muscular share** (erg/bike, task Part C.1.2, broadened in session 15):
 two tiers against threshold (the rowing erg threshold from `catch/sync/rowing_predict.py`'s

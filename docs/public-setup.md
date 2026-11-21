@@ -7,7 +7,7 @@ Steps marked ⚠ could not be tested from the development machine and are listed
 
 1. Create a project (note the **project ref** and region). Choose a strong database password; it is only used to log in as `postgres` for step 3.
 2. **Auth → Providers → Email**: enabled; **Confirm email: on** (the frontend assumes a sign-up returns no session until the link is clicked);
-   minimum password length 8 or more; turn on leaked-password protection if your plan has it.
+   minimum password length **8** and *Password requirements* **"Lowercase, uppercase letters, digits and symbols"** (`lower_upper_letters_digits_symbols`) — exactly the rules the app's sign-up checklist shows (`tests/fixtures/auth/password_policy.json`, session 32); turn on leaked-password protection if your plan has it.
 3. **Auth → URL Configuration**: *Site URL* = the app's public URL; *Redirect URLs* = exactly that URL (no wildcards in production).
 4. **Auth → Sessions**: access-token expiry **1 hour or less** (the default). A token cannot be revoked before it expires; Catch narrows that
    window with a live-session check (`CATCH_SESSION_CHECK_TTL`, default 15 s) but a shorter expiry is the second layer.
@@ -129,8 +129,8 @@ New or changed settings: `CATCH_MODERATOR_REQUIRE_AAL2=1` (default; moderators m
 `CATCH_MCP_OAUTH_ENABLED` (off by default; on in production since session 29, verified with claude.ai — docs/mcp-client-setup.md; needs `CATCH_MCP_HTTP_ENABLED=1`). Schedule a third tick job:
 `POST /internal/tick/retention` once a day (same bearer secret as the others) — it prunes notification/tool-call/usage logs and expired club reports/audit rows.
 
-Supabase dashboard (the local stack's config is weaker than these on purpose; see the table in `docs/security.md`): minimum password length ≥ 12 and character
-requirements; leaked-password protection if the plan has it; **Secure password change on**; **MFA (TOTP) enabled**; sign-up/sign-in/recovery rate limits tightened and
+Supabase dashboard (the local stack's config is weaker than these on purpose; see the table in `docs/security.md`): the password policy in step 2 (min 8; lowercase,
+uppercase, digits and symbols); leaked-password protection if the plan has it; **Secure password change on**; **MFA (TOTP) enabled**; sign-up/sign-in/recovery rate limits tightened and
 CAPTCHA on; *Redirect URLs* exactly the app URL; confirm email on. Check and write down: database backup / PITR retention (what survives an account deletion and for how
 long — the deletion policy draft needs this number), Auth log retention, FastAPI Cloud log retention and whether OAuth callback `?code=` appears in request logs.
 

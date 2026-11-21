@@ -29,7 +29,7 @@ Status key:
 | Email provider | on; **Confirm email on** | OWNER. The live confirmation path was never run (no SMTP); see below |
 | **Custom SMTP** | configured (the built-in sender sends 2 emails/hour) | **FAIL / NOT VERIFIED.** Blocker B-5. Without it, sign-up confirmation and password recovery don't work beyond a trickle. |
 | Site URL / Redirect URLs | exactly `https://catch.openoted.com` (+ `com.openoted.catch://…` for the native apps) | OWNER |
-| Password policy | min ≥ 12, character classes, leaked-password protection (plan permitting) | OWNER (F-17) |
+| Password policy | min **8**, requirements **lowercase, uppercase letters, digits and symbols** (`lower_upper_letters_digits_symbols` — what the sign-up checklist shows, session 32), leaked-password protection (plan permitting) | OWNER (F-17) — set to match `tests/fixtures/auth/password_policy.json` |
 | Secure password change | on | OWNER (F-17) |
 | MFA (TOTP) | enabled; moderator accounts enrolled (`CATCH_MODERATOR_REQUIRE_AAL2=1`) | OWNER (F-17, F-11). `aal2` was tested only with synthetic tokens. |
 | Rate limits + CAPTCHA | sign-up, sign-in and recovery tightened; CAPTCHA on | OWNER (F-17) |

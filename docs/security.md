@@ -209,8 +209,8 @@ Compared the local stack (`supabase/config.toml` in the test project) with what 
 | Refresh-token rotation / reuse interval | on / 10 s | on | no |
 | Sign-up | enabled, **confirmations off** | confirm email **on** (the SPA assumes no session before the link) | `npm run test:live` |
 | Anonymous sign-ins | off | off | `supabase_auth` refuses `is_anonymous` (test) |
-| Minimum password length | **6** | **≥ 12** recommended; leaked-password protection on (plan permitting) | no — operator action |
-| Password requirements | none | letters + digits at least | no — operator action |
+| Minimum password length | **6** (set it to 8 for `npm run test:live`) | **8**, with requirements "lowercase, uppercase letters, digits and symbols" (session 32 — the same rules the app's checklist enforces before submitting); leaked-password protection on (plan permitting) | `tests/test_password_policy.py` (docs ↔ fixture ↔ `web/src/lib/passwordPolicy.ts` via vitest); the dashboard itself is an operator action |
+| Password requirements | none (set `password_requirements = "lower_upper_letters_digits_symbols"` for `npm run test:live`) | **lowercase, uppercase letters, digits and symbols** | as above |
 | `secure_password_change` | **false** | true (recent sign-in to change a password) | no — operator action |
 | MFA (TOTP) | **disabled** | enabled, required for moderator accounts (`CATCH_MODERATOR_REQUIRE_AAL2`) | synthetic tokens only |
 | Auth rate limits / CAPTCHA | defaults, none | tighten sign-up/sign-in/recovery; enable CAPTCHA | no — operator action |

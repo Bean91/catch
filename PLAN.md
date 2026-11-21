@@ -4635,3 +4635,114 @@ Not run this session:
 - Production `/internal/*` (no tick secret).
 - Production backup, deploy and rollback (not authorised).
 - An axe or screen-reader pass.
+
+# Session 32: passwords, "training issue", first-run setup, strain, 2k estimate, per-user time zones, performance
+
+Branch `session-32-tz-strain-2k-onboarding` (not merged, not pushed, not deployed). **Deploy order: `catch db upgrade` (0011) before
+`fastapi deploy`**, then set the Supabase password policy (below).
+
+## Decisions (the user chose the first four)
+
+1. **Passwords:** minimum 8, plus lowercase, uppercase, a digit and a symbol. Supabase's "lowercase, uppercase letters, digits and
+   symbols" option is the closest it can enforce, so the app shows exactly that. This is stricter than the brief, which had no
+   upper/lower rule.
+2. **Strain:** one curve over one load sum, `strain = 2.54·ln(1 + day_load)`.
+   - `day_load` = HR/RPE TRIMP + lifting scaled to the athlete's own typical session + everyday steps.
+   - The scaling keeps any one activity type from dominating.
+3. **Time zones per record**, with a travel timeline: history never moves when the athlete travels. This departs from the brief's
+   "recalculate history in the current zone". Every drawback of the per-record approach is designed out (docs/time.md); "follow my
+   device = off" gives the brief's single-zone model.
+4. **Existing accounts** are marked setup-complete and see no prompt. Their zone is picked up from the device on next open.
+5. My choices:
+   - Recovery's prior-day input reads the day's *training* strain, so everyday walking doesn't cost recovery points.
+   - `strain_targets` moved up about one point, because 10,000 steps now read about 8.
+   - The 2k estimate keeps Paul's law but changes which efforts count and how.
+   - `rowing_watts_2k` is computed as of the session's date.
+
+## Changes
+
+- **Time:**
+  - `core/localtime.py` and `analytics/localtime.py`, plus `user_zone_periods` and the `local_date`/`local_tz` stamps.
+  - About 60 bucketing sites converted; a ban test prevents new ones.
+  - `/api/time-zone*` routes and `/api/me` additions.
+  - Change day (`overrides.local_date`).
+  - Concept2 results with no zone are read in the athlete's zone (L-24). Copied meals keep their wall-clock time (L-15).
+  - The maintenance job backfills existing data.
+  - Web: `lib/localTime.ts`, `useAccountTime`, Settings → Time zone, every `toISOString().slice(0,10)` removed.
+- **Strain:** `analytics/strain.py` (`day_load_strain`, `muscular_trimp_equivalent`, `daily_activity_trimp`) and a rewritten
+  `sync/scoring.py`:
+  - batched range loads;
+  - incremental from the earliest touched day;
+  - a per-owner lock with hand-off;
+  - unmerged-duplicate guard;
+  - `"model": 2` + a one-time recompute.
+
+  Gauge shares now add up to 100 %.
+- **2k:**
+  - `analytics/predict.py` rewritten; `sync/rowing_predict.py` gathers the evidence.
+  - Measured 2k kept separate.
+  - Fixed the event-projection range-unit bug, where a pace range was printed as a time range.
+  - ErgCard reads "Estimated 2k".
+  - The trend is relabelled "Implied 2k per hard effort".
+- **Setup:** `/welcome` (5 steps), `api/routes_onboarding.py`, OAuth `return_to=onboarding`, Settings → "Run setup again".
+- **Passwords:**
+  - `lib/passwordPolicy.ts` + shared fixture, `PasswordField` (live checklist, independent show/hide).
+  - Confirmation fields on sign-up and recovery; "Change password" in Account.
+  - Docs aligned.
+- **"Niggle" → "Training issue"** in every user-facing and AI-facing string. Stored fields are unchanged.
+- **Performance** (docs/performance.md):
+  - matcher decisions read once;
+  - batched `list_tests`/pieces/weights;
+  - `raw_json` deferred and no longer sent;
+  - SQL-bounded weekly volume;
+  - per-owner bounded series cache;
+  - Postgres indexes;
+  - sync recomputes only from the days it changed.
+
+## Bugs found while building (fixed, with tests)
+
+- The process-wide non-blocking scoring lock skipped other users' recomputes on the public build.
+- The illness z-score divided by zero when a check-in answer never varied. `main` crashes its recompute on such data; the
+  benchmark hit it.
+- One query per matcher candidate pair, twice per recompute: 21k statements per write.
+- `erg_test` ran one query per erg session.
+- The event projection's fallback range was a pace printed as a time.
+- StrainGauge per-session percentages could exceed 100 %.
+- Chart axis dates were read back through UTC (wrong day east of UTC).
+- `/api/erg/results` re-resolved all weights per row and shipped every provider payload.
+
+## Verification
+
+| Suite | Result |
+|---|---|
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | all pass |
+| Whole suite on PostgreSQL (`CATCH_TEST_PG_URL`) | 2,321 passed |
+| `tests/pg` on the local Supabase stack (migration 0011, drift guard, RLS for every table incl. `user_zone_periods`) | 100 passed |
+| vitest | 104+ passed |
+| Playwright touch + desktop | 266 passed (8 skipped, as before) + onboarding specs |
+| `npm run test:public` | 20 passed |
+
+The initial bundle is 233.9 KB gzip (budget 250).
+
+Measured before/after (personal 3 years / Postgres + RLS 2 years):
+
+| | Personal | Postgres + RLS |
+|---|---|---|
+| Check-in write | 3,951 ms / 21,376 statements → 77 ms / 46 | 9,207 ms / 13,179 → 127 ms / 56 |
+| Erg results | 4,543 ms → 25 ms | 655 → 35 ms |
+
+## Not done / limitations
+
+- **Not run or verified here:**
+  - `npm run test:live`: it needs the local stack's Auth set to the new policy, i.e. `minimum_password_length = 8` and
+    `password_requirements = "lower_upper_letters_digits_symbols"` in its `config.toml`. Not changed here.
+  - The Android emulator e2e and iOS.
+  - No production deploy, so the production Supabase password policy is still an owner action.
+- `scripts/load_local.py` (concurrency) was not rerun.
+- **Model limits:**
+  - A zone learned only from an offset has no DST rules until a device names it.
+  - A watch on the wrong zone files workouts on the wrong day until Change day is used.
+  - Paul's law is a population rule.
+  - The strain constants (walking at 25 % HRR, REF 70, default baseline 4,000 AU) are documented assumptions, not validated
+    physiology.
+- `/api/predict/2k` is slower than before (12–32 ms) because it reads a year of evidence.

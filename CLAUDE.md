@@ -684,6 +684,31 @@ total distance (Python + `pieceSplits.ts`). **Still open (High): no per-user tim
 dump `-n catch -n catch_private -n catch_club` and re-create the two `auth.users` triggers after a schema-level restore. New scripts: `scripts/mcp_stdio_check.py`,
 `scripts/load_local.py`, `scripts/backup_restore_drill.py` (local stack only).
 
+Session 32 (passwords, "training issue", setup, strain, 2k, time zones, performance — see PLAN.md, `docs/time.md`, `docs/onboarding.md`,
+`docs/performance.md`, docs/analytics.md §2/§4/§5, DESIGN.md "Setup, passwords, time and estimates"; the brief carried no number).
+**Time zones**: every day-bucketing site goes through `catch/core/localtime.py` (DB-facing) over `catch/analytics/localtime.py` (pure);
+`tests/test_localtime.py` bans `date.today()`/`datetime.now()`/bare `.astimezone()` elsewhere under `catch/`. Records bucketed by an
+instant carry `local_date`/`local_tz` (activities, canonical_activities, food_logs, body_comp), stamped on flush by a `before_flush` hook
+(installed from `core/models.py`): the record's own watch offset > the travel timeline (`user_zone_periods`, owned) > Concept2's account
+zone > home zone (`user_profiles.timezone`, IANA) > fallback (Pi host zone; UTC on public). The app reports its device zone
+(`PUT /api/time-zone/device`), syncs learn watch offsets (`learn_from_records`); a canonical's day can be overridden (`overrides.local_date`,
+recorded day ± 1, "Change day"). Read a record's day with `localtime.day_of`, a range of workouts with `sync/activity_days.canonical_in_days`;
+never `.date()` of an instant. **Strain**: one curve over one load sum (`analytics/strain.py::day_load_strain`): HR/sRPE TRIMP + lifting as a
+TRIMP equivalent relative to the athlete's own median session (REF 70) + everyday steps at 25 % HRR; cardio-derived muscular AU feeds the
+readiness map only; overlapping unmerged cardio from different sources counts once; acute/chronic load use `day_load`; recovery reads
+`training_value`. Rows carry `"model": 2` (`scoring.SCORING_MODEL`). **Recompute**: per-owner lock with hand-off (never skipped); a write
+recomputes from the earliest local day it touched (tracked on the session by the same hook), seeding from stored rows; `full=True` for
+settings/backfill. **2k**: `sync/rowing_predict.py::estimate_2k` is the one reader (declared tests/pieces, HR-verified rows, weighted median
+of Paul's-law implied times, range in seconds, confidence words, `measured_2k` separate; `before=` for as-of thresholds).
+`scheduler.run_maintenance` (personal startup+daily; public sync tick) backfills stamps/timeline and recomputes once. **Setup**: `/welcome`,
+`api/routes_onboarding.py`, progress on `user_profiles.onboarding_*` (existing accounts marked completed by migration **0011**); OAuth
+`return_to=onboarding` is an allow-listed word in the signed state cookie. **Passwords** (public): min 8 + lowercase/uppercase/digit/symbol,
+`web/src/lib/passwordPolicy.ts` = `tests/fixtures/auth/password_policy.json` = the Supabase dashboard setting; `components/auth/PasswordField.tsx`.
+**"Niggle"** is "training issue" in every user-facing string (fields keep their names; `tests/test_terminology.py`). Perf: matcher decisions read
+once, batched list_tests/pieces/weights, Postgres indexes in 0011, bounded per-owner series cache; `scripts/perf_personal.py`,
+`tests/test_query_budget.py`. `EXPECTED_SCHEMA_REVISION = "0011"`. `tzdata` (pure Python) is a main dependency: `zoneinfo` falls back to it where an image has no
+system zone database, so zone validation (`available_timezones()`) never comes back empty.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -698,6 +723,7 @@ dump `-n catch -n catch_private -n catch_club` and re-create the two `auth.users
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
 - `uv run catch db current` — public: the applied Alembic revision vs the one this build expects (admin URL; docs/operations.md)
+- `uv run python scripts/perf_personal.py --years 3` — personal-shape latency + SQL-statement counts on a scratch SQLite DB (docs/performance.md)
 - `uv run python scripts/mcp_stdio_check.py` — stdio MCP end-to-end check against a disposable local instance (no .env, no network)
 - `uv run python scripts/backup_restore_drill.py` / `scripts/load_local.py` — local-Supabase-stack-only restore drill and multi-user latency check (env vars in each docstring)
 - `uv run catch secrets status` / `secrets rotate [--dry-run]` — master-key rotation: re-seal every stored credential under the current `CATCH_SECRETS_MASTER_KEY` (docs/security.md)

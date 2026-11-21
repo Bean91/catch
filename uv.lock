@@ -153,6 +153,7 @@ dependencies = [
     { name = "py-vapid" },
     { name = "pyjwt", extra = ["crypto"], marker = "platform_machine not in 'armv6l armv7l'" },
     { name = "sqlmodel" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -189,6 +190,7 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], marker = "platform_machine not in 'armv6l armv7l'", specifier = ">=2.9" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'public'", specifier = ">=2.9" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
+    { name = "tzdata", specifier = ">=2026.6" },
     { name = "uvicorn", specifier = ">=0.32" },
 ]
 provides-extras = ["public"]

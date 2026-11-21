@@ -8,7 +8,7 @@ rate shows a hard effort ("hr_verified") or that have no heart rate at all ("eff
 so the athlete's own "exclude from totals" is respected; a rate-capped piece (30 min at r20) and interval work never count."""
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import event
 from sqlalchemy.orm import defer
@@ -41,17 +41,18 @@ def _no_rest(a: Activity) -> bool:
     return not raw.get("rest_time") and not (a.intervals_json and '"intervals"' in a.intervals_json)
 
 
-def evidence(session: Session, settings: dict) -> list[dict]:
-    """Every qualifying performance, newest first, with its instant (`start`) so an as-of question can filter it. Cached on the
-    session: resolving every canonical asks for the threshold as of each one's date."""
+def evidence(session: Session, settings: dict, since: datetime | None = None) -> list[dict]:
+    """Every qualifying performance (from `since`, or all history), newest first, with its instant (`start`) so an as-of question
+    can filter it. Cached on the session: resolving every canonical asks for the threshold as of each one's date."""
+    key = (settings.get("max_hr"), since)
     cached = session.info.get(_CACHE_KEY)
-    if cached is not None and cached[0] == settings.get("max_hr"):
+    if cached is not None and cached[0] == key:
         return cached[1]
     from catch.sync.erg_test import list_tests
 
     points: list[dict] = []
     declared_canonicals: set[int] = set()
-    for row in list_tests(session):
+    for row in list_tests(session, since=since):
         if not row.get("date") or not row.get("distance_m") or not row.get("duration_s") or row.get("start") is None:
             continue
         if row.get("test_type") in RATE_CAPPED_PIECE_TYPES:
@@ -68,7 +69,7 @@ def evidence(session: Session, settings: dict) -> list[dict]:
     rows = session.exec(
         select(Activity).options(defer(Activity.raw_json)).where(
             Activity.source == "concept2", Activity.type == "rower", Activity.distance >= MIN_DISTANCE_M, Activity.distance <= MAX_DISTANCE_M,
-            Activity.duration.is_not(None), Activity.start.is_not(None),
+            Activity.duration.is_not(None), Activity.start.is_not(None), *([Activity.start >= since] if since is not None else []),
         )
     ).all()
     canonical_ids = sorted({a.canonical_id for a in rows if a.canonical_id is not None})
@@ -93,7 +94,7 @@ def evidence(session: Session, settings: dict) -> list[dict]:
             "label": f"{a.distance:.0f} m row", "canonical_id": a.canonical_id, "source": "concept2",
         })
     points.sort(key=lambda p: p["start"], reverse=True)
-    session.info[_CACHE_KEY] = (max_hr, points)
+    session.info[_CACHE_KEY] = (key, points)
     return points
 
 
@@ -104,8 +105,9 @@ def invalidate(session: Session) -> None:
 def estimate_2k(session: Session, settings: dict, before: datetime | None = None) -> dict:
     """The 2k estimate as it stood on the day of `before` (an activity's start), or now. Always carries the latest *measured* 2k separately — an estimate never replaces or hides one."""
     if before is None:
+        # Now: only the window the model can use (LOOKBACK_DAYS), not the whole history (session 32 perf).
         as_of = localtime.today(session)
-        pts = evidence(session, settings)
+        pts = evidence(session, settings, since=datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS + 2))
     else:
         # Everything up to that day, the session's own efforts included: zones as % of a 2k are defined by the test that day too.
         as_of = localtime.local_date_at(session, before)

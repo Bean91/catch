@@ -44,13 +44,12 @@ any other dangling link to "unlinked".
 
 ## Time zones and dates
 
-Plans and events are plain local dates. Completed workouts are bucketed by the **host's local zone**
-(`start.astimezone()`), exactly as scoring, trends and distribution already do, so the calendar, the week summary
-and the load numbers can't disagree about which day a workout is on. That is why there is **no `timezone`
-setting**: a second zone would split the app in two. The pure helpers (`local_date`, `today_in`,
-`local_day_utc_range`) take an explicit `tz` so tests cover Sydney / New York / DST / 23:30-local; the DB layer passes
-the host zone. A per-user zone belongs to the multi-user (Supabase) build. SQLite hands tz-aware columns back
-naive; `aware_utc()` treats naive as UTC, and a test compares a fresh row with a reloaded one.
+Plans and events are plain local dates. Since session 32 a completed workout is placed on its **own stamped local day** — the
+day in the zone it happened in (`canonical_activities.local_date`, docs/time.md) — the same day scoring, trends and distribution use,
+so the calendar, the week summary and the load numbers can't disagree. "Today" is the athlete's current zone (`catch.core.localtime`),
+replacing the host-zone default described here before. The pure helpers (`local_date`, `today_in`, `local_day_utc_range`) still take an
+explicit `tz` (tests cover Sydney / New York / DST / 23:30-local); the DB layer passes the athlete's zone, and a planned workout's
+"days to go" uses the zone the current request resolved.
 
 ## Recurrence
 

@@ -19,6 +19,14 @@ from catch.sync.upsert import upsert_activity
 from tests.pg.conftest import signup
 from tests.pg.test_runtime import app  # noqa: F401  (the fixture: the real app on the catch_api engine)
 
+
+@pytest.fixture(autouse=True)
+def _users_on_the_test_hosts_calendar(monkeypatch):
+    """Dates here come from the host's date.today(); a public account with no zone reads days in UTC (session 32, docs/time.md)."""
+    from catch.core import localtime
+
+    monkeypatch.setattr(localtime, "fallback_zone_name", localtime.host_zone_name)
+
 pytestmark = pytest.mark.filterwarnings("ignore:Cannot correctly sort tables")
 UTC = timezone.utc
 

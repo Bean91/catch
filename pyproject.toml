@@ -39,6 +39,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9; platform_machine not in 'armv6l armv7l'",
     # Session 30: APNs only speaks HTTP/2. `h2` (and its pure-Python hpack/hyperframe) is public-deployment-only, so the Pi is unchanged.
     "h2>=4.1; platform_machine not in 'armv6l armv7l'",
+    "tzdata>=2026.6",
 ]
 
 [project.optional-dependencies]

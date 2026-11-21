@@ -519,6 +519,35 @@ The store apps are the same screens in the same tokens; nothing was redesigned. 
 - `?mock=1` works in the dev server, personal builds and explicitly allowed test bundles only. On the real public site it would
   have shown a signed-in-looking app with fake "Connected" sources.
 
+## Setup, passwords, time and estimates (session 32)
+
+- **Setup is five short cards in the existing language**, one per step, with "Step n of 5" as text (and a thin accent progress bar,
+  decorative only). Every step has a way forward that never waits: Skip on each provider, Skip on training basics, "Go to dashboard"
+  while history imports, and a quiet "Skip setup — I'll do this later in Settings" under every step. Providers reuse the Connections
+  cards untouched, each with one line on what it brings; a skipped one collapses to "Skipped for now" with "Connect instead". A provider
+  sign-in that comes back refused or failed is a `role="status"` sentence, never a dead end. Only a brand-new public account is sent
+  there, once, from the landing page; Settings → First-run setup reopens it.
+- **Password requirements are visible before submitting** and tick off as you type: a glyph and a word per rule (✓ / ○, plus
+  "done"/"not yet" for screen readers, `aria-live="polite"`), never colour alone. The rules are the server's own (min 8, lowercase,
+  uppercase, number, symbol). Every password field has its own Show/Hide button (`aria-pressed`, 44 px, right inside the field), so
+  revealing the password never reveals the confirmation. Sign-up and recovery ask for a confirmation; Settings → Account gained
+  "Change password", which says "sign in again" in words when Supabase wants a recent sign-in.
+- **Time zone** lives in Settings as plain words: "Showing dates in Tokyo now", the home zone as a select (this device's zone first,
+  labelled), and "Follow my device while travelling" as an On/Off `role="switch"`. A workout's time is shown where it happened, with the
+  zone named only when it differs from where you are now ("07:10 · Tokyo"). Workout detail has a small "Counts on" select (recorded
+  day ± 1, "(recorded)" marked, "changed by you" when overridden) — the one manual control, for a device that was on the wrong zone.
+- **Estimates look like estimates.** The 2k on Today is titled "Estimated 2k" with a small bordered `ESTIMATE` tag, the confidence as
+  words ("Moderate confidence"), "likely m:ss–m:ss" and one line on what it was built from ("From 2 recent hard efforts … An estimate,
+  not a result."). A measured 2k, when there is one, is its own line ("Measured 2k 6:35.2 · 8 Nov") and is never replaced. The trend
+  metric is "Implied 2k per hard effort".
+- **Strain's parts add up.** The gauge's three accent opacities and the breakdown show each part's *share* of the day's one load sum
+  (cardio, muscular, everyday movement), and each session's share — always summing to 100 %. A watch workout counted once beside the
+  erg's result says "Same time as another workout — counted once".
+- **"Training issue"** replaces "niggle" in every word a person or the AI reads ("Training issue (optional)", "No training issue today",
+  "Training issue: Left knee — 4 days running").
+- Playwright: `web/tests/touch/onboarding.spec.ts` (both mobile projects) and `onboarding-desktop.spec.ts`; the password rules and
+  toggles in `web/tests/public/public-auth.spec.ts`.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

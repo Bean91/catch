@@ -24,14 +24,15 @@ def _overrides(canonical: CanonicalActivity) -> dict:
     return json.loads(canonical.overrides_json) if canonical.overrides_json else {}
 
 
-def _erg_canonicals_with_concept2_member(session: Session) -> list[tuple[CanonicalActivity, Activity]]:
+def _erg_canonicals_with_concept2_member(session: Session, since: datetime | None = None) -> list[tuple[CanonicalActivity, Activity]]:
     # Session 17 (see PLAN.md Part D.4) — excludes a canonical absorbed into a piece
     # (`absorbed_into_piece_id`): its own Concept2 result is already represented as that
     # piece's row elsewhere in the test center, so letting it through here would also show
     # up as its own (duplicate) confirmed-test candidate or confirmed test.
-    rows = session.exec(
-        select(CanonicalActivity).where(CanonicalActivity.category == "erg", CanonicalActivity.absorbed_into_piece_id.is_(None))
-    ).all()
+    conditions = [CanonicalActivity.category == "erg", CanonicalActivity.absorbed_into_piece_id.is_(None)]
+    if since is not None:
+        conditions.append(CanonicalActivity.start >= since)
+    rows = session.exec(select(CanonicalActivity).where(*conditions)).all()
     # One query for every member (session 32), not one per canonical: this runs on Today, the 2k estimate and recommendations.
     first_member: dict[int, Activity] = {}
     ids = [c.id for c in rows]
@@ -44,7 +45,7 @@ def _erg_canonicals_with_concept2_member(session: Session) -> list[tuple[Canonic
     return [(c, first_member[c.id]) for c in rows if c.id in first_member]
 
 
-def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
+def _piece_rows(session: Session, test_type: str | None = None, since: datetime | None = None) -> list[dict]:
     """Session 17 (see PLAN.md Part A.1/A.2): pieces count in the test center exactly like
     confirmed Concept2 results — "kind": "piece" plus a "piece_id" distinguish a row here from
     a confirmed-test row (which uses the canonical id as its own detail id), since a piece's
@@ -61,6 +62,8 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
         if test_type and p.piece_type != test_type:
             continue
         canonical = canonicals.get(p.canonical_id)
+        if since is not None and (canonical is None or canonical.start is None or canonical.start < since):
+            continue
         splits = json.loads(p.splits_json) if p.splits_json else []
         hrs = [s["hr"] for s in splits if s.get("hr") is not None]
         out.append(
@@ -84,9 +87,9 @@ def _piece_rows(session: Session, test_type: str | None = None) -> list[dict]:
     return out
 
 
-def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
+def list_tests(session: Session, test_type: str | None = None, since: datetime | None = None) -> list[dict]:
     out = []
-    for canonical, member in _erg_canonicals_with_concept2_member(session):
+    for canonical, member in _erg_canonicals_with_concept2_member(session, since):
         overrides = _overrides(canonical)
         if "test" not in (overrides.get("tags") or []):
             continue
@@ -115,7 +118,7 @@ def list_tests(session: Session, test_type: str | None = None) -> list[dict]:
                 "drag_factor": member.drag_factor,
             }
         )
-    out += _piece_rows(session, test_type)
+    out += _piece_rows(session, test_type, since)
     out.sort(key=lambda r: r["start"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return out
 
