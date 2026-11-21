@@ -1,3 +1,4 @@
+import { formatInstantDate } from "../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -159,7 +160,7 @@ export function HealthDataPage() {
 
       {preview && (
         <Card title="Ready to send">
-          <p className="text-sm text-text-secondary">Between {new Date(preview.from).toLocaleDateString()} and today, Catch would add:</p>
+          <p className="text-sm text-text-secondary">Between {formatInstantDate(preview.from, null, { year: "numeric", month: "short", day: "numeric" })} and today, Catch would add:</p>
           <ul className="mt-2 list-inside list-disc text-sm text-text-primary">
             {preview.counts.workouts > 0 && <li>{preview.counts.workouts} workout{preview.counts.workouts === 1 ? "" : "s"}</li>}
             {preview.counts.sleep > 0 && <li>{preview.counts.sleep} night{preview.counts.sleep === 1 ? "" : "s"} of sleep</li>}

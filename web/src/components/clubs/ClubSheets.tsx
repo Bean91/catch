@@ -1,3 +1,4 @@
+import { formatInstantDate } from "../../lib/localTime";
 import { todayISO, toISODate } from "../../lib/dates";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -341,7 +342,7 @@ export function LinkWorkoutSheet({ open, onOpenChange, clubId, session, defaultS
           <li key={w.id}>
             <button type="button" onClick={() => link.mutate(w.id)} className={`${btn} flex w-full items-center justify-between text-left`} data-testid="link-workout">
               <span>{w.title ?? "Workout"}</span>
-              <span className="font-mono-nums text-xs text-text-tertiary">{w.start ? new Date(w.start).toLocaleDateString() : ""}</span>
+              <span className="font-mono-nums text-xs text-text-tertiary">{w.start ? formatInstantDate(w.start, null, { year: "numeric", month: "short", day: "numeric" }) : ""}</span>
             </button>
           </li>
         ))}

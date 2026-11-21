@@ -1,3 +1,4 @@
+import { formatInstantDate } from "../../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -50,7 +51,7 @@ export function RestrictionsCard() {
           <li key={r.id} className="rounded-md border border-border p-3 text-sm">
             <p className="font-medium text-text-primary">{r.active ? "Restricted" : "Ended"}: {r.scope_text}</p>
             <p className="mt-1 text-text-secondary">Reason: {r.reason}</p>
-            <p className="text-xs text-text-secondary">Decided by {r.decided_by} on {new Date(r.created_at).toLocaleDateString()}{r.expires_at ? ` · ends ${new Date(r.expires_at).toLocaleDateString()}` : ""}. This never limits your own data, download or account deletion.</p>
+            <p className="text-xs text-text-secondary">Decided by {r.decided_by} on {formatInstantDate(r.created_at, null, { year: "numeric", month: "short", day: "numeric" })}{r.expires_at ? ` · ends ${formatInstantDate(r.expires_at, null, { year: "numeric", month: "short", day: "numeric" })}` : ""}. This never limits your own data, download or account deletion.</p>
             {r.appeal ? (
               <p className="mt-2 text-xs text-text-secondary">Appeal {r.appeal.status}{r.appeal.resolution ? `: ${r.appeal.resolution}` : "."}</p>
             ) : r.active ? (

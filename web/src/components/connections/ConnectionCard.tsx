@@ -1,3 +1,4 @@
+import { formatInstantDateTime } from "../../lib/localTime";
 import { isNative } from "../../lib/native/platform";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -128,7 +129,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
             {card.next_attempt_at && card.status !== "connected" && (
               <>
                 <dt className="text-text-tertiary">Next try</dt>
-                <dd>{new Date(card.next_attempt_at).toLocaleString()}</dd>
+                <dd>{formatInstantDateTime(card.next_attempt_at)}</dd>
               </>
             )}
           </dl>

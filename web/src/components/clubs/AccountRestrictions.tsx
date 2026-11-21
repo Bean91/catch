@@ -1,3 +1,4 @@
+import { formatInstantDateTime } from "../../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { authedFetch } from "../../lib/authedFetch";
@@ -80,7 +81,7 @@ export function AccountRestrictions() {
           <details>
             <summary className="cursor-pointer text-sm font-medium text-text-secondary">Action log ({log.data!.actions.length})</summary>
             <ul className="mt-2 flex flex-col gap-1 text-xs text-text-secondary">
-              {log.data!.actions.slice(0, 50).map((a) => <li key={a.id}>{new Date(a.at).toLocaleString()} · {a.action} · {a.subject_user_id.slice(0, 8)}… · {a.reason}</li>)}
+              {log.data!.actions.slice(0, 50).map((a) => <li key={a.id}>{formatInstantDateTime(a.at)} · {a.action} · {a.subject_user_id.slice(0, 8)}… · {a.reason}</li>)}
             </ul>
           </details>
         )}

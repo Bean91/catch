@@ -143,3 +143,66 @@ def test_seeding_examples_through_init_helpers_is_idempotent(engine, monkeypatch
     with Session(engine) as s:
         rows = s.exec(select(WorkoutTemplate)).all()
     assert len(rows) >= 6 and all(r.is_example and r.external_id for r in rows) and len({r.external_id for r in rows}) == len(rows)
+
+
+# --- Session 32: an existing Pi file upgraded in place ------------------------------------------------------------------------
+
+
+def test_an_existing_pi_database_gains_the_session_32_columns_indexes_and_stamps(monkeypatch):
+    """Start from a file as it was before session 32 (no zone columns, no new indexes, no zone table), with history in it; run the
+    real startup migration; then the one-time backfill and a full recompute must work on it."""
+    from datetime import datetime, timezone
+
+    from catch.core import localtime
+    from catch.core.models import CanonicalActivity, DailyScore, DailyWellness, UserProfile
+    from catch.sync import scoring
+    from catch.sync.matching import run_matching
+
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(eng)
+    with eng.begin() as conn:
+        for name, _table, _cols in db_module._SESSION32_INDEXES:
+            conn.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
+        conn.exec_driver_sql("DROP TABLE user_zone_periods")
+        for table in ("activities", "canonical_activities", "food_logs", "body_comp"):
+            conn.exec_driver_sql(f"DROP INDEX IF EXISTS ix_{table}_owner_local_date")
+            conn.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN local_tz")
+            conn.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN local_date")
+        for col in ("timezone", "follow_device_zone", "onboarding_state", "onboarding_step", "onboarding_json", "onboarding_completed_at"):
+            conn.exec_driver_sql(f"ALTER TABLE user_profiles DROP COLUMN {col}")
+        conn.exec_driver_sql("INSERT INTO user_profiles (id, display_name, created_at) VALUES ('owner', 'You', '2026-01-01 00:00:00')")
+        conn.exec_driver_sql(
+            "INSERT INTO activities (owner_id, source, external_id, type, start, duration, avg_hr, updated_at) "
+            "VALUES ('owner', 'concept2', 'old1', 'rower', '2026-03-04 04:30:00.000000', 1800, 150, '2026-03-04 05:00:00.000000')"
+        )
+        conn.exec_driver_sql("INSERT INTO daily_wellness (owner_id, date, source, resting_hr, updated_at) VALUES ('owner', '2026-03-03', 'garmin', 50, '2026-03-03 08:00:00')")
+    monkeypatch.setattr(db_module, "engine", eng)
+    monkeypatch.setattr(localtime, "host_zone_name", lambda: "America/New_York")  # the Pi's own zone
+
+    db_module._migrate_columns()
+    db_module._migrate_columns()  # idempotent
+
+    with eng.connect() as conn:
+        cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(activities)")}
+        assert {"local_date", "local_tz"} <= cols
+        idx = {r[1] for r in conn.exec_driver_sql("SELECT type, name FROM sqlite_master WHERE type = 'index'")}
+        assert {name for name, _t, _c in db_module._SESSION32_INDEXES} <= idx
+    SQLModel.metadata.create_all(eng)  # init_db's create_all adds the new table to an old file
+
+    with Session(eng) as session:
+        assert session.get(UserProfile, "owner").onboarding_state is None  # the Pi never auto-shows setup anyway
+        run_matching(session)
+        session.info["catch_no_stamp"] = True  # what old rows look like: run_matching created the canonical unstamped
+        c = session.exec(select(CanonicalActivity)).one()
+        c.local_date = None
+        session.add(c)
+        session.commit()
+        del session.info["catch_no_stamp"]
+        assert localtime.ensure_backfilled(session) is True
+        a = session.exec(select(Activity)).one()
+        # 23:30 on 3 March on the Pi's New York clock, exactly the day the old host-zone code gave it.
+        assert a.local_date.isoformat() == "2026-03-03" and a.local_tz == "America/New_York"
+        assert scoring.recompute_scores(session, full=True) > 0
+        row = session.get(DailyScore, ("owner", DailyWellness.__table__.c.date.type.python_type.fromisoformat("2026-03-03")))
+        assert json.loads(row.strain_json)["model"] == scoring.SCORING_MODEL
+        assert datetime(2026, 3, 4, 4, 30, tzinfo=timezone.utc) == a.start

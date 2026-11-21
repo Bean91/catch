@@ -152,10 +152,31 @@ def rowing_watts_2k(session: Session, settings: dict, before: datetime | None = 
     return watts_from_pace(result["value"])
 
 
-def _drop_cache_on_change(session: Session, flush_context, instances) -> None:
+# What on a canonical can change the evidence: being tagged a test (overrides), excluded, re-categorised or absorbed, or its day. Not
+# the resolved fields resolve_canonical rewrites on every pass — dropping the cache on those made a full re-resolve rebuild the
+# whole evidence once per rowing session (session 32, docs/performance.md).
+_EVIDENCE_FIELDS = ("overrides_json", "category", "absorbed_into_piece_id", "local_date", "start")
+
+
+def _affects_evidence(obj) -> bool:
+    from sqlalchemy import inspect as sa_inspect
+
     from catch.core.models import Piece
 
-    if _CACHE_KEY in session.info and any(isinstance(o, (Activity, CanonicalActivity, Piece)) for o in (*session.new, *session.dirty, *session.deleted)):
+    if isinstance(obj, (Activity, Piece)):
+        return True
+    if isinstance(obj, CanonicalActivity):
+        state = sa_inspect(obj)
+        if state.pending or state.deleted:
+            return True
+        return any(state.attrs[f].history.has_changes() for f in _EVIDENCE_FIELDS)
+    return False
+
+
+def _drop_cache_on_change(session: Session, flush_context, instances) -> None:
+    if _CACHE_KEY not in session.info:
+        return
+    if any(_affects_evidence(o) for o in (*session.new, *session.deleted)) or any(_affects_evidence(o) for o in session.dirty if session.is_modified(o)):
         session.info.pop(_CACHE_KEY, None)
 
 

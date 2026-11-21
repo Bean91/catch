@@ -1,3 +1,4 @@
+import { formatInstantDate } from "../../../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -85,7 +86,7 @@ export function ManageTab({ club }: { club: Club }) {
           <ul className="flex flex-col gap-2" data-testid="club-invites">
             {(invites.data?.invites ?? []).map((i) => (
               <li key={i.invite_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="text-text-primary">{i.role === "coach" ? "Coach" : "Athlete"} invite <span className="text-xs text-text-tertiary">· {i.state}{i.state === "active" ? `, expires ${new Date(i.expires_at).toLocaleDateString()}` : ""}{i.max_uses ? ` · ${i.uses ?? 0}/${i.max_uses} used` : ""}</span></span>
+                <span className="text-text-primary">{i.role === "coach" ? "Coach" : "Athlete"} invite <span className="text-xs text-text-tertiary">· {i.state}{i.state === "active" ? `, expires ${formatInstantDate(i.expires_at, null, { year: "numeric", month: "short", day: "numeric" })}` : ""}{i.max_uses ? ` · ${i.uses ?? 0}/${i.max_uses} used` : ""}</span></span>
                 {i.state === "active" && <button type="button" className={`${btn} px-3`} onClick={() => revoke.mutate(i.invite_id)} data-testid="invite-revoke">Revoke</button>}
               </li>
             ))}
@@ -125,7 +126,7 @@ export function ManageTab({ club }: { club: Club }) {
             {(audit.data?.events ?? []).map((e, i) => (
               <li key={i} className="py-2">
                 <span className="text-text-primary">{CLUB_ACTION_LABEL[e.action] ?? e.action}</span>
-                <span className="text-text-tertiary"> · {e.by ?? "someone"}{e.about ? ` → ${e.about}` : ""} · {new Date(e.at).toLocaleDateString()}</span>
+                <span className="text-text-tertiary"> · {e.by ?? "someone"}{e.about ? ` → ${e.about}` : ""} · {formatInstantDate(e.at, null, { year: "numeric", month: "short", day: "numeric" })}</span>
                 <p className="text-xs text-text-secondary">{e.reason}</p>
               </li>
             ))}

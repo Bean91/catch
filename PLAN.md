@@ -4731,11 +4731,24 @@ Measured before/after (personal 3 years / Postgres + RLS 2 years):
 | Check-in write | 3,951 ms / 21,376 statements → 77 ms / 46 | 9,207 ms / 13,179 → 127 ms / 56 |
 | Erg results | 4,543 ms → 25 ms | 655 → 35 ms |
 
+**Password policy vs real GoTrue** (local stack temporarily set to min 8 + `lower_upper_letters_digits_symbols`, then restored): every
+vector in `tests/fixtures/auth/password_policy.json` behaved as the app's checklist says. The 3 valid ones were accepted, and each
+invalid one got 422 `weak_password`. That includes a space and an accented letter not counting as symbols.
+
+**Added after a final review:**
+- Zone names (`local_tz`, `current_zone`…) are stripped from every model-bound tool result (`ai_sharing.ZONE_KEYS`), since no sharing
+  category covers location.
+- The travel timeline is exported and deletable with "GPS tracks, routes, weather and travel time zones"; `docs/data-inventory.md`
+  updated.
+- An in-place upgrade test for an existing Pi file (`tests/test_db_migrations.py`).
+- 2k evidence cache invalidation narrowed. A full re-resolve with a year of per-second samples (426 canonicals) takes 1.1 s.
+- The last instant formatters use the account zone (Status, connection cards, clubs, privacy, leaderboard settings).
+
 ## Not done / limitations
 
 - **Not run or verified here:**
-  - `npm run test:live`: it needs the local stack's Auth set to the new policy, i.e. `minimum_password_length = 8` and
-    `password_requirements = "lower_upper_letters_digits_symbols"` in its `config.toml`. Not changed here.
+  - `npm run test:live` as a whole: it needs the stack reconfigured (email confirmations, redirect URLs), which breaks `tests/pg`.
+    The password rules were checked against real GoTrue directly instead (above).
   - The Android emulator e2e and iOS.
   - No production deploy, so the production Supabase password policy is still an owner action.
 - `scripts/load_local.py` (concurrency) was not rerun.
@@ -4746,3 +4759,6 @@ Measured before/after (personal 3 years / Postgres + RLS 2 years):
   - The strain constants (walking at 25 % HRR, REF 70, default baseline 4,000 AU) are documented assumptions, not validated
     physiology.
 - `/api/predict/2k` is slower than before (12–32 ms) because it reads a year of evidence.
+- **Not built:**
+  - Training Intelligence still makes its 8 requests; each is now 4–25 ms.
+  - Sync-status polling already pauses while the tab is hidden (TanStack's default), so it wasn't changed.

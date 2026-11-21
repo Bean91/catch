@@ -159,8 +159,6 @@ def today(db: Session = Depends(get_db)):
         # whenever they're not in the same timezone). An actual timestamp lets the client show
         # real data age without assuming anything about either side's timezone.
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        # Session 32: the zone "today" was read in, so the client never derives a day from the browser's own clock.
-        "time_zone": localtime.current_zone_name(db),
         "recovery": recovery,
         "sleep_last_night": (
             {

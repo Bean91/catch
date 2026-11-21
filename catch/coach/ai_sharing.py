@@ -137,8 +137,14 @@ def arg_decision(session: Session, name: str, args: dict) -> dict | None:
     return None
 
 
+# Session 32: a record's zone ("Asia/Tokyo", "+09:00") says roughly where the athlete was. No sharing category covers location, and
+# the coach needs none (every date in a result is already the athlete's local day), so zone names never reach an AI provider.
+ZONE_KEYS = {"local_tz", "time_zone", "current_zone", "fallback_zone", "follow_device_zone", "timezone"}
+
+
 def limit_result(session: Session, name: str, result):
-    """Drop the parts of a result that belong to categories the person has not allowed."""
+    """Drop the parts of a result that belong to categories the person has not allowed, and every zone name (ZONE_KEYS)."""
+    result = _strip(result, ZONE_KEYS)
     rules = _MIXED.get(name)
     if not rules:
         return result

@@ -1,3 +1,4 @@
+import { formatInstantDate } from "../../../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card } from "../../ui/Card";
@@ -30,7 +31,7 @@ export function NewsTab({ club }: { club: Club }) {
               {p.status !== "published" && <span data-testid="post-status" className="rounded-full border border-border px-2 py-0.5 text-xs text-text-secondary">{p.status === "pending" ? "Waiting for a coach" : p.status === "hidden" ? "Taken down" : "Not approved"}</span>}
             </div>
             <p className="mt-1 whitespace-pre-line text-sm text-text-secondary">{p.body}</p>
-            <p className="mt-2 text-xs text-text-tertiary">{p.author} · {new Date(p.created_at).toLocaleDateString()}</p>
+            <p className="mt-2 text-xs text-text-tertiary">{p.author} · {formatInstantDate(p.created_at, null, { year: "numeric", month: "short", day: "numeric" })}</p>
             {p.decision_reason && <p className="mt-1 text-xs text-text-tertiary">Reason: {p.decision_reason}</p>}
             <div className="mt-2 flex flex-wrap gap-2">
               {p.can_approve && <button type="button" className={btnPrimary} onClick={() => approve.mutate(p.id)} data-testid="post-approve">Approve</button>}

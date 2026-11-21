@@ -1,3 +1,4 @@
+import { formatInstantDateTime } from "../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -324,7 +325,7 @@ function OptedIn({ state }: { state: LbState }) {
                 {ACTOR_LABEL[ev.actor_kind]}: {STATUS_LABEL[ev.to_status] ?? ev.to_status}
               </p>
               <p className="text-text-secondary">{ev.reason_text}</p>
-              <p className="text-xs text-text-tertiary">{new Date(ev.created_at).toLocaleString()}</p>
+              <p className="text-xs text-text-tertiary">{formatInstantDateTime(ev.created_at)}</p>
             </li>
           ))}
         </ul>

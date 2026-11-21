@@ -1,3 +1,4 @@
+import { formatInstantDateTime } from "../lib/localTime";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { fetchStatus } from "../lib/api";
@@ -45,7 +46,7 @@ export function StatusPage() {
                   ) : (
                     <>last success {formatRelativeTime(s.last_success_at)}</>
                   )}
-                  {s.token_expires_at && <> · token valid until {new Date(s.token_expires_at).toLocaleString()}</>}
+                  {s.token_expires_at && <> · token valid until {formatInstantDateTime(s.token_expires_at)}</>}
                 </div>
               </div>
             </div>

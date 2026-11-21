@@ -73,6 +73,14 @@ Full recompute: **3,881 ms → 669 ms**.
 | `GET /api/activities?limit=50` | 13.5 / 7 | 26.7 / 7 |
 | `GET /api/predict/2k` | 10.0 / 7 | 32.0 / 11 |
 
+## The one-time upgrade job
+
+`run_maintenance` re-resolves every canonical once (each rowing session's power zones now use the 2k estimate as of its own date) and
+recomputes all days. Timed with one year of per-second power and heart rate on 321 rowing sessions (426 canonicals): **1.1 s** for
+the re-resolve on a laptop, so roughly 3 s for three years and, at the Pi 3's 10–20× slower single core, about 30–60 s once, in the
+background. The 2k evidence it reads is built once per pass: the cache is dropped only when something that changes the evidence is
+written (a source record, a piece, a canonical's overrides/category/day), not when resolve rewrites a canonical's cached fields.
+
 ## What got slower, and why
 
 - **`/api/predict/2k`** went from about 3 to 12 ms on SQLite and 10 to 32 ms on Postgres. The estimate now reads a year of confirmed

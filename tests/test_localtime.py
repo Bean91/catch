@@ -318,3 +318,23 @@ def test_change_day_moves_one_workout_within_a_day_of_its_recorded_day_and_recom
     assert len(scoring.day_strain(session, date(2026, 9, 2), s)["components"]) == 1
     reverted = client.post(f"/api/activities/{cid}/revert", json={"field": "local_date"}).json()
     assert reverted["local_date"] == "2026-09-01"
+
+
+def test_zone_names_never_reach_an_ai_provider_even_with_every_category_allowed(session):
+    """A zone says roughly where the athlete was; no sharing category covers location, so it is stripped from every model-bound
+    tool result (dates stay: they are already the athlete's local days)."""
+    from catch.coach import ai_sharing
+
+    result = {"items": [{"id": 1, "local_date": "2026-05-12", "local_tz": "Asia/Tokyo", "start": "2026-05-12T10:00:00+00:00"}],
+              "today": {"time_zone": "Asia/Tokyo", "current_zone": "+09:00", "timezone": "Europe/Paris"}}
+    out = ai_sharing.limit_result(session, "list_workouts", result)
+    dumped = json.dumps(out)
+    assert "Tokyo" not in dumped and "+09:00" not in dumped and "Paris" not in dumped
+    assert out["items"][0]["local_date"] == "2026-05-12"
+
+
+def test_the_travel_timeline_is_exported_and_deletable_with_location_data():
+    from catch.sync import privacy
+
+    assert "user_zone_periods" in privacy.exported_tables()
+    assert "user_zone_periods" in privacy.DELETE_CATEGORIES["gps"]["tables"]

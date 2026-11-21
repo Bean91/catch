@@ -76,6 +76,12 @@ export function formatInstantDate(iso: string, zone?: string | null, opts: Intl.
   return new Date(iso).toLocaleDateString(undefined, { ...opts, timeZone: tz });
 }
 
+/** Date and time of an instant in the account's zone (or `zone`): "12 May 2026, 07:10". */
+export function formatInstantDateTime(iso: string, zone?: string | null): string {
+  const tz = isValidZone(zone) ? zone : activeTimeZone();
+  return new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: tz });
+}
+
 function offsetMinutes(zone: string, at: Date = new Date()): number | null {
   try {
     const name = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value ?? "";

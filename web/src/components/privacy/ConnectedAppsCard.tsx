@@ -1,10 +1,11 @@
+import { formatInstantDateTime } from "../../lib/localTime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { endOauthGrant, fetchDeviceTokens, fetchOauthGrants, fetchToolCalls, revokeAllDeviceTokens, revokeDeviceToken } from "../../lib/privacy";
 import { Card } from "../ui/Card";
 
 const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
-const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "never");
+const when = (iso: string | null) => (iso ? formatInstantDateTime(iso) : "never");
 
 export function ConnectedAppsCard() {
   const qc = useQueryClient();
