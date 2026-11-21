@@ -292,3 +292,29 @@ def test_no_day_is_bucketed_on_the_servers_own_clock_outside_the_one_helper():
             if BANNED.search(line.split("#", 1)[0]):
                 offenders.append(f"{rel}:{i}")
     assert offenders == []
+
+
+def test_change_day_moves_one_workout_within_a_day_of_its_recorded_day_and_recomputes_both(client, session):
+    assert client.post("/api/login", json={"password": "correct-horse-battery-staple"}).status_code == 200
+    localtime.set_preferences(session, home="Europe/Paris", follow=False)
+    update_settings(session, {"max_hr": 190})
+    for d in (date(2026, 9, 1), date(2026, 9, 2)):
+        session.add(DailyWellness(date=d, resting_hr=50))
+    session.add(Activity(source="concept2", external_id="late", type="rower", start=datetime(2026, 9, 1, 21, 40, tzinfo=UTC), duration=3000.0, avg_hr=150))
+    session.commit()
+    run_matching(session)
+    scoring.recompute_scores(session, full=True)
+    cid = session.exec(select(Activity)).first().canonical_id
+    detail = client.get(f"/api/activities/{cid}").json()
+    assert detail["local_date"] == detail["recorded_local_date"] == "2026-09-01"
+    assert client.patch(f"/api/activities/{cid}", json={"local_date": "2026-09-05"}).status_code == 422
+    moved = client.patch(f"/api/activities/{cid}", json={"local_date": "2026-09-02"}).json()
+    assert moved["local_date"] == "2026-09-02" and moved["start"].startswith("2026-09-01T21:40")  # the time itself never changes
+    session.expire_all()
+    from catch.core.settings_store import get_settings
+
+    s = get_settings(session)
+    assert scoring.day_strain(session, date(2026, 9, 1), s)["components"] == []
+    assert len(scoring.day_strain(session, date(2026, 9, 2), s)["components"]) == 1
+    reverted = client.post(f"/api/activities/{cid}/revert", json={"field": "local_date"}).json()
+    assert reverted["local_date"] == "2026-09-01"
