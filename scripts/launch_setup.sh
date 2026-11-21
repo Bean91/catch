@@ -38,7 +38,8 @@ uv run catch db current
 unset DATABASE_ADMIN_URL ENC_PW
 
 step "Building the frontend"
-(cd web && npm ci && VITE_CATCH_DEPLOYMENT=public VITE_SUPABASE_URL="$SUPABASE_URL" \
+# Own cache: a ~/.npm left root-owned by an old `sudo npm` makes `npm ci` fail with EACCES.
+(cd web && npm ci --cache "$HOME/.cache/catch-npm" && VITE_CATCH_DEPLOYMENT=public VITE_SUPABASE_URL="$SUPABASE_URL" \
   VITE_SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" npm run build && npm run check:build-secrets)
 
 step "Deploying to FastAPI Cloud"

@@ -34,11 +34,11 @@ Blocker IDs (B-n) refer to [launch-audit.md](launch-audit.md#blockers).
 
 | Item | Status | Owner / next action |
 |---|---|---|
-| This branch deployed, **after** `catch db upgrade` to 0010 | **FAIL**: production runs session-30 code on a 0008 DB | Owner: B-1 |
+| This branch deployed, **after** `catch db upgrade` to 0010 | **PASS**: DB at 0010, then `5fc7302`-era `main` deployed 2026-11-21 00:4x UTC | B-1 resolved |
 | `/internal/db-check`: `bypass_rls` false, ssl true, probes pass, `schema_missing_tables` empty | NOT VERIFIED (tick secret not provided) | Owner: run after B-1 |
 | `/internal/config-check`: every required secret loaded; Garmin BYOK set explicitly | NOT VERIFIED | Owner (B-6 decides the Garmin value) |
 | Secrets stored as encrypted secrets, values whitespace-free | OWNER | Owner: re-enter `WITHINGS_CLIENT_SECRET` if the deploy doesn't fix B-9 |
-| Production smoke `scripts/smoke_public.py` | **FAIL** (28 passed, 3 failed: account deletion 500, 2026-11-20 15:19 UTC) | Re-run after B-1; must be all PASS |
+| Production smoke `scripts/smoke_public.py` | **PASS** (31 passed, 0 failed, 1 skipped (`/internal`, no tick secret), 2026-11-21 after the deploy) | — |
 | Rollback procedure rehearsed | NOT VERIFIED (not authorised) | Owner: redeploy the previous commit once, on purpose, before launch |
 | Scheduled ticks running (`cron.job_run_details`) | PASS in session 29; NOT VERIFIED in session 31 | Owner |
 
@@ -46,7 +46,7 @@ Blocker IDs (B-n) refer to [launch-audit.md](launch-audit.md#blockers).
 
 | Item | Status | Owner / next action |
 |---|---|---|
-| Migrations at head (0010) | **FAIL** (0008) | B-1 |
+| Migrations at head (0010) | **PASS** (`catch db current`: 0010 = 0010) | B-1 resolved |
 | Plan with backups (Pro+) or scheduled `pg_dump` of all three schemas; restore drill run against a production dump | **FAIL**: Free plan, no backup ever taken | B-3 |
 | Auth settings: confirm email, password policy, secure password change, MFA (TOTP) + moderators enrolled, rate limits + CAPTCHA, exact redirect URLs | OWNER / NOT VERIFIED (F-17) | B-10 |
 | Custom SMTP configured; sign-up confirmation and password recovery emails received | **FAIL / NOT VERIFIED** | B-5 |
