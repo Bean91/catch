@@ -52,6 +52,7 @@ const ClubPage = lazy(() => import("./pages/ClubPage").then((m) => ({ default: m
 const ClubChallengePage = lazy(() => import("./pages/ClubChallenge").then((m) => ({ default: m.ClubChallengePage })));
 const ClubJoinPage = lazy(() => import("./pages/ClubJoin").then((m) => ({ default: m.ClubJoinPage })));
 const HealthDataPage = lazy(() => import("./pages/HealthData").then((m) => ({ default: m.HealthDataPage })));
+const OnboardingPage = lazy(() => import("./pages/Onboarding").then((m) => ({ default: m.OnboardingPage })));
 const StatusPage = lazy(() => import("./pages/Status").then((m) => ({ default: m.StatusPage })));
 
 function AccountTime() {
@@ -119,6 +120,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<TodayPage />} />
           <Route path="/checkin" element={<TodayPage forceCheckin />} />
+          <Route path="/welcome" element={<OnboardingPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/calendar/plan" element={<PlanPage />} />
           <Route path="/calendar/events/:id" element={<EventDetailPage />} />

@@ -16,6 +16,7 @@ import { NotificationsCard } from "../components/settings/NotificationsCard";
 import { RecoveryInputsCard } from "../components/settings/RecoveryInputsCard";
 import { AccountCard } from "../components/settings/AccountCard";
 import { isPublic } from "../lib/deployment";
+import { TimeZoneCard } from "../components/settings/TimeZoneCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
@@ -329,6 +330,15 @@ export function SettingsPage() {
 
       {/* Session 31 (launch audit L-22): a metric/imperial toggle sat here, but nothing read it — every figure stays metric — so it
           is gone until units are actually implemented. The stored `units` setting is untouched. */}
+      <TimeZoneCard />
+
+      <Card title="First-run setup">
+        <p className="text-sm text-text-secondary">Walk through connecting sources, your time zone and training basics again. Nothing you already set is lost.</p>
+        <Link to="/welcome?restart=1" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent">
+          Run setup again
+        </Link>
+      </Card>
+
       <Card title="Profile">
         <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
           <label className="flex items-center gap-3 text-sm text-text-secondary">

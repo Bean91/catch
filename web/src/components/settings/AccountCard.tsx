@@ -3,11 +3,67 @@ import { useState } from "react";
 import { ApiError, deleteAccount } from "../../lib/api";
 import { revokeAllDeviceTokens } from "../../lib/privacy";
 import { useAuth } from "../../lib/auth";
+import { confirmProblem, describeAuthError, passwordProblem } from "../../lib/authErrors";
+import { PasswordField } from "../auth/PasswordField";
 import { Card } from "../ui/Card";
 
 const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
 
 /** Public deployment only. Sign-in, email and password live in Supabase Auth; this is the person's way out. */
+/** Session 32: change the password while signed in. Supabase's "secure password change" may ask for a recent sign-in; that comes
+ * back as a plain sentence with the way out, never a raw error. */
+function ChangePassword() {
+  const { setNewPassword } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirmValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const change = useMutation({
+    mutationFn: () => setNewPassword(password),
+    onSuccess: () => {
+      setPassword("");
+      setConfirmValue("");
+      setOpen(false);
+    },
+    onError: (e) => setError(describeAuthError(e, "change")),
+  });
+  if (!open) {
+    return (
+      <div className="flex flex-col gap-1">
+        <button type="button" className={`${btn} self-start`} onClick={() => setOpen(true)}>
+          Change password
+        </button>
+        {change.isSuccess && <p role="status" className="text-sm text-text-secondary">Password changed.</p>}
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex flex-col rounded-md border border-border p-3"
+      aria-label="Change password"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const problem = passwordProblem(password) ?? confirmProblem(password, confirm);
+        if (problem) return setError(problem);
+        setError(null);
+        change.mutate();
+      }}
+    >
+      <PasswordField id="account-new-password" label="New password" autoComplete="new-password" value={password} onChange={setPassword} checklist />
+      <PasswordField id="account-confirm-password" label="Confirm new password" autoComplete="new-password" value={confirm} onChange={setConfirmValue} />
+      {error && <p role="alert" className="mt-2 text-sm text-band-red">{error}</p>}
+      <div className="mt-3 flex gap-2">
+        <button type="submit" className={btn} disabled={change.isPending || !password || !confirm}>
+          {change.isPending ? "Saving…" : "Save new password"}
+        </button>
+        <button type="button" className={btn} onClick={() => { setOpen(false); setPassword(""); setConfirmValue(""); setError(null); }}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function AccountCard() {
   const { email, logout } = useAuth();
   const [confirm, setConfirm] = useState(false);
@@ -32,6 +88,7 @@ export function AccountCard() {
         <p className="text-sm text-text-secondary">
           Signed in as <span className="font-medium text-text-primary">{email ?? "your account"}</span>. Your data is private to this account.
         </p>
+        <ChangePassword />
         <div className="flex flex-wrap gap-2">
           <button type="button" className={btn} disabled={everywhere.isPending} onClick={() => everywhere.mutate()}>
             {everywhere.isPending ? "Signing out…" : "Sign out of all devices"}

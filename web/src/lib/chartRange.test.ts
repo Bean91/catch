@@ -136,7 +136,9 @@ describe("chart URL state round-trip", () => {
 
 describe("domainToDateStrings", () => {
   it("formats epoch-ms bounds as YYYY-MM-DD", () => {
-    const domain = { min: Date.UTC(2026, 0, 1), max: Date.UTC(2026, 0, 31) };
+    // Chart x-values are local midnights (TrendLineChart parses "YYYY-MM-DDT00:00:00"), so the inverse reads local calendar fields
+    // — a UTC slice gave the previous day east of UTC (session 32).
+    const domain = { min: new Date(2026, 0, 1).getTime(), max: new Date(2026, 0, 31).getTime() };
     expect(domainToDateStrings(domain)).toEqual({ from: "2026-01-01", to: "2026-01-31" });
   });
 });

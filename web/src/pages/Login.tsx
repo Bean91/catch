@@ -1,7 +1,8 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { describeAuthError, passwordProblem } from "../lib/authErrors";
+import { PasswordField } from "../components/auth/PasswordField";
+import { confirmProblem, describeAuthError, passwordProblem } from "../lib/authErrors";
 import { isPublic } from "../lib/deployment";
 
 const INPUT =
@@ -65,7 +66,7 @@ function PersonalLogin() {
   return (
     <Frame>
       <form onSubmit={onSubmit}>
-        <Field id="password" label="Password" type="password" autoFocus value={password} onChange={setPassword} />
+        <PasswordField id="password" label="Password" autoComplete="current-password" autoFocus value={password} onChange={setPassword} />
         {error && <p className="mt-2 text-sm text-band-red">{error}</p>}
         <button type="submit" disabled={pending || password.length === 0} className={BUTTON}>
           {pending ? "Signing in…" : "Sign in"}
@@ -82,6 +83,7 @@ function PublicAuth() {
   const [view, setView] = useState<View>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -103,15 +105,16 @@ function PublicAuth() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            const problem = passwordProblem(password);
+            const problem = passwordProblem(password) ?? confirmProblem(password, confirm);
             if (problem) return setError(problem);
             void run("update", () => setNewPassword(password));
           }}
         >
           <p className="mb-3 text-sm text-text-secondary">Choose a new password.</p>
-          <Field id="new-password" label="New password" type="password" autoComplete="new-password" autoFocus value={password} onChange={setPassword} />
-          {error && <p className="mt-2 text-sm text-band-red">{error}</p>}
-          <button type="submit" disabled={pending || password.length === 0} className={BUTTON}>
+          <PasswordField id="new-password" label="New password" autoComplete="new-password" autoFocus value={password} onChange={setPassword} checklist />
+          <PasswordField id="confirm-password" label="Confirm new password" autoComplete="new-password" value={confirm} onChange={setConfirm} />
+          {error && <p className="mt-2 text-sm text-band-red" role="alert">{error}</p>}
+          <button type="submit" disabled={pending || password.length === 0 || confirm.length === 0} className={BUTTON}>
             {pending ? "Saving…" : "Save password"}
           </button>
         </form>
@@ -138,7 +141,7 @@ function PublicAuth() {
     e.preventDefault();
     if (view === "signin") void run("signin", () => login(password, email));
     else if (view === "signup") {
-      const problem = passwordProblem(password);
+      const problem = passwordProblem(password) ?? confirmProblem(password, confirm);
       if (problem) return setError(problem);
       void run("signup", async () => {
         const result = await signUp(email, password);
@@ -157,21 +160,28 @@ function PublicAuth() {
         <p className="mb-3 text-sm font-medium text-text-secondary">{title}</p>
         <Field id="email" label="Email" type="email" autoComplete="email" autoFocus value={email} onChange={setEmail} />
         {view !== "reset" && (
-          <Field
+          <PasswordField
             id="password"
             label="Password"
-            type="password"
             autoComplete={view === "signup" ? "new-password" : "current-password"}
             value={password}
             onChange={setPassword}
+            checklist={view === "signup"}
           />
+        )}
+        {view === "signup" && (
+          <PasswordField id="confirm-password" label="Confirm password" autoComplete="new-password" value={confirm} onChange={setConfirm} />
         )}
         {error && (
           <p className="mt-2 text-sm text-band-red" role="alert">
             {error}
           </p>
         )}
-        <button type="submit" disabled={pending || email.length === 0 || (view !== "reset" && password.length === 0)} className={BUTTON}>
+        <button
+          type="submit"
+          disabled={pending || email.length === 0 || (view !== "reset" && password.length === 0) || (view === "signup" && confirm.length === 0)}
+          className={BUTTON}
+        >
           {pending ? "Working…" : title}
         </button>
       </form>

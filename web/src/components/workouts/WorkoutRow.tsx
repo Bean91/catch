@@ -30,7 +30,7 @@ export function WorkoutRow({
         />
       )}
       <div className="w-16 shrink-0 font-mono-nums text-xs text-text-tertiary sm:w-20 sm:text-sm">
-        {workout.start ? formatShortDate(workout.start) : "—"}
+        {workout.local_date ? formatShortDate(workout.local_date) : workout.start ? formatShortDate(workout.start, workout.local_tz) : "—"}
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-text-primary">

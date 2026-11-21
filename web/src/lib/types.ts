@@ -625,15 +625,20 @@ export interface ActivityOverrides {
   tags?: string[];
   /** Session 15 Part C — set alongside tags: ["test"] via the same PATCH, see erg_test.ts. */
   test_type?: ErgTestType;
+  /** Session 32 "Change day": the calendar day this workout counts on (the recorded day ± 1). */
+  local_date?: string;
 }
 
-export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type"] as const;
+export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date"] as const;
 export type EditableActivityField = (typeof EDITABLE_ACTIVITY_FIELDS)[number];
 
 export interface WorkoutListItem {
   id: number; // canonical id
   sport_family: SportFamily;
   start: string | null;
+  /** Session 32: the day and zone this workout happened in (docs/time.md). */
+  local_date?: string | null;
+  local_tz?: string | null;
   duration: number | null;
   distance: number | null;
   avg_hr: number | null;
@@ -710,6 +715,8 @@ export interface Note {
 
 export interface WorkoutDetail extends WorkoutListItem {
   local_date: string | null;
+  /** The day by the workout's own records, before any "Change day". */
+  recorded_local_date?: string | null;
   /** Zone *boundaries* (thresholds), as opposed to WorkoutListItem.zones' per-sample zone
    * *seconds* — these are two different things with similarly-named fields; don't confuse
    * them. Mirrors GET /api/activities/{id}'s split naming exactly. */

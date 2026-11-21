@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAuthError, passwordProblem } from "./authErrors";
+import { confirmProblem, describeAuthError, passwordProblem } from "./authErrors";
 
 describe("describeAuthError", () => {
   it("does not reveal whether an address is registered", () => {
@@ -12,7 +12,8 @@ describe("describeAuthError", () => {
   it("is specific only where it helps", () => {
     expect(describeAuthError({ code: "email_not_confirmed" }, "signin")).toMatch(/Confirm your email/);
     expect(describeAuthError({ status: 429 }, "reset")).toMatch(/Too many/);
-    expect(describeAuthError({ code: "weak_password" }, "signup")).toMatch(/too weak/);
+    expect(describeAuthError({ code: "weak_password" }, "signup")).toMatch(/uppercase letter, a number and a symbol/);
+    expect(describeAuthError({ code: "reauthentication_needed" }, "update")).toMatch(/sign in again/);
     expect(describeAuthError(null, "update")).toMatch(/expired/);
   });
 });
@@ -31,8 +32,15 @@ describe("describeAuthError when Supabase was never reached", () => {
 });
 
 describe("passwordProblem", () => {
-  it("requires 8 characters", () => {
-    expect(passwordProblem("short")).not.toBeNull();
-    expect(passwordProblem("long-enough")).toBeNull();
+  it("names the first requirement missed, and accepts a password that meets them all", () => {
+    expect(passwordProblem("Ab1!")).toMatch(/8 characters/);
+    expect(passwordProblem("long-enough")).toMatch(/uppercase/);
+    expect(passwordProblem("Long-enough")).toMatch(/number/);
+    expect(passwordProblem("Long3enough")).toMatch(/symbol/);
+    expect(passwordProblem("Long-3nough")).toBeNull();
+  });
+  it("checks that a confirmation matches", () => {
+    expect(confirmProblem("Long-3nough", "Long-3nough")).toBeNull();
+    expect(confirmProblem("Long-3nough", "Long-3noug")).toMatch(/don't match/);
   });
 });

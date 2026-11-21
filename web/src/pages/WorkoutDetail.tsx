@@ -21,6 +21,8 @@ import { BandBadge } from "../components/ui/Badge";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
+import { addDays } from "../lib/dates";
+import { formatInstantTime } from "../lib/localTime";
 
 function quantizePoints(plotWidthPx: number): number {
   return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
@@ -240,10 +242,20 @@ export function WorkoutDetailPage() {
           )}
         </div>
         <p className="text-sm text-text-tertiary">
-          {workout.start ? formatShortDate(workout.start) : "—"}
+          {workout.local_date ? formatShortDate(workout.local_date) : workout.start ? formatShortDate(workout.start, workout.local_tz) : "—"}
+          {workout.start && <span className="ml-2 font-mono-nums">{formatInstantTime(workout.start, workout.local_tz)}</span>}
           {workout.session_label && <span className="ml-2">{workout.session_label}</span>}
           {workout.exclude_from_totals && <span className="ml-2 text-text-tertiary">(excluded from totals)</span>}
         </p>
+        {workout.recorded_local_date && (
+          <ChangeDay
+            recorded={workout.recorded_local_date}
+            current={workout.local_date ?? workout.recorded_local_date}
+            overridden={workout.overrides.local_date != null}
+            onChange={(day) => (day === workout.recorded_local_date ? revert.mutate("local_date") : patch.mutate({ local_date: day }))}
+            busy={patch.isPending || revert.isPending}
+          />
+        )}
       </div>
 
       <Card>
@@ -591,5 +603,32 @@ export function WorkoutDetailPage() {
 
       {workout.local_date && <NotesBox date={workout.local_date} />}
     </div>
+  );
+}
+
+
+/** Session 32 "Change day": for the rare workout a device filed on the wrong day (a watch still on home time). Only the day before
+ * or after the recorded one; the workout's time never changes, and the days' scores are recomputed. */
+function ChangeDay({ recorded, current, overridden, onChange, busy }: { recorded: string; current: string; overridden: boolean; onChange: (day: string) => void; busy: boolean }) {
+  const options = [addDays(recorded, -1), recorded, addDays(recorded, 1)];
+  return (
+    <label className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-tertiary">
+      Counts on
+      <select
+        aria-label="Day this workout counts on"
+        value={current}
+        disabled={busy}
+        onChange={(e) => onChange(e.target.value)}
+        className="min-h-11 rounded-md border border-border bg-bg px-2 text-xs text-text-primary"
+      >
+        {options.map((d) => (
+          <option key={d} value={d}>
+            {formatShortDate(d)}
+            {d === recorded ? " (recorded)" : ""}
+          </option>
+        ))}
+      </select>
+      {overridden && <span>changed by you</span>}
+    </label>
   );
 }
