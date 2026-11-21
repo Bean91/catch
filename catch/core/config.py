@@ -114,9 +114,17 @@ class Settings:
         return Path(self.db_path)
 
 
+def _clean(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
+    return value
+
+
 def _get(name: str, default: str = "") -> str:
-    # A secret piped in with a trailing newline (or pasted with a space) is otherwise a silent bad credential, e.g. Withings' "Invalid HMAC signature".
-    return os.environ.get(name, default).strip()
+    # A secret saved with a trailing newline, a stray space, or the quotes of a `.env` line (the file loader strips those; a hosting
+    # platform's variable store does not) is otherwise a silently wrong credential, e.g. Withings' "Invalid HMAC signature".
+    return _clean(os.environ.get(name, default))
 
 
 def load_settings() -> Settings:

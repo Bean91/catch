@@ -4532,6 +4532,8 @@ See `docs/mobile/test-report.md`. Python suite + `tests/pg` (local Supabase) gre
 - Health: workouts carry no heart rate (plugin limit); no background sync; Android history beyond 30 days not requested; HealthKit HRV (SDNN) deliberately excluded.
 - No min-app-version/forced-update mechanism; no Android release signing config; Health-Connect and Play declarations, store forms and screenshots at final sizes are drafts.
 - Legal drafts (incl. the new account-deletion text) have had no legal review.
+- **One time zone for the whole public deployment.** Every "today" and day bucket (~47 `date.today()` and ~35 `.astimezone()` sites) uses the host's zone, which is UTC on FastAPI Cloud, so for a user in New York "today" turns into tomorrow at 19:00 (found on a real iPhone). Stopgap: set `TZ` on the deployment to the POSIX string of the (only) user's zone (`EST5EDT,M3.2.0,M11.1.0` — not an `America/...` name, which a slim container may lack tzdata for). Correct fix = a per-user zone (column + request/tick-scoped zone through those sites + recompute), reversing docs/calendar.md's "no `timezone` setting" rule; not started. Data written between the wrong and right "today" (a check-in, a manual weight) stays filed under the wrong date; scores self-correct on the next recompute.
+- Server env values are now cleaned on read (`core/config.py::_get`: whitespace and one pair of surrounding quotes), because a hosting platform's variable store, unlike the `.env` loader, kept the `.env` quotes and made Withings reject the HMAC signature.
 
 ## Blockers (for shipping)
 
