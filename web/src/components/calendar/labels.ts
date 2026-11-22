@@ -45,10 +45,10 @@ export function eventTypeLabel(t: string): string {
 // (it may simply not have been recorded), never "missed" or "behind". Every state has a text
 // label and a glyph as well as a style, so nothing relies on colour alone.
 export const STATUS_STYLE: Record<PlannedDisplayStatus, { label: string; glyph: string; cls: string }> = {
-  planned: { label: "Planned", glyph: "○", cls: "border-accent/40 bg-accent/10 text-text-primary" },
-  linked: { label: "Done", glyph: "✓", cls: "border-border bg-surface-2 text-text-primary" },
-  skipped: { label: "Skipped", glyph: "–", cls: "border-dashed border-border bg-transparent text-text-tertiary" },
-  not_logged: { label: "Not logged", glyph: "·", cls: "border-dashed border-border bg-transparent text-text-tertiary" },
+  planned: { label: "Planned", glyph: "○", cls: "border-accent/45 bg-accent-soft text-text-primary" },
+  linked: { label: "Done", glyph: "✓", cls: "border-border-strong bg-surface-2 text-text-primary" },
+  skipped: { label: "Skipped", glyph: "–", cls: "border-dashed border-border-strong bg-transparent text-text-tertiary" },
+  not_logged: { label: "Not logged", glyph: "·", cls: "border-dashed border-border-strong bg-transparent text-text-tertiary" },
   rest: { label: "Rest day", glyph: "◐", cls: "border-border bg-transparent text-text-secondary" },
 };
 
@@ -68,4 +68,13 @@ export function formatDistance(m: number | null | undefined): string | null {
 
 export function plannedMeta(p: { duration_min: number | null; distance_m: number | null; target_zone: string | null; start_time: string | null }): string {
   return [p.start_time, p.duration_min ? formatMinutes(p.duration_min) : null, formatDistance(p.distance_m), p.target_zone].filter(Boolean).join(" · ");
+}
+
+/** The colour a completed workout carries on the calendar: its sport's metric colour (identity, not status). */
+export function sportColor(c: { sport_family: string | null; category: string | null }): string {
+  if (c.category === "erg" || c.category === "on_water" || c.sport_family === "rowing") return "var(--metric-pace)";
+  if (c.sport_family === "cycling") return "var(--metric-power)";
+  if (c.sport_family === "running") return "var(--metric-hr)";
+  if (c.sport_family === "strength" || c.category === "strength") return "var(--metric-rate)";
+  return "var(--text-tertiary)";
 }

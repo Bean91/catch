@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { declineMatch, linkPlanned, setPlannedSkipped, unlinkPlanned } from "../../lib/api";
 import { dayLabel, isSameMonth, monthGrid, parseISODate, weekdayShort } from "../../lib/dates";
 import type { CalendarDay, CalendarPayload, MatchSuggestion, PlannedWorkout } from "../../lib/types";
 import { CompletedChip, EventChip, PlannedSessionChip } from "./Chips";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
+import { formatMinutes } from "./labels";
+import { PillNav } from "../ui/PillNav";
+import { EmptyState } from "../ui/EmptyState";
 
 function linkedCompletedIds(day: CalendarDay): Set<number> {
   return new Set(day.planned.map((p) => p.linked_canonical_id).filter((v): v is number => v != null));
@@ -37,12 +39,17 @@ export function WeekView({
             key={day.date}
             data-testid="week-day"
             data-date={day.date}
-            className={`grid grid-cols-[3.25rem_minmax(0,1fr)_2.75rem] items-start gap-2 rounded-lg border bg-surface p-2 ${isToday ? "border-accent/60" : "border-border"}`}
+            className={`grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-start gap-2 rounded-lg border p-2 shadow-[var(--highlight),var(--shadow-1)] ${isToday ? "border-accent/60 bg-[linear-gradient(100deg,var(--accent-soft),transparent_45%),var(--surface)]" : "border-border bg-surface"}`}
           >
-            <button type="button" onClick={() => onSelectDay(day.date)} aria-label={`Open ${dayLabel(day.date)}`} className="flex min-h-11 flex-col items-center justify-center rounded-md text-center">
-              <span className="text-xs text-text-tertiary">{weekdayShort(day.date)}</span>
-              <span className={`font-mono-nums text-lg leading-tight ${isToday ? "text-accent" : "text-text-primary"}`}>{parseISODate(day.date).getDate()}</span>
-              {isToday && <span className="text-[10px] text-accent">Today</span>}
+            <button
+              type="button"
+              onClick={() => onSelectDay(day.date)}
+              aria-label={`Open ${dayLabel(day.date)}`}
+              className={`flex min-h-12 flex-col items-center justify-center rounded-md text-center transition-colors hover:bg-surface-2 ${isToday ? "bg-accent/10" : ""}`}
+            >
+              <span className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? "text-accent" : "text-text-tertiary"}`}>{weekdayShort(day.date)}</span>
+              <span className={`font-mono-nums text-xl font-semibold leading-tight ${isToday ? "text-accent" : "text-text-primary"}`}>{parseISODate(day.date).getDate()}</span>
+              {isToday ? <span className="text-[10px] font-medium text-accent">Today</span> : dayMinutes(day) > 0 && <span className="font-mono-nums text-[10px] text-text-tertiary">{formatMinutes(dayMinutes(day))}</span>}
             </button>
             <div className="flex min-w-0 flex-col gap-1.5">
               {day.events.map((e) => (
@@ -60,7 +67,7 @@ export function WeekView({
               type="button"
               onClick={() => onAdd(day.date)}
               aria-label={`Plan a session on ${dayLabel(day.date)}`}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border text-lg text-text-secondary"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-dashed border-border-strong text-lg text-text-tertiary transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent"
             >
               +
             </button>
@@ -187,6 +194,7 @@ export function MonthView({
   const d = parseISODate(anchor);
   const grid = monthGrid(d.getFullYear(), d.getMonth());
   const byDate = new Map(payload.days.map((x) => [x.date, x]));
+  const maxMinutes = Math.max(1, ...payload.days.map(dayMinutes));
   return (
     <div data-testid="month-view">
       <div className="grid grid-cols-7 gap-1 pb-1 text-center text-xs text-text-tertiary" aria-hidden>
@@ -202,6 +210,7 @@ export function MonthView({
               const planned = day?.planned.filter((p) => p.session_type !== "rest").length ?? 0;
               const done = day?.completed.length ?? 0;
               const events = day?.events.length ?? 0;
+              const minutes = day ? dayMinutes(day) : 0;
               const label = `${dayLabel(iso)}: ${planned} planned, ${done} completed${events ? `, ${events} event${events > 1 ? "s" : ""}` : ""}`;
               return (
                 <button
@@ -211,12 +220,14 @@ export function MonthView({
                   aria-label={label}
                   data-testid="month-cell"
                   data-date={iso}
-                  className={`flex min-h-12 min-w-0 flex-col items-center justify-start gap-1 rounded-md border py-1 text-sm ${
-                    iso === today ? "border-accent/60" : "border-border"
+                  className={`relative flex min-h-14 min-w-0 flex-col items-center justify-start gap-1 overflow-hidden rounded-md border py-1.5 text-sm transition-colors hover:border-accent/50 ${
+                    iso === today ? "border-accent ring-1 ring-accent/40" : "border-border"
                   } ${isSameMonth(iso, anchor) ? "bg-surface text-text-primary" : "bg-transparent text-text-tertiary"}`}
                 >
-                  <span className="font-mono-nums leading-none">{parseISODate(iso).getDate()}</span>
-                  <span className="flex h-2.5 items-center gap-0.5" aria-hidden>
+                  {/* Completed minutes as a quiet fill behind the date — how busy the day was, at a glance. */}
+                  {minutes > 0 && <span aria-hidden className="absolute inset-0" style={{ background: `color-mix(in oklab, var(--accent) ${Math.round(10 + Math.min(minutes / maxMinutes, 1) * 30)}%, transparent)` }} />}
+                  <span className={`relative font-mono-nums leading-none ${iso === today ? "font-semibold text-accent" : ""}`}>{parseISODate(iso).getDate()}</span>
+                  <span className="relative flex h-2.5 items-center gap-0.5" aria-hidden>
                     {planned > 0 && <span className="h-2 w-2 rounded-full border border-accent" />}
                     {done > 0 && <span className="h-2 w-2 rounded-full bg-text-secondary" />}
                     {events > 0 && <span className="text-[9px] leading-none text-accent">◆</span>}
@@ -231,36 +242,66 @@ export function MonthView({
         <span>○ planned</span>
         <span>● completed</span>
         <span>◆ event</span>
+        <span>shading = time trained that day</span>
       </p>
     </div>
   );
 }
 
 export function NavLinks() {
-  const cls = "flex min-h-11 items-center rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40";
   return (
-    <nav aria-label="Related" className="flex flex-wrap gap-2">
-      <Link to="/calendar/plan" className={cls}>
-        Training plan
-      </Link>
-      <Link to="/library" className={cls}>
-        Library
-      </Link>
-      <Link to="/feedback" className={cls}>
-        Feedback
-      </Link>
-      <Link to="/workouts" className={cls}>
-        Workouts
-      </Link>
-      <Link to="/tests" className={cls}>
-        Tests
-      </Link>
-      <Link to="/routes" className={cls}>
-        Routes
-      </Link>
-      <Link to="/workouts/duplicates" className={cls}>
-        Duplicates
-      </Link>
-    </nav>
+    <PillNav
+      label="Related"
+      items={[
+        { to: "/calendar/plan", label: "Training plan" },
+        { to: "/library", label: "Library" },
+        { to: "/feedback", label: "Feedback" },
+        { to: "/workouts", label: "Workouts" },
+        { to: "/tests", label: "Tests" },
+        { to: "/routes", label: "Routes" },
+        { to: "/workouts/duplicates", label: "Duplicates" },
+      ]}
+    />
+  );
+}
+
+/** Minutes trained that day (excluded workouts don't count, as in every total). */
+export function dayMinutes(day: CalendarDay): number {
+  return day.completed.reduce((a, c) => a + (c.excluded_from_totals ? 0 : c.duration_min ?? 0), 0);
+}
+
+// --- Agenda: the next four weeks as a list — only days with something on them, grouped by week.
+
+export function AgendaView({ days, today, onOpenPlanned, onSelectDay }: { days: CalendarDay[]; today: string; onOpenPlanned: (p: PlannedWorkout) => void; onSelectDay: (date: string) => void }) {
+  const busy = days.filter((d) => d.date >= today && (d.planned.length || d.events.length || d.completed.length));
+  if (busy.length === 0) {
+    return <EmptyState title="Nothing in the next four weeks" message="Plan a session or add an event, and it will show up here." />;
+  }
+  return (
+    <ol className="flex flex-col gap-3" data-testid="agenda-view">
+      {busy.map((day) => {
+        const linked = linkedCompletedIds(day);
+        return (
+          <li key={day.date} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3">
+            <button type="button" onClick={() => onSelectDay(day.date)} aria-label={`Open ${dayLabel(day.date)}`} className="flex flex-col items-start rounded-md pt-2 text-left">
+              <span className={`text-xs font-medium uppercase tracking-wide ${day.date === today ? "text-accent" : "text-text-tertiary"}`}>{day.date === today ? "Today" : weekdayShort(day.date)}</span>
+              <span className="font-mono-nums text-lg font-semibold text-text-primary">{parseISODate(day.date).getDate()}</span>
+              <span className="text-[11px] text-text-tertiary">{parseISODate(day.date).toLocaleDateString(undefined, { month: "short" })}</span>
+            </button>
+            <div className="flex min-w-0 flex-col gap-1.5 border-l border-border pl-3">
+              {day.events.map((e) => (
+                <EventChip key={`e${e.id}`} e={e} />
+              ))}
+              {day.planned.map((p) => (
+                <PlannedSessionChip key={`p${p.id}`} p={p} onOpen={onOpenPlanned} />
+              ))}
+              {day.completed.filter((c) => !linked.has(c.id)).map((c) => (
+                <CompletedChip key={`c${c.id}`} c={c} />
+              ))}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

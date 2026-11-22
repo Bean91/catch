@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PhaseBanner, WeekSummaryCard } from "../components/calendar/WeekSummaryCard";
-import { DayView, MonthView, NavLinks, WeekView } from "../components/calendar/Views";
+import { AgendaView, DayView, MonthView, NavLinks, WeekView } from "../components/calendar/Views";
+import { Button, IconButton } from "../components/ui/Button";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Segmented } from "../components/ui/Segmented";
 import { EventSheet } from "../components/calendar/EventSheet";
 import { PlannedWorkoutSheet } from "../components/calendar/PlannedWorkoutSheet";
 import { CardSkeleton } from "../components/ui/Skeleton";
@@ -11,15 +14,17 @@ import { fetchCalendar, fetchPlanWeekSummary } from "../lib/api";
 import { addDays, addMonths, dayLabel, monthGrid, monthLabel, parseISODate, todayISO, weekRangeLabel, weekStart } from "../lib/dates";
 import type { PlannedWorkout } from "../lib/types";
 
-type View = "day" | "week" | "month";
+type View = "day" | "week" | "month" | "agenda";
 const VIEWS: { value: View; label: string }[] = [
   { value: "day", label: "Day" },
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },
+  { value: "agenda", label: "Agenda" },
 ];
 
 function rangeFor(view: View, date: string): [string, string] {
   if (view === "day") return [date, date];
+  if (view === "agenda") return [date, addDays(date, 27)];
   if (view === "week") {
     const s = weekStart(date);
     return [s, addDays(s, 6)];
@@ -50,8 +55,10 @@ export function CalendarPage() {
   const weekISO = weekStart(date);
   const summary = useQuery({ queryKey: ["plan-week", weekISO], queryFn: () => fetchPlanWeekSummary(weekISO) });
 
-  const step = (dir: -1 | 1) => setNav({ date: view === "month" ? addMonths(date, dir) : addDays(date, dir * (view === "week" ? 7 : 1)) });
-  const label = view === "day" ? dayLabel(date) : view === "week" ? weekRangeLabel(weekISO) : monthLabel(date);
+  const step = (dir: -1 | 1) =>
+    setNav({ date: view === "month" ? addMonths(date, dir) : addDays(date, dir * (view === "week" ? 7 : view === "agenda" ? 28 : 1)) });
+  const label =
+    view === "day" ? dayLabel(date) : view === "week" ? weekRangeLabel(weekISO) : view === "agenda" ? `${dayLabel(date)} + 4 weeks` : monthLabel(date);
   const phase = cal.data?.phases.find((p) => p.start_date <= date && date <= p.end_date) ?? null;
   const openNew = (d: string) => setSheet({ open: true, existing: null, date: d });
   const openExisting = (p: PlannedWorkout) => setSheet({ open: true, existing: p, date: p.date });
@@ -59,45 +66,40 @@ export function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-text-primary">Calendar</h1>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setEventSheet(true)} className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary">
-            + Event
-          </button>
-          <button type="button" onClick={() => openNew(date)} className="min-h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-contrast">
-            + Plan
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Plan"
+        title="Calendar"
+        actions={
+          <>
+            <Button size="sm" onClick={() => setEventSheet(true)}>
+              + Event
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => openNew(date)}>
+              + Plan
+            </Button>
+          </>
+        }
+      />
 
       <NavLinks />
 
-      <div className="flex flex-col gap-2">
-        <div role="tablist" aria-label="Calendar view" className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1">
-          {VIEWS.map((v) => (
-            <button
-              key={v.value}
-              type="button"
-              role="tab"
-              aria-selected={view === v.value}
-              onClick={() => setNav({ view: v.value })}
-              className={`min-h-11 rounded-md text-sm font-medium transition-colors ${view === v.value ? "bg-surface-2 text-accent" : "text-text-secondary"}`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <button type="button" aria-label="Previous" onClick={() => step(-1)} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary">
-            ‹
-          </button>
-          <button type="button" onClick={() => setNav({ date: today })} className="min-h-11 flex-1 truncate rounded-md px-2 text-center text-sm font-medium text-text-primary" aria-label={`${label} — jump to today`}>
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-2 sm:flex-row sm:items-center sm:justify-between">
+        <Segmented label="Calendar view" value={view} onChange={(v) => setNav({ view: v })} options={VIEWS} className="w-full sm:w-auto" stretch />
+        <div className="flex items-center justify-between gap-1 sm:justify-end">
+          <IconButton label="Previous" onClick={() => step(-1)}>
+            <span aria-hidden className="text-xl leading-none">‹</span>
+          </IconButton>
+          <button
+            type="button"
+            onClick={() => setNav({ date: today })}
+            className="min-h-11 min-w-0 flex-1 truncate rounded-md px-3 text-center text-sm font-semibold text-text-primary transition-colors hover:bg-surface-2 sm:flex-none"
+            aria-label={`${label} — jump to today`}
+          >
             {label}
           </button>
-          <button type="button" aria-label="Next" onClick={() => step(1)} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary">
-            ›
-          </button>
+          <IconButton label="Next" onClick={() => step(1)}>
+            <span aria-hidden className="text-xl leading-none">›</span>
+          </IconButton>
         </div>
       </div>
 
@@ -116,13 +118,16 @@ export function CalendarPage() {
           onSelectDay={(d) => setNav({ view: "day", date: d })}
         />
       ) : view === "day" ? (
-        day ? <DayView day={day} suggestions={cal.data.suggestions} onOpenPlanned={openExisting} onAdd={openNew} /> : <CardSkeleton lines={2} />
+        // A day the payload doesn't list (the server only returns days in range) is an empty day, not a loading one.
+        <DayView day={day ?? { date, planned: [], completed: [], events: [], phase_id: null }} suggestions={cal.data.suggestions} onOpenPlanned={openExisting} onAdd={openNew} />
+      ) : view === "agenda" ? (
+        <AgendaView days={cal.data.days} today={today} onOpenPlanned={openExisting} onSelectDay={(d) => setNav({ view: "day", date: d })} />
       ) : (
         <MonthView anchor={date} payload={cal.data} today={today} onSelectDay={(d) => setNav({ view: "day", date: d })} />
       )}
 
       {cal.data && view === "week" && cal.data.suggestions.length > 0 && (
-        <p data-testid="week-suggestion-hint" className="rounded-md border border-accent/40 bg-accent/5 p-3 text-sm text-text-secondary">
+        <p data-testid="week-suggestion-hint" className="rounded-md border border-accent/40 bg-accent-soft p-3 text-sm text-text-secondary">
           {cal.data.suggestions.length === 1 ? "A logged workout looks like a planned session." : `${cal.data.suggestions.length} logged workouts look like planned sessions.`} Open the day to link{" "}
           {cal.data.suggestions.length === 1 ? "it" : "them"} — nothing is linked automatically.
         </p>
