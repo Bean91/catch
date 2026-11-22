@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "platform_machine not in 'armv6l armv7l'",
@@ -184,8 +184,8 @@ requires-dist = [
     { name = "http-ece", specifier = ">=1.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.2" },
-    { name = "psycopg", extras = ["binary"], marker = "platform_machine not in 'armv6l armv7l'", specifier = ">=3.2" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'public'", specifier = ">=3.2" },
+    { name = "psycopg", extras = ["binary"], marker = "platform_machine not in 'armv6l armv7l'", specifier = ">=3.3.9" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'public'", specifier = ">=3.3.9" },
     { name = "py-vapid", specifier = ">=1.9" },
     { name = "pyjwt", extras = ["crypto"], marker = "platform_machine not in 'armv6l armv7l'", specifier = ">=2.9" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'public'", specifier = ">=2.9" },
