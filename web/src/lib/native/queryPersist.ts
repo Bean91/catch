@@ -9,16 +9,23 @@ const DB = "catch-query-cache";
 const STORE = "kv";
 const KEY = "snapshot";
 const MAX_AGE_MS = 7 * 24 * 3600_000;
-const SCHEMA = 1;
+const SCHEMA = 2;
 
 // Keys are the queryKey[0] strings the read screens use; anything not listed is never written.
 const ALLOWED = new Set(["today", "today-checkin", "workouts", "workout", "calendar", "plan-week", "upcoming-events", "gym-exercises", "gym-templates", "gym-gyms", "gym-stations", "gym-body", "exercises", "muscle-readiness", "settings", "series", "sync-status", "pieces", "tests", "pbs"]);
 
 interface Snapshot {
   v: number;
+  build?: string;
   at: number;
   uid: string;
   queries: { key: unknown[]; data: unknown; at: number }[];
+}
+
+/** A snapshot is restored only into the build that wrote it: response shapes change between releases (session 33 added fields to
+ * settings, workouts and pieces), and an app update restoring an older build's data crashed Settings on the first render. */
+export function snapshotUsable(snap: Pick<Snapshot, "v" | "build" | "uid" | "at"> | null, uid: string, build: string, now: number): boolean {
+  return !!snap && snap.v === SCHEMA && snap.build === build && snap.uid === uid && now - snap.at < MAX_AGE_MS;
 }
 
 function open(): Promise<IDBDatabase> {
@@ -67,10 +74,10 @@ export async function persistQueries(client: QueryClient, uid: string): Promise<
   try {
     void navigator.storage?.persist?.(); // ask the OS not to evict the webview's storage under pressure
     const snap = await read();
-    if (snap && snap.v === SCHEMA && snap.uid === uid && Date.now() - snap.at < MAX_AGE_MS) {
+    if (snap && snapshotUsable(snap, uid, __BUILD_ID__, Date.now())) {
       for (const q of snap.queries) client.setQueryData(q.key, q.data, { updatedAt: q.at });
     } else if (snap) {
-      await write(null); // someone else's, stale or an old shape
+      await write(null); // someone else's, stale, or written by another build
     }
   } catch {
     /* a cold cache is only slower */
@@ -85,7 +92,7 @@ export async function persistQueries(client: QueryClient, uid: string): Promise<
         .getAll()
         .filter(isPersistable)
         .map((q) => ({ key: [...q.queryKey], data: q.state.data, at: q.state.dataUpdatedAt }));
-      void write({ v: SCHEMA, at: Date.now(), uid, queries }).catch(() => {});
+      void write({ v: SCHEMA, build: __BUILD_ID__, at: Date.now(), uid, queries }).catch(() => {});
     }, 2_000);
   };
   const unsubscribe = client.getQueryCache().subscribe(save);

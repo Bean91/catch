@@ -60,3 +60,28 @@ test("a failing card shows Retry, a slow card doesn't block the others, and no m
   await expect(page.getByText("Couldn't load the AI coach settings.")).toBeVisible({ timeout: 10_000 });
   expect(requested.some((p) => /\/api\/ai\/providers\/[^/]+\/models/.test(p))).toBe(false);
 });
+
+// A page that throws must not take the app with it. On a native build, a stale cached settings shape made Settings throw, and with no
+// error boundary React unmounted everything: a black screen with no navigation. Here the server's settings lack the zone tables.
+test("a page that crashes shows an error in place and keeps the navigation", async ({ page }) => {
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/settings") return json(route, 200, { ...mockSettings(), zones: {} });
+    if (path === "/api/zones") return json(route, 200, mockZonesView());
+    if (path === "/api/me") return json(route, 200, { id: "user-a", email: "a@example.com", deployment: "public", timezone: "UTC", follow_device_zone: false, current_zone: "UTC", today: "2026-11-21", onboarding: { state: "completed", show: false } });
+    return json(route, 503, { detail: "mock" });
+  });
+  await page.route(`${GOTRUE}/token?grant_type=password`, (route) => json(route, 200, session()));
+  await page.goto("/");
+  await page.getByLabel("Email").fill("a@example.com");
+  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery-staple");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByLabel("Email")).toBeHidden();
+  await page.goto("/settings");
+
+  await expect(page.getByTestId("page-error")).toBeVisible();
+  const today = page.getByRole("link", { name: "Today", exact: true }).filter({ visible: true }).first(); // bottom nav or sidebar
+  await expect(today).toBeVisible();
+  await today.click(); // leaving the broken page clears the error
+  await expect(page.getByTestId("page-error")).toHaveCount(0);
+});

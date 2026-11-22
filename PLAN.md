@@ -4846,3 +4846,11 @@ Initial bundle 235.6 KB gzip (budget 250).
 - The GB Rowing HRR bounds come from secondary sources; AN 95 % is Catch's choice.
 - Concept2 BikeErg strokes still store per-1000 m pace in `strokes.pace_500m` (no rowing reader uses it; not rewritten).
 - Bike pieces have no pacing plan, pacing segments or W/kg (rowing concepts).
+
+## Follow-up: native Settings black screen (2026-11-22)
+
+On the first iPhone build after session 33, opening Settings blanked the whole app (no bottom nav). Cause: `lib/native/queryPersist.ts` restored
+an older build's cached `settings` (no `zones.hrr_pct`), `HrZonesCard` threw reading it, and with no error boundary React unmounted everything.
+Fixes: the snapshot records `__BUILD_ID__` and is dropped by any other build (`snapshotUsable`, vitest); `components/shell/PageErrorBoundary.tsx`
+wraps the routes inside `AppShell` (the page shows the error with Try again / Reload, the navigation stays, navigating clears it; Playwright
+`tests/public/settings-perf.spec.ts`, which failed on the old code); `HrZonesCard` tolerates a missing percentage table. Confirmed on the phone.

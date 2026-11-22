@@ -8,6 +8,7 @@ import { isMock } from "./lib/api";
 import { isPublic } from "./lib/deployment";
 import { useDeepLinks } from "./lib/native/useDeepLinks";
 import { useNativeShell } from "./lib/native/useNativeShell";
+import { PageErrorBoundary } from "./components/shell/PageErrorBoundary";
 import { LoginPage } from "./pages/Login";
 import { TodayPage } from "./pages/Today";
 
@@ -116,6 +117,7 @@ export function App() {
   return (
     <AppShell>
       <AccountTime />
+      <PageErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<TodayPage />} />
@@ -174,6 +176,7 @@ export function App() {
           )}
         </Routes>
       </Suspense>
+      </PageErrorBoundary>
     </AppShell>
   );
 }

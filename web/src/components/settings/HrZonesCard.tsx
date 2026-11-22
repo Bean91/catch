@@ -128,7 +128,7 @@ export function HrZonesCard({ form, update }: { form: Settings; update: <K exten
                       <input
                         type="number"
                         aria-label={`${zone} ${pctLabel}`}
-                        value={form.zones[pctKey][zone]}
+                        value={form.zones[pctKey]?.[zone] ?? ""}
                         onChange={(e) => update("zones", { ...form.zones, [pctKey]: { ...form.zones[pctKey], [zone]: Number(e.target.value) } })}
                         className={inputCls}
                       />
