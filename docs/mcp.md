@@ -30,7 +30,8 @@ longer row), and (session 18) `get_training_profile`/`get_performance_trends`/
 `get_training_distribution`/`get_training_consistency`/`get_training_insights`/
 `get_recommendations`/`rate_recommendation` for training intelligence & recommendations —
 (session 19) `get_interval_comparisons` (and `add_piece` also taking `repeat`/`intervals` for
-interval pieces), and (session 20) `get_route`/`get_route_history`/`get_on_water_metrics`/
+interval pieces; session 33: and `modality` — `rowing_erg`, splits per 500 m, or `bike`, splits per 1000 m — defaulting from
+the workout's sport; `get_zones`/`get_workout` now report the heart-rate-reserve basis their zones use), and (session 20) `get_route`/`get_route_history`/`get_on_water_metrics`/
 `get_workout_weather` for GPS routes, on-water metrics and weather (GPS-derived and provider figures
 are labelled; `get_route` never returns coordinates; weather is context, not a correction), and
 (session 22) the workout library, technique notes and coach feedback — `search_workout_library`/

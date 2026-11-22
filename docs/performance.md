@@ -110,3 +110,57 @@ written (a source record, a piece, a canonical's overrides/category/day), not wh
 - `tests/test_scoring_session32.py` asserts that incremental equals full.
 
 Rerun `scripts/perf_personal.py` after any change to scoring or the hot reads.
+
+
+# Session 33: Settings
+
+Users reported Settings cards (Illness Detector, AI coach, provider cards) taking a very long time to load. Measured before changing
+anything, on three setups, then after.
+
+## How it was measured
+
+- **Production** (`https://catch.openoted.com`, running `cdc8b75`, the base of this session): `scripts/perf_settings.py` — one
+  disposable user created and deleted through GoTrue admin (the `smoke_public.py` pattern), every Settings request alone and then all
+  at once, 7 rounds. Read-only apart from the user. A fresh account has no history, so this measures the fixed per-request cost.
+- **Postgres, production shape** (local `supabase start` stack, `catch_api` + forced RLS, real GoTrue token, pool 1 + 2 overflow):
+  `tests/pg/test_settings_burst.py` with `CATCH_PERF_OUT=<file>`, 5 rounds — run on `cdc8b75` (before) and this branch (after).
+- **Personal, 3 years of history** (SQLite): `uv run python scripts/perf_personal.py --years 3 --repeat 5 --only settings`.
+
+## What was found
+
+| # | Where | What | Fix |
+|---|---|---|---|
+| 1 | Public, every Settings open | **Production: each request took 150–350 ms alone and ~30.4 s when the page fired them together; many returned 500.** `GET /api/ai/providers` was an `async def` doing blocking database reads on the event loop. Waiting for one of the replica's three pooled connections on the loop thread stopped the loop, and the requests holding the other connections could only release them through it — a deadlock until SQLAlchemy's 30 s pool timeout. Reproduced locally (`tests/test_settings_concurrency.py`, the same pool shape over SQLite with a 4 s timeout) and on the local Supabase stack. | Plain `def` (threadpool). Every other async route with database work (provider test/models, coach models/test-connection, photo estimates, club logo, key save) now does it in the threadpool and ends its transaction before awaiting a provider, so no connection is held across a network call. |
+| 2 | Page | Every card waited for `/api/settings` (a page-wide skeleton), and Illness/AI coach/Nutrition showed "Loading…" forever on an error. | Each card loads on its own with its own skeleton and an error state with Retry. |
+| 3 | `GET /api/illness/backtest` | Loaded every `daily_scores` row with all five JSON columns to list a few flagged nights. | Date + stored illness result only, "none" nights skipped in SQL, last 365 days by default (`?days=`). No recomputation. |
+| 4 | `GET /api/nutrition/targets` | Resolved the whole body-composition history to find the latest weight; could write on a GET. | Resolves only the newest weigh-in's day; reads never write. |
+| 5 | `PUT /api/settings` | Any non-zone change (a notification toggle, quiet hours) re-scored all history inline. | Keys that affect no score (notifications, Garmin key reminder, `zone_mode`, units) save without recomputing — a deny-list, so a missed key costs a recompute, never stale scores. |
+| 6 | `/settings/ai` | Opened → a live model list from every configured provider (Gemini pages up to 10 times, Ollama asks about each model; 90 s timeout), against the admin rate limit. | The saved model shows immediately; the list is fetched only when "Change model" is tapped, then cached 10 min per (owner, provider) server-side and client-side, cleared on key save/remove/test. A test asserts Settings never requests a model list. |
+| 7 | Public auth | On a cache miss every concurrent request ran its own `session_is_live` query (its own connection). | One lookup per session id at a time (`SessionLiveness` coalesces). |
+| 8 | `GET /api/push/subscriptions` (public) | Held its request connection while the native-token store opened a second. | Releases the first before the second. |
+| 9 | Page | Connected sources called both `/api/sync/status` and `/api/connections`, which build the same cards server-side. | Reads `/api/connections` only. Stable settings queries are kept 5 minutes so moving between Settings pages doesn't refetch. |
+
+No AI model is built and no provider is called to show Settings (`/api/ai/providers` reads stored configuration only — it never
+decrypted keys). No Redis or other infrastructure: the pool size was left at its default because the burst no longer queues.
+
+## Results
+
+| | Before | After |
+|---|---|---|
+| **Production**, all Settings requests at once (fresh user) | every request ~30,400 ms; 500s in every round | not deployed this session — see below |
+| **Postgres + RLS, pool 1 + 2**, all at once (median of 5) | **30,047 ms**, 34 of 55 requests failed | **47–55 ms**, none failed |
+| Production, each request alone | 150–350 ms | — |
+
+The local Postgres "before" reproduces production exactly (the 30 s is the pool timeout). Production "after" needs a deploy, which
+this session did not do: run `scripts/perf_settings.py` after deploying to confirm.
+
+Personal (SQLite, 3 years):
+
+| Request | Before p50 ms | SQL | Bytes | After p50 ms | SQL | Bytes |
+|---|---|---|---|---|---|---|
+| `PUT /api/settings` (quiet hours) | 587.1 | 43 | — | **2.2** | **3** | — |
+| `GET /api/illness/backtest` | 11.7 | 2 | 63,295 | **2.6** | 4 | **20,632** |
+| `GET /api/nutrition/targets` | 6.6 (max 46) | 8 | 533 | **2.7** (max 5.6) | 10 | 533 |
+| `GET /api/ai/providers` | 2.6 | 14 | 1,702 | 1.9 | **7** | 1,702 |
+| `GET /api/zones` (new) | — | — | — | 1.9 | 5 | 1,282 |
+| All Settings requests at once | 41.5 (11 requests) | | | 28.2 (12 requests) | | |

@@ -266,8 +266,8 @@ web/
                 hand since EventSource can't POST), types.ts (hand-kept in sync with the
                 API — no codegen), mock.ts (?mock=1/calibrating/empty/error/loading/offline
                 fixtures, incl. a scripted streamMockMessage() turn), format.ts, auth.tsx,
-                theme.tsx, zoneColors.ts/hrZone.ts (zone color ramp + a small TS port of
-                catch/analytics/zones.py's zone_for_hr for client-side chart coloring),
+                theme.tsx, zoneColors.ts (zone color ramp + `zoneForBpm`, a lookup against the server's own bpm bounds —
+                session 33 removed the hrZone.ts port of zone_for_hr: the browser holds no zone maths),
                 dateRanges.ts (Trends' 4w/12w/season/all -> from/to), chartRange.ts (preset <->
                 URL querystring helpers), useChartInteraction.ts (the shared pan/pinch/press-hold
                 gesture engine every chart uses), useOnlineStatus.ts (the Today offline banner's
@@ -709,6 +709,26 @@ once, batched list_tests/pieces/weights, Postgres indexes in 0011, bounded per-o
 `tests/test_query_budget.py`. `EXPECTED_SCHEMA_REVISION = "0011"`. `tzdata` (pure Python) is a main dependency: `zoneinfo` falls back to it where an image has no
 system zone database, so zone validation (`available_timezones()`) never comes back empty.
 
+Session 33 (merge workouts, heart-rate-reserve zones, erg/bike pieces, piece-photo fix, Settings performance — see PLAN.md,
+docs/analytics.md §3/§25.x/§32, `docs/performance.md` "Session 33: Settings", DESIGN.md "Merging, heart-rate zones…"). Migration **0012**
+(`canonical_activities.merge_mode`, `merge_log.snapshot_json`, `pieces.modality`); `EXPECTED_SCHEMA_REVISION = "0012"`. **Merging**: `merge_mode =
+"combined"` workouts are resolved per time-overlap group (duplicate rules inside, sums across, duration-weighted averages, one combined 1 Hz timeline:
+`canonical.py::combined_parts/combined_samples/_compute_combined`); `canonical.compute_resolution` is the write-free half of `resolve_canonical` (the merge
+preview uses it). Rules `analytics/activity_merge.py`; service `sync/activity_merge.py` (preview/combine/uncombine, `move_references` — also used by the
+ordinary duplicate merge, which used to leave pieces and publications on a deleted canonical); routes `POST /api/activities/combine/preview`, `/combine`,
+`/{id}/uncombine`; `/samples` returns `member_offsets` (piece windows stay member-relative). Matcher flags a recording spanning a merged session, never
+auto-merges it. **Zones**: `analytics/zones.py` is the one authority (`HrBasis`, `hr_basis`, `hr_zone_bounds`, `zone_for_hr(hr, basis)`); Karvonen by
+default (`hr_zone_method`, `zones.hrr_pct`, optional `resting_hr`); the resting HR per workout day comes from `analytics/hr_basis.py` (14-day median before
+the day, ≥ 4 readings) via `sync/hr_basis.py` (`RhrLookup`, `basis_for_day`, `current_basis`); the basis is stored in `zones_json["basis"]` and every reader
+(`routes_activities.workout_hr_basis`) uses the stored one; `GET /api/zones`; `web/src/lib/hrZone.ts` is gone (charts colour by server bpm bounds, `zoneForBpm`).
+TRIMP still uses the day's own resting HR (deliberate). **Pieces**: `modality` rowing_erg|bike (`SPLIT_M_BY_MODALITY`, 500/1000 m; no pace→watts for bike);
+every rowing reader filters `Piece.modality == "rowing_erg"`; `GET /api/tests/bike-pieces`; coach/MCP `add_piece` takes `modality`. **Photo**: totals-only
+pieces are valid (`totals_only_splits`); `POST …/pieces/with-photo` saves piece + photo in one transaction; post-save align/rescore can't 500 a saved piece
+(`piece._after_save`). **Async routes never do blocking DB work on the event loop** (it deadlocked the public 1+2 pool: 30 s per Settings request) — use a plain
+`def` or `run_in_threadpool`, and end the transaction before awaiting a provider. Tests: `tests/test_settings_concurrency.py`, `tests/pg/test_settings_burst.py`,
+`tests/test_activity_merge.py`, `tests/test_hr_zones.py`, `tests/test_bike_pieces.py`, `tests/test_piece_photo_flow.py`, `tests/tenancy/test_activity_merge_isolation.py`;
+Playwright `merge.spec.ts`, `pieces-bike.spec.ts`, `tests/public/settings-perf.spec.ts`, `tests/gym-offline/piece-photo.spec.ts` (real backend).
+
 ## Commands
 
 - `uv sync` — install deps
@@ -723,7 +743,8 @@ system zone database, so zone validation (`available_timezones()`) never comes b
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`
 - `cd web && npm run test:public` — Playwright against the public build (dev server with `VITE_CATCH_DEPLOYMENT=public`; Supabase and `/api` calls intercepted)
 - `uv run catch db current` — public: the applied Alembic revision vs the one this build expects (admin URL; docs/operations.md)
-- `uv run python scripts/perf_personal.py --years 3` — personal-shape latency + SQL-statement counts on a scratch SQLite DB (docs/performance.md)
+- `uv run python scripts/perf_personal.py --years 3` — personal-shape latency + SQL-statement counts on a scratch SQLite DB (docs/performance.md); `--only settings` for every Settings request plus a concurrent burst
+- `SMOKE_BASE_URL=… SMOKE_SUPABASE_URL=… SMOKE_PUBLISHABLE_KEY=… SMOKE_SECRET_KEY_FILE=~/.catch-smoke-secret uv run python scripts/perf_settings.py` — Settings latency on a deployed public build with one disposable user (read-only otherwise)
 - `uv run python scripts/mcp_stdio_check.py` — stdio MCP end-to-end check against a disposable local instance (no .env, no network)
 - `uv run python scripts/backup_restore_drill.py` / `scripts/load_local.py` — local-Supabase-stack-only restore drill and multi-user latency check (env vars in each docstring)
 - `uv run catch secrets status` / `secrets rotate [--dry-run]` — master-key rotation: re-seal every stored credential under the current `CATCH_SECRETS_MASTER_KEY` (docs/security.md)

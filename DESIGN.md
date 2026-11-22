@@ -548,10 +548,38 @@ The store apps are the same screens in the same tokens; nothing was redesigned. 
 - Playwright: `web/tests/touch/onboarding.spec.ts` (both mobile projects) and `onboarding-desktop.spec.ts`; the password rules and
   toggles in `web/tests/public/public-auth.spec.ts`.
 
+## Merging, heart-rate zones, bike pieces, photos and Settings (session 33)
+
+- **Merging is a sheet, not a mode.** Workouts → Select gains **Merge…** once two are ticked; it opens the usual bottom sheet (z-30,
+  centred from `sm:`, no autofocus). It lists the selected workouts in time order (type, date and time in the workout's own zone,
+  duration, distance, sources as words), then either a plain list of reasons in a `role="alert"` box — and **no** merge button
+  (absent, not dimmed) — or a "Merged workout" card with the server's own totals and a one-line note on how they were combined
+  ("average heart rate is weighted by each part's time"). Overlap is stated in words ("4:00 recorded twice — counted once"). The
+  earliest workout is labelled "kept as the merged workout".
+- **Undo is a confirmed inline row** on workout detail, under "Merged from 2 workouts (3 recordings)", that says what comes back and
+  what stays (edits made after merging stay with the earliest). No new colour; the accent only on the confirm button.
+- **Heart-rate zones show their inputs.** Settings → Heart-rate zones: a two-option radiogroup (Heart-rate reserve / % of max heart
+  rate) with one-line help each, the max HR field, "Resting heart rate used: 51 bpm — the median of 13 mornings (6–19 Nov)" or the
+  plain fallback sentence, an optional own resting HR with "Use the measured value", and a table of % (editable) beside bpm (from the
+  server). A suggested max HR is a sentence with "Use this" and a caution about sensor spikes, never applied silently. Workout detail's
+  zone table ends with one sentence naming the basis that workout's zones used. The power table is its own "Power zones" card.
+- **Bike pieces are labelled in words.** "Rowing erg /500m" and "Bike /1000m" as a two-option radiogroup (● / ○ glyphs) first in Add
+  piece and in a piece's edit mode; every split header carries its unit ("Split /1000m"); a "Bike" word badge on the piece and in the
+  test center's own "Bike pieces" card. No new hue.
+- **A photo piece is reviewed with its photo.** The review step shows the chosen photo, the piece type the screen implies (to confirm),
+  total distance and time, and "+ Add split" — a screen with totals only is a valid piece. Saving is one request; a failure says
+  "… Nothing was saved." in the server's words. A saved piece offers "Add photo" / "Replace photo" / "Remove photo".
+- **Settings cards fail on their own.** Each card has its own skeleton and, on failure, the shared error state with **Retry** —
+  never an endless "Loading…". The AI provider card shows the saved model as text and fetches the provider's model list only on
+  "Change model" (with "Refresh models").
+- Playwright: `web/tests/touch/merge.spec.ts`, `pieces-bike.spec.ts` (both mobile projects), `web/tests/public/settings-perf.spec.ts`,
+  and the real-backend `web/tests/gym-offline/piece-photo.spec.ts`.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never
   `1:60.0`).
-- Rate is always labelled `spm`, never "cadence" or "rpm".
+- A rowing rate is always labelled `spm`, never "cadence" or "rpm". (Session 33: a *bike* piece's rate is pedal cadence and is
+  labelled "Cadence (rpm)" — the one place `rpm` appears, and only beside a "Bike" label.)
 - One hairline "waterline" gradient, used once per screen max (under the recovery ring).
   No oars, no boat silhouettes, no rowing-stroke clip-art anywhere.

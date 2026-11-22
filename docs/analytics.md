@@ -67,26 +67,63 @@ only evidence up to that session's day, so a later full re-resolve never rewrite
 **Limitations**: Paul's law is a population rule; a sprinter or a diesel will sit off it, which the range only partly covers. Heart
 rate verifies effort only when a strap recorded it; "max HR" is the setting (or the Concept2 profile's). On-water pieces are not used.
 
-## 3. Training zones (`zones.py`)
+## 3. Training zones (`zones.py`, `hr_basis.py`) — heart-rate reserve since session 33
 
-5 zones (UT2/UT1/AT/TR/AN), each a lower-bound % of max HR and a separate lower-bound % of 2k
-watts (power zones aren't the same percentages as HR zones, because power scales with the
-cube of pace while HR scales roughly linearly with effort). **Defaults — confirm with your
-coach**, source: commonly published rowing zone tables (British Rowing / Concept2 OTW-style
-guidance), not anything specific to this athlete:
+5 zones (UT2/UT1/AT/TR/AN), each a lower bound. Power zones are % of 2k watts (unchanged). Heart-rate zones use **heart-rate
+reserve (Karvonen)** by default:
 
-| Zone | % max HR | % 2k watts |
-|---|---|---|
-| UT2 | 60 | 55 |
-| UT1 | 70 | 65 |
-| AT | 80 | 75 |
-| TR | 87 | 85 |
-| AN | 93 | 95 |
+    HRR       = max HR − resting HR
+    zone from = resting HR + HRR × zone %
 
-`max_hr` is a configurable setting, seeded automatically from the Concept2 profile's
-`max_heart_rate` on first Concept2 sync if not already set (live-confirmed: 194 for this
-account), and never overwritten once set. `watts_2k` isn't stored — callers derive it from
-`predict_2k` on demand.
+| Zone | % of HR reserve (default) | % of max HR (the other method) | % 2k watts |
+|---|---|---|---|
+| UT2 | 59 | 60 | 55 |
+| UT1 | 67 | 70 | 65 |
+| AT | 75 | 80 | 75 |
+| TR | 85 | 87 | 85 |
+| AN | 95 | 93 | 95 |
+
+At max 190 / resting 50 that is UT2 132.6, UT1 143.8, AT 155, TR 169, AN 183 bpm. Below UT2's bound still reads UT2 (as before);
+a heart rate exactly on a bound is in the higher zone. All percentages are editable in Settings → Heart-rate zones.
+
+**Source of the defaults.** UT2/UT1/AT/TR are the lower bounds of the GB Rowing Team training matrix's HRR bands (UT2 59–67 %,
+UT1 67–75 %, AT 75–85 %, TR from 85 %) as published secondary sources quote it — the matrix PDF itself is no longer online, so it
+could not be read directly this session. No published HRR band for AN was found; **95 % is Catch's own choice**. They are
+defaults for a coach to confirm, as every zone table here has always said.
+
+**Which max HR.** Only the athlete's own value (`max_hr`: entered in Settings or setup, or seeded once from the Concept2 profile).
+Catch never invents one: without it there are no heart-rate zones, and the screens say "Set your max heart rate". Settings shows
+the highest heart rate a workout recorded in the last 12 months as a *suggestion* with a "Use this" button — never applied on its
+own, because a device peak can be a sensor spike and an untested athlete's peak understates their max.
+
+**Which resting HR** (`catch/analytics/hr_basis.py::zone_resting_hr`, read by `catch/sync/hr_basis.py`), per workout day:
+1. the athlete's own `resting_hr` setting, if entered;
+2. else the **median** of the resolved daily resting HR (`daily_wellness.resting_hr`, any provider — §30) over the **14 days
+   before** the workout's local day, needing ≥ 4 readings in 30–100 bpm. The day's own reading is excluded (it arrives that
+   morning). A two-week median means one odd night — alcohol, a bad sleep, the first day of a cold — moves no zone;
+3. else the latest such 14-day median within 60 days, flagged `measured_stale`;
+4. else none, and the zones **fall back to % of max HR**, with the reason stored and shown.
+A max HR less than 40 bpm above the resting HR is treated as unusable (fallback, with its own reason). Settings validation: max
+120–230, resting 30–100, max − resting ≥ 40, zone percentages increasing from UT2 to AN, HR percentages ≤ 100.
+
+**Stored with the zones.** Each workout's cached `zones_json` carries `basis` (method, max, resting, where the resting value came
+from, the window, the readings count, any fallback reason, a model number). Workout detail, the HR and erg charts (which colour
+by the server's bpm bounds — the browser holds no zone maths), the samples endpoint, trends' estimated weeks and the coach read
+that stored basis, so a screen always describes the numbers it shows. Piece time-in-zone uses the containing workout's basis.
+
+**When zones are recalculated.** Changing `max_hr`, `resting_hr`, `hr_zone_method` or any zone % re-resolves every workout in the
+background (as max HR always did). A changed daily resting-HR reading re-resolves only the workouts on that day and the 14 after it
+(`wellness_readings.rezone_after_resting_hr_change`). `run_maintenance` re-resolves all history once when the newest cached zones
+predate this model (`ZONES_MODEL = 2`). Raw samples are never rewritten — only the derived zone seconds.
+
+**Strain is deliberately unchanged.** Banister TRIMP (§4) keeps using that day's own resting HR, as calibrated in session 32. Zones
+and TRIMP may therefore use slightly different resting heart rates for the same workout; that is the athlete's decision this
+session, not an oversight.
+
+**AI.** `get_zones` and `get_workout` carry the basis; the resting-HR figures in it are wellness data and are stripped when the
+athlete hasn't allowed wellness sharing (`ai_sharing._MIXED`). The bpm bounds themselves still go: they are training targets.
+
+`watts_2k` isn't stored — callers derive it from the 2k estimate on demand.
 
 ## 4. Session strain (`strain.py`)
 
@@ -823,6 +860,25 @@ resolves through). `GET /api/pieces/{id}/test-detail` is a separate route from `
 tests/{canonical_id}` for exactly that reason. `GET /api/pbs` draws PB candidates from both
 real Concept2 `Activity` rows and confirmed pieces (again excluding an absorbed piece).
 
+### 25.x Session 33: rowing erg or bike, totals-only pieces, photo saved with the piece
+
+* **Modality.** `pieces.modality` is `rowing_erg` (every piece before session 33) or `bike`. Every split and average pace is per the
+  machine's own unit — 500 m on a RowErg, 1000 m on a bike/BikeErg (`SPLIT_M_BY_MODALITY`) — computed, not relabelled. A bike's
+  "rate" is cadence (30–150 rpm, vs 14–50 spm). The Concept2 pace→watts formula is a RowErg/SkiErg formula
+  (`concept2_client.WATTS_DERIVABLE_TYPES`), so a bike piece's watts are never derived from or checked against its pace. `30min_r20`
+  is rowing-only. A cycling workout's piece defaults to bike. Bike pieces never reach a rowing reader: test center rows, PBs, the 2k
+  estimate and `rowing_watts_2k`, fast-start flags, leaderboards (`eligible_board(..., modality)`), Concept2 absorb (also now
+  `type == "rower"` only), training-intelligence buckets (`Bike · 4x1000m/r60` is its own bucket), and the power overlay (a piece only
+  refines a workout of its own family). They are listed under "Bike pieces" in the test center (`GET /api/tests/bike-pieces`).
+  Concept2 BikeErg strokes keep their per-1000 m pace in `strokes.pace_500m` (unchanged; nothing rowing reads it).
+* **Totals-only.** A PM5 screen often shows totals without a splits table; such a piece is one whole-piece row
+  (`totals_only_splits`). It used to be impossible to save (422 "splits required"). The photo's totals pre-select a type
+  (`erg_test.detect_test_type`) that the athlete confirms on review; `drag_factor` is kept.
+* **One transaction.** `POST /api/activities/{id}/pieces/with-photo` (multipart: `payload` JSON + `photo`) validates the image first
+  (JPEG/PNG/WebP by magic bytes, ≤ 5 MB inside the 6 MB stream cap) and writes the piece and its `piece_photos` row together — the
+  table is the storage on both deployments, so no file can be orphaned. Alignment and rescoring run after the commit; a failure there
+  returns the saved piece with a warning instead of a 500.
+
 ## 26. Training intelligence & recommendations (`catch/analytics/training_intelligence.py`, `catch/sync/training_intelligence.py`), session 18
 
 The task's own prompt called itself "session 14" — PLAN.md's sessions 14-17 (gym logger
@@ -1000,6 +1056,9 @@ the shared `confidence_level` ladder. No time-projection (that is for standard t
 **Concept2 import** (on demand): `workout.intervals[]` -> rows (`distance`, `time`/10 s,
 `rest_time`/10 s, `stroke_rate`), watts/HR/rate from strokes with the same `interval_index`.
 Missing intervals -> error; nothing is derived from aggregate distance/time.
+
+Session 33: an interval piece has a modality like any piece — a bike interval's split is per 1000 m and its rate is cadence
+(`summarize_intervals(rows, modality)`, `validate_intervals(rows, modality)`); a BikeErg result's imported intervals are a bike piece.
 
 ## 28. GPS tracks, on-water metrics, routes and weather (`gps.py`, `routes.py`, `weather.py`), session 20
 
@@ -1215,3 +1274,36 @@ Still true, documented rather than changed:
 - `workload_change_flags` compares against `max(ref)`, so a modest planned increase can mask a large jump over actual training.
 - Concept2 results with neither `date_utc` nor `timezone` are read as UTC.
 - 2k prediction: an unweighted mean over the six longest recent distance buckets. Long easy pieces pull it slower.
+
+## 32. Merged workouts (`catch/analytics/activity_merge.py`, `catch/sync/activity_merge.py`), session 33
+
+Two different things are called "the same workout". **Duplicates** — one session recorded by two devices — have always been merged
+by picking one value per field (§17.1), never adding. **Combined** workouts — one session recorded in parts (a watch that stopped
+and restarted, an erg reset between pieces) — are new: the athlete selects them in Workouts → Select → Merge….
+
+Resolution (`merge_mode = "combined"`, `canonical.py::_compute_combined`): members are grouped by time overlap; inside a group the
+duplicate rules pick one value per field; across groups durations, distances and calories **add**, max HR is the maximum, average
+HR / power / cadence are **weighted by each group's duration** (never the mean of the parts' averages). Zones, TRIMP, the session
+label and the muscular share come from one combined 1 Hz timeline (each group's HR member placed at its offset from the start,
+gaps empty, each second once), so strain is the same as the parts' strains, counted once. A distance missing from a part is
+flagged `distance_partial`. The day is the earliest part's day (a "Change day" on the kept workout still wins).
+
+Compatibility (each a sentence the sheet shows): 2–10 workouts; one sport; not erg with on-water; no strength; span ≤ 6 h; gaps
+≤ 2 h; at most one confirmed test and one leaderboard publication; and a recording that overlaps several others that don't
+overlap each other is refused — those are **pieces** of one session (§25), and adding them up would double count.
+
+What follows the merged workout: every source record (untouched — only its `canonical_id` changes), pieces, the plan link, technique
+notes, coach feedback, publications; edits merge (the earliest workout's win, tags combined, notes joined). Everything is
+snapshotted on a `merge_log` row (`action = "combine"`), kept by retention while the merged workout exists. **Undo** recreates each
+merged-away workout with its own recordings, edits and links, and records `split` decisions so the matcher never re-merges them.
+Edits made after merging stay with the earliest workout.
+
+Sync: a re-synced member keeps its workout (upsert never touches `canonical_id`) and the totals re-resolve; a new duplicate of one
+part auto-merges into that part's group (counted once); a recording covering the whole merged session fails every single-part
+match and is compared with the session's span instead — flagged on Duplicates with "covers a merged workout", never merged
+automatically, while `_drop_unmerged_duplicates` keeps it from inflating strain. The Duplicates page's ordinary merge refuses a
+merged workout ("undo that merge first").
+
+The preview runs the real resolver on an unsaved workout and writes nothing; the confirm carries a hash of the selected workouts'
+`updated_at`, so a stale preview is refused (409). Limitation: GPS (map and on-water metrics) shows the earliest recording that has
+a track; tracks are not concatenated.

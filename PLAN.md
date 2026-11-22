@@ -4762,3 +4762,77 @@ invalid one got 422 `weak_password`. That includes a space and an accented lette
 - **Not built:**
   - Training Intelligence still makes its 8 requests; each is now 4–25 ms.
   - Sync-status polling already pauses while the tab is hidden (TanStack's default), so it wasn't changed.
+
+# Session 33: merge workouts, heart-rate-reserve zones, erg/bike pieces, piece-photo fix, Settings performance
+
+Branch `session-33-merge-hrr-bike-photo-settings` (not merged, not pushed, not deployed). **Deploy order: `catch db upgrade` (0012) before
+`fastapi deploy`.** After deploying, `scripts/perf_settings.py` against production confirms the Settings fix there (not run this session).
+
+## Decisions (the user chose the first four)
+
+1. Default heart-rate zones are **heart-rate reserve** with the GB Rowing Team matrix bounds UT2 59 / UT1 67 / AT 75 / TR 85 % HRR (via secondary
+   sources — the matrix PDF now redirects away); **AN 95 % is Catch's own choice** (no published HRR band found). Documented as such.
+2. **Everyone moves to HRR**; a customised %-of-max table stays stored and is used if the athlete picks "% of max heart rate".
+3. **Strain is unchanged**: TRIMP keeps the day's own resting HR. Zones use a 14-day median. No `SCORING_MODEL` bump.
+4. Settings was measured **in production** too (read-only, one disposable user via GoTrue admin) — no deploy.
+5. Mine: a merged ("combined") workout is a new `merge_mode`, not a change to the duplicate merge; the preview runs the real resolver on an unsaved
+   workout; a recording spanning several others is refused as "pieces, not parts"; GPS on a merged workout shows the earliest recording's track; bike
+   pieces never derive watts from pace; totals-only pieces are valid; the photo is saved in the piece's own transaction (the `piece_photos` table is the
+   storage on both deployments, so the Storage bucket follow-up in docs/public-storage.md is unchanged).
+
+## Root causes found (each with a test that fails on the old code)
+
+- **Photo pieces**: a PM5 screen with totals only gave `splits: []`; the create route answered 422 and the dialog's bare `catch` said "Couldn't save
+  this piece — try again", which failed the same way forever. And the piece and its photo were two requests: an upload failure after the create was
+  reported as a failed save (the piece existed, nothing refreshed) and Save again made a duplicate. Also: the type was chosen before the photo (a 5k could
+  be saved as a 2000m and back-filled to 2000 m), `drag_factor` was dropped, an exception in post-save alignment 500'd a saved piece.
+- **Settings**: production, each request 150–350 ms alone, ~30.4 s (and 500s) when the page fired them together. `GET /api/ai/providers` was `async def`
+  with blocking database reads: waiting for one of the three pooled connections on the event loop's thread deadlocked the pool until its 30 s timeout.
+  Also: page-wide gate on `/api/settings`, "Loading…" forever on errors, a full-history illness read, an all-history body-comp read, a full rescore on
+  every notification toggle, live model listing on opening AI providers, uncoalesced session-liveness queries, two connections in push subscriptions.
+- **Merging**: the only merge was "duplicates" (one value per field); merging two halves of a recording silently dropped half. The duplicate merge also
+  left pieces and publications pointing at the deleted workout and dropped the other side's edits.
+- **Zones** were % of max only; the erg chart had its own copy of the maths; detail pages described today's settings rather than the zones they showed;
+  piece time-in-zone was never refreshed after a settings change.
+- **Pieces**: nothing stopped a non-rowing piece reaching the 2k estimate, PBs, the test center, Concept2 absorb, fast-start flags or a rowing leaderboard.
+
+## Changes
+
+See CLAUDE.md "Session 33" for the module map and docs/analytics.md §3, §25.x, §32 for the rules.
+
+## Verification
+
+| Suite | Result |
+|---|---|
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,445 passed, 3 skipped |
+| Whole suite on PostgreSQL (`CATCH_TEST_PG_URL`, local stack) | 2,447 passed, 1 skipped |
+| `tests/pg` on the local Supabase stack (migration 0012, drift guard, RLS, the new Settings burst) | 101 passed, 1 skipped |
+| vitest | 115 passed (shared Python/TS split-unit vectors) |
+| Playwright touch + desktop (`CI=1`, production build) | 273 passed + the new merge/bike specs (8 skipped, as before) |
+| `npm run test:public` (incl. Settings card independence) | 22 passed |
+| `npm run test:gym` (real backend, incl. the photo flow end to end) | 3 passed |
+| `npm run test:update` | 4 passed |
+| ruff / oxlint on touched files | clean |
+
+Initial bundle 235.5 KB gzip (budget 250).
+
+## Settings, measured (docs/performance.md has every number)
+
+| | Before | After |
+|---|---|---|
+| Production, all Settings requests at once | ~30,400 ms each, 500s every round | needs a deploy |
+| Local Postgres + RLS, pool 1 + 2, all at once | 30,047 ms, 34/55 failed | 47–55 ms, none failed |
+| Personal: saving a notification setting | 587 ms | 2.2 ms |
+| Personal: illness backtest | 11.7 ms, 63 KB | 2.6 ms, 21 KB |
+
+## Not done / limitations
+
+- Not deployed; production "after" not measured. No real AI provider was called (the photo e2e fakes the estimate), no real device.
+- A merged workout's map/on-water metrics use the earliest recording with a track (tracks aren't concatenated). Undo restores what the merge moved;
+  edits made after merging stay with the earliest workout. Two recordings where one spans several others can't be merged (they're pieces).
+- Max HR is never measured automatically — only suggested. The resting-HR median needs ≥ 4 readings in the 14 days before; otherwise zones fall back
+  to % of max (stated on screen). Zones and TRIMP can use slightly different resting HRs for one workout (decision 3). The bpm bounds sent to an AI
+  without wellness sharing still imply the resting HR.
+- The GB Rowing HRR bounds come from secondary sources; AN 95 % is Catch's choice.
+- Concept2 BikeErg strokes still store per-1000 m pace in `strokes.pace_500m` (no rowing reader uses it; not rewritten).
+- Bike pieces have no pacing plan, pacing segments or W/kg (rowing concepts).
