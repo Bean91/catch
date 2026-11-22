@@ -92,7 +92,7 @@ test("a totals-only PM5 photo saves a piece with its photo, which can be viewed,
   await card.getByRole("button", { name: "View photo" }).click();
   const img = card.getByRole("img", { name: "PM5 screen" });
   await expect(img).toBeVisible();
-  expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0); // real bytes, served back by the backend
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0); // real bytes, served back by the backend
 
   const replaced = page.waitForResponse((r) => r.url().endsWith(`/api/pieces/${pieceId}/photo`) && r.request().method() === "POST");
   await page.getByTestId(`piece-photo-input-${pieceId}`).setInputFiles({ name: "again.png", mimeType: "image/png", buffer: PNG });

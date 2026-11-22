@@ -626,7 +626,7 @@ def zones_endpoint(db: Session = Depends(get_db)):
 # a FastAPI background task below instead of inline, so the PUT itself returns immediately
 # rather than slowing every other request on that one worker for that long.
 _RESOLVE_AFFECTING_SETTINGS_KEYS = {
-    "max_hr", "ftp_watts", "field_priority", "zones", "hr_zone_method", "resting_hr",
+    "max_hr", "ftp_watts", "field_priority", "zones", "hr_zone_method", "resting_hr", "wellness_priority",
     "trimp_exponent", "min_zone_minutes", "min_zone_pct",
     "auto_trim_enabled", "auto_trim_min_idle_s",
 }
@@ -669,7 +669,9 @@ def put_settings(patch: dict = Body(...), background_tasks: BackgroundTasks = No
     if before.get("wellness_priority") != result.get("wellness_priority"):
         from catch.sync.wellness_readings import resolve_all
 
-        resolve_all(db)  # a different provider order changes which reading wins; re-decide before rescoring
+        # A different provider order changes which reading wins: re-decide the days inline (cheap), and leave re-resolving the workouts
+        # whose zones/strain read those days to the background task below (session 33 — it used to run inline, for every workout).
+        resolve_all(db, rezone=False)
 
     # Session 8/12: a changed max_hr/ftp_watts/field_priority/min_zone_*/auto_trim_* affects
     # every *already-resolved* canonical's cached zones/strain/label/title, none of which

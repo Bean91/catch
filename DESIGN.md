@@ -572,7 +572,7 @@ The store apps are the same screens in the same tokens; nothing was redesigned. 
 - **Settings cards fail on their own.** Each card has its own skeleton and, on failure, the shared error state with **Retry** —
   never an endless "Loading…". The AI provider card shows the saved model as text and fetches the provider's model list only on
   "Change model" (with "Refresh models").
-- Playwright: `web/tests/touch/merge.spec.ts`, `pieces-bike.spec.ts` (both mobile projects), `web/tests/public/settings-perf.spec.ts`,
+- Playwright: `web/tests/touch/merge.spec.ts`, `pieces-bike.spec.ts`, `piece-photo.spec.ts` (both mobile projects), `web/tests/public/settings-perf.spec.ts`,
   and the real-backend `web/tests/gym-offline/piece-photo.spec.ts`.
 
 ## Rowing character, restrained

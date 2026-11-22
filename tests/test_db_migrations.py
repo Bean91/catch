@@ -206,3 +206,40 @@ def test_an_existing_pi_database_gains_the_session_32_columns_indexes_and_stamps
         row = session.get(DailyScore, ("owner", DailyWellness.__table__.c.date.type.python_type.fromisoformat("2026-03-03")))
         assert json.loads(row.strain_json)["model"] == scoring.SCORING_MODEL
         assert datetime(2026, 3, 4, 4, 30, tzinfo=timezone.utc) == a.start
+
+
+# --- Session 33: merge_mode, merge_log.snapshot_json, pieces.modality on an existing Pi file ------------------------------------
+
+
+def test_an_existing_pi_database_gains_the_session_33_columns_and_old_pieces_read_as_rowing(monkeypatch):
+    from catch.core.models import CanonicalActivity, Piece
+    from catch.sync import scoring
+    from catch.sync.canonical import resolve_all_canonicals
+
+    eng = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(eng)
+    with eng.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE canonical_activities DROP COLUMN merge_mode")
+        conn.exec_driver_sql("ALTER TABLE merge_log DROP COLUMN snapshot_json")
+        conn.exec_driver_sql("ALTER TABLE pieces DROP COLUMN modality")
+        conn.exec_driver_sql(
+            "INSERT INTO canonical_activities (owner_id, id, sport_family, start, duration, zones_json, created_at, updated_at) "
+            "VALUES ('owner', 1, 'rowing', '2026-03-04 07:00:00.000000', 1800, '{\"hr\": {\"UT2\": 1800}, \"power\": null}', '2026-03-04 08:00:00', '2026-03-04 08:00:00')"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO pieces (owner_id, id, canonical_id, piece_type, distance_m, duration_s, splits_json, source, has_intervals, created_at, updated_at) "
+            "VALUES ('owner', 1, 1, '2000m', 2000, 400, '[]', 'manual', 0, '2026-03-04 08:00:00', '2026-03-04 08:00:00')"
+        )
+    monkeypatch.setattr(db_module, "engine", eng)
+
+    db_module._migrate_columns()
+    db_module._migrate_columns()  # idempotent
+
+    with Session(eng) as session:
+        piece = session.exec(select(Piece)).one()
+        assert piece.modality == "rowing_erg"  # every piece before session 33 was a rowing erg piece
+        canonical = session.exec(select(CanonicalActivity)).one()
+        assert canonical.merge_mode is None  # ordinary duplicate semantics
+        # Zones cached before HRR carry no basis: maintenance sees that and re-resolves once.
+        assert scoring.zones_model_is_current(session) is False
+        resolve_all_canonicals(session)

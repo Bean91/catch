@@ -123,15 +123,24 @@ async def _tool_principal(request: Request, db: Session) -> Principal:
     if auth_header.lower().startswith("bearer "):
         raw_token = auth_header[len("bearer ") :].strip()
         if raw_token:
-            row = db.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
-            now = datetime.now(timezone.utc)
-            expires = row.expires_at if row is not None else None
-            expired = expires is not None and (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) <= now
-            if row is not None and not expired:
-                row.last_used_at = now
-                db.commit()
-                return principal_from_token(row.token_hash, row.role, row.display_name, scope=row.scope)
+            # In the threadpool, never on the event loop (session 33: an async route waiting on the database there can stall
+            # every other request).
+            principal = await run_in_threadpool(_personal_token_principal, db, raw_token)
+            if principal is not None:
+                return principal
     raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def _personal_token_principal(db: Session, raw_token: str) -> Principal | None:
+    row = db.exec(select(ApiToken).where(ApiToken.token_hash == hash_token(raw_token))).first()
+    now = datetime.now(timezone.utc)
+    expires = row.expires_at if row is not None else None
+    expired = expires is not None and (expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)) <= now
+    if row is None or expired:
+        return None
+    row.last_used_at = now
+    db.commit()
+    return principal_from_token(row.token_hash, row.role, row.display_name, scope=row.scope)
 
 
 async def require_tool_auth(request: Request, db: Session = Depends(get_db)) -> Principal:

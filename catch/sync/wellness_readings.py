@@ -80,9 +80,10 @@ def _readings_by_day(session: Session, days: list[date]) -> dict[date, dict[str,
     return out
 
 
-def resolve_days(session: Session, days: Iterable[date]) -> int:
+def resolve_days(session: Session, days: Iterable[date], *, rezone: bool = True) -> int:
     """Re-decide every signal for these days and write the winners. Returns the number of days
-    whose row changed."""
+    whose row changed. `rezone=False` leaves the workouts' zones to the caller (a whole-history
+    re-decision re-resolves every workout in the background instead of inline)."""
     day_list = sorted(set(days))
     if not day_list:
         return 0
@@ -121,7 +122,7 @@ def resolve_days(session: Session, days: Iterable[date]) -> int:
         if row.resting_hr != rhr_before:
             rhr_changed.append(day)
     session.commit()
-    if rhr_changed:
+    if rhr_changed and rezone:
         rezone_after_resting_hr_change(session, rhr_changed)
     return changed
 
@@ -151,9 +152,9 @@ def _written_columns() -> list[str]:
     return sorted({col for col, _ in SIGNALS.values()} | set(SLEEP_META_COLUMNS.values()))
 
 
-def resolve_all(session: Session) -> int:
+def resolve_all(session: Session, *, rezone: bool = True) -> int:
     days = session.exec(select(WellnessReading.date).distinct()).all()
-    return resolve_days(session, days)
+    return resolve_days(session, days, rezone=rezone)
 
 
 def seed_from_daily_wellness(session: Session) -> int:

@@ -54,7 +54,12 @@ def statements(session, fn) -> int:
 
 
 @pytest.mark.parametrize("url, budget", [("/api/today", 40), ("/api/activities?limit=50", 8), ("/api/predict/2k", 20), ("/api/erg/results", 12),
-                                         ("/api/training-intelligence/profile", 45)])
+                                         ("/api/training-intelligence/profile", 45), ("/api/trends/volume?weeks=12", 8),
+                                         # Session 33: every request the Settings page makes, and the zone view — the per-workout zone basis
+                                         # is one range query, never one per workout.
+                                         ("/api/settings", 3), ("/api/connections", 16), ("/api/time-zone", 4), ("/api/me", 4),
+                                         ("/api/push/subscriptions", 3), ("/api/nutrition/targets", 12), ("/api/illness/backtest", 5),
+                                         ("/api/coach/settings", 4), ("/api/coach/tokens", 3), ("/api/ai/providers", 9), ("/api/zones", 7)])
 def test_reads_stay_within_their_statement_budget(seeded, session, url, budget):
     assert statements(session, lambda: seeded.get(url)) <= budget
 

@@ -727,7 +727,7 @@ pieces are valid (`totals_only_splits`); `POST …/pieces/with-photo` saves piec
 (`piece._after_save`). **Async routes never do blocking DB work on the event loop** (it deadlocked the public 1+2 pool: 30 s per Settings request) — use a plain
 `def` or `run_in_threadpool`, and end the transaction before awaiting a provider. Tests: `tests/test_settings_concurrency.py`, `tests/pg/test_settings_burst.py`,
 `tests/test_activity_merge.py`, `tests/test_hr_zones.py`, `tests/test_bike_pieces.py`, `tests/test_piece_photo_flow.py`, `tests/tenancy/test_activity_merge_isolation.py`;
-Playwright `merge.spec.ts`, `pieces-bike.spec.ts`, `tests/public/settings-perf.spec.ts`, `tests/gym-offline/piece-photo.spec.ts` (real backend).
+Playwright `merge.spec.ts`, `pieces-bike.spec.ts`, `piece-photo.spec.ts` (both mobile engines), `tests/public/settings-perf.spec.ts`, `tests/gym-offline/piece-photo.spec.ts` (real backend).
 
 ## Commands
 

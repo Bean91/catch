@@ -678,11 +678,17 @@ async function multipart<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Mock mode keeps the chosen photo in memory so the piece card can show it back, as the real backend does.
+const MOCK_PHOTOS = new Map<number, Blob>();
+
 /** Session 33: the piece and its PM5 photo in one request and one server transaction — either both are saved or neither. */
 export async function createPieceWithPhoto(canonicalId: number, body: CreatePieceBody, photo: Blob): Promise<CreatePieceResult> {
   if (isMock) {
     const result = createMockPiece(canonicalId, body);
-    if (result.piece) uploadMockPiecePhoto(result.piece.id);
+    if (result.piece) {
+      uploadMockPiecePhoto(result.piece.id);
+      MOCK_PHOTOS.set(result.piece.id, photo);
+    }
     return delay(result, 300);
   }
   const form = new FormData();
@@ -746,7 +752,10 @@ export async function alignPiece(pieceId: number, activityId?: number, startS?: 
 
 /** Add or replace the photo of an existing piece. */
 export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ has_photo: true; piece?: Piece }> {
-  if (isMock) return delay(uploadMockPiecePhoto(pieceId), 400);
+  if (isMock) {
+    MOCK_PHOTOS.set(pieceId, photo);
+    return delay(uploadMockPiecePhoto(pieceId), 400);
+  }
   const form = new FormData();
   form.append("photo", photo, "pm5.jpg");
   return multipart<{ has_photo: true; piece?: Piece }>(`/api/pieces/${pieceId}/photo`, form);
@@ -755,7 +764,10 @@ export async function uploadPiecePhoto(pieceId: number, photo: Blob): Promise<{ 
 /** A piece's PM5 photo as an object URL, or null. An <img src> cannot send the bearer token a public/native build authenticates
  * with, so the bytes are fetched through authedFetch. The caller revokes the URL. */
 export async function fetchPiecePhotoUrl(pieceId: number): Promise<string | null> {
-  if (isMock) return null;
+  if (isMock) {
+    const blob = MOCK_PHOTOS.get(pieceId);
+    return blob ? URL.createObjectURL(blob) : null;
+  }
   try {
     const res = await authedFetch(`/api/pieces/${pieceId}/photo`);
     if (!res.ok) return null;
@@ -768,6 +780,7 @@ export async function fetchPiecePhotoUrl(pieceId: number): Promise<string | null
 export async function deletePiecePhoto(pieceId: number): Promise<void> {
   if (isMock) {
     deleteMockPiecePhoto(pieceId);
+    MOCK_PHOTOS.delete(pieceId);
     return delay(undefined, 150);
   }
   await request(`/api/pieces/${pieceId}/photo`, { method: "DELETE" });

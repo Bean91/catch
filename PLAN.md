@@ -4804,17 +4804,17 @@ See CLAUDE.md "Session 33" for the module map and docs/analytics.md §3, §25.x,
 
 | Suite | Result |
 |---|---|
-| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,445 passed, 3 skipped |
-| Whole suite on PostgreSQL (`CATCH_TEST_PG_URL`, local stack) | 2,447 passed, 1 skipped |
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,460 passed, 3 skipped |
+| Whole suite on PostgreSQL (`CATCH_TEST_PG_URL`, local stack) | 2,462 passed, 1 skipped |
 | `tests/pg` on the local Supabase stack (migration 0012, drift guard, RLS, the new Settings burst) | 101 passed, 1 skipped |
 | vitest | 115 passed (shared Python/TS split-unit vectors) |
-| Playwright touch + desktop (`CI=1`, production build) | 273 passed + the new merge/bike specs (8 skipped, as before) |
+| Playwright touch + desktop (`CI=1`, fresh production build) | 276 passed, 8 skipped (as before) — incl. merge, bike pieces, the photo flow on both mobile engines |
 | `npm run test:public` (incl. Settings card independence) | 22 passed |
 | `npm run test:gym` (real backend, incl. the photo flow end to end) | 3 passed |
 | `npm run test:update` | 4 passed |
 | ruff / oxlint on touched files | clean |
 
-Initial bundle 235.5 KB gzip (budget 250).
+Initial bundle 235.6 KB gzip (budget 250).
 
 ## Settings, measured (docs/performance.md has every number)
 
@@ -4824,6 +4824,16 @@ Initial bundle 235.5 KB gzip (budget 250).
 | Local Postgres + RLS, pool 1 + 2, all at once | 30,047 ms, 34/55 failed | 47–55 ms, none failed |
 | Personal: saving a notification setting | 587 ms | 2.2 ms |
 | Personal: illness backtest | 11.7 ms, 63 KB | 2.6 ms, 21 KB |
+
+## Fixed after a final review
+
+- Switching the recovery-input provider (Settings) re-decides every day's readings; the new rezone hook would then have re-resolved
+  every affected workout inside the request. Now the days are re-decided inline and the workouts re-resolve in the background task.
+- Settings saves its whole form, so the new heart-rate validation would have refused *every* save for anyone whose stored max HR or
+  zone table predates the rules. Only values a save changes are validated now (tested with a stored out-of-range max HR).
+- The personal device-token lookup in the tool-auth dependency ran on the event loop; it now runs in the threadpool too.
+- Added: query budgets for every Settings request, `trends/volume` and `/api/zones`; a Pi in-place upgrade test for the three columns
+  (an old piece reads as rowing; old cached zones trigger the one-time re-resolve); a mobile photo spec on both engines.
 
 ## Not done / limitations
 

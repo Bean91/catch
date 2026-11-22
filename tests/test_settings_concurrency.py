@@ -113,3 +113,38 @@ def test_saving_a_notification_setting_does_not_rescore_history(client, monkeypa
     assert calls == []
     assert client.put("/api/settings", json={"recovery_green": 70}).status_code == 200
     assert calls == [{"full": True}]
+
+
+def test_switching_the_recovery_input_provider_does_not_re_resolve_workouts_inline(client, monkeypatch):
+    """The recovery-inputs switch re-decides every day's readings. Re-resolving every workout whose zones read those days now runs
+    as a background task (with the full recompute), not inside the request."""
+    import catch.api.routes_analytics as routes
+    import catch.sync.canonical as canonical
+
+    _login(client)
+    inline = []
+    monkeypatch.setattr(canonical, "resolve_canonical", lambda *a, **k: inline.append(a))
+    background = []
+    monkeypatch.setattr(routes, "_resolve_all_and_recompute_in_background", lambda engine: background.append(engine))
+    resp = client.put("/api/settings", json={"wellness_priority": {"resting_hr": ["whoop", "garmin"]}})
+    assert resp.status_code == 200, resp.text
+    assert inline == [] and len(background) == 1
+
+
+def test_a_stored_value_from_before_the_new_rules_does_not_block_an_unrelated_save(client, session):
+    """Settings saves its whole form. A max HR stored before session 33's validation (e.g. 240 from a provider) must not turn every
+    later save into a 422."""
+    import json
+
+    from catch.core import tenant
+    from catch.core.models import AppSettings
+    from catch.core.settings_store import SETTINGS_ID
+
+    session.add(AppSettings(id=SETTINGS_ID, data_json=json.dumps({"max_hr": 240, "zones": {"hr_pct": {"UT2": 60, "UT1": 50}}})))
+    session.commit()
+    _login(client)
+    current = client.get("/api/settings").json()
+    resp = client.put("/api/settings", json={**current, "notifications": {**current["notifications"], "quiet_hours_start": "21:00"}})
+    assert resp.status_code == 200, resp.text
+    assert client.put("/api/settings", json={"max_hr": 250}).status_code == 422  # a change is still validated
+    assert tenant.pk(SETTINGS_ID)

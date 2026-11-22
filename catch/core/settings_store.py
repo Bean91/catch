@@ -16,11 +16,14 @@ _ALLOWED_VALUES = {"zone_mode": {"hr", "power"}, "units": {"metric", "imperial"}
 _ZONE_ORDER = ("UT2", "UT1", "AT", "TR", "AN")
 
 
-def _validate_heart_rate(patch: dict, merged: dict) -> None:
+def _validate_heart_rate(patch: dict, merged: dict, before: dict) -> None:
     """Session 33: the values heart-rate zones are built from. Checked on the merged result, so a patch can't leave max and
-    resting heart rate inconsistent with each other."""
+    resting heart rate inconsistent with each other — but only for values this patch actually changes: Settings saves its whole
+    form, and a value stored before these rules existed (say a max HR seeded from a provider) must not block an unrelated save."""
     def number(v) -> bool:
         return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    patch = {k: v for k, v in patch.items() if before.get(k) != merged.get(k)}
 
     max_hr, rest = merged.get("max_hr"), merged.get("resting_hr")
     if "max_hr" in patch and max_hr is not None and not (number(max_hr) and 120 <= max_hr <= 230):
@@ -31,6 +34,8 @@ def _validate_heart_rate(patch: dict, merged: dict) -> None:
         raise ValueError("Max heart rate must be at least 40 bpm above resting heart rate.")
     if "zones" in patch:
         for table in ("hr_pct", "hrr_pct", "power_pct"):
+            if merged["zones"][table] == before["zones"][table]:
+                continue
             values = [merged["zones"][table].get(z) for z in _ZONE_ORDER]
             if not all(number(v) and 0 < v <= 150 for v in values) or any(b <= a for a, b in zip(values, values[1:])):
                 raise ValueError(f"Zone percentages ({table}) must be numbers that increase from UT2 to AN.")
@@ -82,7 +87,7 @@ def update_settings(session: Session, patch: dict) -> dict:
         session.add(row)
     current_overrides = json.loads(row.data_json) if row.data_json else {}
     merged_overrides = _deep_merge(current_overrides, patch)
-    _validate_heart_rate(patch, _deep_merge(DEFAULT_SETTINGS, merged_overrides))
+    _validate_heart_rate(patch, _deep_merge(DEFAULT_SETTINGS, merged_overrides), _deep_merge(DEFAULT_SETTINGS, current_overrides))
     row.data_json = json.dumps(merged_overrides)
     row.updated_at = datetime.now(timezone.utc)
     session.commit()
