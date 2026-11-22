@@ -71,7 +71,7 @@ export function TimeInput({
         setDigits(raw);
         onChange(digitsToSeconds(raw));
       }}
-      className={className ?? "min-h-9 w-full rounded-md border border-border bg-bg px-2 text-base text-text-primary font-mono-nums"}
+      className={className ?? "min-h-9 w-full min-w-0 rounded-md border border-border bg-bg px-2 text-base text-text-primary font-mono-nums"}
     />
   );
 }

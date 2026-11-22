@@ -62,7 +62,7 @@ export function ManageTab({ club }: { club: Club }) {
             {(requests.data?.requests ?? []).map((r) => (
               <li key={r.request_id} data-testid="request-row" className="rounded-md border border-border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-text-primary">{r.handle} <span className="text-xs text-text-tertiary">· asking to join as {r.role}</span></span>
+                  <span className="min-w-0 wrap-anywhere text-sm font-medium text-text-primary">{r.handle} <span className="text-xs text-text-tertiary">· asking to join as {r.role}</span></span>
                   {r.age_class === "youth" && <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">Under 19{r.guardian_consent ? " · guardian agreed" : ""}</span>}
                 </div>
                 {r.message && <p className="mt-1 text-sm text-text-secondary">“{r.message}”</p>}

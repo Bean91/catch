@@ -59,7 +59,7 @@ export function ClubsPage() {
               <li key={c.club_id}>
                 <Link to={`/clubs/${c.club_id}`} data-testid="club-link" className="flex flex-col gap-2 rounded-md border border-border p-3 transition-colors hover:border-accent/40">
                   <span className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-text-primary">{c.name}</span>
+                    <span className="min-w-0 wrap-anywhere text-sm font-semibold text-text-primary">{c.name}</span>
                     {c.my_role && <RoleBadge role={c.my_role} />}
                   </span>
                   <ClubScope club={c} />
@@ -104,7 +104,7 @@ export function ClubsPage() {
           {(discover.data?.clubs ?? []).map((c) => (
             <li key={c.club_id}>
               <Link to={`/clubs/${c.club_id}`} data-testid="discover-row" className="flex flex-col gap-1 rounded-md border border-border p-3 transition-colors hover:border-accent/40">
-                <span className="text-sm font-semibold text-text-primary">{c.name}</span>
+                <span className="min-w-0 wrap-anywhere text-sm font-semibold text-text-primary">{c.name}</span>
                 {c.description && <span className="text-sm text-text-secondary">{c.description}</span>}
                 <span className="text-xs text-text-tertiary">{c.location ? `${c.location} · ` : ""}{c.member_count} members · {c.join_policy === "open" ? "open to join" : "by request"}</span>
               </Link>

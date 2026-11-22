@@ -227,7 +227,7 @@ export function GymPage() {
                       }
                       className="flex min-h-11 w-full items-center justify-between rounded-md px-2.5 text-left text-sm text-text-primary transition-colors hover:bg-surface-2"
                     >
-                      <span>{t.name}</span>
+                      <span className="min-w-0 wrap-anywhere">{t.name}</span>
                       <span className="text-xs text-text-tertiary">{t.items.length} exercises</span>
                     </button>
                   </li>

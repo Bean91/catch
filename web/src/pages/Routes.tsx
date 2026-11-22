@@ -32,7 +32,7 @@ export function RoutesPage() {
         {data?.map((r) => (
           <Link key={r.id} to={`/routes/${r.id}`} className="block rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40 sm:p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-base font-medium text-text-primary">{r.display_name}</span>
+              <span className="min-w-0 wrap-anywhere text-base font-medium text-text-primary">{r.display_name}</span>
               <span className="font-mono-nums text-sm text-text-secondary">
                 {formatKm(r.length_m, 1)} <GpsBadge source={r.length_source} />
               </span>

@@ -575,6 +575,18 @@ The store apps are the same screens in the same tokens; nothing was redesigned. 
 - Playwright: `web/tests/touch/merge.spec.ts`, `pieces-bike.spec.ts`, `piece-photo.spec.ts` (both mobile projects), `web/tests/public/settings-perf.spec.ts`,
   and the real-backend `web/tests/gym-offline/piece-photo.spec.ts`.
 
+## Text never widens the page (2026-11-22)
+
+A sideways scroll on the phone app came from text that couldn't wrap. The rules:
+- `body` sets `overflow-wrap: break-word`: a word breaks only when it can't fit a line on its own, so a row that fits keeps whole words.
+  (`anywhere` everywhere was tried and rejected: in a tight row it broke short words like "Coach" mid-word at 320px.)
+- Errors and alerts (`role="alert"`, `.text-band-red-text`, `ErrorState`) wrap anywhere: they carry URLs, paths and codes.
+- A name or title a person or provider chooses (workout, route, template, club, event, food, exercise, handle, email) that sits in a row
+  gets `min-w-0 wrap-anywhere`; otherwise `truncate`. Don't add `break-words` on a container: it resets the inherited rule.
+- A text box in a row gets `min-w-0`: WebKit sizes an input to about 20 characters and won't shrink it below that otherwise.
+- A row of buttons beside text uses `flex-wrap`, so the buttons drop below rather than squeezing the text.
+Guarded by `web/tests/touch/text-wrap.spec.ts` (320px, both mobile engines, plus one-word names and a URL in an error).
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

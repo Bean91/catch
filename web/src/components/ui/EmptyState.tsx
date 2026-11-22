@@ -9,7 +9,7 @@ export function EmptyState({ message }: { message: string }) {
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div className="flex min-h-16 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-band-red/40 px-4 py-6 text-center text-sm text-text-secondary">
-      <span>{message}</span>
+      <span className="min-w-0 max-w-full wrap-anywhere">{message}</span>
       {onRetry && (
         <button
           type="button"

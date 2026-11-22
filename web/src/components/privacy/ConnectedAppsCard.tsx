@@ -41,7 +41,7 @@ export function ConnectedAppsCard() {
           {tokens.data?.map((t) => (
             <li key={t.id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
               <div className="min-w-0 text-sm">
-                <p className="font-medium text-text-primary">{t.name} <span className="text-xs font-normal text-text-secondary">· {t.scope === "read" ? "read only" : "can make confirmed changes"}{t.role === "coach" ? " · coach" : ""}</span></p>
+                <p className="min-w-0 wrap-anywhere font-medium text-text-primary">{t.name} <span className="text-xs font-normal text-text-secondary">· {t.scope === "read" ? "read only" : "can make confirmed changes"}{t.role === "coach" ? " · coach" : ""}</span></p>
                 <p className="text-xs text-text-secondary">Last used {when(t.last_used_at)} · expires {when(t.expires_at)}</p>
               </div>
               <button type="button" className={`${btn} shrink-0`} onClick={() => revoke.mutate(t.id)} disabled={revoke.isPending} data-testid={`revoke-token-${t.id}`}>End access</button>

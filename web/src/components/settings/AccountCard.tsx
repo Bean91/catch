@@ -86,7 +86,7 @@ export function AccountCard() {
     <Card title="Account">
       <div className="flex flex-col gap-4" data-testid="account-card">
         <p className="text-sm text-text-secondary">
-          Signed in as <span className="font-medium text-text-primary">{email ?? "your account"}</span>. Your data is private to this account.
+          Signed in as <span className="font-medium text-text-primary wrap-anywhere">{email ?? "your account"}</span>. Your data is private to this account.
         </p>
         <ChangePassword />
         <div className="flex flex-wrap gap-2">

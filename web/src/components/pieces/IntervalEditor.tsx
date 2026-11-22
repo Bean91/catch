@@ -3,7 +3,7 @@ import { fetchIntervalTemplate } from "../../lib/api";
 import type { IntervalTarget, IntervalValidationIssue, PieceInterval } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
 
-const inputCls = "min-h-9 w-full rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary";
+const inputCls = "min-h-9 w-full min-w-0 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary";
 const btnCls = "min-h-9 min-w-9 rounded-md border border-border px-2 text-xs font-medium text-text-primary disabled:opacity-40";
 
 export function blankInterval(target: IntervalTarget = "distance"): PieceInterval {
@@ -118,7 +118,7 @@ export function IntervalEditor({
           )}
         </div>
         <div className="mt-2 flex items-end gap-2">
-          <label className="flex flex-1 flex-col gap-1">
+          <label className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-xs text-text-tertiary">Rest between</span>
             <TimeInput valueS={restS} onChange={setRestS} ariaLabel="Rest between" />
           </label>
@@ -181,7 +181,7 @@ export function IntervalEditor({
                 </div>
               </div>
               <div className="mt-2 flex items-end gap-2">
-                <label className="flex flex-1 flex-col gap-1">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Rest after</span>
                   <TimeInput valueS={r.rest_duration_s} onChange={(v) => patch(i, { rest_duration_s: v })} ariaLabel={`Interval ${i + 1} rest`} />
                 </label>

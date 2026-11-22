@@ -146,7 +146,7 @@ export function ExercisePicker({
                           onClick={() => onPick(e)}
                           className="flex min-h-11 w-full items-center justify-between rounded-md px-2.5 text-left text-sm text-text-primary transition-colors hover:bg-surface-2"
                         >
-                          <span>{e.name}</span>
+                          <span className="min-w-0 wrap-anywhere">{e.name}</span>
                           <span className="text-xs text-text-tertiary">{e.default_equipment_type.replace("_", " ")}</span>
                         </button>
                       </li>

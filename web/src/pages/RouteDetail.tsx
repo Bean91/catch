@@ -100,7 +100,7 @@ export function RouteDetailPage() {
             />
           ) : (
             <h1
-              className="cursor-text text-lg font-semibold text-text-primary"
+              className="min-w-0 wrap-anywhere cursor-text text-lg font-semibold text-text-primary"
               title="Tap to rename"
               onClick={() => {
                 setNameDraft(route.name ?? "");

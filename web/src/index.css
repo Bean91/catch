@@ -81,7 +81,19 @@ body {
   margin: 0;
   font-family: var(--font-ui);
   font-feature-settings: "tnum" 1;
+  /* Long unbroken text (a URL in an error, a provider scope, a long name) breaks onto the next line instead of running off the
+     screen. `break-word` breaks a word only when it can't fit a line on its own, so a row that fits keeps whole words. */
+  overflow-wrap: break-word;
 }
+
+/* Error and alert text often carries a URL, a file path or a code with no spaces, and often sits in a centred or flex layout where
+   `break-word` can't shrink it; it may break anywhere. Names and titles people or providers choose use the `wrap-anywhere`
+   utility where they sit in a row. */
+[role="alert"],
+.text-band-red-text {
+  overflow-wrap: anywhere;
+}
+
 
 button,
 a {

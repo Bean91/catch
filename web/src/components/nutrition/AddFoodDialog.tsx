@@ -179,7 +179,7 @@ export function AddFoodDialog({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search foods…"
-                  className="min-h-11 flex-1 rounded-md border border-border bg-bg px-3 text-base text-text-primary"
+                  className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-base text-text-primary"
                 />
                 <button
                   type="button"
@@ -202,7 +202,7 @@ export function AddFoodDialog({
                     className="flex min-h-11 items-center justify-between rounded-md border border-border px-3 py-2 text-left text-sm transition-colors hover:border-accent"
                   >
                     <span>
-                      <span className="text-text-primary">{food.name}</span>
+                      <span className="min-w-0 wrap-anywhere text-text-primary">{food.name}</span>
                       {food.brand && <span className="text-text-tertiary"> · {food.brand}</span>}
                     </span>
                     <span className="font-mono-nums text-xs text-text-tertiary">{food.kcal_100g != null ? `${Math.round(food.kcal_100g)}kcal/100g` : ""}</span>

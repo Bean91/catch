@@ -10,6 +10,8 @@
 	<string>Catch uses the camera when you tap "Take photo" to read a PM5 erg screen, estimate a meal, or scan a food barcode. Photos are sent for that one estimate and are not kept after it.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Catch reads a photo you choose from your library to read a PM5 erg screen or estimate a meal. Only the photo you pick is used.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Catch never saves photos to your library. iOS lists this permission because the camera component Catch uses can save photos; Catch doesn't use that.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Catch can read workouts, sleep, resting heart rate and blood oxygen from Apple Health, only the types you choose in Catch, so your training and recovery are in one place. Nothing is read or sent until you confirm.</string>
 	<key>CFBundleURLTypes</key>

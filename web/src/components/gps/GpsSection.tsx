@@ -57,7 +57,7 @@ function RouteChip({ canonicalId, data, rowing }: { canonicalId: number; data: O
       {route ? (
         <>
           <span className="text-text-tertiary">Repeated route</span>
-          <Link to={`/routes/${route.id}`} className="font-medium text-accent underline">
+          <Link to={`/routes/${route.id}`} className="font-medium text-accent underline wrap-anywhere">
             {route.display_name}
           </Link>
           <span className="text-xs text-text-tertiary">

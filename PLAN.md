@@ -4854,3 +4854,12 @@ an older build's cached `settings` (no `zones.hrr_pct`), `HrZonesCard` threw rea
 Fixes: the snapshot records `__BUILD_ID__` and is dropped by any other build (`snapshotUsable`, vitest); `components/shell/PageErrorBoundary.tsx`
 wraps the routes inside `AppShell` (the page shows the error with Try again / Reload, the navigation stays, navigating clears it; Playwright
 `tests/public/settings-perf.spec.ts`, which failed on the old code); `HrZonesCard` tolerates a missing percentage table. Confirmed on the phone.
+
+## Follow-up: camera on iOS, text wrapping (2026-11-22)
+
+- The camera sheet on iPhone failed with the plugin's own message ("You are missing NSPhotoLibraryAddUsageDescription…"): `@capacitor/camera` 8
+  checks all three photo keys before opening. `Info.plist` gained the key (Catch never saves to the library). Any other camera failure now reaches the
+  person as a plain sentence (`CameraUnavailableError`); the raw message goes to the console only (`camera.test.ts`).
+- Text pushed the page sideways in several places. Fix and rules in DESIGN.md "Text never widens the page". A 320px sweep of every mock page found
+  three causes beyond the missing global rule: `break-words` containers resetting it, a `grid-cols-[auto_1fr]` (now `minmax(0,1fr)`) on connection
+  details, and WebKit's ~20-character minimum on inputs in rows (workout tags, food search, meal-photo items, Add piece totals, interval rest).

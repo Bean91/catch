@@ -27,7 +27,7 @@ export function NewsTab({ club }: { club: Club }) {
         {(posts.data?.announcements ?? []).map((p) => (
           <li key={p.id} data-testid="post-row" data-status={p.status} className="rounded-md border border-border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold text-text-primary">{p.title}</h4>
+              <h4 className="min-w-0 wrap-anywhere text-sm font-semibold text-text-primary">{p.title}</h4>
               {p.status !== "published" && <span data-testid="post-status" className="rounded-full border border-border px-2 py-0.5 text-xs text-text-secondary">{p.status === "pending" ? "Waiting for a coach" : p.status === "hidden" ? "Taken down" : "Not approved"}</span>}
             </div>
             <p className="mt-1 whitespace-pre-line text-sm text-text-secondary">{p.body}</p>

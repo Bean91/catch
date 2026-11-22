@@ -338,11 +338,11 @@ export function AddPieceDialog({
               <SplitsReviewTable splits={splits} validation={null} onChange={setSplits} modality={modality} />
 
               <div className="flex gap-3 text-sm">
-                <label className="flex flex-1 flex-col gap-1">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total distance (m), if different</span>
-                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary" />
+                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 w-full min-w-0 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary" />
                 </label>
-                <label className="flex flex-1 flex-col gap-1">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total time, if different</span>
                   <TimeInput valueS={durationS} onChange={setDurationS} ariaLabel="Total time, if different" />
                 </label>

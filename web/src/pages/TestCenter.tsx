@@ -38,8 +38,8 @@ export function TestCenterPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-60">
           <h1 className="text-lg font-semibold text-text-primary">Test center</h1>
           <p className="text-sm text-text-tertiary">500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.</p>
           {(isPublic || isMock) && (
@@ -71,7 +71,7 @@ export function TestCenterPage() {
           <div className="flex flex-col gap-2">
             {candidatesQuery.data.map((c) => (
               <div key={c.canonical_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
-                <div className="text-sm text-text-primary">
+                <div className="min-w-0 wrap-anywhere text-sm text-text-primary">
                   {c.title ?? "Erg piece"} — {c.date ? formatShortDate(c.date) : "—"}
                   <span className="ml-2 font-mono-nums text-text-tertiary">
                     {formatDistance(c.distance_m)} / {formatDuration(c.duration_s)}

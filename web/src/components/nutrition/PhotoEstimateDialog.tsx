@@ -136,7 +136,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                       <input
                         value={item.name}
                         onChange={(e) => updateItem(i, { name: e.target.value })}
-                        className="min-h-9 flex-1 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+                        className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
                       />
                       <button type="button" onClick={() => removeItem(i)} aria-label={`Remove ${item.name}`} className="flex min-h-9 min-w-9 items-center justify-center text-text-tertiary hover:text-band-red">
                         ×

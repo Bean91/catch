@@ -102,7 +102,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
         )}
 
         {card.connected && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-text-secondary">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm text-text-secondary">
             <dt className="text-text-tertiary">Last sync</dt>
             <dd>{card.last_success_at ? formatRelativeTime(card.last_success_at) : "not yet"}</dd>
             {card.importing_history_from && (
@@ -114,7 +114,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
             {card.scopes.length > 0 && (
               <>
                 <dt className="text-text-tertiary">Allowed</dt>
-                <dd className="break-words">{card.scopes.join(", ")}</dd>
+                <dd>{card.scopes.join(", ")}</dd>
               </>
             )}
             {card.credential_expires_on && (

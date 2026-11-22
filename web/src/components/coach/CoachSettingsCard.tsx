@@ -96,7 +96,7 @@ export function CoachSettingsCard() {
           <div className="flex flex-col gap-2">
             {tokensQuery.data?.map((t) => (
               <div key={t.id} className="flex items-center justify-between gap-2 text-sm text-text-secondary">
-                <span>
+                <span className="min-w-0 wrap-anywhere">
                   {t.name}
                   {t.role === "coach" && (
                     <span data-testid="coach-token-badge" className="ml-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">

@@ -31,6 +31,14 @@ export async function pickNativePhoto(): Promise<File | null> {
     const msg = e instanceof Error ? e.message : String(e);
     if (/cancel/i.test(msg)) return null;
     if (/denied|permission/i.test(msg)) throw new CameraPermissionError();
-    throw e;
+    // A plugin or configuration message (e.g. a missing Info.plist key) is for the developer console, never the person.
+    console.error("Camera failed:", msg);
+    throw new CameraUnavailableError();
+  }
+}
+
+export class CameraUnavailableError extends Error {
+  constructor() {
+    super("Couldn't open the camera or photo library. Try again, or enter the numbers by hand.");
   }
 }

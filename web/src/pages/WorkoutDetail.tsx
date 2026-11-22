@@ -240,7 +240,7 @@ export function WorkoutDetailPage() {
             />
           ) : (
             <h1
-              className="cursor-text text-lg font-semibold text-text-primary"
+              className="min-w-0 wrap-anywhere cursor-text text-lg font-semibold text-text-primary"
               onClick={() => {
                 setTitleDraft(workout.title ?? "");
                 setEditingTitle(true);
@@ -550,7 +550,7 @@ export function WorkoutDetailPage() {
                 patch.mutate({ tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })
               }
               placeholder="race, test, technique, cross-training"
-              className="min-h-9 flex-1 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+              className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
             />
           </div>
 

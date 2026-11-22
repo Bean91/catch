@@ -150,7 +150,7 @@ export function ExerciseBlock({
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-text-primary">{exercise.name}</div>
+          <div className="min-w-0 wrap-anywhere text-sm font-semibold text-text-primary">{exercise.name}</div>
           {lastSessionLine && <div className="text-xs text-text-tertiary">Last time: {lastSessionLine}</div>}
         </div>
         <button type="button" onClick={onRemoveExercise} aria-label={`Remove ${exercise.name}`} className="min-h-11 min-w-11 text-xs text-text-tertiary hover:text-band-red-text">

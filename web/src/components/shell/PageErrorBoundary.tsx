@@ -33,7 +33,7 @@ class Boundary extends Component<Props, State> {
     return (
       <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-band-red/40 px-4 py-8 text-center" data-testid="page-error">
         <p className="text-sm font-medium text-text-primary">This page hit a problem and couldn't be shown.</p>
-        <p className="max-w-md break-words text-xs text-text-tertiary">{this.state.error.message}</p>
+        <p className="max-w-md text-xs text-text-tertiary">{this.state.error.message}</p>
         <div className="flex flex-wrap justify-center gap-3">
           <button
             type="button"

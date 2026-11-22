@@ -21,10 +21,10 @@ export function TemplateRow({ t }: { t: WorkoutTemplate }) {
       <Link
         to={`/library/${t.id}`}
         data-testid="template-card"
-        className="flex min-h-11 min-w-0 flex-col gap-1 break-words rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40"
+        className="flex min-h-11 min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40"
       >
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-text-primary">{t.name}</span>
+          <span className="min-w-0 wrap-anywhere font-medium text-text-primary">{t.name}</span>
           {t.is_example && (
             <span data-testid="example-badge" className="rounded-full border border-border px-2 py-0.5 text-xs text-text-secondary">
               Example — not prescribed training
