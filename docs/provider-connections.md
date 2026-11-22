@@ -31,7 +31,7 @@ kept live, so rotating `.env` needs no re-save). The public deployment has no fa
 | | How the user connects | Revocation by Catch | Notes |
 |---|---|---|---|
 | Garmin | Pastes their own **Personal API key** (docs/garmin-byok.md) | none (Garmin has no API for it) | official, self-service; terms caveat; operator switch `CATCH_GARMIN_BYOK_ENABLED` |
-| Withings | OAuth (operator's Withings app) | none documented — the grant stays at Withings until removed there | 120 requests/minute across the whole app; refresh token rotates (old one survives ~8 h) |
+| Withings | OAuth (operator's Withings app) | **revoked at Withings on disconnect and account deletion** (`action=revoke`, session 34) | 120 requests/minute across the whole app; refresh token rotates (old one survives ~8 h) |
 | Concept2 | OAuth (operator's app) **or** a personal token pasted from Edit Profile → Applications | none documented | read-only scopes `user:read,results:read`; refresh token ~1 year, rotates; "not currently rate limited" |
 | Whoop | OAuth (operator's app) | `DELETE /v2/user/access` on disconnect and on account deletion | 100 req/min, 10,000/day; **the operator's app is capped at 10 members until Whoop approves a higher tier** |
 
@@ -114,3 +114,18 @@ Open from the audit:
   responses.
 - **L-48.** A new OAuth token without a refresh token re-keys the row while the old refresh blob keeps the previous master key.
 - **`tests/pg`** (incl. `provider_connections` RLS) now runs on HEAD: 99 passed, 1 skipped (session 31).
+
+## Session 34: Withings, verified live
+
+The production failure (20 syncs, `getnonce … Invalid HMAC signature`) was a wrong `WITHINGS_CLIENT_SECRET` in FastAPI Cloud. It was re-set
+from the app's real pair on 2026-11-22, and the next sync imported 3 measurements. Error handling now follows the spec's families and the live
+strings (docs/withings-endpoints.md):
+- a refused **app** signature, client id or callback is `status_detail = "app_misconfigured"`, not "reconnect";
+- only a refused **token** means reconnect (L-41 fixed for Withings);
+- stored errors are fixed words (L-48 fixed for Withings).
+
+The OAuth callback logs the exception class and answers `result=connected|denied|expired|server_setup|failed`; the Connections page and
+setup show one sentence for each. Operators can check an app with `uv run catch withings check-app` or `GET /internal/config-check?probe=withings`
+(booleans only). The flow, isolation and refresh race are tested end to end against `tests/withings_fake.py`
+(`tests/test_withings_flow.py`, `tests/tenancy/test_withings_isolation.py`). A brand-new account signing in on Withings' page has not been run
+live.

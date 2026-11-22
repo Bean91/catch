@@ -74,9 +74,10 @@ let cards: ConnectionCard[] = [
       [
         "You authorize on Withings' own page; Catch never sees your Withings password.",
         "Withings' API allows about 120 requests a minute across the whole Catch deployment (not per user).",
-        "Withings documents no way for an app to revoke a grant. Disconnecting removes Catch's copy; remove the app in your Withings account to end access there.",
+        "Disconnecting ends Catch's access at Withings too, and Catch forgets its copy. What was already imported stays.",
+        "Weigh-ins Withings can't attribute to you (a shared scale's unassigned ones, or the weight typed in when the Withings account was created) aren't imported.",
       ],
-      { body_composition: "yes", weight: "yes", push_or_webhooks: "no", token_revocation: "no" },
+      { body_composition: "yes", weight: "yes", push_or_webhooks: "no", token_revocation: "yes" },
       "Catch reads body measurements (weight and composition) only.",
     ),
     connected: true,
@@ -87,7 +88,7 @@ let cards: ConnectionCard[] = [
     scopes: ["user.metrics"],
     last_success_at: iso(-3 * 86_400_000),
     last_attempt_at: iso(-3_600_000),
-    last_error: "Withings refused the saved authorization. Reconnect Withings.",
+    last_error: "Withings no longer accepts this authorization. Reconnect Withings.",
   },
   empty(
     "concept2",
@@ -215,5 +216,5 @@ export function mockDisconnectProvider(provider: ProviderId): { revoked: boolean
     last_error: null,
     importing_history_from: null,
   });
-  return { revoked: provider === "whoop", was_connected: c.connected };
+  return { revoked: (provider === "whoop" || provider === "withings") && c.connected, was_connected: c.connected };
 }

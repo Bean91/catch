@@ -121,5 +121,20 @@ test("the OAuth return lands on the page with a plain result notice", async ({ p
   await page.goto("/settings/connections?mock=1&provider=whoop&result=denied");
   await expect(page.getByTestId("connection-result")).toContainText("access wasn't granted");
   await page.goto("/settings/connections?mock=1&provider=whoop&result=connected");
-  await expect(page.getByTestId("connection-result")).toContainText("Whoop connected.");
+  await expect(page.getByTestId("connection-result")).toContainText("Whoop is connected.");
+});
+
+test("session 34: each Withings sign-in outcome says what happened in words", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const [result, words] of [
+    ["server_setup", "server's sign-in setup"],
+    ["expired", "took too long or was used twice"],
+    ["denied", "access wasn't granted"],
+    ["connected", "is connected"],
+  ] as const) {
+    await page.goto(`/settings/connections?mock=1&provider=withings&result=${result}`);
+    await expect(page.getByTestId("connection-result")).toContainText(words);
+  }
+  // Withings can be revoked by Catch now, and the card says so before disconnecting.
+  await expect(page.getByTestId("conn-note-withings")).toBeVisible();
 });

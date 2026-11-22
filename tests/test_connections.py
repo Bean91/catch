@@ -434,16 +434,19 @@ def test_disconnecting_an_environment_credential_is_refused_with_a_plain_reason(
     assert client.delete("/api/connections/garmin").status_code == 200
 
 
-def test_a_withings_data_call_status_other_than_401_or_601_is_a_plain_error_not_a_reconnect():
+def test_a_withings_data_call_status_outside_the_auth_family_is_a_plain_error_not_a_reconnect():
+    """Session 34: the spec's status table (developer.withings.com/openapi.yaml) lists 100–102, 200 and 401 as "Authentication failed";
+    everything else that isn't rate limiting or a timeout is retried, not a reconnect."""
     from catch.sync import withings_client
     from catch.sync.providers.base import ProviderAuthError, ProviderRateLimited
 
-    for status in (100, 101, 102, 293, 503):
+    for status in (293, 503, 2554):
         with pytest.raises(withings_client.WithingsError) as exc:
             withings_client._check_status({"status": status}, "getmeas")
         assert not isinstance(exc.value, ProviderAuthError)
-    with pytest.raises(ProviderAuthError):
-        withings_client._check_status({"status": 401}, "getmeas")
+    for status in (100, 101, 102, 200, 401):
+        with pytest.raises(ProviderAuthError):
+            withings_client._check_status({"status": status}, "getmeas")
     with pytest.raises(ProviderRateLimited):
         withings_client._check_status({"status": 601}, "getmeas")
 

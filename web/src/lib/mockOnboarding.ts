@@ -11,7 +11,7 @@ const pending = params.get("onboarding") === "pending";
 let onboarding: OnboardingState = {
   state: pending ? "pending" : "completed",
   step: 0,
-  steps: ["welcome", "connections", "preferences", "sync", "done"],
+  steps: ["welcome", "connections", "preferences", "privacy", "sync", "done"],
   skipped: [],
   completed_at: pending ? null : "2026-11-01T09:00:00+00:00",
   show: pending,
@@ -33,7 +33,7 @@ export function mockPutOnboarding(patch: { step?: number; skipped?: ProviderId[]
   if (patch.restart) onboarding = { ...onboarding, state: "pending", step: 0, completed_at: null, show: true };
   if (patch.step != null) onboarding = { ...onboarding, step: patch.step };
   if (patch.skipped) onboarding = { ...onboarding, skipped: [...new Set(patch.skipped)].sort() };
-  if (patch.complete) onboarding = { ...onboarding, state: "completed", step: 4, completed_at: new Date().toISOString(), show: false };
+  if (patch.complete) onboarding = { ...onboarding, state: "completed", step: 5, completed_at: new Date().toISOString(), show: false };
   return mockOnboarding();
 }
 

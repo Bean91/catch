@@ -183,7 +183,9 @@ def compare_equivalent_pieces(test_type: str, rows: list[dict], settings: dict) 
         )
 
     def _point_out(p: dict) -> dict:
-        return {"date": p["date"].isoformat(), "value": p["value"], "avg_stroke_rate": p["row"].get("avg_stroke_rate")}
+        # Session 34: the effort's average watts and its weight-adjusted power (computed upstream with that day's own weigh-in).
+        return {"date": p["date"].isoformat(), "value": p["value"], "avg_stroke_rate": p["row"].get("avg_stroke_rate"),
+                "avg_watts": p["row"].get("avg_power"), "weight_adjusted_watts": p["row"].get("weight_adjusted_watts")}
 
     return {
         "bucket_label": test_type,
@@ -210,7 +212,8 @@ def compare_equivalent_intervals(signature: str, sessions: list[dict], n_history
     of interval sessions doesn't support a projection. Confidence reuses the same ladder."""
     points = sorted(
         (
-            {"date": s["date"], "value": s["summary"]["avg_split_s"], "avg_watts": s["summary"].get("avg_watts"), "avg_rate": s["summary"].get("avg_rate"), "avg_hr": s["summary"].get("avg_hr")}
+            {"date": s["date"], "value": s["summary"]["avg_split_s"], "avg_watts": s["summary"].get("avg_watts"),
+             "weight_adjusted_watts": s["summary"].get("weight_adjusted_watts"), "avg_rate": s["summary"].get("avg_rate"), "avg_hr": s["summary"].get("avg_hr")}
             for s in sessions
             if s.get("summary") and s["summary"].get("avg_split_s")
         ),

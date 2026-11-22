@@ -7,7 +7,6 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from catch.analytics.erg_math import w_per_kg
 from catch.analytics.erg_test import TEST_SPECS, pacing_analysis, pacing_plan as _pacing_plan, project_time
 from catch.analytics.piece import points_from_splits
 from catch.api import routes_activities, routes_analytics
@@ -138,15 +137,27 @@ def get_test_detail(canonical_id: int, db: Session = Depends(get_db)):
         (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None
     )
 
-    weight_kg = body_comp.nearest_resolved_weight_kg(db, canonical.start)
+    # Session 34: the weigh-in that belongs to this test's own day (analytics/bodyweight.py), never today's.
+    weight = body_comp.performance_weight(db, localtime.day_of(db, canonical)) if canonical.start else None
     return {
         "activity": detail,
         "test_type": test_type,
         "plan": plan,
         "pacing_analysis": analysis,
-        "compare_to_earlier": earlier,
-        "w_per_kg": w_per_kg(canonical.avg_power, weight_kg),
+        "compare_to_earlier": _with_mass(db, earlier),
+        **body_comp.power_for_mass(canonical.avg_power, weight),
     }
+
+
+def _with_mass(db: Session, row: dict | None) -> dict | None:
+    """compare_to_earlier with that earlier effort's own body-mass figures (its own day's weigh-in), so the two are comparable."""
+    if row is None:
+        return None
+    day = date.fromisoformat(row["date"]) if row.get("date") else None
+    watts = row.get("avg_power")
+    if row.get("modality", "rowing_erg") != "rowing_erg":
+        return row
+    return {**row, **body_comp.power_for_mass(watts, body_comp.performance_weight(db, day))}
 
 
 # Session 17 (see PLAN.md — the task called itself "session 13"): a piece's own test-detail
@@ -181,13 +192,15 @@ def get_piece_test_detail(piece_id: int, db: Session = Depends(get_db)):
         (t for t in same_type if this_date and t["date"] and t["date"] < this_date), key=lambda t: t["date"], default=None
     )
 
-    weight_kg = body_comp.nearest_resolved_weight_kg(db, canonical.start)
+    # Rowing only, like W/kg: a body-mass-relative power is a rowing-erg comparison here, and a bike piece's figure isn't comparable.
+    weight = body_comp.performance_weight(db, localtime.day_of(db, canonical)) if rowing and canonical.start else None
+    mass = body_comp.power_for_mass(piece.avg_watts, weight) if rowing else body_comp.power_for_mass(None, None)
     return {
         "activity": detail,
-        "piece": piece_sync.piece_dict(piece, has_photo=piece_sync.get_photo(db, piece_id) is not None),
+        "piece": piece_sync.piece_payload(db, piece, has_photo=piece_sync.get_photo(db, piece_id) is not None),
         "test_type": piece.piece_type,
         "plan": plan,
         "pacing_analysis": analysis,
-        "compare_to_earlier": earlier,
-        "w_per_kg": w_per_kg(piece.avg_watts, weight_kg) if rowing else None,
+        "compare_to_earlier": _with_mass(db, earlier) if rowing else earlier,
+        **mass,
     }

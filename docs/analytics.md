@@ -1289,10 +1289,10 @@ Still true, documented rather than changed:
   treats as real.
 - `normalize_muscle_au` clamps to 0.4–2× the baseline rather than normalising.
 - PB bucketing tolerance is `max(25 m, 2 %)` (475 m counts as 500 m), looser than the test center's auto-detect.
-- `validate_splits` assumes 500 m for a row with no distance (a false watts warning on timed pieces). `find_best_window` has no
-  coverage gate.
-- Piece `avg_watts`/`avg_rate` are unweighted means of the typed values. No real PM5 fixture settles whether the PM5's own summary
-  watts are time-weighted or derived from the average pace.
+- ~~`validate_splits` assumes 500 m for a row with no distance (a false watts warning on timed pieces).~~ Fixed in session 34 (§34).
+  `find_best_window` has no coverage gate.
+- ~~Piece `avg_watts` is an unweighted mean of the typed values.~~ Session 34: from the average pace on a rowing erg, as Concept2's own
+  logbook does (§34). `avg_rate` stays an unweighted mean.
 - `workload_change_flags` compares against `max(ref)`, so a modest planned increase can mask a large jump over actual training.
 - Concept2 results with neither `date_utc` nor `timezone` are read as UTC.
 - 2k prediction: an unweighted mean over the six longest recent distance buckets. Long easy pieces pull it slower.
@@ -1329,3 +1329,99 @@ merged workout ("undo that merge first").
 The preview runs the real resolver on an unsaved workout and writes nothing; the confirm carries a hash of the selected workouts'
 `updated_at`, so a stale preview is refused (409). Limitation: GPS (map and on-water metrics) shows the earliest recording that has
 a track; tracks are not concatenated.
+
+## 34. Watts from split pace and weight-adjusted power (`catch/analytics/erg_math.py`, `piece.py`, `piece_intervals.py`, `bodyweight.py`, `units.py`; `catch/sync/piece_power.py`, `body_comp.py`), session 34
+
+### Watts from pace (rowing erg only)
+
+**Formula.** One implementation, `erg_math.watts_from_pace`: **P = 2.8 / (t/500)³**, with t the seconds per 500 m (Concept2's published
+formula). It rejects zero, negative and non-finite pace. The browser has no copy: the review step asks `POST /api/pieces/preview`.
+
+| Pace /500 m | Watts |
+|---|---|
+| 2:00.0 | 202.5 |
+| 1:50.0 | 263.0 |
+| 1:45.0 | 302.3 |
+| 1:40.0 | 350.0 |
+
+The session brief listed 175/227/259/294 W for these paces. No single formula gives those values, and they contradict the brief's own P,
+so the user chose the formula; tests pin the values above.
+
+- **A split row** gets watts when its pace is known. Pace = the row's time ÷ its *own* distance (the difference from the previous row's
+  cumulative distance) × 500.
+  - A time-only row (no metres) has no pace, so no derived watts and no watts check. The old check assumed 500 m and flagged every real
+    value on timed pieces.
+  - Derived values carry `watts_source: "pace"`, at full precision; they are rounded only for display.
+- **Source of truth: the split.**
+  - Typed watts within a PM5's own rounding (max(2 W, 1 %)) are accepted and replaced by the exact value.
+  - Typed watts outside it are a validation issue that names the calculated figure.
+  - "Save anyway" stores the split's watts and keeps the typed value as `watts_entered`, so nothing is silently lost.
+  - Watts with no split are kept (`watts_source: "entered"`).
+  - A value Catch derived is re-derived, never checked, when the split is edited.
+- **A piece's `avg_watts`** is `watts_from_pace(total time ÷ total distance × 500)`, the power of the average pace. This is what
+  Concept2's logbook reports, and the brief's "watts from split pace".
+  - It replaces the old plain mean of split watts, which overstates power because power is cubic in pace: 1:40 + 2:00 averaged 276 W,
+    but the 1:50 average pace is 263 W.
+  - A rowing piece with no distance (a 30-minute piece typed as time only) keeps the screen's average watts.
+  - `avg_watts_basis` is `"pace"` or `"entered"`.
+- **Intervals.** Each rowing interval's watts come from its own pace (typed split, else time ÷ distance). The set's watts come from the
+  total work pace, not a weighted mean of interval watts. A typed interval watts that contradicts its pace is flagged; interval rows have no
+  `watts_entered` column, so "Save anyway" keeps the pace-derived value.
+- **Concept2.**
+  - Absorbed pieces and imported intervals take watts from each split's or interval's pace, not the mean of per-stroke watts (which
+    overstates power for the same cubic reason).
+  - `Activity.avg_power` from Concept2's `wattminutes_total` is provider-measured and untouched.
+- **Bike: never.** No published pace→power model is trusted for a BikeErg or a road bike. A bike piece's watts are only what was typed or
+  read off the screen, averaged over time. A BikeErg import without measured power stays empty.
+
+### Weight-adjusted power
+
+**Formula.** `erg_math.weight_adjusted_power(P, m)` = **P / m^(2/3)**, in **W/kg^(2/3)**. P is the *average* watts (never peak); m is
+body mass in kg.
+
+Worked examples:
+- 302.343 W at 80 kg → 80^(2/3) = 18.566 → **16.285**.
+- The same at 70 kg → **17.801**.
+- W/kg at 80 kg = 3.779.
+
+It is `None` for a missing, zero, negative or non-finite input, and it never replaces the raw watts. Pounds are converted once, at the edge
+where they can arrive: manual entry, `POST /api/body/manual` with `unit: "lb"`, using `units.kg_from_lb` (× 0.45359237 exactly). Every
+stored weight is kg; Garmin grams, Withings `value×10^unit` and Whoop are already converted, and the health import carries no weight.
+
+**Which weigh-in** (`analytics/bodyweight.weight_for_day`):
+1. The latest *plausible* (25–300 kg) resolved weigh-in on or before the performance's local day, at most 30 days old.
+2. Otherwise the earliest within 7 days after.
+3. Otherwise none, and the figure shows as unavailable.
+
+Today's weight is never the default. The day is the workout's own local day (`localtime.day_of`, which respects "Change day").
+W/kg (test detail, the erg card, the W/kg trend, erg results) uses the same rule; it used to take the nearest day in either direction with
+no age limit.
+
+**Computed when read, never stored.** Body-comp rows are one per measurement, so a later weigh-in never overwrites an earlier one, and an
+older piece keeps its own day's figure. Adding a missing historical weigh-in correctly fills in its window. So there is no derived-value
+backfill to run. Payloads carry `weight_kg_used` and `weight_date` beside the figure.
+
+**Where it is shown** (rowing erg only, like W/kg):
+- piece and test detail;
+- every interval, and an interval set computed from the set's own watts, never an average of interval scores;
+- performance-trend best/recent points, each with its own day's weigh-in;
+- compare-to-earlier;
+- `get_trends` (`weight_adjusted_watts`);
+- the coach tools that return pieces and tests.
+
+**AI sharing:** weight is wellness data, and W/kg gives it away (watts ÷ W/kg = kg). So every body-mass figure (`weight_kg`,
+`weight_kg_used`, `weight_date`, `w_per_kg`, `weight_adjusted_watts`, and the gym logger's `bodyweight_kg_used`) is removed from a
+non-wellness tool's result unless the athlete shares wellness (`coach/ai_sharing.BODY_MASS_KEYS`). That closed an existing leak through
+`get_test`.
+
+### Backfill (`sync/piece_power.py`)
+
+The one-time upgrade of stored pieces, run once per owner from `scheduler.run_maintenance` (personal: startup and daily; public: the sync tick).
+It is marked by `piece_power_model` in the settings row's hidden `_maintenance` block, and is idempotent.
+- Rowing split rows get pace-derived watts; a differing typed value is moved to `watts_entered`.
+- A piece's average is re-derived.
+- Interval watts are filled where empty or consistent; a typed interval value that contradicts its pace is **left as it is**, for the
+  athlete to see flagged on the next edit.
+- Bike pieces keep their own watts.
+- Workouts whose pieces changed are re-resolved, because the piece power overlay feeds power zones.
+- A failure is logged and never blocks maintenance.

@@ -915,7 +915,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                     "type": "string",
                     "enum": [
                         "recovery", "hrv_rmssd", "resting_hr", "sleep_score", "stress", "body_battery",
-                        "spo2", "respiration", "strain", "load_acr", "weight", "w_per_kg", "predicted_2k",
+                        "spo2", "respiration", "strain", "load_acr", "weight", "w_per_kg", "weight_adjusted_watts", "predicted_2k",
                         "checkin_soreness", "checkin_stress", "checkin_mood", "checkin_sleep_quality",
                     ],
                 },

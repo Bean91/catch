@@ -124,12 +124,15 @@ def test_sync_converts_values_and_maps_meastypes(monkeypatch, session):
     rows = session.exec(__import__("sqlmodel").select(BodyComp)).all()
     assert len(rows) == 1
     comp = rows[0]
+    # Plausible exponents (session 34: the fixture used to give 131.8 kg fat and 327 kg muscle on a 72.4 kg person). Muscle + bone +
+    # fat mass ≈ weight, as in the live readings checked on 2026-11-22.
     assert comp.weight_kg == 72.4
     assert comp.fat_pct == 18.2
-    assert comp.fat_kg == 131.8
-    assert comp.muscle_kg == 327.0
-    assert comp.hydration_kg == 54.5
-    assert comp.bone_kg == 32.1
+    assert comp.fat_kg == 13.18
+    assert comp.muscle_kg == 56.5
+    assert comp.hydration_kg == 42.1
+    assert comp.bone_kg == 2.72
+    assert abs(comp.muscle_kg + comp.bone_kg + comp.fat_kg - comp.weight_kg) < 0.1
 
 
 def test_status_nonzero_raises(monkeypatch, session):

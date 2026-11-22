@@ -7,6 +7,7 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 import { SplitBarChart } from "../components/tests/SplitBarChart";
 import { PieceCard } from "../components/pieces/PieceCard";
+import { MassPower } from "../components/pieces/MassPower";
 
 /** The piece equivalent of TestDetailPage (session 15) — a separate route/page rather than
  * folding into that one, since a piece additionally needs its own splits-edit/photo card
@@ -29,7 +30,7 @@ export function PieceTestDetailPage() {
     return <ErrorState message="Couldn't load this piece." onRetry={() => refetch()} />;
   }
 
-  const { activity, piece, test_type, plan, pacing_analysis, compare_to_earlier, w_per_kg } = data;
+  const { activity, piece, test_type, plan, pacing_analysis, compare_to_earlier } = data;
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,8 +55,10 @@ export function PieceTestDetailPage() {
               {splitUnitLabel(piece.split_unit_m)}
             </>
           )}
-          {w_per_kg != null && <> · {w_per_kg.toFixed(2)} W/kg</>}
         </p>
+        <div className="mt-1">
+          <MassPower watts={piece.avg_watts} mass={data} modality={piece.modality} />
+        </div>
       </div>
 
       {pacing_analysis && (

@@ -6,6 +6,7 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 import { SplitBarChart } from "../components/tests/SplitBarChart";
+import { MassPower } from "../components/pieces/MassPower";
 
 export function TestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,7 +25,7 @@ export function TestDetailPage() {
     return <ErrorState message="Couldn't load this test." onRetry={() => refetch()} />;
   }
 
-  const { activity, test_type, plan, pacing_analysis, compare_to_earlier, w_per_kg } = data;
+  const { activity, test_type, plan, pacing_analysis, compare_to_earlier } = data;
 
   return (
     <div className="flex flex-col gap-4">
@@ -42,8 +43,10 @@ export function TestDetailPage() {
         </div>
         <p className="font-mono-nums text-sm text-text-secondary">
           {formatDistance(activity.distance)} in {formatDuration(activity.duration)}
-          {w_per_kg != null && <> · {w_per_kg.toFixed(2)} W/kg</>}
         </p>
+        <div className="mt-1">
+          <MassPower watts={activity.avg_power} mass={data} />
+        </div>
       </div>
 
       {pacing_analysis && (

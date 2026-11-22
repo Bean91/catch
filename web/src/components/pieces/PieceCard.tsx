@@ -8,6 +8,7 @@ import { PIECE_MODALITIES, modalityLabel, rateUnit, type PieceModality } from ".
 import type { IntervalValidationIssue, Piece, PieceInterval, ZoneName } from "../../lib/types";
 import { zoneColor, ZONE_NAMES } from "../../lib/zoneColors";
 import { IntervalEditor } from "./IntervalEditor";
+import { MassPower } from "./MassPower";
 import { PieceIntervalTable } from "./PieceIntervalTable";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 
@@ -206,6 +207,16 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
               <div className="font-mono-nums text-text-primary">{piece.avg_watts != null ? Math.round(piece.avg_watts) : "—"}</div>
             </div>
           </div>
+          {piece.avg_watts_basis && (
+            <p className="mt-1 text-center text-xs text-text-tertiary" data-testid="piece-watts-basis">
+              {piece.avg_watts_basis === "pace" ? "Watts calculated from the average split." : piece.modality === "bike" ? "Watts as entered — a bike's power is never calculated from pace." : "Watts as entered."}
+            </p>
+          )}
+          {!piece.has_intervals && (
+            <div className="mt-2">
+              <MassPower watts={piece.avg_watts} mass={piece} modality={piece.modality} compact />
+            </div>
+          )}
           {piece.source === "concept2" && <p className="mt-2 text-xs text-text-tertiary">Backed by real Concept2 stroke data.</p>}
 
           {/* Task Part D.2: per-split HR, time in zone, and post-piece recovery — not just

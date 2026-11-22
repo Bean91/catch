@@ -13,7 +13,6 @@ from sqlmodel import Session, select
 
 from catch.analytics.body import smooth_weight
 from catch.analytics.downsample import bucket_value_bounds, lttb_indices
-from catch.analytics.erg_math import w_per_kg
 from catch.analytics.strain import hr_sample_durations, time_in_zone
 from catch.analytics.technique import erg_technique, interval_summary
 from catch.analytics.zones import ZONE_ORDER, basis_from_dict, training_zones, zone_for_hr
@@ -126,10 +125,10 @@ def _latest_erg(db: Session) -> dict | None:
     row = db.exec(stmt).first()
     if row is None:
         return None
-    weight_kg = _nearest_weight_kg(db, row.start)
+    weight = body_comp.performance_weight(db, localtime.day_of(db, row))
     data = row.model_dump(exclude={"raw_json", "intervals_json"})
-    data["weight_kg"] = weight_kg
-    data["w_per_kg"] = w_per_kg(row.avg_power, weight_kg)
+    data["weight_kg"] = weight[0] if weight else None
+    data.update(body_comp.power_for_mass(row.avg_power, weight))
     # `id` stays the raw Concept2 Activity id (GET /api/erg/{id}/strokes needs it);
     # `canonical_id` is what the Today card should navigate to (/workouts/{canonical_id}).
     data["canonical_id"] = row.canonical_id
@@ -222,7 +221,7 @@ def today(db: Session = Depends(get_db)):
     }
 
 
-_ALL_SERIES_METRICS = _WELLNESS_METRICS | set(_SCORE_METRICS) | _CHECKIN_METRICS | {"weight", "w_per_kg", "predicted_2k"}
+_ALL_SERIES_METRICS = _WELLNESS_METRICS | set(_SCORE_METRICS) | _CHECKIN_METRICS | {"weight", "w_per_kg", "weight_adjusted_watts", "predicted_2k"}
 
 
 def _metric_series(db: Session, metric: str, from_: date | None, to: date | None) -> list[dict]:
@@ -270,8 +269,8 @@ def _metric_series(db: Session, metric: str, from_: date | None, to: date | None
 
     if metric == "weight":
         return _weight_trend(db, from_, to)
-    if metric == "w_per_kg":
-        return _w_per_kg_trend(db, from_, to)
+    if metric in ("w_per_kg", "weight_adjusted_watts"):
+        return _w_per_kg_trend(db, from_, to, metric)
     if metric == "predicted_2k":
         return _predicted_2k_trend(db, from_, to)
 
@@ -399,7 +398,8 @@ def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict
     return out
 
 
-def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
+def _w_per_kg_trend(db: Session, from_: date | None, to: date | None, metric: str = "w_per_kg") -> list[dict]:
+    """W/kg or (session 34) weight-adjusted power per Concept2 rowing result, each with the weigh-in that belongs to its own day."""
     start, end = localtime.date_bounds(db, from_, to)
     # Rowing erg only: BikeErg watts per kg aren't the same measure (same rule as PBs and the 2k).
     stmt = select(Activity).options(defer(Activity.raw_json)).where(
@@ -413,8 +413,7 @@ def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[di
     weights = body_comp.WeightLookup(db)
     out = []
     for a in rows:
-        weight_kg = weights.nearest(a.start)
-        value = w_per_kg(a.avg_power, weight_kg)
+        value = body_comp.power_for_mass(a.avg_power, weights.at(a.start))[metric]
         if value is not None and a.start is not None:
             # activity_id lets the frontend chart open this exact workout on tap (interaction
             # spec #4) — /api/series already passes any extra per-point keys through verbatim.
@@ -429,14 +428,6 @@ def _predicted_2k_trend(db: Session, from_: date | None, to: date | None) -> lis
     never the current estimate (which weighs several efforts) or a measured result. Same evidence rules as the estimate
     (session 32): declared tests/pieces and hard continuous rows only."""
     return rowing_predict.implied_2k_history(db, get_settings(db), from_, to)
-
-
-def _nearest_weight_kg(db: Session, when: datetime | None) -> float | None:
-    """Nearest *day's* priority-resolved weight to `when` (task Part D.2 — Withings first,
-    Garmin second by default, a manual entry as the last resort) — delegates to
-    catch/sync/body_comp.py so this never silently prefers whichever source's row happens to
-    sit closer in wall-clock time within the same day."""
-    return body_comp.nearest_resolved_weight_kg(db, when)
 
 
 @router.get("/api/erg/results")
@@ -459,8 +450,10 @@ def erg_results(
     weights = body_comp.WeightLookup(db)
     out = []
     for a in rows:
-        weight_kg = weights.nearest(a.start)
-        out.append({**a.model_dump(exclude={"raw_json"}), "weight_kg": weight_kg, "w_per_kg": w_per_kg(a.avg_power, weight_kg)})
+        weight = weights.at(a.start)
+        # Body-mass figures are rowing-erg comparisons (BikeErg/SkiErg watts per kg aren't the same measure).
+        mass = body_comp.power_for_mass(a.avg_power if a.type == "rower" else None, weight)
+        out.append({**a.model_dump(exclude={"raw_json"}), "weight_kg": weight[0] if weight else None, **mass})
     return out
 
 

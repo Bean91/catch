@@ -587,6 +587,39 @@ A sideways scroll on the phone app came from text that couldn't wrap. The rules:
 - A row of buttons beside text uses `flex-wrap`, so the buttons drop below rather than squeezing the text.
 Guarded by `web/tests/touch/text-wrap.spec.ts` (320px, both mobile engines, plus one-word names and a URL in an error).
 
+## Privacy in setup, power and weight-adjusted power (session 34)
+
+- **Privacy is a setup step, not a consent wall.** "Your privacy" is step 4 of 6, between Training basics and Importing.
+  - It opens with one sentence: everything starts **off**, and skipping leaves it off.
+  - Then a plain "Your training and health data" card states there is no public profile or feed, so there is nothing to switch.
+  - Then the *same* AI sharing card as Settings → Privacy, untouched (acknowledge first, seven On/Off switches).
+  - On the public build, a "Public leaderboards" card that says **Off** or **On** as a word. "Join the leaderboards…" opens the same opt-in
+    form as Settings, and the copy says that joining publishes nothing.
+  - Then a one-line Clubs note.
+  - Back / Skip / Continue; Skip and Continue are equally quiet, and declining is never the harder button.
+- **Connection outcomes are one sentence each**, shared by Connections and setup (`lib/connections.ts` `CONNECT_RESULT_TEXT`): connected,
+  access not granted, "took too long or was used twice — start again", "this server's sign-in setup is wrong — nothing you did", couldn't be
+  connected.
+  - A card in `app_misconfigured` says "nothing to fix on your side and no need to reconnect" rather than the generic sync failure.
+  - Disconnect states whether access was also ended at the provider (Withings and Whoop now) or still has to be removed there.
+- **Watts are the server's.** The review table's column reads "Watts (from split)" on a rowing erg, and each calculated value is the input's
+  *placeholder* (muted), not a typed value. Typing a screen's watts marks it entered; the server checks it against the split, and a
+  contradiction is the usual red row with the calculated figure in words.
+  - Under the table, one `aria-live` line: "Average power: 302 W — calculated from the 1:45.0 /500m average split", or "as entered", or why
+    there is none ("a bike's power isn't calculated from pace").
+  - A bike's column is just "Watts", with a note that its power is never calculated from pace.
+- **Weight-adjusted power sits beside, never instead of, watts.** It appears as `16.29 W/kg²ᐟ³ · 3.78 W/kg · 302 W` in the mono figures
+  font, with one explanatory line ("average watts ÷ body mass^⅔ … your raw watts are unchanged") and the weigh-in it used ("80.0 kg on 29
+  Jun").
+  - When no weigh-in fits it says so ("needs a weigh-in from the 30 days before this effort, or the week after") instead of showing a number.
+  - Places: test and piece detail (full), the piece card (compact), the interval summary plus a per-interval column only when something
+    is in it, and the trends card's best/recent rows. The unit is always written `W/kg²ᐟ³`.
+  - Never shown for a bike.
+- **Body weight in pounds** is a `kg | lb` select beside the manual-weight field on Body; the server converts it, and everything is
+  displayed in kg.
+- Playwright: `onboarding.spec.ts`/`onboarding-desktop.spec.ts` (the privacy step), `pieces-power.spec.ts` (server watts, contradiction,
+  bike, weight-adjusted line), `connections.spec.ts` (each outcome sentence).
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

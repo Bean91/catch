@@ -76,6 +76,18 @@ def cmd_whoop_check(args: argparse.Namespace) -> None:
         print(f"{key}: {value}")
 
 
+def cmd_withings_check_app(args: argparse.Namespace) -> None:
+    """Does this server's Withings app sign correctly, and is the callback URL registered with it? Booleans only; no user data, no
+    secret printed. The case `fastapi cloud env list` can't show: a secret that is saved but wrong."""
+    from catch.sync import withings_client
+
+    report = withings_client.check_app(args.redirect_uri)
+    for key, value in report.items():
+        print(f"{key}: {value}")
+    if report["configured"] and (report["credentials_ok"] is False or report["redirect_uri_registered"] is False):
+        raise SystemExit(1)
+
+
 def cmd_backfill_gps(args: argparse.Namespace) -> None:
     """Parses GPS tracks out of every FIT file already on disk (the sync loop only reaches the
     sync window), then groups rowing tracks into routes; --weather also fetches weather."""
@@ -328,6 +340,12 @@ def main() -> None:
     whoop_parser = sub.add_parser("whoop", help="Whoop utilities")
     whoop_sub = whoop_parser.add_subparsers(dest="whoop_command", required=True)
     whoop_sub.add_parser("check", help="Manual connection test (counts only, no secrets printed)").set_defaults(func=cmd_whoop_check)
+
+    withings_parser = sub.add_parser("withings", help="Withings utilities")
+    withings_sub = withings_parser.add_subparsers(dest="withings_command", required=True)
+    check_app = withings_sub.add_parser("check-app", help="Probe this server's Withings app credentials and callback URL (booleans only)")
+    check_app.add_argument("--redirect-uri", default=None, help="Callback URL to test instead of WITHINGS_REDIRECT_URI")
+    check_app.set_defaults(func=cmd_withings_check_app)
 
     gps_parser = sub.add_parser("backfill-gps", help="Parse GPS tracks from stored FIT files (and weather)")
     gps_parser.add_argument("--weather", action="store_true", help="also fetch weather for each track")

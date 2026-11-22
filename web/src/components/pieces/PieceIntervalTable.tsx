@@ -1,6 +1,7 @@
 import { formatDistance, formatDuration, formatSplit, splitUnitLabel } from "../../lib/format";
 import { rateUnit, type PieceModality } from "../../lib/pieceSplits";
 import type { PieceInterval, PieceIntervalSummary } from "../../lib/types";
+import { WAP_EXPLAINER, WAP_UNIT } from "./MassPower";
 
 const dash = "—";
 
@@ -20,6 +21,8 @@ export function PieceIntervalTable({
   modality?: PieceModality;
 }) {
   const unit = splitUnitLabel(splitUnitM);
+  // Session 34: the per-interval weight-adjusted column only when there is something to show (rowing + a suitable weigh-in).
+  const showWap = intervals.some((r) => r.weight_adjusted_watts != null);
   return (
     <div data-testid="interval-table">
       {summary && (
@@ -42,6 +45,14 @@ export function PieceIntervalTable({
             <dt className="text-text-tertiary">Avg watts</dt>
             <dd className="font-mono-nums text-text-primary">{summary.avg_watts != null ? Math.round(summary.avg_watts) : dash}</dd>
           </div>
+          {summary.weight_adjusted_watts != null && (
+            <div>
+              <dt className="text-text-tertiary" title={WAP_EXPLAINER}>Weight-adjusted</dt>
+              <dd className="font-mono-nums text-text-primary" data-testid="interval-summary-wap">
+                {summary.weight_adjusted_watts.toFixed(2)} {WAP_UNIT}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-text-tertiary">{modality === "bike" ? "Avg cadence" : "Avg rate"}</dt>
             <dd className="font-mono-nums text-text-primary">{summary.avg_rate != null ? Math.round(summary.avg_rate) : dash}</dd>
@@ -68,6 +79,7 @@ export function PieceIntervalTable({
               <th className="py-1 pr-2 font-normal">Time</th>
               <th className="py-1 pr-2 font-normal">Split {unit}</th>
               <th className="py-1 pr-2 font-normal">W</th>
+              {showWap && <th className="py-1 pr-2 font-normal" title={WAP_EXPLAINER}>{WAP_UNIT}</th>}
               <th className="py-1 pr-2 font-normal">{rateUnit(modality)}</th>
               <th className="py-1 font-normal">HR</th>
             </tr>
@@ -80,13 +92,14 @@ export function PieceIntervalTable({
                 <td className="py-1.5 pr-2">{r.work_duration_s ? formatDuration(r.work_duration_s) : dash}</td>
                 <td className="py-1.5 pr-2">{formatSplit(r.split_s ?? null)}</td>
                 <td className="py-1.5 pr-2">{r.avg_watts != null ? Math.round(r.avg_watts) : dash}</td>
+                {showWap && <td className="py-1.5 pr-2">{r.weight_adjusted_watts != null ? r.weight_adjusted_watts.toFixed(1) : dash}</td>}
                 <td className="py-1.5 pr-2">{r.avg_rate != null ? Math.round(r.avg_rate) : dash}</td>
                 <td className="py-1.5">{r.avg_hr != null ? Math.round(r.avg_hr) : dash}</td>
               </tr>
               {r.rest_duration_s ? (
                 <tr className="text-text-tertiary" data-testid="rest-row">
                   <td />
-                  <td colSpan={6} className="pb-1.5 italic">
+                  <td colSpan={showWap ? 7 : 6} className="pb-1.5 italic">
                     rest {formatDuration(r.rest_duration_s)}
                   </td>
                 </tr>

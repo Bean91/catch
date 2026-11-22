@@ -53,10 +53,31 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+_MAINTENANCE = "_maintenance"  # one-time data upgrades done for this owner; never a user setting (a PUT naming it is an unknown key)
+
+
 def get_settings(session: Session) -> dict:
     row = session.get(AppSettings, tenant.pk(SETTINGS_ID))
     overrides = json.loads(row.data_json) if row and row.data_json else {}
+    overrides.pop(_MAINTENANCE, None)
     return _deep_merge(DEFAULT_SETTINGS, overrides)
+
+
+def maintenance_marker(session: Session, key: str) -> int:
+    row = session.get(AppSettings, tenant.pk(SETTINGS_ID))
+    data = json.loads(row.data_json) if row and row.data_json else {}
+    return int((data.get(_MAINTENANCE) or {}).get(key) or 0)
+
+
+def set_maintenance_marker(session: Session, key: str, value: int) -> None:
+    """Recorded beside the settings, in the caller's transaction (committed with the upgrade it marks)."""
+    row = session.get(AppSettings, tenant.pk(SETTINGS_ID))
+    if row is None:
+        row = AppSettings(id=SETTINGS_ID, data_json="{}")
+        session.add(row)
+    data = json.loads(row.data_json) if row.data_json else {}
+    data.setdefault(_MAINTENANCE, {})[key] = value
+    row.data_json = json.dumps(data)
 
 
 def _validate_patch(patch: dict) -> None:

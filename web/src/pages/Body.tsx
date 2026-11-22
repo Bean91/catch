@@ -146,20 +146,26 @@ export function BodyPage() {
 
   const [manualDate, setManualDate] = useState(todayISO());
   const [manualWeight, setManualWeight] = useState("");
+  const [manualUnit, setManualUnit] = useState<"kg" | "lb">("kg");
+  const [manualError, setManualError] = useState<string | null>(null);
   const [savingManual, setSavingManual] = useState(false);
   const submitManualWeight = async (e: FormEvent) => {
     e.preventDefault();
-    const kg = Number(manualWeight);
-    if (!Number.isFinite(kg) || kg <= 0) return;
+    const value = Number(manualWeight);
+    if (!Number.isFinite(value) || value <= 0) return;
     setSavingManual(true);
+    setManualError(null);
     try {
-      await postManualWeight(manualDate, kg);
+      // Session 34: sent as entered; the server converts pounds to kilograms (the one conversion, catch/analytics/units.py).
+      await postManualWeight(manualDate, value, manualUnit);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["body"] }),
         queryClient.invalidateQueries({ queryKey: ["series"] }),
         queryClient.invalidateQueries({ queryKey: ["series-all"] }),
       ]);
       setManualWeight("");
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : "Couldn't save that weight.");
     } finally {
       setSavingManual(false);
     }
@@ -238,18 +244,30 @@ export function BodyPage() {
           </div>
           <div>
             <label htmlFor="manual-weight-kg" className="block text-xs text-text-tertiary">
-              Weight (kg)
+              Weight
             </label>
-            <input
-              id="manual-weight-kg"
-              type="number"
-              step="0.1"
-              inputMode="decimal"
-              value={manualWeight}
-              onChange={(e) => setManualWeight(e.target.value)}
-              placeholder="79.0"
-              className="min-h-9 w-24 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
-            />
+            <div className="flex gap-1">
+              <input
+                id="manual-weight-kg"
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                value={manualWeight}
+                onChange={(e) => setManualWeight(e.target.value)}
+                placeholder={manualUnit === "kg" ? "79.0" : "174.0"}
+                className="min-h-9 w-24 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+              />
+              <select
+                aria-label="Weight unit"
+                value={manualUnit}
+                onChange={(e) => setManualUnit(e.target.value as "kg" | "lb")}
+                className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+                data-testid="manual-weight-unit"
+              >
+                <option value="kg">kg</option>
+                <option value="lb">lb</option>
+              </select>
+            </div>
           </div>
           <button
             type="submit"
@@ -258,7 +276,8 @@ export function BodyPage() {
           >
             Add manual weight
           </button>
-          <span className="text-xs text-text-tertiary">Always the last-resort source — a real scale reading wins if one exists that day.</span>
+          <span className="text-xs text-text-tertiary">Always the last-resort source — a real scale reading wins if one exists that day. Pounds are stored as kilograms.</span>
+          {manualError && <p role="alert" className="w-full text-sm text-band-red-text">{manualError}</p>}
         </form>
       </Card>
 

@@ -729,6 +729,39 @@ pieces are valid (`totals_only_splits`); `POST …/pieces/with-photo` saves piec
 `tests/test_activity_merge.py`, `tests/test_hr_zones.py`, `tests/test_bike_pieces.py`, `tests/test_piece_photo_flow.py`, `tests/tenancy/test_activity_merge_isolation.py`;
 Playwright `merge.spec.ts`, `pieces-bike.spec.ts`, `piece-photo.spec.ts` (both mobile engines), `tests/public/settings-perf.spec.ts`, `tests/gym-offline/piece-photo.spec.ts` (real backend).
 
+Session 34 (Withings fix, privacy in setup, watts from split pace, weight-adjusted power — see PLAN.md, docs/withings-endpoints.md, docs/onboarding.md "Privacy
+step", docs/analytics.md §34, DESIGN.md "Privacy in setup, power…"). No migration (`EXPECTED_SCHEMA_REVISION` stays "0012").
+**Withings:** production failed because the saved `WITHINGS_CLIENT_SECRET` was wrong (re-set from the app's pair; `uv run catch withings check-app`,
+`GET /internal/config-check?probe=withings`, booleans only). `withings_client._check_status` follows the spec's families and the live strings:
+- a refused app signature, client id or callback → `WithingsAppMisconfigured` (connection detail `app_misconfigured`, never "reconnect");
+- only a refused token → reconnect;
+- stored errors are fixed words.
+
+The callback logs the exception class and returns `result=connected|denied|expired|server_setup|failed`. Disconnect and account deletion **revoke** at
+Withings (`action=revoke`). `attrib` 1/4 groups are skipped; fat-free mass (5) only fills fat mass. The first sync uses a `days` window; the sync cursor is the run's
+*start*. Full-flow fake: `tests/withings_fake.py`.
+
+**Setup:** `STEPS` gained `privacy` (index 3). The step reuses `AiSharingCard` and `components/leaderboards/JoinLeaderboardsForm`
+(extracted from LeaderboardSettings) — no separate privacy store; finishing or skipping writes no consent.
+
+**Power:** `erg_math.watts_from_pace` is the ONE formula; the browser has none (`POST /api/pieces/preview`; `pieceSplits.ts` has no watts code, mocks use
+constants).
+- Rowing split rows get `watts` from their own pace (`watts_source: "pace"`); a contradicting typed value is flagged, and on force kept as `watts_entered`.
+- A piece's `avg_watts` = the watts of its average pace (`avg_watts_basis`); intervals derive per row, and the set from the total pace.
+- Bike: never derived (`POWER_FROM_PACE_MODALITIES`).
+- The one-time `sync/piece_power.py` backfill runs from `run_maintenance`, marked in the settings row's hidden `_maintenance` block
+  (`settings_store.maintenance_marker`).
+
+**Weight-adjusted power** `erg_math.weight_adjusted_power` = W/kg^(2/3):
+- It uses the weigh-in from `analytics/bodyweight.weight_for_day`: latest plausible on or before the local day ≤ 30 d, else ≤ 7 d after, else none.
+  This is via `body_comp.performance_weight`/`WeightLookup.for_day`; W/kg uses the same rule now, and `nearest` is kept for the gym logger only.
+- It is computed when read, never stored; payloads carry `power_for_mass`'s four keys.
+- Pounds enter only through `POST /api/body/manual` `unit: "lb"` (`analytics/units.py`).
+
+`coach/ai_sharing.BODY_MASS_KEYS` strips every body-mass figure from non-wellness tool results unless wellness is shared.
+Tests: `tests/test_withings_flow.py`, `tests/tenancy/test_withings_isolation.py`, `tests/analytics/test_power_and_mass.py`, `tests/test_piece_power_and_mass.py`,
+`tests/tenancy/test_onboarding_privacy.py`; Playwright `pieces-power.spec.ts`, `onboarding*.spec.ts`, `connections.spec.ts`.
+
 ## Commands
 
 - `uv sync` — install deps
@@ -738,6 +771,7 @@ Playwright `merge.spec.ts`, `pieces-bike.spec.ts`, `piece-photo.spec.ts` (both m
   (the sync loop only reaches its window), group rowing tracks into routes, and with `--weather` look
   up weather (sends 0.1°-rounded coordinates to Open-Meteo)
 - `uv run catch whoop check` — manual Whoop connection test (counts only; needs `WHOOP_*` in `.env`)
+- `uv run catch withings check-app [--redirect-uri URL]` — does this server's Withings app sign correctly, and is the callback registered (booleans only; two harmless calls)
 - `uv run catch db upgrade` / `db check` / `db seed` — public deployment only (`DATABASE_ADMIN_URL` for upgrade/seed; `check` over the runtime
   connection); `uv run catch export-personal --out f.jsonl.gz` (on the Pi) and `import-personal --file f --user-id <uuid> [--dry-run]` — docs/personal-to-public.md
 - `cd web && npm run test:live` — the one UNMOCKED browser test: the real public build served by FastAPI (real CSP) against a throwaway local Supabase stack (real GoTrue + RLS + mailpit); sign-up confirmation, password recovery, no CSP violations. See `web/playwright.live.config.ts`

@@ -6,6 +6,7 @@ import { disconnectConnection, putConnectionExpiry, startConnectionOAuth, syncCo
 import {
   CAPABILITY_LABEL,
   daysUntil,
+  disconnectText,
   maskedCredential,
   recoveryText,
   STATUS_GLYPH,
@@ -67,10 +68,10 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
   });
   const disconnect = useMutation({
     mutationFn: () => disconnectConnection(card.provider),
-    onSuccess: () => {
+    onSuccess: (r) => {
       setConfirm(false);
       setTest(null);
-      setNotice(null);
+      setNotice(card.auth_method === "oauth" ? disconnectText(card.label, r.revoked) : null);
       refresh();
     },
   });
@@ -198,6 +199,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
             <p>
               Disconnect {card.label}? Catch forgets the saved {pasted ? noun : "authorization"} and stops syncing. Everything already imported stays.{" "}
               {garmin ? "To end access completely, also delete the key in Garmin Connect." : null}
+              {card.capabilities.token_revocation === "yes" ? `Catch also ends its access at ${card.label}.` : null}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} className="min-h-11 rounded-md border border-band-red/40 px-4 text-sm font-medium text-band-red-text">

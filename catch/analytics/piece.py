@@ -122,6 +122,93 @@ def watts_for_split(split_s: float, distance_delta_m: float = _DEFAULT_SPLIT_DIS
     return watts_from_pace(pace_per_500)
 
 
+# Session 34 (docs/analytics.md §34): watts come from pace on a rowing erg only. A BikeErg or a road bike has no published pace→power
+# model Catch trusts, so a bike piece's power is only ever what the athlete or the screen gave.
+POWER_FROM_PACE_MODALITIES = frozenset({"rowing_erg"})
+# Bumped when the stored-power rules change; sync/piece_power.py re-derives stored pieces once per owner per version.
+PIECE_POWER_MODEL = 1
+
+
+def derives_power(modality: Optional[str]) -> bool:
+    return (modality or DEFAULT_MODALITY) in POWER_FROM_PACE_MODALITIES
+
+
+def row_pace_500(rows: list[dict], i: int) -> Optional[float]:
+    """Seconds per 500 m over this row's *own* distance, or None when the row has no time or no known distance. A time-only row
+    (a 5:00 row of a 30-minute piece with no metres typed) has no pace — it is never assumed to be 500 m."""
+    split_s = rows[i].get("split_s")
+    delta = _row_distance_delta(rows, i)
+    if split_s is None or split_s <= 0 or not delta or delta <= 0:
+        return None
+    return split_s / delta * _DEFAULT_SPLIT_DISTANCE_M
+
+
+def watts_tolerance(expected: float) -> float:
+    return max(_WATTS_TOLERANCE_FLOOR, expected * _WATTS_TOLERANCE_PCT)
+
+
+def with_derived_watts(rows: list[dict], modality: Optional[str]) -> list[dict]:
+    """Rowing: every row with a pace gets `watts` from it (`watts_source: "pace"`), full precision. A typed watts that disagreed with
+    its split beyond rounding tolerance (only reachable through "Save anyway") is kept as `watts_entered`, never silently lost. A row
+    with watts but no pace keeps them (`watts_source: "entered"`). Bike rows are never touched beyond the source tag. Idempotent."""
+    out: list[dict] = []
+    rowing = derives_power(modality)
+    for i, original in enumerate(rows):
+        row = dict(original)
+        pace = row_pace_500(rows, i) if rowing else None
+        if pace is not None:
+            derived = watts_from_pace(pace)
+            typed = row.get("watts")
+            if typed is not None and row.get("watts_source") != "pace" and abs(typed - derived) > watts_tolerance(derived):
+                row["watts_entered"] = typed
+            row["watts"] = derived
+            row["watts_source"] = "pace"
+        elif row.get("watts") is not None:
+            row["watts_source"] = "entered"
+        else:
+            row.pop("watts_source", None)
+        out.append(row)
+    return out
+
+
+def without_derived_watts(rows: list[dict]) -> list[dict]:
+    """Rows as the athlete gave them: a pace-derived watts is dropped (and an `watts_entered` original restored), so re-deriving under a
+    different modality never keeps rowing-formula watts on a bike piece."""
+    out = []
+    for original in rows:
+        row = dict(original)
+        if row.get("watts_source") == "pace":
+            row["watts"] = row.pop("watts_entered", None)
+            row.pop("watts_source")
+        out.append(row)
+    return out
+
+
+def _time_weighted_watts(rows: list[dict]) -> Optional[float]:
+    """Mean of entered watts weighted by each row's time when every such row has one; else a plain mean."""
+    with_watts = [r for r in rows if r.get("watts") is not None]
+    if not with_watts:
+        return None
+    if all(r.get("split_s") for r in with_watts):
+        total = sum(r["split_s"] for r in with_watts)
+        return sum(r["watts"] * r["split_s"] for r in with_watts) / total
+    return sum(r["watts"] for r in with_watts) / len(with_watts)
+
+
+def piece_avg_watts(modality: Optional[str], avg_split_s: Optional[float], rows: list[dict], entered: Optional[float] = None) -> tuple[Optional[float], Optional[str]]:
+    """(average watts, basis). Rowing with a known average pace: the power that pace implies — Concept2's own logbook and PM5 summary
+    figure, and the brief's "watts from split pace". Otherwise (bike, or a rowing piece with no distance) the entered power: rows
+    weighted by time, else the screen's own average. Basis is "pace", "entered" or None."""
+    if derives_power(modality) and avg_split_s and avg_split_s > 0:
+        return watts_from_pace(avg_split_s), "pace"
+    entered_rows = _time_weighted_watts(rows)
+    if entered_rows is not None:
+        return entered_rows, "entered"
+    if entered is not None and entered > 0:
+        return float(entered), "entered"
+    return None, None
+
+
 def validate_splits(
     rows: list[dict], total_distance_m: Optional[float], total_duration_s: Optional[float], modality: Optional[str] = None
 ) -> dict:
@@ -174,16 +261,20 @@ def validate_splits(
             )
         # The pace<->watts formula is Concept2's RowErg one; BikeErg and road-bike power don't follow it
         # (catch/sync/concept2_client.py WATTS_DERIVABLE_TYPES), so a bike's typed watts are never checked against its pace.
-        if modality == "rowing_erg" and split_s is not None and watts is not None and split_s > 0:
-            distance_delta = _row_distance_delta(rows, i) or _DEFAULT_SPLIT_DISTANCE_M
-            expected = watts_for_split(split_s, distance_delta)
-            tolerance_w = max(_WATTS_TOLERANCE_FLOOR, expected * _WATTS_TOLERANCE_PCT)
-            if abs(expected - watts) > tolerance_w:
+        # Session 34: only a row whose pace is known (time AND its own distance) can be checked — a time-only row used to be assumed
+        # 500 m and every real watts on it was flagged. A value Catch itself derived (`watts_source: "pace"`) is recomputed, not checked.
+        pace = row_pace_500(rows, i) if derives_power(modality) else None
+        if pace is not None and watts is not None and row.get("watts_source") != "pace":
+            expected = watts_from_pace(pace)
+            if abs(expected - watts) > watts_tolerance(expected):
                 issues.append(
                     {
                         "split_index": row["split_index"],
                         "field": "watts",
-                        "message": f"{watts:g}W doesn't match the split ({expected:.0f}W implied by {split_s:.1f}s/{distance_delta:.0f}m).",
+                        "message": (
+                            f"{watts:g} W doesn't match the split: Catch calculates {expected:.0f} W from "
+                            f"{split_s:.1f}s over {_row_distance_delta(rows, i):.0f} m. Fix the split, or clear the watts."
+                        ),
                     }
                 )
 
@@ -195,11 +286,11 @@ def aggregate_from_splits(rows: list[dict], modality: Optional[str] = None) -> d
     than re-entered separately. avg_split_s is pace per split_m (500 m rowing, 1000 m bike) — total time / total distance,
     what the PM5's own summary row shows. (Session 31, launch audit L-10: it used to be the
     plain mean of the split *durations*, which is only right when every split is exactly
-    500 m — a short last split or 1000 m/timed splits gave a wrong average.) avg_rate and
-    avg_watts stay unweighted means of the typed values (docs/analytics.md limitations)."""
+    500 m — a short last split or 1000 m/timed splits gave a wrong average.) avg_rate stays an
+    unweighted mean of the typed values. Session 34: avg_watts is `piece_avg_watts` — from the
+    average pace on a rowing erg, never a mean of split watts (power is cubic in pace)."""
     defined_splits = [r["split_s"] for r in rows if r.get("split_s") is not None]
     rates = [r["rate"] for r in rows if r.get("rate") is not None]
-    watts = [r["watts"] for r in rows if r.get("watts") is not None]
     duration_s = sum(defined_splits) if len(defined_splits) == len(rows) and rows else None
     distance_m = rows[-1]["distance_m"] if rows and rows[-1].get("distance_m") is not None else None
     split_m = split_m_for(modality)
@@ -210,12 +301,14 @@ def aggregate_from_splits(rows: list[dict], modality: Optional[str] = None) -> d
         timed = [(r["split_s"], _row_distance_delta(rows, i)) for i, r in enumerate(rows) if r.get("split_s") is not None]
         if timed and all(d for _, d in timed):
             avg_split_s = sum(t for t, _ in timed) / sum(d for _, d in timed) * split_m
+    avg_watts, basis = piece_avg_watts(modality, avg_split_s, rows)
     return {
         "duration_s": duration_s,
         "distance_m": distance_m,
         "avg_split_s": avg_split_s,
         "avg_rate": (sum(rates) / len(rates)) if rates else None,
-        "avg_watts": (sum(watts) / len(watts)) if watts else None,
+        "avg_watts": avg_watts,
+        "avg_watts_basis": basis,
     }
 
 

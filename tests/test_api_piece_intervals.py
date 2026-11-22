@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine, select
 
@@ -59,9 +60,12 @@ def test_requires_auth(client, session):
 def test_create_distance_intervals_and_fetch_with_parent(client, session):
     a = _seed(session)
     _login(client)
-    resp = _make(client, a.canonical_id, _repeat_body(work_duration_s=105.0, avg_watts=250, avg_rate=32))
+    resp = _make(client, a.canonical_id, _repeat_body(work_duration_s=105.0, avg_rate=32))
     assert resp.status_code == 200
     piece = resp.json()["piece"]
+    # Session 34: each interval's watts come from its pace (105 s per 500 m → 2.8 / 0.21³ = 302.3 W), and the set's from the total pace.
+    assert piece["intervals"][0]["avg_watts"] == pytest.approx(302.343, abs=1e-3)
+    assert piece["interval_summary"]["avg_watts"] == pytest.approx(302.343, abs=1e-3) and piece["avg_watts"] == pytest.approx(302.343, abs=1e-3)
     assert piece["has_intervals"] and len(piece["intervals"]) == 4
     assert [i["position"] for i in piece["intervals"]] == [0, 1, 2, 3]
     assert piece["distance_m"] == 2000 and piece["duration_s"] == 420
@@ -225,7 +229,7 @@ def test_interval_piece_does_not_change_parent_strain_or_totals(session):
 
     from catch.sync.piece_intervals import create_interval_piece
 
-    rows = [{"target_type": "distance", "work_distance_m": 500, "work_duration_s": 90, "avg_watts": 400, "rest_duration_s": 60} for _ in range(4)]
+    rows = [{"target_type": "distance", "work_distance_m": 500, "work_duration_s": 90, "avg_watts": 480, "rest_duration_s": 60} for _ in range(4)]
     piece, _ = create_interval_piece(session, a.canonical_id, rows)
     assert piece is not None
 
@@ -310,9 +314,10 @@ def test_concept2_import_maps_real_interval_data(client, session):
     rows = piece["intervals"]
     assert len(rows) == 4 and all(r["source"] == "concept2" for r in rows)
     assert rows[0]["work_distance_m"] == 500 and rows[0]["work_duration_s"] == 105.0 and rows[0]["rest_duration_s"] == 60.0
-    assert rows[0]["avg_rate"] == 32.0 and rows[0]["max_hr"] == 172 and rows[0]["avg_watts"] == 200.0
-    assert rows[1]["avg_watts"] == 210.0
-    assert rows[2]["avg_watts"] is None and rows[2]["max_hr"] is None  # no strokes for that interval: nothing invented
+    assert rows[0]["avg_rate"] == 32.0 and rows[0]["max_hr"] == 172
+    # Session 34: watts from each interval's own Concept2 distance and time (105 s / 500 m → 302.3 W), not a mean of per-stroke watts.
+    assert rows[0]["avg_watts"] == pytest.approx(302.343, abs=1e-3) and rows[1]["avg_watts"] == pytest.approx(rows[0]["avg_watts"])
+    assert rows[2]["max_hr"] is None  # no strokes for that interval: no heart rate invented
     assert piece["interval_summary"]["rest_duration_s"] == 240
 
     again = client.post(f"/api/activities/{a.canonical_id}/pieces/from-concept2", json={"activity_id": c2.id}).json()["piece"]

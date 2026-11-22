@@ -2,26 +2,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConnectionCard } from "../components/connections/ConnectionCard";
+import { JoinLeaderboardsForm } from "../components/leaderboards/JoinLeaderboardsForm";
+import { AiSharingCard } from "../components/privacy/AiSharingCard";
 import { TimeZoneSelect } from "../components/settings/TimeZoneCard";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
-import { fetchConnections, fetchMe, fetchOnboarding, putOnboarding, putTimeZone, saveSettings, startOnboardingSync } from "../lib/api";
-import { PROVIDES, statusLabel } from "../lib/connections";
+import { fetchConnections, fetchLbMe, fetchMe, fetchOnboarding, isMock, putOnboarding, putTimeZone, saveSettings, startOnboardingSync } from "../lib/api";
+import { CONNECT_RESULT_TEXT, PROVIDES, statusLabel } from "../lib/connections";
+import { isPublic } from "../lib/deployment";
 import { deviceZone, setActiveZone, zoneLabel } from "../lib/localTime";
 import type { ConnectionCard as Conn, Me, ProviderId } from "../lib/types";
 
-const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Importing", "All set"];
+const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Your privacy", "Importing", "All set"];
+const LAST = STEP_TITLES.length - 1;
 const PRIMARY = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
 const SECONDARY = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent";
 const INPUT = "min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
-const RESULT_TEXT: Record<string, string> = {
-  connected: "is connected.",
-  denied: "wasn't connected — access wasn't granted. You can try again or skip it.",
-  failed: "couldn't be connected. You can try again, skip it, or connect it later in Settings.",
-};
 
-/** First-run setup (session 32, docs/onboarding.md). Five short steps, each skippable; progress is saved on the server so it resumes
- * on any device. Nothing here waits for history to import, and no step ever shows a key or token. */
+/** First-run setup (session 32, docs/onboarding.md). Six short steps, each skippable; progress is saved on the server so it resumes
+ * on any device. Nothing here waits for history to import, and no step ever shows a key or token. Session 34 added the privacy step:
+ * the same controls as Settings → Privacy, every one starting off, and finishing or skipping setup never switches anything on. */
 export function OnboardingPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -41,7 +41,7 @@ export function OnboardingPage() {
       return;
     }
     setSkipped(state.data.skipped);
-    setStep(params.get("provider") ? 1 : Math.min(state.data.step, 4));
+    setStep(params.get("provider") ? 1 : Math.min(state.data.step, LAST));
   }, [state.data, step, params, qc]);
 
   const go = (next: number) => {
@@ -89,10 +89,11 @@ export function OnboardingPage() {
         />
       )}
       {step === 2 && <PreferencesStep onNext={() => go(3)} onBack={() => go(1)} />}
-      {step === 3 && <SyncStep onNext={() => go(4)} onLeave={() => finish.mutate()} />}
-      {step === 4 && <DoneStep skipped={skipped} onFinish={() => finish.mutate()} busy={finish.isPending} onBack={() => go(3)} />}
+      {step === 3 && <PrivacyStep onNext={() => go(4)} onBack={() => go(2)} />}
+      {step === 4 && <SyncStep onNext={() => go(5)} onLeave={() => finish.mutate()} />}
+      {step === LAST && <DoneStep skipped={skipped} onFinish={() => finish.mutate()} busy={finish.isPending} onBack={() => go(4)} />}
 
-      {step < 4 && (
+      {step < LAST && (
         <button type="button" onClick={() => finish.mutate()} className="self-center min-h-11 px-3 text-sm text-text-tertiary hover:text-text-secondary">
           Skip setup — I'll do this later in Settings
         </button>
@@ -152,9 +153,9 @@ function ConnectionsStep({ skipped, setSkipped, result, onNext, onBack }: {
         Connect the ones you use — none is required, and anything you skip can be connected later in Settings → Connections. Catch never asks for a
         password.
       </p>
-      {result && RESULT_TEXT[result.result] && (
+      {result && CONNECT_RESULT_TEXT[result.result] && (
         <p role="status" data-testid="onboarding-result" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
-          {label} {RESULT_TEXT[result.result]}
+          {label} {CONNECT_RESULT_TEXT[result.result]}
         </p>
       )}
       {query.isLoading && <CardSkeleton lines={3} />}
@@ -250,6 +251,70 @@ function PreferencesStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
         </div>
       </div>
     </Card>
+  );
+}
+
+/** Session 34: only controls the server enforces (docs/onboarding.md "Privacy step"). Each one saves immediately through the same endpoint
+ *  as Settings → Privacy, so leaving and coming back shows what was chosen; Continue and Skip change nothing. */
+function PrivacyStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const leaderboards = isPublic || isMock;
+  const lb = useQuery({ queryKey: ["lb-me"], queryFn: fetchLbMe, retry: false, enabled: leaderboards });
+  const [joining, setJoining] = useState(false);
+  const optedIn = lb.data?.settings.opted_in ?? false;
+  return (
+    <>
+      <p className="text-sm text-text-secondary" data-testid="privacy-step-intro">
+        Everything below starts <strong className="font-medium text-text-primary">off</strong>. Nothing about you becomes public and nothing is shared with an AI unless you
+        switch it on here or later in Settings → Privacy. Skipping this step leaves it all off.
+      </p>
+      <Card title="Your training and health data">
+        <p className="text-sm text-text-secondary" data-testid="privacy-always-private">
+          Your workouts, recovery, sleep, heart rate, weight, nutrition and everything your connected sources send are private to your account. Catch has no public
+          profile or public workout feed, so there is no switch for them: other people never see them.
+        </p>
+      </Card>
+      <AiSharingCard />
+      {leaderboards && (
+        <Card title="Public leaderboards">
+          <div className="flex flex-col gap-3 text-sm" data-testid="privacy-leaderboards">
+            <p className="text-text-secondary">
+              <span className="font-medium text-text-primary" data-testid="privacy-lb-state">{optedIn ? "On" : "Off"}</span>
+              {optedIn
+                ? " — you can publish results. Each one still needs its own preview and confirm; nothing is published by joining."
+                : " — nothing about you is on a public leaderboard. Joining only lets you publish results later, one at a time, each previewed first; it publishes nothing by itself."}
+            </p>
+            {lb.isError && <p className="text-text-tertiary">Leaderboards can't be loaded right now. You can join later in Settings → Leaderboards.</p>}
+            {!optedIn && lb.data?.available && !joining && (
+              <button type="button" className={`${SECONDARY} self-start`} onClick={() => setJoining(true)} data-testid="privacy-lb-join">
+                Join the leaderboards…
+              </button>
+            )}
+          </div>
+        </Card>
+      )}
+      {leaderboards && joining && !optedIn && lb.data && <JoinLeaderboardsForm state={lb.data} title="Join the public leaderboards" />}
+      {leaderboards && (
+        <Card title="Clubs">
+          <p className="text-sm text-text-secondary">
+            Clubs only ever see what you choose inside each club: whether it may show your public results, and whether it sees the numbers you share with it. Both start off
+            for every club you join.
+          </p>
+        </Card>
+      )}
+      <div className="flex justify-between">
+        <button type="button" onClick={onBack} className={SECONDARY}>
+          Back
+        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={onNext} className={SECONDARY} data-testid="privacy-skip">
+            Skip
+          </button>
+          <button type="button" onClick={onNext} className={PRIMARY} data-testid="privacy-continue">
+            Continue
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

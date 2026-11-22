@@ -1,23 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchConnections } from "../lib/api";
+import { CONNECT_RESULT_TEXT } from "../lib/connections";
 import { ConnectionCard } from "../components/connections/ConnectionCard";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { healthPlatform } from "../lib/native/health";
 import { isNative } from "../lib/native/platform";
 
-const RESULT_TEXT: Record<string, string> = {
-  connected: "connected.",
-  denied: "access wasn't granted, so nothing changed.",
-  failed: "couldn't be connected. Try again; if it keeps failing, check that sign-in is set up on this server.",
-};
-
 export function ConnectionsPage() {
   const query = useQuery({ queryKey: ["connections"], queryFn: fetchConnections });
   const [params] = useSearchParams();
   const provider = params.get("provider");
-  const result = RESULT_TEXT[params.get("result") ?? ""];
+  const result = CONNECT_RESULT_TEXT[params.get("result") ?? ""];
   const label = query.data?.connections.find((c) => c.provider === provider)?.label ?? provider;
 
   return (

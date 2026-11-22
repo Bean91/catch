@@ -42,8 +42,27 @@ export function recoveryText(card: ConnectionCard): string | null {
     return `${card.label} no longer accepts the saved authorization (it expired or was removed). Choose Reconnect and approve access again.`;
   }
   if (card.status === "rate_limited") return `${card.label} is asking Catch to slow down. Catch will retry on its own; nothing needs doing.`;
+  if (card.status === "error" && card.status_detail === "app_misconfigured") {
+    return `${card.label} refused this server's sign-in setup. Nothing to fix on your side and no need to reconnect: your access is kept, and syncing resumes once the operator corrects it.`;
+  }
   if (card.status === "error") return "The last sync failed. Catch retries with increasing pauses; if it keeps failing, use Test connection.";
   return null;
+}
+
+/** The sentence after a provider's sign-in page sends the browser back (`?provider=&result=`), shared by Connections and setup. */
+export const CONNECT_RESULT_TEXT: Record<string, string> = {
+  connected: "is connected.",
+  denied: "wasn't connected — access wasn't granted, so nothing changed.",
+  expired: "wasn't connected — the sign-in took too long or was used twice. Start the connection again.",
+  server_setup: "couldn't be connected because this server's sign-in setup for it is wrong. Nothing you did; the operator needs to fix it.",
+  failed: "couldn't be connected. Try again in a minute; nothing was changed.",
+};
+
+/** What Disconnect did, in words: whether the provider's grant was ended too, or the person still has to remove Catch there. */
+export function disconnectText(label: string, revoked: boolean): string {
+  return revoked
+    ? `${label} disconnected. Catch's access was also ended at ${label}. What was already imported stays.`
+    : `${label} disconnected. Catch forgot its copy; to end access completely, remove Catch in your ${label} account. What was already imported stays.`;
 }
 
 /** "Key …abcd" for a long key, "Key saved" when the server (rightly) sent nothing to show. */

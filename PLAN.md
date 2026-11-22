@@ -4877,3 +4877,126 @@ wraps the routes inside `AppShell` (the page shows the error with Try again / Re
 - `ZONES_MODEL` 3: maintenance re-resolves history once so stored rowing power zones use the corrected as-of estimate.
 - Not changed: the mis-saved piece itself (the athlete's data), and the PM5 photo reader still reads an interval screen as splits.
   Docs: analytics.md §2. Tests: `tests/analytics/test_predict_robust.py`, `tests/test_2k_estimate_sources.py`.
+
+# Session 34: Withings connection, privacy in setup, watts from split pace, weight-adjusted power
+
+Branch `session-34-withings-privacy-power`. **No migration** (`EXPECTED_SCHEMA_REVISION` stays "0012"), so deploying is `fastapi deploy` only.
+
+## Decisions (the user chose the first three)
+
+1. Reproduce the Withings failure on production first, then re-set the production `WITHINGS_CLIENT_ID`/`WITHINGS_CLIENT_SECRET` from the app's real pair.
+2. **Watts follow the formula, not the brief's examples.**
+   - P = 2.8/(t/500)³ gives 2:00 → 202.5 W, 1:50 → 263.0, 1:45 → 302.3, 1:40 → 350.0.
+   - The brief's 175/227/259/294 W match no single formula and contradict its own P.
+3. Withings stays **body composition only**. Blood pressure, pulse, SpO₂ and temperature are available but unused, so they aren't fetched.
+   Fat-free mass only fills a missing fat mass (no new column).
+4. My choices:
+   - **The split is the source of truth** for rowing watts. A contradiction is flagged; on "Save anyway" the typed value is kept as `watts_entered`.
+   - A piece's average watts is the power of its average pace, as Concept2's logbook reports it.
+   - The weigh-in for a performance is the latest one on or before its day (≤ 30 days), else within 7 days after, else none.
+   - Weight-adjusted power is computed when read, not stored, so no derived backfill is needed.
+   - Body-mass figures are wellness data for AI sharing.
+   - Weight-adjusted power is rowing-erg only, like W/kg.
+
+## Root causes found
+
+- **Withings (production):** 20 consecutive `getnonce … status=503 Invalid HMAC signature`, reproduced with one manual sync on the live
+  build (`bf962c7`, which already had the whitespace/quote cleanup).
+  - The saved secret was simply wrong. The same signing with the `.env` pair succeeded live, and that app's only registered callback is
+    production's.
+  - Every new connection failed the same way, because the code exchange starts with `getnonce`.
+  - The callback swallowed the exception unlogged, so users only saw "couldn't be connected".
+  - **Fixed:** the secrets were re-set (delete, then `env set --secret --value-stdin` piped from `.env`, never printed). The next production
+    sync imported 3 measurements. The stored refresh token had never been spent, so no one had to reconnect.
+- **Withings (personal/local):** "invalid redirect_uri" for `localhost:8787` and the Pi's `ts.net` callback; they aren't registered on the app.
+  `catch withings check-app` now reports this. Registering them in the Withings dashboard is the owner's step.
+- **Code defects behind it:**
+  - error statuses mapped from memory, so a refused app signature or a Withings hiccup on refresh read as "reconnect" (L-41);
+  - raw Withings text stored (L-48);
+  - no revoke, although Withings documents one;
+  - the first sync pulled the whole history unfiltered;
+  - the cursor was the sync's end time, so a measure uploaded mid-sync could be skipped;
+  - `connected_at` was never set for OAuth;
+  - ambiguous shared-scale weigh-ins (`attrib` 1) were imported;
+  - a failed history-queue step after a stored token reported the connection as failed;
+  - the fixture's unit exponents were wrong (a 327 kg muscle mass was asserted).
+- **Pieces:**
+  - watts were never derived from pace;
+  - the average was a plain mean of split watts, which overstates power because it is cubic in pace;
+  - absorbed Concept2 pieces and imported intervals used the mean of per-stroke watts;
+  - the watts check assumed 500 m for rows without a distance, so every real value on a timed piece was flagged;
+  - the formula was duplicated in `pieceSplits.ts`;
+  - a request model would have silently dropped any new row field (the `hr_source` trap).
+- **W/kg** took the nearest weigh-in in either direction with no age limit, including today's for an old test.
+- **AI sharing leak:** `get_test`'s W/kg (and the gym logger's `bodyweight_kg_used`) reached a model with only "workouts" shared, and
+  watts ÷ W/kg gives body weight.
+
+## Changes
+
+- **Withings:** see docs/withings-endpoints.md "Session 34" and CLAUDE.md. Briefly:
+  - `_check_status` follows the spec's families plus the live strings;
+  - `WithingsAppMisconfigured` → `app_misconfigured`;
+  - `WithingsCodeRejected` → `result=expired`;
+  - `revoke()` on disconnect and account deletion;
+  - `check_app()` with the CLI and the internal probe;
+  - `body_comp_values()` with the `attrib` filter;
+  - a bounded first sync and the start-time cursor;
+  - Connections, setup and the card show one sentence per outcome and whether access was ended at the provider.
+- **Setup:** a `privacy` step (index 3).
+  - It reuses `AiSharingCard` and an extracted `JoinLeaderboardsForm`.
+  - There is a statement that training and health data have no public surface, and a clubs sentence.
+  - No new storage; every control is backend-enforced.
+- **Power:** `analytics/piece.py` gained `row_pace_500`, `with_derived_watts`/`without_derived_watts`, `piece_avg_watts`,
+  `POWER_FROM_PACE_MODALITIES` and `PIECE_POWER_MODEL`.
+  - `analytics/piece_intervals.py` gained `interval_watts_from_pace`/`with_derived_interval_watts`, and the set's watts come from the total
+    pace.
+  - New `POST /api/pieces/preview`.
+  - `sync/piece_power.py` backfill from `run_maintenance`, marked by `settings_store.maintenance_marker`.
+- **Body mass:** `analytics/bodyweight.py`, `analytics/units.py`, `erg_math.weight_adjusted_power`; `body_comp.performance_weight` /
+  `WeightLookup.for_day` / `power_for_mass`.
+  - Shown on piece and test detail, the piece card, intervals, performance trends, compare-to-earlier, the `weight_adjusted_watts` series,
+    and the coach tools.
+  - `POST /api/body/manual` accepts `weight` + `unit`, and the Body page has a kg/lb select.
+
+## Verification
+
+- **Python:**
+  - `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg`: 2550 passed, 3 skipped.
+  - `tests/pg` on the local Supabase stack: 101 passed, 1 skipped.
+  - This session's tests on PostgreSQL (`CATCH_TEST_PG_URL`): 108 passed.
+  - `ruff` is clean.
+- **Web:**
+  - `tsc -b` is clean; Vitest 119 passed.
+  - Playwright touch: 330 passed, 8 skipped, 1 flake (`intervals.spec.ts` "edited in place" timed out under the full parallel run on
+    mobile-webkit; it passed on rerun).
+  - `test:public` 24 passed.
+  - The build is within the bundle budget (236.6 / 250 KB gzip).
+- **Live Withings (2026-11-22):**
+  - the failure reproduced on production;
+  - the secrets reset and the next production sync succeeded (3 measures);
+  - `catch withings check-app` against Withings: credentials OK; the localhost callback is not registered and production's is;
+  - live error strings for a bad signature, code, callback, refresh token and bearer;
+  - a signed revoke answers 0;
+  - meastypes checked against real readings (muscle + bone + fat ≈ weight).
+- **A live refresh** happened too: the token last refreshed on 11-20 and lives 3 h, so today's syncs had to rotate it. The next refresh
+  (about 3 h later) proves the rotated token was stored.
+- `npm run test:gym` (real backend, including the photo-piece save path): 3 passed.
+- **NOT VERIFIED live:**
+  - Withings' authorize page, the callback for a new connection, and revoke of a real grant (they need a person to disconnect and reconnect;
+    covered by `tests/withings_fake.py`);
+  - this branch's code in production (not deployed);
+  - the backfill on real stored pieces (runs at the first maintenance after deploy).
+- **Worked examples:**
+  - Watts: 1:45.0 → 2.8/0.21³ = 302.343 W; 2:00.0 → 202.546; 1:50.0 → 262.960; 1:40.0 → 350.0.
+  - Weight-adjusted: 302.343 W at 80 kg → 302.343/80^(2/3) = 302.343/18.566 = **16.285 W/kg^(2/3)**; at 70 kg → 17.801. 176.37 lb → 80.000 kg.
+  - The old split-mean for 1:40 + 2:00 was 276.3 W; the average-pace figure is 263.0 W.
+
+## Not done / limitations
+
+- Interval rows have no column for an overruled typed watts. "Save anyway" keeps the pace value, and the backfill leaves a contradictory
+  typed interval value untouched instead.
+- The mock preview answers watts only for a few precomputed paces (by design: no formula in the browser).
+- Whoop/Concept2 parts of L-41 and the re-keying part of L-48 are still open.
+- A measure deleted at Withings stays in Catch (getmeas has no deletion signal).
+- Three consecutive `app_misconfigured` failures still send the athlete the generic "sync broken" push, though it is an operator problem.
+- `getnonce`/`revoke` refusals are always treated as the app's. A live probe showed a made-up client id answers `503 "invalid client id/secret"`.

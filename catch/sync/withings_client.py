@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import threading
 import time
 import urllib.parse
@@ -21,43 +22,71 @@ SIGNATURE_URL = "https://wbsapi.withings.net/v2/signature"
 OAUTH_URL = "https://wbsapi.withings.net/v2/oauth2"
 MEASURE_URL = "https://wbsapi.withings.net/measure"
 SOURCE = "withings"
+logger = logging.getLogger("catch.withings")
 
-# See docs/withings-endpoints.md: 1 and 6 and 88 are confirmed against Withings' own docs
-# example; 8/76/77 are the long-standing standard codes, unconfirmed against a live response
-# until the first real sync.
+# Codes from Withings' getmeas meastype table (developer.withings.com/openapi.yaml). 1/6/8/76/77/88 were also checked against a live
+# account on 2026-11-22: muscle + bone + fat mass sum to the weight. 5 (fat-free mass) only fills fat mass when 8 is absent.
 MEASTYPE_MAP = {1: "weight_kg", 6: "fat_pct", 8: "fat_kg", 76: "muscle_kg", 77: "hydration_kg", 88: "bone_kg"}
-MEASTYPES = ",".join(str(k) for k in MEASTYPE_MAP)
+FAT_FREE_MASS = 5
+MEASTYPES = ",".join(str(k) for k in sorted((*MEASTYPE_MAP, FAT_FREE_MASS)))
+# `attrib` 1: captured by a shared scale and possibly someone else's weigh-in; 4: typed in at Withings account creation. Neither is
+# reliably this athlete's measurement.
+SKIPPED_ATTRIBS = frozenset({1, 4})
 
 
 class WithingsError(ProviderError):
-    pass
+    detail = "sync_failed"
 
 
 class WithingsReconnectNeeded(WithingsError, ProviderAuthError):
     detail = "authorization_revoked"
 
 
-# Withings answers HTTP 200 with a non-zero JSON `status`. 601 ("too many requests") and 401 ("invalid or expired access token") are
-# from memory of Withings' error list, NOT confirmed by a live response — so only those two get special handling; any other non-zero
-# status is a plain error (retried with backoff, reported by code only, never the body). A refused *refresh* is the case that really
-# needs a reconnect and is handled separately in `_request_token`.
+class WithingsAppMisconfigured(WithingsError):
+    """Withings refused Catch's *app* credentials (signature, client id, callback URL): an operator problem, not the user's, so it is
+    never reported as "reconnect"."""
+
+    detail = "app_misconfigured"
+
+
+class WithingsCodeRejected(WithingsError):
+    """The authorization code was refused: Withings codes live 30 seconds and work once."""
+
+
+# Withings answers HTTP 200 with a non-zero JSON `status` and an "error" string. Families from the spec's status table; the strings
+# were observed live on 2026-11-22 (docs/withings-endpoints.md): a bad signature, client id or callback URL is the app's fault; an
+# invalid refresh/access token is the user's grant; 601 is rate limiting; 522 a timeout.
 _RATE_STATUS = 601
-_AUTH_STATUSES = (401,)
+_TIMEOUT_STATUS = 522
+_AUTH_STATUSES = frozenset({100, 101, 102, 200, 401})
+_APP_MARKERS = ("hmac", "signature", "nonce", "client_id", "redirect_uri", "client")
+_GRANT_MARKERS = ("refresh_token", "invalid_token", "access_token")
 _refresh_lock = threading.Lock()
 
 
 def _check_status(data: dict, action: str) -> None:
     status = data.get("status")
+    if status == 0:
+        return
+    error = str(data.get("error") or "")
+    lowered = error.lower()
+    # Withings' error text names a parameter, never a credential value; logged for the operator, never stored or shown.
+    logger.warning("withings %s refused: status=%s %s", action, status, error[:120])
     if status == _RATE_STATUS:
         raise ProviderRateLimited("Withings is rate-limiting Catch; it will retry on its own.")
-    if status in _AUTH_STATUSES:
-        raise WithingsReconnectNeeded("Withings refused the authorization. Reconnect Withings.")
-    if status != 0:
-        # Withings' error responses carry the real reason in a top-level "error" field
-        # (e.g. {"status": 503, "error": "Invalid Params"}) that status alone doesn't explain.
-        detail = data.get("error")
-        suffix = f" ({detail})" if detail else ""
-        raise WithingsError(f"Withings {action} failed: status={status}{suffix}")
+    if status == _TIMEOUT_STATUS:
+        raise ProviderUnavailable("Withings timed out; Catch will retry.")
+    # getnonce and revoke carry no user token: whatever Withings refuses there is the app's (live: a made-up client id answers
+    # "invalid client id/secret"), never a reason to ask a user to reconnect.
+    if action in ("getnonce", "revoke"):
+        raise WithingsAppMisconfigured("Withings refused this server's app credentials. The server operator needs to fix them.")
+    if any(marker in lowered for marker in _GRANT_MARKERS) or status in _AUTH_STATUSES:
+        raise WithingsReconnectNeeded("Withings no longer accepts this authorization. Reconnect Withings.")
+    if any(marker in lowered for marker in _APP_MARKERS):
+        raise WithingsAppMisconfigured("Withings refused this server's app credentials. The server operator needs to fix them.")
+    if action == "requesttoken" and "code" in lowered:
+        raise WithingsCodeRejected("Withings refused the sign-in code. Start the connection again.")
+    raise WithingsError(f"Withings {action} failed (status {status}).")
 
 
 def _sign(*parts: str) -> str:
@@ -119,13 +148,9 @@ def _request_token(session: Session, *, grant_type: str, code: str | None = None
 
     resp = _post(OAUTH_URL, data=params)
     data = resp.json()
-    try:
-        _check_status(data, "requesttoken")
-    except WithingsError as exc:
-        if grant_type == "refresh_token" and not isinstance(exc, WithingsReconnectNeeded):
-            # A refused refresh can't be retried into working: the old token is dead once a newer one exists.
-            raise WithingsReconnectNeeded("Withings refused the saved authorization. Reconnect Withings.") from None
-        raise
+    # Only a refused *token* means the grant is gone (_check_status). A bad signature or a Withings hiccup during a refresh leaves the
+    # stored refresh token unspent, so the next run can still use it — reporting "reconnect" there would be wrong (audit L-41).
+    _check_status(data, "requesttoken")
     body = data["body"]
     # Withings' refresh tokens rotate (the old one survives only ~8 h): persist the new pair before anything else.
     connections.store_oauth(
@@ -178,7 +203,35 @@ def _fetch_measure_pages(access_token: str, **extra_params: str) -> Iterator[dic
         offset = body.get("offset")
 
 
+DEFAULT_DAYS = 30
+
+
+def _real_value(measure: dict) -> float:
+    # value × 10^unit, divided rather than multiplied by a negative power so 72400 × 10^-3 is exactly 72.4.
+    value, unit = measure["value"], int(measure.get("unit", 0))
+    return float(value * 10**unit) if unit >= 0 else value / 10 ** (-unit)
+
+
+def body_comp_values(group: dict) -> dict[str, float]:
+    """One measure group → body_comp columns. Empty for a group that isn't reliably this athlete's (SKIPPED_ATTRIBS)."""
+    if group.get("attrib") in SKIPPED_ATTRIBS:
+        return {}
+    values: dict[str, float] = {}
+    fat_free = None
+    for measure in group.get("measures", []):
+        kind = measure.get("type")
+        if kind == FAT_FREE_MASS:
+            fat_free = _real_value(measure)
+        elif kind in MEASTYPE_MAP:
+            values[MEASTYPE_MAP[kind]] = _real_value(measure)
+    if "fat_kg" not in values and fat_free is not None and values.get("weight_kg") and values["weight_kg"] >= fat_free:
+        values["fat_kg"] = round(values["weight_kg"] - fat_free, 3)
+    return values
+
+
 def sync(session: Session, lastupdate: int | None = None, days: int | None = None, window: tuple[date, date] | None = None) -> int:
+    """Upserts measure groups keyed on Withings' `grpid`, so a re-sync or an overlapping window never duplicates a row. With no
+    cursor it reads a bounded `days` window — never the whole history in one go; history comes from the backfill's windows."""
     access_token = get_access_token(session)
     if window is not None:
         start, end = window
@@ -186,20 +239,14 @@ def sync(session: Session, lastupdate: int | None = None, days: int | None = Non
             "startdate": int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp()),
             "enddate": int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) + 86400,
         }
-    elif days is not None:
-        now = int(time.time())
-        extra = {"startdate": now - days * 86400, "enddate": now}
     elif lastupdate:
         extra = {"lastupdate": lastupdate}
     else:
-        extra = {}
+        now = int(time.time())
+        extra = {"startdate": now - (days if days is not None else DEFAULT_DAYS) * 86400, "enddate": now}
     count = 0
     for grp in _fetch_measure_pages(access_token, **extra):
-        values: dict[str, float] = {}
-        for m in grp.get("measures", []):
-            column = MEASTYPE_MAP.get(m.get("type"))
-            if column:
-                values[column] = m["value"] * (10 ** m["unit"])
+        values = body_comp_values(grp)
         if not values:
             continue
         ts = datetime.fromtimestamp(grp["date"], tz=timezone.utc)
@@ -212,7 +259,69 @@ def configured() -> bool:
     return bool(settings.withings_client_id and settings.withings_client_secret and settings.withings_redirect_uri)
 
 
+def revoke(session: Session) -> bool:
+    """Ends Catch's grant at Withings (`action=revoke`, signed like requesttoken; the access and refresh tokens die with it). Needs the
+    Withings `userid` saved at connect time. Live-checked: a correctly signed revoke answers status 0."""
+    row = connections.get(session, SOURCE)
+    if row is None or not row.account_id or not configured():
+        return False
+    nonce = _get_nonce()
+    resp = _post(
+        OAUTH_URL,
+        data={
+            "action": "revoke",
+            "client_id": settings.withings_client_id,
+            "nonce": nonce,
+            "signature": _sign("revoke", settings.withings_client_id, nonce),
+            "userid": row.account_id,
+        },
+    )
+    _check_status(resp.json(), "revoke")
+    return True
+
+
 def disconnect(session: Session) -> dict:
-    """Forgets Catch's tokens. Withings' public docs describe no revoke call, so the grant itself stays on the user's Withings
-    account until they remove it there (docs/withings-endpoints.md)."""
-    return {"revoked": False, "was_connected": connections.delete(session, SOURCE)}
+    """Revoke at Withings (best effort), then forget Catch's tokens. Imported measurements are never deleted."""
+    revoked = False
+    try:
+        revoked = revoke(session)
+    except Exception as exc:  # noqa: BLE001 — a failed revoke must not keep the user connected
+        logger.warning("withings revoke failed: %s", type(exc).__name__)
+        session.rollback()
+    return {"revoked": revoked, "was_connected": connections.delete(session, SOURCE)}
+
+
+_CHECK_CODE = "catch-config-check"
+
+
+def check_app(redirect_uri: str | None = None) -> dict:
+    """Operator probe of this server's Withings app — never a user's data. A signed getnonce proves the client id + secret; a token
+    request with a made-up code then tells a registered callback ("invalid code") from an unregistered one ("invalid redirect_uri").
+    Booleans only."""
+    out: dict = {"configured": configured(), "credentials_ok": None, "redirect_uri_registered": None, "error": None}
+    if not out["configured"]:
+        return out
+    try:
+        nonce = _get_nonce()
+        out["credentials_ok"] = True
+        resp = _post(
+            OAUTH_URL,
+            data={
+                "action": "requesttoken",
+                "client_id": settings.withings_client_id,
+                "grant_type": "authorization_code",
+                "nonce": nonce,
+                "signature": _sign("requesttoken", settings.withings_client_id, nonce),
+                "code": _CHECK_CODE,
+                "redirect_uri": redirect_uri or settings.withings_redirect_uri,
+            },
+        )
+        error = str(resp.json().get("error") or "").lower()
+        out["redirect_uri_registered"] = False if "redirect_uri" in error else (True if "code" in error else None)
+    except WithingsAppMisconfigured:
+        out["credentials_ok"] = False
+    except ProviderRateLimited:
+        out["error"] = "rate_limited"
+    except ProviderError:
+        out["error"] = "unreachable"
+    return out

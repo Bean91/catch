@@ -18,6 +18,7 @@ from catch.analytics.piece_intervals import (
     interval_signature,
     summarize_intervals,
     validate_intervals,
+    with_derived_interval_watts,
 )
 from catch.core.models import Activity, Piece, PieceInterval, Stroke
 from catch.sync.piece import _resolve_and_rescore
@@ -71,6 +72,8 @@ def _commit_rows(session: Session, piece: Piece, plain_rows: list[dict], source_
     validation = validate_intervals(rows, piece.modality)
     if not validation["ok"] and not force:
         return False, validation
+    # Session 34: a rowing interval's watts are always its pace's (the typed value was only checked above).
+    rows = with_derived_interval_watts(rows, piece.modality)
 
     # Update in place by id (never delete-and-recreate): ids stay stable across edits and
     # reorders, and SQLite would otherwise hand a deleted row's id to the next insert, so a
@@ -183,6 +186,8 @@ def update_interval(session: Session, interval_id: int, patch: dict, *, force: b
     current = [interval_row(r) for r in list_interval_rows(session, piece.id)]
     for r in current:
         if r["id"] == interval_id:
+            if "avg_watts" not in patch and {"work_distance_m", "work_duration_s", "avg_split_s"} & set(patch):
+                r["avg_watts"] = None  # the stored value was derived from the old pace; re-derived from the new one, not checked against it
             r.update({k: v for k, v in patch.items() if k in INTERVAL_FIELDS})
     saved, validation = _commit_rows(session, piece, current, [r["source"] for r in current], force=force)
     if not saved:
@@ -260,7 +265,8 @@ def _rows_from_concept2(session: Session, activity: Activity) -> list[dict]:
             "work_duration_s": dur,
             "rest_duration_s": rest,
             "avg_split_s": None,
-            "avg_watts": _mean([s.watts for s in in_interval if s.watts]),
+            # Derived from this interval's pace in _commit_rows (rowing); a mean of per-stroke watts overstates it.
+            "avg_watts": None,
             "avg_rate": float(d["stroke_rate"]) if d.get("stroke_rate") else _mean([s.stroke_rate for s in in_interval if s.stroke_rate]),
             "avg_hr": _mean(hrs),
             "max_hr": max(hrs) if hrs else None,

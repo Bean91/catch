@@ -1,6 +1,6 @@
 # First-run setup (session 32)
 
-`/welcome` — five short steps, each skippable, for a newly registered account on the public build. Progress is stored on the
+`/welcome` — six short steps (five before session 34 added privacy), each skippable, for a newly registered account on the public build. Progress is stored on the
 person's own `user_profiles` row (`onboarding_state`, `onboarding_step`, `onboarding_json` = the skipped sources,
 `onboarding_completed_at`), so it resumes on any device.
 
@@ -24,10 +24,38 @@ person's own `user_profiles` row (`onboarding_state`, `onboarding_step`, `onboar
    "connected", "access wasn't granted" or "couldn't be connected"; a failure never blocks Next.
 3. **Training basics** — max heart rate, sleep need and (for cyclists) FTP: existing settings only, each optional and range-checked
    before saving.
-4. **Importing** — `POST /api/onboarding/start-sync` returns at once and runs each connected source's first 30-day window after the
+4. **Your privacy** (session 34) — see "Privacy step" below.
+5. **Importing** — `POST /api/onboarding/start-sync` returns at once and runs each connected source's first 30-day window after the
    response (the scheduled sync tick carries on if the process stops). Each source's state is read from `GET /api/connections` every
    5 s. "Go to dashboard" and "Continue" are always enabled: older history keeps importing a month at a time in the background.
-5. **All set** — what's connected, what isn't, and the time zone; "Go to my dashboard" completes setup.
+6. **All set** — what's connected, what isn't, and the time zone; "Go to my dashboard" completes setup.
+
+## Privacy step (session 34)
+
+Only controls the server enforces appear, and each is the **same control and endpoint as Settings → Privacy**. There is no separate
+onboarding privacy store: a choice is saved the moment it is made, resuming re-reads those rows, and completing or skipping setup changes none
+of them.
+
+- **Your training and health data** — a statement, not a switch. Workouts, recovery, sleep, heart rate, weight, nutrition and everything a
+  connected source sends are private to the account. Catch has no public profile or public workout feed, so there is nothing to turn
+  off, and none is invented.
+- **AI sharing** — `components/privacy/AiSharingCard`, unchanged (`PUT /api/ai/sharing`, enforced in `coach/ai_sharing.py` for the in-app
+  coach and MCP). The disclosure must be acknowledged before any switch works; all seven categories start off and are switched one at a time.
+- **Public leaderboards** (public build) — "Off" by default, plus an optional "Join the leaderboards…" that opens the same opt-in form as
+  Settings (`components/leaderboards/JoinLeaderboardsForm`, `POST /api/leaderboards/me/opt-in`, which needs an explicit confirm). Joining
+  only *allows* publishing: each result still needs its own previewed, confirmed publish, so joining makes nothing public.
+- **Clubs** (public build) — a sentence: each club's "show my public results" and "share my numbers" are chosen inside that club and
+  start off.
+- **No analytics/telemetry switch**, because nothing is collected (docs/data-inventory.md).
+
+Continue and Skip both leave everything as it is. **Resume:** progress is an index. An account saved at the old step 3 ("sync") resumes on
+the new step 3, "privacy", which it hasn't seen — intended. Personal build: the step shows the data statement and AI sharing only.
+
+Enforcement tests (real consent rules, not the suite's allow-everything default): `tests/tenancy/test_onboarding_privacy.py`.
+- Finishing or skipping setup leaves AI tool calls refused, publishing refused (403) and no public athlete.
+- Choices survive resume and restart, and are per account.
+- Joining publishes nothing.
+- The old index resumes on privacy.
 
 ## API
 
@@ -43,4 +71,5 @@ person's own `user_profiles` row (`onboarding_state`, `onboarding_step`, `onboar
 `tests/test_onboarding.py` (persistence and resume, completion sticks, restart, public-only auto-show, start-sync returning at once
 and skipping unconnected sources, the `return_to` allow-list and a denied sign-in landing back on setup);
 `web/tests/touch/onboarding.spec.ts` (both mobile projects: skip everything, range checks, an existing account never redirected, a
-refused sign-in carrying on, no horizontal overflow) and `onboarding-desktop.spec.ts`.
+refused sign-in carrying on, no horizontal overflow; session 34: privacy defaults off, a choice kept when leaving and returning, opting in to
+leaderboards from setup) and `onboarding-desktop.spec.ts`; `tests/tenancy/test_onboarding_privacy.py` (server-side enforcement).

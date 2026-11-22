@@ -11,6 +11,8 @@ belongs to the work interval it follows — never its own row — so "rest betwe
 
 from typing import Optional
 
+from catch.analytics.erg_math import watts_from_pace
+
 TARGET_TYPES = ("distance", "time")
 MAX_INTERVALS = 100
 RATE_RANGE = (14.0, 50.0)
@@ -82,7 +84,41 @@ def validate_intervals(rows: list[dict], modality: Optional[str] = None) -> dict
             implied = t / d * split_m
             if abs(implied - r["avg_split_s"]) > max(1.0, implied * _SPLIT_TOLERANCE_PCT):
                 add(i, "avg_split_s", "Split doesn't match this interval's distance and time.")
+        expected = interval_watts_from_pace(r, modality)
+        typed = r.get("avg_watts")
+        if expected is not None and typed is not None and not watts_agree(typed, expected):
+            add(i, "avg_watts", f"{typed:g} W doesn't match this interval's split: Catch calculates {expected:.0f} W from it. Fix the split, or clear the watts.")
     return {"ok": not issues, "issues": issues}
+
+
+def watts_agree(typed: float, expected: float) -> bool:
+    """Within a PM5's own rounding (whole watts, tenth-second splits) — the same allowance as a piece's split rows."""
+    from catch.analytics.piece import watts_tolerance
+
+    return abs(typed - expected) <= watts_tolerance(expected)
+
+
+def interval_watts_from_pace(row: dict, modality: Optional[str]) -> Optional[float]:
+    """Session 34: a rowing interval's power from its own pace (typed split, else time ÷ distance); None for a bike interval or one
+    with no pace. The one formula is analytics/erg_math.watts_from_pace."""
+    from catch.analytics.piece import derives_power
+
+    if not derives_power(modality):
+        return None
+    pace = derived_split_s(row, modality)
+    return watts_from_pace(pace) if pace and pace > 0 else None
+
+
+def with_derived_interval_watts(rows: list[dict], modality: Optional[str]) -> list[dict]:
+    """Rowing rows with a pace get `avg_watts` from it (full precision); everything else is left as given. Idempotent."""
+    out = []
+    for original in rows:
+        row = dict(original)
+        derived = interval_watts_from_pace(row, modality)
+        if derived is not None:
+            row["avg_watts"] = derived
+        out.append(row)
+    return out
 
 
 def expand_repeat(
@@ -136,10 +172,19 @@ def _weighted(rows: list[dict], field: str) -> Optional[float]:
     return num / den if den else None
 
 
+def _set_watts(rows: list[dict], modality: Optional[str], work_s: float, work_m: float) -> Optional[float]:
+    from catch.analytics.piece import derives_power
+
+    if derives_power(modality) and work_s and work_m:
+        return watts_from_pace(work_s / work_m * 500.0)
+    return _weighted(rows, "avg_watts")
+
+
 def summarize_intervals(rows: list[dict], modality: Optional[str] = None) -> dict:
     """Totals and weighted averages. The piece-level split is total time / total distance over
     the rows that carry *both* (not a mean of interval splits, and not distorted by a row that
-    only has one); watts/rate/HR are weighted by work time."""
+    only has one); rate/HR are weighted by work time. Session 34: a rowing set's watts are the power of that total work pace (the
+    same rule as a single piece), never a weighted mean of interval watts; a bike set's are its entered watts weighted by time."""
     work_distance = sum(r["work_distance_m"] for r in rows if r.get("work_distance_m")) or 0.0
     work_duration = sum(r["work_duration_s"] for r in rows if r.get("work_duration_s")) or 0.0
     rest = sum(r["rest_duration_s"] for r in rows if r.get("rest_duration_s")) or 0.0
@@ -159,7 +204,7 @@ def summarize_intervals(rows: list[dict], modality: Optional[str] = None) -> dic
         "total_duration_s": (work_duration + rest) or None,
         "avg_split_s": (both_t / both_d * _split_m(modality)) if both_d else None,
         "split_unit_m": _split_m(modality),
-        "avg_watts": _weighted(rows, "avg_watts"),
+        "avg_watts": _set_watts(rows, modality, both_t, both_d),
         "avg_rate": _weighted(rows, "avg_rate"),
         "avg_hr": _weighted(rows, "avg_hr"),
         "max_hr": max(max_hrs) if max_hrs else None,

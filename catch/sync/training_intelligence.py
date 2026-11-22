@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlmodel import Session, select
 
 from catch.analytics.erg_test import pacing_analysis
+from catch.analytics.bodyweight import AFTER_DAYS, BEFORE_DAYS
 from catch.analytics.piece import points_from_splits
 from catch.analytics.training_intelligence import (
     compare_equivalent_pieces,
@@ -35,6 +36,7 @@ from catch.analytics.training_intelligence import (
 )
 from catch.core.models import CanonicalActivity, DailyScore, DailyWellness, Piece, Recommendation
 from catch.sync.activity_days import canonical_in_days
+from catch.sync.body_comp import WeightLookup, power_for_mass
 
 
 def _overrides(canonical: CanonicalActivity) -> dict:
@@ -70,6 +72,9 @@ def gather_performance_trends(session: Session, settings: dict, piece_type: str 
 
     cutoff = localtime.today(session) - timedelta(days=settings["training_intelligence"]["piece_trend_lookback_days"])
     rows = [r for r in list_tests(session, piece_type) if r.get("date") and date.fromisoformat(r["date"]) >= cutoff]
+    # Session 34: each effort's weight-adjusted power with its own day's weigh-in (list_tests is rowing erg only); one bounded lookup.
+    weights = WeightLookup(session, cutoff - timedelta(days=BEFORE_DAYS), localtime.today(session) + timedelta(days=AFTER_DAYS))
+    rows = [{**r, **power_for_mass(r.get("avg_power"), weights.for_day(date.fromisoformat(r["date"])))} for r in rows]
     by_type: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         if r.get("test_type"):
@@ -91,6 +96,7 @@ def gather_interval_comparisons(session: Session, settings: dict) -> dict:
     today = localtime.today(session)
     n_history_days = _history_days(session, today)
     by_sig: dict[str, list[dict]] = defaultdict(list)
+    weights = WeightLookup(session, cutoff - timedelta(days=BEFORE_DAYS), today + timedelta(days=AFTER_DAYS))
     pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(True))).all()
     canonical_ids = sorted({p.canonical_id for p in pieces if p.canonical_id is not None})
     canonicals = {c.id: c for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(canonical_ids))).all()} if canonical_ids else {}
@@ -107,7 +113,10 @@ def gather_interval_comparisons(session: Session, settings: dict) -> dict:
             continue
         # Session 33: a bike 4x1000m and a rowing 4x1000m are different efforts on different pace units — separate buckets.
         key = f"Bike · {sig}" if p.modality == "bike" else sig
-        by_sig[key].append({"date": d.isoformat(), "piece_id": p.id, "canonical_id": p.canonical_id, "summary": summarize_intervals(rows, p.modality)})
+        summary = summarize_intervals(rows, p.modality)
+        if p.modality != "bike":
+            summary["weight_adjusted_watts"] = power_for_mass(summary.get("avg_watts"), weights.for_day(d))["weight_adjusted_watts"]
+        by_sig[key].append({"date": d.isoformat(), "piece_id": p.id, "canonical_id": p.canonical_id, "summary": summary})
     buckets = [compare_equivalent_intervals(sig, sessions, n_history_days, settings) for sig, sessions in by_sig.items()]
     buckets.sort(key=lambda b: b["bucket_label"])
     return {"buckets": buckets}

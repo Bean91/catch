@@ -164,19 +164,27 @@ _REDIRECTS = {"WHOOP_REDIRECT_URI": ("whoop_redirect_uri", "whoop"), "WITHINGS_R
 
 
 @router.get("/config-check")
-def config_check():
+def config_check(probe: str | None = None):
     """Which operator settings the *running* process actually sees. Environment listings show what was saved, not what the deployed
     instance loaded; this answers "is X set?" without printing a value. A redirect URI is also compared with the callback this
-    deployment expects (a provider rejects the authorize step on any difference)."""
+    deployment expects (a provider rejects the authorize step on any difference).
+
+    `?probe=withings` (session 34) also asks Withings whether this process's app credentials sign correctly and whether its callback
+    URL is registered — two harmless calls, booleans back. Saved-but-wrong secrets are exactly what an env listing can't show."""
     from catch.sync import providers
 
     out = {name: bool(getattr(settings, attr)) for name, attr in _CHECKED}
     base = settings.base_url.rstrip("/")
     redirects = {name: getattr(settings, attr) == f"{base}/auth/{provider}/callback" for name, (attr, provider) in _REDIRECTS.items() if getattr(settings, attr)}
-    return {
+    report = {
         "set": out,
         "redirect_matches_expected": redirects,
         "providers_available": {p: providers.available(p) for p in ("garmin", "withings", "concept2", "whoop")},
         "providers_oauth_available": {p: providers.oauth_available(p) for p in ("withings", "concept2", "whoop")},
         "base_url_is_https": settings.base_url.startswith("https://"),
     }
+    if probe == "withings":
+        from catch.sync import withings_client
+
+        report["withings_app"] = withings_client.check_app()
+    return report

@@ -12,12 +12,16 @@ export function SplitsReviewTable({
   onChange,
   readOnly = false,
   modality = "rowing_erg",
+  calculated,
 }: {
   splits: PieceSplitRow[];
   validation: PieceValidation | null;
   onChange?: (splits: PieceSplitRow[]) => void;
   readOnly?: boolean;
   modality?: PieceModality;
+  /** Session 34: the server preview's rows (POST /api/pieces/preview), aligned with `splits` — each row's watts as Catch calculates them
+   *  from the split on a rowing erg. Shown as the watts field's placeholder; the browser never calculates power itself. */
+  calculated?: PieceSplitRow[];
 }) {
   const unit = splitUnitLabel(SPLIT_M[modality]);
   const tableIssues = (validation?.issues ?? []).filter((i) => i.split_index === null);
@@ -26,6 +30,13 @@ export function SplitsReviewTable({
     if (issue.split_index == null) continue;
     issuesByRow.set(issue.split_index, [...(issuesByRow.get(issue.split_index) ?? []), issue.message]);
   }
+
+  const calcWatts = (i: number): string => {
+    const own = splits[i];
+    const server = calculated?.[i];
+    const w = server?.watts_source === "pace" ? server.watts : own.watts_source === "pace" ? own.watts : null;
+    return w != null ? String(Math.round(w)) : "";
+  };
 
   const update = (i: number, patch: Partial<PieceSplitRow>) => {
     if (!onChange) return;
@@ -60,7 +71,7 @@ export function SplitsReviewTable({
               <th className="py-1 font-normal">Distance (m)</th>
               <th className="py-1 font-normal">Split {unit}</th>
               <th className="py-1 font-normal">{modality === "bike" ? "Cadence" : "Rate"} ({rateUnit(modality)})</th>
-              <th className="py-1 font-normal">Watts</th>
+              <th className="py-1 font-normal">{modality === "rowing_erg" ? "Watts (from split)" : "Watts"}</th>
               <th className="py-1 font-normal">HR</th>
               {!readOnly && <th className="py-1 font-normal" aria-hidden="true" />}
             </tr>
@@ -107,14 +118,19 @@ export function SplitsReviewTable({
                   </td>
                   <td className="py-1">
                     {readOnly ? (
-                      <span className="font-mono-nums text-text-primary">{row.watts ?? "—"}</span>
+                      <span className="font-mono-nums text-text-primary" title={row.watts_entered != null ? `You entered ${row.watts_entered} W; Catch uses the split's.` : undefined}>
+                        {row.watts != null ? Math.round(row.watts) : "—"}
+                      </span>
                     ) : (
                       <input
                         type="number"
                         inputMode="numeric"
-                        value={row.watts ?? ""}
-                        onChange={(e) => update(i, { watts: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary"
+                        aria-label={`Split ${row.split_index} watts`}
+                        // A value Catch calculated is shown as a hint, not as something typed; typing your own marks it entered (the server checks it).
+                        value={row.watts != null && row.watts_source !== "pace" ? row.watts : ""}
+                        placeholder={calcWatts(i)}
+                        onChange={(e) => update(i, { watts: e.target.value === "" ? null : Number(e.target.value), watts_source: e.target.value === "" ? null : "entered", watts_entered: null })}
+                        className="min-h-9 w-16 rounded-md border border-border bg-bg px-1.5 text-base font-mono-nums text-text-primary placeholder:text-text-tertiary"
                       />
                     )}
                   </td>
@@ -145,6 +161,13 @@ export function SplitsReviewTable({
         </table>
       </div>
       {!readOnly && splits.length === 0 && <p className="text-xs text-text-tertiary">No splits — the piece is saved from its totals. Add splits if you have them.</p>}
+      {!readOnly && (
+        <p className="text-xs text-text-tertiary" data-testid="watts-help">
+          {modality === "rowing_erg"
+            ? "Watts are calculated from each split (Concept2's formula). Type the screen's watts only if you want them checked against the split."
+            : "A bike's power is never calculated from pace. Type it from the screen, or leave it blank."}
+        </p>
+      )}
       {!readOnly && (
         <button type="button" onClick={add} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-accent">
           + Add split

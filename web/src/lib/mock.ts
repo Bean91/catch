@@ -49,6 +49,7 @@ import type {
   IntervalsResult,
   IntervalValidation,
   PieceSplitRow,
+  PiecePreview,
   PieceTestDetail,
   PieceValidation,
   PiecePhotoEstimate,
@@ -98,7 +99,7 @@ import type {
 } from "./types";
 import { ZONE_NAMES } from "./types";
 import { localDateString } from "./format";
-import { SPLIT_M, aggregateFromSplits, defaultSplits, totalsOnlySplits, validateSplits, wattsForSplit, type PieceModality } from "./pieceSplits";
+import { SPLIT_M, aggregateFromSplits, defaultSplits, totalsOnlySplits, validateSplits, type PieceModality } from "./pieceSplits";
 
 // "illness_watch"/"illness_likely" (session 15 Part B): not in the task's own fixture list,
 // added so the illness card's two non-"none" states have somewhere to screenshot/test from
@@ -1072,13 +1073,13 @@ export function mockTestDetail(id: number): ErgTestDetail {
 
 // --- Session 17 (see PLAN.md — the task called itself "session 13"): pieces ---------------
 
-// watts computed from each row's own split_s via wattsForSplit() (watts = 2.80/(s/m)^3) so
-// this fixture can't silently drift into a split/watts mismatch the UI itself would flag.
+// Session 34: the watts are the server's (2.8 / (s/500)^3, catch/analytics/erg_math.py) precomputed here as constants — the browser
+// holds no power formula, mocks included.
 const TASK_2K_SPLITS: PieceSplitRow[] = [
-  { split_index: 1, distance_m: 500, split_s: 96.8, rate: 32, watts: Math.round(wattsForSplit(96.8)), hr: 168, hr_source: "derived" },
-  { split_index: 2, distance_m: 1000, split_s: 98.9, rate: 30, watts: Math.round(wattsForSplit(98.9)), hr: 174, hr_source: "derived" },
-  { split_index: 3, distance_m: 1500, split_s: 99.0, rate: 31, watts: Math.round(wattsForSplit(99.0)), hr: 177, hr_source: "derived" },
-  { split_index: 4, distance_m: 2000, split_s: 97.7, rate: 32, watts: Math.round(wattsForSplit(97.7)), hr: 180, hr_source: "derived" },
+  { split_index: 1, distance_m: 500, split_s: 96.8, rate: 32, watts: 385.871, watts_source: "pace", hr: 168, hr_source: "derived" },
+  { split_index: 2, distance_m: 1000, split_s: 98.9, rate: 30, watts: 361.809, watts_source: "pace", hr: 174, hr_source: "derived" },
+  { split_index: 3, distance_m: 1500, split_s: 99.0, rate: 31, watts: 360.714, watts_source: "pace", hr: 177, hr_source: "derived" },
+  { split_index: 4, distance_m: 2000, split_s: 97.7, rate: 32, watts: 375.305, watts_source: "pace", hr: 180, hr_source: "derived" },
 ];
 
 // Attached to a real on-water row (index 5: bucket 0, Garmin-sourced, ~30min, has HR
@@ -1099,7 +1100,12 @@ const MOCK_PIECES: Piece[] = [
     duration_s: 392.4,
     avg_split_s: 98.1,
     avg_rate: 31.25,
-    avg_watts: Math.round(TASK_2K_SPLITS.reduce((sum, s) => sum + (s.watts ?? 0), 0) / TASK_2K_SPLITS.length),
+    avg_watts: 370.733, // the server's watts at the 1:38.1 average split (precomputed; no formula in the browser)
+    avg_watts_basis: "pace",
+    weight_kg_used: 79,
+    weight_date: shiftDate(TODAY, -2),
+    w_per_kg: 4.693,
+    weight_adjusted_watts: 20.136,
     drag_factor: 118,
     splits: TASK_2K_SPLITS,
     source: "manual",
@@ -1282,7 +1288,8 @@ export function createMockPiece(
   const agg = aggregateFromSplits(splits, modality);
   const distance = body.distance_m ?? agg.distance_m;
   const duration = body.duration_s ?? agg.duration_s;
-  const validation = validateSplits(splits, distance, duration, modality);
+  const preview = mockPiecePreview({ modality, splits, distance_m: distance, duration_s: duration, avg_watts: body.avg_watts ?? null });
+  const validation = preview.validation;
   if (!validation.ok && !body.force) return { piece: null, validation };
 
   const piece: Piece = {
@@ -1295,9 +1302,10 @@ export function createMockPiece(
     duration_s: duration,
     avg_split_s: agg.avg_split_s ?? (distance && duration ? (duration / distance) * SPLIT_M[modality] : null),
     avg_rate: agg.avg_rate ?? body.avg_rate ?? null,
-    avg_watts: agg.avg_watts ?? body.avg_watts ?? null,
+    avg_watts: preview.avg_watts,
+    avg_watts_basis: preview.avg_watts_basis,
     drag_factor: body.drag_factor ?? null,
-    splits,
+    splits: preview.splits,
     source: (body.source as Piece["source"]) ?? "manual",
     window_activity_id: MOCK_WORKOUTS.find((w) => w.id === canonicalId)?.sources[0]?.activity_id ?? null,
     window_start_s: 60,
@@ -1331,15 +1339,17 @@ export function updateMockPiece(
   if (body.splits) {
     const targetDistance = body.distance_m ?? piece.distance_m;
     const targetDuration = body.duration_s ?? piece.duration_s;
-    const validation = validateSplits(body.splits, targetDistance, targetDuration, piece.modality);
+    const preview = mockPiecePreview({ modality: piece.modality, splits: body.splits, distance_m: targetDistance, duration_s: targetDuration });
+    const validation = preview.validation;
     if (!validation.ok && !body.force) return { piece: null, validation };
     const agg = aggregateFromSplits(body.splits, piece.modality);
-    piece.splits = body.splits;
+    piece.splits = preview.splits;
     piece.distance_m = targetDistance ?? agg.distance_m;
     piece.duration_s = targetDuration ?? agg.duration_s;
     piece.avg_split_s = agg.avg_split_s;
     piece.avg_rate = agg.avg_rate;
-    piece.avg_watts = agg.avg_watts;
+    piece.avg_watts = preview.avg_watts;
+    piece.avg_watts_basis = preview.avg_watts_basis;
     if (body.notes !== undefined) piece.notes = body.notes;
     return { piece, validation };
   }
@@ -1403,7 +1413,7 @@ export function mockPiecePhotoEstimate(modality: PieceModality = "rowing_erg"): 
     duration_s: 392.4,
     avg_split_s: 98.1,
     avg_rate: 31.25,
-    avg_watts: Math.round(TASK_2K_SPLITS.reduce((sum, s) => sum + (s.watts ?? 0), 0) / TASK_2K_SPLITS.length),
+    avg_watts: 371, // what a PM5 screen shows: whole watts
     drag_factor: 118,
     validation: { ok: true, issues: [] },
     notes: "Drag factor read off the screen; HR not shown on this display mode.",
@@ -1431,7 +1441,56 @@ export function mockPieceTestDetail(pieceId: number): PieceTestDetail {
       vs_plan: null,
     },
     compare_to_earlier: null,
-    w_per_kg: piece.avg_watts ? piece.avg_watts / 79 : null,
+    w_per_kg: piece.w_per_kg ?? null,
+    weight_adjusted_watts: piece.weight_adjusted_watts ?? null,
+    weight_kg_used: piece.weight_kg_used ?? null,
+    weight_date: piece.weight_date ?? null,
+  };
+}
+
+// The server's watts for a few rowing paces (s per 500 m, to 0.1 s), precomputed from catch/analytics/erg_math.py so the mock needs no
+// formula. Any other pace answers null ("—") in mock mode, which the review table shows the same way it shows an offline preview.
+const MOCK_WATTS_BY_PACE: Record<string, number> = {
+  "96.8": 385.871, "97.7": 375.305, "98.1": 370.733, "98.9": 361.809, "99": 360.714, "100": 350, "105": 302.343, "110": 262.96, "120": 202.546,
+};
+
+function mockWatts(pace: number | null): number | null {
+  return pace == null ? null : MOCK_WATTS_BY_PACE[String(Math.round(pace * 10) / 10)] ?? null;
+}
+
+/** Mirrors POST /api/pieces/preview's shape (catch/api/routes_pieces.py). */
+export function mockPiecePreview(body: { modality: PieceModality; splits: PieceSplitRow[]; distance_m?: number | null; duration_s?: number | null; avg_watts?: number | null }): PiecePreview {
+  const rows = body.splits.length ? body.splits : totalsOnlySplits(body.distance_m ?? null, body.duration_s ?? null, null, body.avg_watts ?? null);
+  const agg = aggregateFromSplits(rows, body.modality);
+  const distance = body.distance_m ?? agg.distance_m;
+  const duration = body.duration_s ?? agg.duration_s;
+  const validation = validateSplits(rows, distance, duration, body.modality);
+  const rowing = body.modality === "rowing_erg";
+  const splits = rows.map((r, i) => {
+    const prev = i > 0 ? rows[i - 1].distance_m : 0;
+    const delta = r.distance_m != null && prev != null ? r.distance_m - prev : null;
+    const pace = rowing && r.split_s && delta ? (r.split_s / delta) * 500 : null;
+    const derived = mockWatts(pace);
+    if (derived != null) {
+      if (r.watts != null && r.watts_source !== "pace" && Math.abs(r.watts - derived) > Math.max(2, derived * 0.01)) {
+        validation.issues.push({ split_index: r.split_index, field: "watts", message: `${r.watts} W doesn't match the split: Catch calculates ${Math.round(derived)} W from it. Fix the split, or clear the watts.` });
+      }
+      return { ...r, watts: derived, watts_source: "pace" as const };
+    }
+    return r.watts != null ? { ...r, watts_source: "entered" as const } : r;
+  });
+  validation.ok = validation.issues.length === 0;
+  const avgSplit = agg.avg_split_s ?? (distance && duration ? (duration / distance) * SPLIT_M[body.modality] : null);
+  const paceWatts = rowing ? mockWatts(avgSplit) : null;
+  const entered = splits.find((r) => r.watts != null && r.watts_source === "entered")?.watts ?? body.avg_watts ?? null;
+  return {
+    splits,
+    validation,
+    avg_split_s: avgSplit,
+    avg_watts: paceWatts ?? (rowing && avgSplit ? null : entered),
+    avg_watts_basis: paceWatts != null ? "pace" : !(rowing && avgSplit) && entered != null ? "entered" : null,
+    distance_m: distance,
+    duration_s: duration,
   };
 }
 
@@ -1721,7 +1780,9 @@ export function mockBody(): BodyCompReading[] {
   return MOCK_BODY;
 }
 
-export function postMockManualWeight(date: string, weightKg: number): void {
+// The mock stands in for the server, so it converts the way catch/analytics/units.py does (exact pound, 0.45359237 kg).
+export function postMockManualWeight(date: string, weight: number, unit: "kg" | "lb" = "kg"): void {
+  const weightKg = unit === "lb" ? weight * 0.45359237 : weight;
   const existing = MOCK_BODY.find((r) => r.date === date);
   if (existing) {
     existing.weight = weightKg;

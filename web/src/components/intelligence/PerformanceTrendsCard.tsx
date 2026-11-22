@@ -2,6 +2,7 @@ import { useState } from "react";
 import { PieceTrendMiniChart } from "../charts/PieceTrendMiniChart";
 import { EmptyState } from "../ui/EmptyState";
 import type { PerformanceTrendBucket } from "../../lib/types";
+import { WAP_EXPLAINER, WAP_UNIT } from "../pieces/MassPower";
 
 function BucketRow({ bucket }: { bucket: PerformanceTrendBucket }) {
   const [open, setOpen] = useState(false);
@@ -24,6 +25,23 @@ function BucketRow({ bucket }: { bucket: PerformanceTrendBucket }) {
         <div className="mt-2">
           <PieceTrendMiniChart bucket={bucket} />
           <p className="mt-1 text-xs text-text-tertiary">{bucket.trend.explanation}</p>
+          {(bucket.best?.weight_adjusted_watts != null || bucket.recent?.weight_adjusted_watts != null) && (
+            <dl className="mt-2 grid grid-cols-2 gap-2 text-xs" data-testid={`trend-wap-${bucket.bucket_label}`}>
+              {(["best", "recent"] as const).map((k) => {
+                const p = bucket[k];
+                return (
+                  <div key={k}>
+                    <dt className="text-text-tertiary">{k === "best" ? "Best" : "Most recent"} · weight-adjusted</dt>
+                    <dd className="font-mono-nums text-text-primary">
+                      {p?.weight_adjusted_watts != null ? `${p.weight_adjusted_watts.toFixed(2)} ${WAP_UNIT}` : "—"}
+                      {p?.avg_watts != null && <span className="text-text-secondary"> · {Math.round(p.avg_watts)} W</span>}
+                    </dd>
+                  </div>
+                );
+              })}
+              <p className="col-span-2 text-text-tertiary">{WAP_EXPLAINER} Each effort uses its own day's weigh-in.</p>
+            </dl>
+          )}
         </div>
       )}
     </div>

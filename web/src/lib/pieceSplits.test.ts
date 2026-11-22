@@ -2,7 +2,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { aggregateFromSplits, defaultSplits, parseSplitsPaste, validateSplits, wattsForSplit, type SplitRow } from "./pieceSplits";
+import * as pieceSplits from "./pieceSplits";
+import { aggregateFromSplits, defaultSplits, parseSplitsPaste, validateSplits, type SplitRow } from "./pieceSplits";
 
 // The task's own worked example (session 17 Part B.3's fixture).
 const TASK_2K_SPLITS_S = [96.8, 98.9, 99.0, 97.7];
@@ -54,18 +55,14 @@ describe("validateSplits", () => {
     expect(r.issues.some((i) => i.split_index === 1 && i.field === "rate")).toBe(true);
   });
 
-  it("flags watts that disagree with the split", () => {
+  // Session 34: power is the server's alone (catch/analytics/erg_math.py via POST /api/pieces/preview). The browser has no copy of the
+  // formula and never judges a watts value — tests/analytics/test_power_and_mass.py covers the check.
+  it("holds no power formula and never checks watts", () => {
+    expect(Object.keys(pieceSplits).some((name) => /watt/i.test(name))).toBe(false);
     const data = rows(TASK_2K_SPLITS_S);
-    data[0].watts = wattsForSplit(96.8) + 50;
-    const r = validateSplits(data, 2000, TASK_2K_TOTAL_S);
-    expect(r.issues.some((i) => i.split_index === 1 && i.field === "watts")).toBe(true);
-  });
-
-  it("accepts watts within tolerance of the split", () => {
-    const data = rows(TASK_2K_SPLITS_S);
-    data[0].watts = Math.round(wattsForSplit(96.8));
-    const r = validateSplits(data, 2000, TASK_2K_TOTAL_S);
-    expect(r.issues.some((i) => i.field === "watts")).toBe(false);
+    data[0].watts = 9999;
+    expect(validateSplits(data, 2000, TASK_2K_TOTAL_S).issues.some((i) => i.field === "watts")).toBe(false);
+    expect("avg_watts" in aggregateFromSplits(data)).toBe(false);
   });
 
   it("skips checks with insufficient data", () => {
@@ -128,7 +125,7 @@ describe("modality (shared vectors)", () => {
   const unitPath = fileURLToPath(new URL("../../../tests/fixtures/pieces/split_unit_vectors.json", import.meta.url));
   const unit = JSON.parse(readFileSync(unitPath, "utf-8")) as {
     aggregate: { name: string; modality: Modality; rows: SplitRow[]; avg_split_s: number }[];
-    validate: { name: string; modality: Modality; rows: SplitRow[]; fields: string[] }[];
+    validate: { name: string; modality: Modality; rows: SplitRow[]; fields: string[]; server_only?: boolean }[];
     default_rows: { piece_type: "2000m" | "5000m"; modality: Modality; distances: number[] }[];
   };
 
@@ -136,7 +133,7 @@ describe("modality (shared vectors)", () => {
     expect(aggregateFromSplits(c.rows, c.modality).avg_split_s).toBeCloseTo(c.avg_split_s, 6);
   });
 
-  it.each(unit.validate)("validation: $name", (c) => {
+  it.each(unit.validate.filter((c) => !c.server_only))("validation: $name", (c) => {
     expect(validateSplits(c.rows, null, null, c.modality).issues.map((i) => i.field).sort()).toEqual([...c.fields].sort());
   });
 

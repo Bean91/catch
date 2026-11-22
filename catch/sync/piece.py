@@ -18,11 +18,15 @@ from catch.analytics.erg_test import actual_splits
 from catch.analytics.piece import (
     DEFAULT_MODALITY,
     aggregate_from_splits,
+    derives_power,
     find_best_window,
+    piece_avg_watts,
     split_m_for,
     standard_distance_m,
     totals_only_splits,
     validate_splits,
+    with_derived_watts,
+    without_derived_watts,
 )
 from catch.analytics.samples_codec import unpack_series
 from catch.analytics.technique import interval_summary
@@ -80,6 +84,14 @@ def _after_save(session: Session, piece: Piece, *, align: bool) -> list[str]:
     return warnings
 
 
+def avg_watts_basis(piece: Piece) -> Optional[str]:
+    """"pace" (calculated from the average split, rowing only), "entered" (typed, read off the screen, or a bike's own power) or
+    None when there are no watts."""
+    if piece.avg_watts is None:
+        return None
+    return "pace" if derives_power(piece.modality) and piece.avg_split_s else "entered"
+
+
 def piece_dict(piece: Piece, has_photo: bool = False) -> dict:
     modality = piece.modality or DEFAULT_MODALITY
     return {
@@ -93,6 +105,7 @@ def piece_dict(piece: Piece, has_photo: bool = False) -> dict:
         "avg_split_s": piece.avg_split_s,
         "avg_rate": piece.avg_rate,
         "avg_watts": piece.avg_watts,
+        "avg_watts_basis": avg_watts_basis(piece),
         "drag_factor": piece.drag_factor,
         "splits": json.loads(piece.splits_json) if piece.splits_json else [],
         "source": piece.source,
@@ -108,14 +121,44 @@ def piece_dict(piece: Piece, has_photo: bool = False) -> dict:
     }
 
 
-def piece_payload(session: Session, piece: Piece, has_photo: bool = False) -> dict:
+_UNSET = object()
+
+
+def piece_weight(session: Session, canonical_id: int):
+    """(kg, weigh-in day) for the day this piece's workout counts on (analytics/bodyweight.py), or None."""
+    from catch.sync.body_comp import performance_weight
+
+    canonical = session.get(CanonicalActivity, canonical_id)
+    if canonical is None or canonical.start is None:
+        return None
+    return performance_weight(session, localtime.day_of(session, canonical))
+
+
+def piece_payload(session: Session, piece: Piece, has_photo: bool = False, weight=_UNSET) -> dict:
     """piece_dict plus the piece's intervals/summary — the shape every API and coach read
-    returns. A lazy import because piece_intervals imports _resolve_and_rescore from here."""
+    returns. A lazy import because piece_intervals imports _resolve_and_rescore from here.
+
+    Session 34: rowing pieces also carry W/kg and weight-adjusted power (W/kg^(2/3)) from the weigh-in that belongs to the
+    workout's day, beside the raw watts. Each interval's and the set summary's are computed from *their own* average watts with that
+    same weight — never an average of per-interval scores."""
+    from catch.analytics.erg_math import weight_adjusted_power
+    from catch.sync.body_comp import power_for_mass
     from catch.sync.piece_intervals import intervals_payload
 
     out = piece_dict(piece, has_photo=has_photo)
     out["has_intervals"] = bool(piece.has_intervals)
     out.update(intervals_payload(session, piece) if piece.has_intervals else {"intervals": [], "interval_summary": None, "interval_signature": None})
+    if not derives_power(piece.modality):
+        out.update(power_for_mass(None, None))
+        return out
+    if weight is _UNSET:
+        weight = piece_weight(session, piece.canonical_id)
+    out.update(power_for_mass(piece.avg_watts, weight))
+    kg = weight[0] if weight else None
+    for row in out["intervals"]:
+        row["weight_adjusted_watts"] = weight_adjusted_power(row.get("avg_watts"), kg)
+    if out["interval_summary"]:
+        out["interval_summary"]["weight_adjusted_watts"] = weight_adjusted_power(out["interval_summary"].get("avg_watts"), kg)
     return out
 
 
@@ -126,7 +169,8 @@ def list_pieces_for_canonical(session: Session, canonical_id: int) -> list[Piece
 def list_pieces_payload(session: Session, canonical_id: int) -> list[dict]:
     pieces = list_pieces_for_canonical(session, canonical_id)
     photo_ids = set(session.exec(select(PiecePhoto.piece_id).where(PiecePhoto.piece_id.in_([p.id for p in pieces]))).all()) if pieces else set()
-    return [piece_payload(session, p, has_photo=p.id in photo_ids) for p in pieces]
+    weight = piece_weight(session, canonical_id) if any(derives_power(p.modality) for p in pieces) else None  # one lookup for the workout
+    return [piece_payload(session, p, has_photo=p.id in photo_ids, weight=weight) for p in pieces]
 
 
 def get_piece(session: Session, piece_id: int) -> Optional[Piece]:
@@ -209,6 +253,8 @@ def create_piece(
 
     if total_distance and total_duration and agg["avg_split_s"] is None:
         agg["avg_split_s"] = total_duration / total_distance * split_m_for(modality)
+    splits = with_derived_watts(splits, modality)
+    piece_watts, _ = piece_avg_watts(modality, agg["avg_split_s"], splits, entered=avg_watts)
     piece = Piece(
         canonical_id=canonical_id,
         piece_type=piece_type,
@@ -217,7 +263,7 @@ def create_piece(
         duration_s=total_duration,
         avg_split_s=agg["avg_split_s"],
         avg_rate=agg["avg_rate"] if agg["avg_rate"] is not None else avg_rate,
-        avg_watts=agg["avg_watts"] if agg["avg_watts"] is not None else avg_watts,
+        avg_watts=piece_watts,
         drag_factor=drag_factor,
         splits_json=json.dumps(splits),
         source=source,
@@ -262,12 +308,16 @@ def update_piece(
         raise ValueError(f"No piece with id {piece_id}")
     if modality is not None and modality != piece.modality:
         piece.modality = modality
-        # The split basis changed (500 m <-> 1000 m): re-derive the stored pace from the totals.
+        # The split basis changed (500 m <-> 1000 m): re-derive the stored pace from the totals, and the power with it (a bike piece
+        # must never keep watts derived with the rowing formula, and a rowing one gets them).
         if splits is None:
-            agg = aggregate_from_splits(json.loads(piece.splits_json or "[]"), modality)
+            stored = with_derived_watts(without_derived_watts(json.loads(piece.splits_json or "[]")), modality)
+            agg = aggregate_from_splits(stored, modality)
             piece.avg_split_s = agg["avg_split_s"] or (
                 piece.duration_s / piece.distance_m * split_m_for(modality) if piece.duration_s and piece.distance_m else None
             )
+            piece.splits_json = json.dumps(stored)
+            piece.avg_watts, _ = piece_avg_watts(modality, piece.avg_split_s, stored)
     modality = piece.modality or DEFAULT_MODALITY
     validation = {"ok": True, "issues": []}
     if splits is not None:
@@ -277,13 +327,16 @@ def update_piece(
         validation = validate_splits(splits, target_distance, target_duration, modality)
         if not validation["ok"] and not force:
             return None, validation
+        splits = with_derived_watts(splits, modality)
         piece.splits_json = json.dumps(splits)
         agg = aggregate_from_splits(splits, modality)
         piece.distance_m = target_distance if target_distance is not None else agg["distance_m"]
         piece.duration_s = target_duration if target_duration is not None else agg["duration_s"]
         piece.avg_split_s = agg["avg_split_s"]
+        if piece.avg_split_s is None and piece.distance_m and piece.duration_s:
+            piece.avg_split_s = piece.duration_s / piece.distance_m * split_m_for(modality)
         piece.avg_rate = agg["avg_rate"]
-        piece.avg_watts = agg["avg_watts"]
+        piece.avg_watts, _ = piece_avg_watts(modality, piece.avg_split_s, splits)
     elif distance_m is not None or duration_s is not None:
         # The athlete corrected the total alone, splits unchanged — re-validate the existing
         # splits against the new target rather than silently accepting an untested total.
@@ -295,6 +348,9 @@ def update_piece(
             return None, validation
         piece.distance_m = target_distance
         piece.duration_s = target_duration
+        if target_distance and target_duration:
+            piece.avg_split_s = target_duration / target_distance * split_m_for(modality)
+            piece.avg_watts, _ = piece_avg_watts(modality, piece.avg_split_s, existing_splits, entered=piece.avg_watts)
     if notes is not None:
         piece.notes = notes
     piece.updated_at = datetime.now(timezone.utc)
@@ -586,7 +642,9 @@ def _splits_from_concept2(session: Session, activity_id: int, interval_index: Op
                 "distance_m": r["distance_m"],
                 "split_s": r["actual_split_s"],
                 "rate": _mean(bucket, "stroke_rate"),
-                "watts": _mean(bucket, "watts"),
+                # Session 34: from the split's own pace (with_derived_watts, below), not the mean of per-stroke watts — power is cubic
+                # in pace, so that mean overstates the split's power.
+                "watts": None,
                 "hr": _mean(bucket, "hr"),
                 # "concept2", not "typed" — real sensor data, but the same "never let a window
                 # re-align overwrite this" protection applies (see _apply_alignment).
@@ -594,7 +652,7 @@ def _splits_from_concept2(session: Session, activity_id: int, interval_index: Op
             }
         )
         prev_cum_s = hi
-    return out
+    return with_derived_watts(out, "rowing_erg")  # absorb only ever matches rowing pieces with a RowErg result
 
 
 def _absorb(session: Session, piece: Piece, concept2_activity: Activity, interval_index: Optional[int] = None) -> None:
@@ -607,7 +665,7 @@ def _absorb(session: Session, piece: Piece, concept2_activity: Activity, interva
         piece.duration_s = agg["duration_s"] or piece.duration_s
         piece.avg_split_s = agg["avg_split_s"]
         piece.avg_rate = agg["avg_rate"] or piece.avg_rate
-        piece.avg_watts = agg["avg_watts"] or piece.avg_watts
+        piece.avg_watts = piece_avg_watts(piece.modality, piece.avg_split_s, new_splits, entered=piece.avg_watts)[0]
     piece.source = "concept2"
     piece.concept2_activity_id = concept2_activity.id
     piece.concept2_interval_index = interval_index

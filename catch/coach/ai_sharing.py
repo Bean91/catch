@@ -145,13 +145,20 @@ def arg_decision(session: Session, name: str, args: dict) -> dict | None:
 ZONE_KEYS = {"local_tz", "time_zone", "current_zone", "fallback_zone", "follow_device_zone", "timezone"}
 
 
+# Session 34: body mass inside workout results (a test's or piece's W/kg and weight-adjusted power, and the weigh-in they used). Weight
+# is wellness data, and W/kg gives it away (watts ÷ W/kg = kg), so every one of these leaves any tool's result unless wellness is shared.
+BODY_MASS_KEYS = {"weight_kg", "weight_kg_used", "weight_date", "w_per_kg", "weight_adjusted_watts", "bodyweight_kg_used"}
+
+
 def limit_result(session: Session, name: str, result):
     """Drop the parts of a result that belong to categories the person has not allowed, and every zone name (ZONE_KEYS)."""
     result = _strip(result, ZONE_KEYS)
+    enabled = enabled_categories(session)
+    if "wellness" not in enabled and TOOL_CATEGORY.get(name) != "wellness":
+        result = _strip(result, BODY_MASS_KEYS)
     rules = _MIXED.get(name)
     if not rules:
         return result
-    enabled = enabled_categories(session)
     drop: set[str] = set()
     for category, keys in rules.items():
         if category not in enabled:

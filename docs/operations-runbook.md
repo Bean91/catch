@@ -55,9 +55,12 @@ Ticks come from Supabase `pg_cron` + `pg_net`, not from the app (the app scales 
 
 `get_sync_status` (coach/MCP) or Settings → Status shows the last error in plain words.
 
-- **Withings: `Invalid HMAC signature`** (seen in production on 2026-11-20, 8 failures in a row). The client secret was stored with a
-  trailing newline. Session 31's `bf3848e` strips whitespace from every env value. Deploy that, then confirm the next Withings sync
-  succeeds. If it still fails, re-enter `WITHINGS_CLIENT_SECRET` (delete, then `env set --secret --value-stdin` from a file).
+- **Withings: `Invalid HMAC signature` / connections "server's sign-in setup is wrong"** (production, 2026-11-20 to 2026-11-22). The saved
+  `WITHINGS_CLIENT_SECRET` didn't match the app, even after the whitespace fix. Check with `GET /internal/config-check?probe=withings`
+  (`withings_app.credentials_ok`) or locally with `uv run catch withings check-app`. Fix: `fastapi cloud env delete WITHINGS_CLIENT_SECRET
+  --yes --no-redeploy`, then pipe the real value into `env set WITHINGS_CLIENT_SECRET --secret --value-stdin` (the same for the client id).
+  Users see "nothing to fix on your side". Their stored authorizations aren't spent, so syncing resumes without anyone reconnecting.
+  `redirect_uri_registered: false` means the callback must be added in the Withings dashboard.
 - **Everyone flipped to "needs reconnect" at once.** Every 400/401 from a token endpoint is read as a revoked grant (audit L-41).
   A rotated client secret or a provider outage produces this. Fix the app secret first, then ask users to reconnect.
 - **429 / backoff.** Catch backs off per user (5 min up to 6 h; `Retry-After` wins). Withings' and Whoop's limits are per app, not

@@ -1,145 +1,141 @@
-> **Session 25 (per-user connections — docs/provider-connections.md):** the app credentials stay operator-side (`WITHINGS_*`); each user authorizes their own account and
-> their tokens are sealed per user. Verified against Withings' developer docs (2026-11): the standard API is limited to **120 requests per minute across the whole application**;
-> access tokens last 3 h, refresh tokens 1 year, and a refresh returns a **new** refresh token (the old one expires 8 h after issuance or on first use of the new access token);
-> webhooks exist (`appli` notifications) and are not used. **No token-revocation call was found in the documentation we could read**, so disconnecting removes Catch's copy only —
-> the grant stays on the user's Withings account until they remove it there. Non-zero `status` 601 is treated as rate limiting and 100/101/102/293/401 as a refused authorization —
-> **from memory of Withings' error list, not confirmed by a live response.**
+# Withings public API — what Catch uses, and what was confirmed
 
-# Withings public API — what we actually confirmed
+Session 34 rewrote this file against Withings' own OpenAPI spec (`https://developer.withings.com/openapi.yaml`, downloaded 2026-11-22) and the
+"sign your requests" guide, plus harmless live probes made with this deployment's app credentials on 2026-11-22. Where a live response and a
+document disagree, the response wins and is noted.
 
-Source: developer.withings.com guide pages, scraped directly (the site is a Docusaurus SPA;
-WebFetch's HTML-to-markdown conversion loses client-rendered content, so pages were fetched
-raw with `curl` and read as text where WebFetch came back empty). Pulled 2026-10-31. The
-`/api-reference` OpenAPI spec itself is loaded by client JS from a path we could not locate
-in the time budget for this session — the guide pages below were enough to implement against,
-but if anything here conflicts with a live response, the response wins.
+## Session 34: why connecting failed, and what changed
 
-## Important: current API requires request signing, not plain client_secret-in-body
+- **Production root cause:** the `WITHINGS_CLIENT_SECRET` saved in FastAPI Cloud did not match the Withings app. Every Withings call
+  starts with a signed `getnonce`, and Withings answered it with `status=503 "Invalid Params: Invalid HMAC signature"`. Sync failed 20
+  times in a row, and every new connection failed too, because the code exchange also starts with `getnonce`. The whitespace/quote cleanup
+  (`bf3848e`, `90b9435`) was already live, so the stored value itself was wrong. The fix was operational: re-set `WITHINGS_CLIENT_ID` and
+  `WITHINGS_CLIENT_SECRET` from the app's real pair (`env delete`, then `env set --secret --value-stdin`). The next sync imported 3
+  measurements. The stored refresh token was never spent (getnonce fails first), so the existing connection recovered with no reconnect.
+- **Why it was hard to see:** the OAuth callback swallowed every exception without logging. A user saw only "couldn't be connected".
+  A refused *app* signature was stored as a generic sync failure carrying Withings' raw error text (launch audit L-48).
+- **Personal/local:** the Withings app has one registered callback, `https://catch.openoted.com/auth/withings/callback`. A token
+  request with `http://localhost:8787/…` or the Pi's `https://…ts.net/…` callback is refused with "invalid redirect_uri". To connect from
+  those hosts, add their callback to the app in the Withings dashboard; multiple callbacks are comma-separated.
+- **Code changes** (`catch/sync/withings_client.py`, `api/routes_connections.py`, `sync/connections.py`, `sync/scheduler.py`):
+  - Errors are classified from the spec's families and the live strings (table below).
+  - A bad app signature, client id or callback becomes `WithingsAppMisconfigured`, with connection detail `app_misconfigured`:
+    "nothing to fix on your side". It is **not** "reconnect".
+  - Only a refused token means reconnect; this fixes L-41 for Withings.
+  - Stored errors are fixed words (L-48).
+  - The callback logs the exception class and returns `result=connected|denied|expired|server_setup|failed`.
+  - Queueing the history import can no longer turn a stored connection into "failed".
+  - Disconnect and account deletion now **revoke** the grant at Withings.
+  - The first sync reads a bounded window instead of the whole history.
+  - The incremental cursor is the sync's *start* time.
+  - Ambiguous weigh-ins are skipped.
+  - `connected_at` is recorded.
+  - Operators get `uv run catch withings check-app [--redirect-uri …]` and `GET /internal/config-check?probe=withings`. Both answer
+    booleans only: does this server's app sign correctly, and is its callback registered.
 
-Older third-party write-ups of the Withings OAuth2 flow pass `client_secret` directly in the
-token request body. **That is not what the current docs show.** The documented flow (as of
-this scrape) signs requests with HMAC-SHA256 instead, and `client_secret` never leaves your
-server as a value:
+## Signing (confirmed: spec + guide + live)
 
-1. **Get a nonce** — `POST https://wbsapi.withings.net/v2/signature`
-   - body: `action=getnonce`, `client_id`, `timestamp=<unix seconds>`
-   - `signature = HMAC_SHA256(client_secret, "getnonce,<client_id>,<timestamp>").hexdigest()`
-2. **Exchange code / refresh** — `POST https://wbsapi.withings.net/v2/oauth2`
-   - body: `action=requesttoken`, `grant_type=authorization_code|refresh_token`, `client_id`,
-     `redirect_uri`+`code` (for the code grant) or `refresh_token` (for refresh), `nonce` (from
-     step 1)
-   - `signature = HMAC_SHA256(client_secret, "<action>,<client_id>,<nonce>").hexdigest()`
-     (the three signed fields are alphabetically sorted by key, which for `action`/`client_id`/
-     `nonce` is already their natural order)
-   - `client_secret` itself is **not** a body field here — it's only the HMAC key.
-3. Response: `{"status": 0, "body": {"userid", "access_token", "refresh_token", "scope",
-   "expires_in", "csrf_token", "token_type"}}`.
+1. **Nonce:** `POST https://wbsapi.withings.net/v2/signature`.
+   - Body: `action=getnonce`, `client_id`, `timestamp`.
+   - `signature = HMAC_SHA256(client_secret, "getnonce,<client_id>,<timestamp>")`.
+   - Answers `body.nonce`, valid 30 minutes and usable once.
+2. **Signed calls** (`requesttoken`, `revoke`): `signature = HMAC_SHA256(client_secret, "<action>,<client_id>,<nonce>")`. Only those three
+   values are signed (sorted by key name); `userid`, `code` and the rest are plain body fields.
+3. The spec also allows `client_secret` in the body instead of a signature for `requesttoken`. Catch signs, so the secret is only ever
+   an HMAC key.
 
-**Errors are a non-zero `status` in the JSON body, with HTTP 200.** Always check `status`
-before touching `body`.
+## OAuth
 
-**Token lifetimes:** `access_token` 3h. `refresh_token` 1y, but **rotates on every refresh**
-and the *old* refresh_token only survives 8h after a new one is issued (or until the new
-access_token is first used) — so persist the new refresh_token immediately, atomically, every
-time, or a restart between a refresh and the next use can strand you.
+- **Authorize:** `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id&scope=user.metrics&redirect_uri&state`.
+  - Catch requests only `user.metrics`, which is enough for every measurement it reads.
+  - `state` is a random nonce tied to a signed, HttpOnly, SameSite=Lax, 10-minute, single-use cookie naming the Catch account that started
+    the flow (`core/oauth_state.py`). That covers CSRF, replay and attaching a code to someone else.
+  - The code is valid **30 seconds**: the callback exchanges it immediately.
+- **Token:** `POST https://wbsapi.withings.net/v2/oauth2`.
+  - Body: `action=requesttoken`, `grant_type=authorization_code` (`code`, `redirect_uri`) or `refresh_token` (`refresh_token`), plus
+    `client_id`, `nonce` and `signature`.
+  - Answers `userid`, `access_token` (3 h), `refresh_token`, `expires_in`, `scope`, `token_type`.
+  - **Refresh tokens rotate**: the new pair is sealed and committed before anything else. A process lock plus a row `SELECT … FOR
+    UPDATE` stops two refreshes from spending one token (`tests/test_withings_flow.py` races two threads).
+- **Revoke:** `POST …/v2/oauth2`, `action=revoke`, `client_id`, `nonce`, `signature`, `userid`. It ends the access and refresh tokens and
+  unsubscribes notifications. Live-checked on 2026-11-22: a correctly signed revoke answers status 0, even for a userid that never granted
+  the app.
+- **Tokens at rest:** sealed per owner with AAD `owner|withings:access|refresh` (`core/secret_store.py`). They are never returned to a
+  browser, a coach tool or an MCP client, and never logged. Error text from Withings names a parameter, never a credential.
 
-## Authorization URL (unchanged, standard OAuth2 code grant)
+## Errors (HTTP 200 with a JSON `status`)
 
-```
-GET https://account.withings.com/oauth2_user/authorize2
-  ?response_type=code&client_id=...&scope=user.info,user.metrics,user.activity
-  &redirect_uri=...&state=...
-```
-`state` should be a random value we generate and verify on callback (CSRF protection — not
-mentioned explicitly in the docs but standard OAuth2 practice, and cheap to add). The code
-returned to the redirect URI is **valid for 30 seconds only** — exchange it immediately in
-the callback handler, don't defer.
+| Seen | Status / error | Catch treats it as |
+|---|---|---|
+| bad signature (live) | `503 "Invalid Params: Invalid HMAC signature"` | app misconfigured: operator fixes it, not a reconnect |
+| unregistered callback (live) | `503 "Invalid Params: invalid redirect_uri"` | app misconfigured (`result=server_setup`) |
+| bad/expired/used code (live) | `503 "Invalid Params: invalid code"` | `result=expired`: start again |
+| bad refresh token (live) | `503 "Invalid Params: invalid refresh_token"` | reconnect needed |
+| bad access token (live) | `401 "…invalid_token…"` | reconnect needed |
+| spec: 100–102, 200, 401 | "Authentication failed" | reconnect needed |
+| spec: 601 / HTTP 429 | "Too many requests" | rate limited, backoff |
+| spec: 522 / HTTP 5xx / network | timeout / outage | retried with backoff |
+| anything else | — | plain error, retried; stored as fixed words |
+
+Rate limit: 120 requests per minute for the whole application (not per user), so the backoff is per user and the tick spreads users.
 
 ## Measures — `getmeas`
 
+`POST https://wbsapi.withings.net/measure` (**no `/v2/`**; using `/v2/` caused a live 503 in session 13). Body: `action=getmeas`,
+`meastypes`, `category=1` (real measures), and either `lastupdate` (incremental) or `startdate`/`enddate`, plus `offset` while
+`more` is set.
+
+- **Values:** `value × 10^unit`, computed by division for negative units so `72400, -3` is exactly 72.4.
+- **Types read** (from the spec's table; on 2026-11-22 a live account's muscle + bone + fat mass summed to its weight):
+
+  | Code | Meaning | Stored as |
+  |---|---|---|
+  | 1 | weight (kg) | `weight_kg` |
+  | 6 | fat ratio (%) | `fat_pct` |
+  | 8 | fat mass (kg) | `fat_kg` |
+  | 76 | muscle mass (kg) | `muscle_kg` |
+  | 77 | hydration (kg) | `hydration_kg` |
+  | 88 | bone mass (kg) | `bone_kg` |
+  | 5 | fat-free mass (kg) | not stored; only fills fat mass when code 8 is missing (fat mass = weight − fat-free) |
+
+- **Not read, by choice:** blood pressure (9/10), pulse (11), SpO₂ (54) and temperatures (12/71/73) are under the same `user.metrics`
+  scope, but nothing in Catch uses them. Fetching them would collect health data for no purpose.
+- **`attrib`:** groups with `attrib` 1 (captured by a shared scale and possibly another person's) or 4 (typed in at Withings account
+  creation) are skipped. 0/8 (the user's device), 2 (entered by the user) and the rest are kept.
+- **Idempotent:** upsert on `(source="withings", grpid)`, so a re-sync or overlapping windows never duplicate a row. A group Withings
+  updates (re-attributed, edited) is overwritten in place. A measure deleted at Withings is not removed from Catch: getmeas has no deletion
+  signal.
+- **Windows:**
+  - A newly connected account's first sync reads the last `days` (3 on a manual sync).
+  - History is imported by the backfill, 30 days per run, newest-first cursor.
+  - Later runs use `lastupdate` = the previous run's start minus 5 s.
+- **Isolation:** every row is owner-scoped. Two Catch accounts connecting two Withings accounts never see each other's tokens, user id
+  or measurements (`tests/tenancy/test_withings_isolation.py`, interleaved callbacks and syncs).
+
+## Operator checks
+
 ```
-POST https://wbsapi.withings.net/measure
-body: action=getmeas, meastypes=<comma list>, lastupdate=<unix> (incremental) or
-      startdate/enddate (range), category=1 (real measures; 2=user objectives)
+uv run catch withings check-app                       # this process's app pair + WITHINGS_REDIRECT_URI
+uv run catch withings check-app --redirect-uri https://…/auth/withings/callback
+curl -H "Authorization: Bearer $TICK" "$BASE/internal/config-check?probe=withings"   # what the deployed process sees
 ```
 
-**No `/v2/` in this path** — confirmed directly against Withings' own `openapi.yaml` spec
-(2026-11-05): the `getmeas` operation's path key is the literal
-`https://wbsapi.withings.net/measure`. Withings is inconsistent about `/v2/` per-action — it
-*is* used for `getactivity`, `getintradayactivity`, `getworkouts`, and `confirmuser`, just not
-`getmeas`. An earlier scrape of this doc had `/v2/measure` for `getmeas`, which was wrong and
-caused a live `status=503 Invalid Params` failure — check the path per-action against the spec
-rather than assuming all Withings endpoints share one version prefix.
+Both make two harmless calls: a signed getnonce, then a token request with a made-up code. "invalid code" means the callback is
+registered; "invalid redirect_uri" means it isn't. Nothing about any user is read.
 
-Response:
-```json
-{"status": 0, "body": {"measuregrps": [
-  {"date": 1755767442, "measures": [{"type": 1, "value": 72400, "unit": -3}]}
-]}}
-```
-**Value conversion:** `real_value = value * 10^unit`. E.g. `72400 * 10^-3 = 72.4`.
+## Verified live (2026-11-22) vs not
 
-### meastype codes used for `body_comp`
-
-Confirmed directly from Withings' own quickstart example in the docs: **1 = weight (kg)**,
-**6 = fat ratio (%)**, **88 = bone mass (kg)**. The biomarker reference table on
-`all-available-health-data` lists "Fat Mass", "Muscle Mass", "Water Mass" as available
-biomarkers but renders their numeric codes via client-side JS tooltips we couldn't extract
-in this session — so the codes below for fat mass, muscle mass, and hydration are the
-long-standing, widely-documented Withings codes (stable for years across their API), **not
-independently re-confirmed against today's live docs**. Treat them as "very likely correct,
-verify against a real `getmeas` response during the live sync step":
-
-| code | field | `body_comp` column |
-|---|---|---|
-| 1 | weight (kg) | `weight_kg` — confirmed |
-| 6 | fat ratio (%) | `fat_pct` — confirmed |
-| 8 | fat mass weight (kg) | `fat_kg` — unconfirmed, standard code |
-| 76 | muscle mass (kg) | `muscle_kg` — unconfirmed, standard code |
-| 77 | hydration (kg) | `hydration_kg` — unconfirmed, standard code |
-| 88 | bone mass (kg) | `bone_kg` — confirmed |
-
-`getmeas` paginates via `more`/`offset` in the response body when results are truncated —
-loop until `more` is falsy.
-
-## Completing the OAuth flow manually (no frontend yet)
-
-This needs a real browser hitting the actual host in `WITHINGS_REDIRECT_URI` — `curl` can't
-complete it, and Garmin's sync has no equivalent step since it's an API-key exchange, not a
-user login.
-
-1. Start the server: `uv run uvicorn catch.main:app --port $CATCH_PORT`.
-2. Open `http://<host>:<port>/docs` in a browser, find `POST /api/login`, "Try it out", send
-   your password. This sets the httponly session cookie **in that browser**.
-3. Navigate the browser to `/auth/withings/start`. It redirects to Withings, you grant
-   access, and Withings redirects back to `/auth/withings/callback`.
-4. **The browser must be on the exact host in `WITHINGS_REDIRECT_URI`** — `localhost` and
-   `127.0.0.1` are different origins to the browser's cookie jar, so logging in on one and
-   following the OAuth flow on the other sends no session cookie on the callback, which
-   returns 401 (and by then the 30-second authorization code has likely expired anyway).
-
-## Scopes
-
-`user.info,user.metrics,user.activity` — we only need `user.metrics` for weigh-ins, but the
-docs' own example requests all three together; narrowing to just `user.metrics` should work
-and is what we request, since activity/info aren't used by `body_comp` sync.
-
-## Callback URL on the Pi deployment
-
-`WITHINGS_REDIRECT_URI` must be `https://<pi-name>.<tailnet>.ts.net/auth/withings/callback`
-(the real Tailscale HTTPS hostname `tailscale serve` exposes — see `deploy/pi-bootstrap.sh`),
-not `localhost`. Two things that follow from that:
-
-- **Re-register the callback in the Withings developer dashboard** (Withings > My Apps >
-  this app > Callback URL) to the new `https://...ts.net/...` value whenever it changes —
-  Withings validates the redirect URI against what's registered, not just what's sent.
-- **The browser completing step 3 above must itself be on the tailnet** (same rule as
-  localhost vs. 127.0.0.1 — different origins get no session cookie), so do the manual OAuth
-  flow from a device running Tailscale, browsing to the `https://...ts.net` URL directly, not
-  through a LAN IP or `localhost` port-forward.
-
-`tailscale serve` here is **tailnet-only HTTPS**, not Funnel — the callback is reachable to
-your own devices, not the public internet. If Withings' dashboard ever tries to actively
-fetch the callback URL to validate it (rather than just storing the string), that fetch would
-come from the public internet and fail against a tailnet-only `serve`; that would need
-`tailscale funnel` instead, which is a real public-exposure change and wasn't enabled here.
+- **Verified with real Withings:**
+  - signing (a made-up client id: `503 "invalid client id/secret"`, which is app-side as well);
+  - the five error strings above;
+  - revoke's status;
+  - `check-app` both ways;
+  - the production reset;
+  - a real incremental sync (3 measurements);
+  - the meastype codes against real readings.
+- **Also live:** a refresh. The production access token last refreshed on 2026-11-20 and lives 3 hours, so the successful syncs on
+  2026-11-22 had to exchange the refresh token (rotation included) first. That the rotated token was persisted is proven by the *next*
+  refresh, about 3 hours later; `get_sync_status` shows it.
+- **Not run live:** the authorize page, the callback for a brand-new connection, and revoke of a real grant. They need a person to
+  disconnect and reconnect in a browser. The full flow runs against `tests/withings_fake.py`, which enforces the same signature, nonce,
+  code, callback and rotation rules.

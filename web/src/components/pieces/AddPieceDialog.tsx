@@ -1,14 +1,14 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVisionAvailable } from "../../lib/useVisionAvailable";
-import { ApiError, createPiece, createPieceWithPhoto, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts } from "../../lib/api";
+import { ApiError, createPiece, createPieceWithPhoto, estimatePiecePhoto, fetchPieceTemplate, fetchWorkouts, previewPiece } from "../../lib/api";
 import { resizeImage } from "../../lib/image";
 import { pickNativePhoto } from "../../lib/native/camera";
 import { isNative } from "../../lib/native/platform";
 import { PIECE_MODALITIES, PIECE_TYPES_BY_MODALITY, modalityLabel, parseSplitsPaste, validateSplits, type PieceModality } from "../../lib/pieceSplits";
-import { type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
-import { formatDuration, formatShortDate } from "../../lib/format";
+import { type ErgTestType, type IntervalValidationIssue, type PieceInterval, type PiecePreview, type PieceSplitRow, type PieceValidation, type WorkoutListItem } from "../../lib/types";
+import { formatDuration, formatShortDate, formatSplit } from "../../lib/format";
 import { IntervalEditor } from "./IntervalEditor";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 import { TimeInput } from "./TimeInput";
@@ -113,9 +113,24 @@ export function AddPieceDialog({
     if (!PIECE_TYPES_BY_MODALITY[m].includes(pieceType)) setPieceType("custom");
   };
 
-  // The live check on review — the server re-validates on save and is the value of record.
+  // The live check on review — the server re-validates on save and is the value of record. Session 34: the rate/totals checks run here
+  // with no network; power (each row's watts, the watts check, the average) is the server's preview, asked 300 ms after typing stops.
   const liveValidation = useMemo(() => (step === "review" ? validateSplits(splits, distanceM, durationS, modality) : null), [step, splits, distanceM, durationS, modality]);
-  const shownValidation = liveValidation ?? validation;
+  const previewKey = JSON.stringify({ piece_type: pieceType, modality, splits, distance_m: distanceM, duration_s: durationS, avg_watts: avgWatts });
+  const [debouncedKey, setDebouncedKey] = useState(previewKey);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKey(previewKey), 300);
+    return () => clearTimeout(t);
+  }, [previewKey]);
+  const preview = useQuery({
+    queryKey: ["piece-preview", debouncedKey],
+    queryFn: () => previewPiece(JSON.parse(debouncedKey)),
+    enabled: open && step === "review",
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+  const serverValidation = preview.data && debouncedKey === previewKey ? preview.data.validation : null;
+  const shownValidation = serverValidation ?? liveValidation ?? validation;
 
   const startTyped = async () => {
     setSource("manual");
@@ -223,7 +238,8 @@ export function AddPieceDialog({
       duration_s: durationS,
       drag_factor: dragFactor,
       avg_rate: splits.length ? null : avgRate,
-      avg_watts: splits.length ? null : avgWatts,
+      // The screen's own average: only ever a fallback the server uses when it can't calculate power (a bike, or no distance).
+      avg_watts: avgWatts,
       source,
       force,
     };
@@ -381,7 +397,8 @@ export function AddPieceDialog({
                   <TimeInput valueS={durationS} onChange={setDurationS} ariaLabel="Total time" />
                 </label>
               </div>
-              <SplitsReviewTable splits={splits} validation={shownValidation} onChange={setSplits} modality={modality} />
+              <SplitsReviewTable splits={splits} validation={shownValidation} onChange={setSplits} modality={modality} calculated={preview.data?.splits} />
+              <PowerSummary modality={modality} preview={preview.data ?? null} loading={preview.isFetching && !preview.data} failed={preview.isError} />
               {error && <p className="text-sm text-band-red-text">{error}</p>}
               <div className="flex gap-2">
                 <button type="button" onClick={() => setStep(source === "photo" ? "choose-method" : "typed")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
@@ -485,5 +502,20 @@ function PieceTypeSelect({ modality, value, onChange }: { modality: PieceModalit
         ))}
       </select>
     </label>
+  );
+}
+
+/** Session 34: the piece's average power as the server worked it out, and how — in words, never a colour alone. */
+function PowerSummary({ modality, preview, loading, failed }: { modality: PieceModality; preview: PiecePreview | null; loading: boolean; failed: boolean }) {
+  let text: string;
+  if (failed && !preview) text = "Average power: — (Catch calculates it when you save).";
+  else if (loading || !preview) text = "Average power: working it out…";
+  else if (preview.avg_watts == null) text = modality === "bike" ? "Average power: — (a bike's power isn't calculated from pace; type it from the screen if it shows it)." : "Average power: — (needs the distance and time).";
+  else if (preview.avg_watts_basis === "pace") text = `Average power: ${Math.round(preview.avg_watts)} W — calculated from the ${formatSplit(preview.avg_split_s)} /500m average split.`;
+  else text = `Average power: ${Math.round(preview.avg_watts)} W — as entered${modality === "bike" ? " (bike power is never calculated from pace)" : ""}.`;
+  return (
+    <p className="text-sm text-text-secondary" data-testid="piece-power-summary" aria-live="polite">
+      {text}
+    </p>
   );
 }

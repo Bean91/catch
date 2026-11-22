@@ -291,7 +291,7 @@ export interface ErgTestSummary {
 
 // --- Session 17: pieces (a segment of a canonical activity) -----------------------------
 
-export interface Piece {
+export type Piece = {
   id: number;
   canonical_id: number;
   piece_type: ErgTestType;
@@ -303,7 +303,10 @@ export interface Piece {
   duration_s: number | null;
   avg_split_s: number | null;
   avg_rate: number | null;
+  /** Session 34: full precision; rounded only for display. On a rowing erg calculated from the average split ("pace"), otherwise
+   *  what was typed or read off the screen ("entered"). A bike's power is never calculated from pace. */
   avg_watts: number | null;
+  avg_watts_basis?: "pace" | "entered" | null;
   drag_factor: number | null;
   splits: PieceSplitRow[];
   source: "manual" | "photo" | "concept2";
@@ -322,6 +325,16 @@ export interface Piece {
   intervals: PieceInterval[];
   interval_summary: PieceIntervalSummary | null;
   interval_signature: string | null;
+} & BodyMassPower;
+
+/** Session 34: power relative to body mass, beside (never instead of) the watts, from the weigh-in that belongs to the performance's own
+ *  day (on or before it, ≤ 30 days old, else within 7 days after). All null when there is no suitable weigh-in, or for a bike. */
+export interface BodyMassPower {
+  weight_kg_used?: number | null;
+  weight_date?: string | null;
+  w_per_kg?: number | null;
+  /** Watts ÷ kg^(2/3) — W/kg²ᐟ³. */
+  weight_adjusted_watts?: number | null;
 }
 
 export type IntervalTarget = "distance" | "time";
@@ -344,6 +357,8 @@ export interface PieceInterval {
   source?: "manual" | "concept2";
   /** Server-derived (stored split, or time/distance) — never computed in the browser. */
   split_s?: number | null;
+  /** Session 34: this interval's own watts ÷ kg^(2/3) (rowing, with a suitable weigh-in). */
+  weight_adjusted_watts?: number | null;
 }
 
 export interface PieceIntervalSummary {
@@ -359,6 +374,7 @@ export interface PieceIntervalSummary {
   avg_hr: number | null;
   max_hr: number | null;
   calories: number | null;
+  weight_adjusted_watts?: number | null;
 }
 
 export interface IntervalValidationIssue {
@@ -388,9 +404,9 @@ export interface IntervalRepeatSpec {
 export interface IntervalComparisonBucket {
   bucket_label: string;
   n_points: number;
-  best: { date: string; value: number; avg_watts: number | null; avg_rate: number | null; avg_hr: number | null } | null;
+  best: { date: string; value: number; avg_watts: number | null; weight_adjusted_watts?: number | null; avg_rate: number | null; avg_hr: number | null } | null;
   typical: { value: number } | null;
-  recent: { date: string; value: number; avg_watts: number | null; avg_rate: number | null; avg_hr: number | null } | null;
+  recent: { date: string; value: number; avg_watts: number | null; weight_adjusted_watts?: number | null; avg_rate: number | null; avg_hr: number | null } | null;
   delta_vs_typical_pct: number | null;
   confidence: "insufficient_data" | "low" | "medium" | "high";
   note: string | null;
@@ -404,6 +420,21 @@ export interface PieceSplitRow {
   watts: number | null;
   hr: number | null;
   hr_source?: "typed" | "derived" | "concept2" | null;
+  /** Session 34: "pace" = Catch calculated these watts from the split (rowing); "entered" = typed or read off the screen. */
+  watts_source?: "pace" | "entered" | null;
+  /** A typed watts the split overruled on "Save anyway" — kept, never silently lost. */
+  watts_entered?: number | null;
+}
+
+/** POST /api/pieces/preview — the server's own numbers for rows being typed (the browser holds no power formula). */
+export interface PiecePreview {
+  splits: PieceSplitRow[];
+  validation: PieceValidation;
+  avg_split_s: number | null;
+  avg_watts: number | null;
+  avg_watts_basis: "pace" | "entered" | null;
+  distance_m: number | null;
+  duration_s: number | null;
 }
 
 export interface PieceValidationIssue {
@@ -445,8 +476,11 @@ export interface PieceTestDetail {
   test_type: ErgTestType;
   plan: PacingPlan | null;
   pacing_analysis: PacingAnalysis | null;
-  compare_to_earlier: ErgTestSummary | null;
+  compare_to_earlier: (ErgTestSummary & BodyMassPower) | null;
   w_per_kg: number | null;
+  weight_adjusted_watts?: number | null;
+  weight_kg_used?: number | null;
+  weight_date?: string | null;
 }
 
 export interface ErgTestCandidate {
@@ -505,8 +539,11 @@ export interface ErgTestDetail {
   test_type: ErgTestType | null;
   plan: PacingPlan | null;
   pacing_analysis: PacingAnalysis | null;
-  compare_to_earlier: ErgTestSummary | null;
+  compare_to_earlier: (ErgTestSummary & BodyMassPower) | null;
   w_per_kg: number | null;
+  weight_adjusted_watts?: number | null;
+  weight_kg_used?: number | null;
+  weight_date?: string | null;
 }
 
 export interface ProjectionResult {
@@ -886,6 +923,7 @@ export type TrendMetric =
   | "load_acr"
   | "weight"
   | "w_per_kg"
+  | "weight_adjusted_watts"
   | "predicted_2k"
   // Session 15 Part A.3.
   | "checkin_soreness"
@@ -1591,6 +1629,9 @@ export interface PerformanceTrendPoint {
   date: string;
   value: number;
   avg_stroke_rate: number | null;
+  /** Session 34: that effort's average watts and watts ÷ kg^(2/3) with its own day's weigh-in (null without one). */
+  avg_watts?: number | null;
+  weight_adjusted_watts?: number | null;
 }
 
 export interface PerformanceTrendBucket {
@@ -2760,7 +2801,7 @@ export interface NewChallengeInput {
 export interface OnboardingState {
   state: "pending" | "completed";
   step: number;
-  steps: ("welcome" | "connections" | "preferences" | "sync" | "done")[];
+  steps: ("welcome" | "connections" | "preferences" | "privacy" | "sync" | "done")[];
   skipped: ProviderId[];
   completed_at: string | null;
   /** True only for a public account whose setup isn't finished — the Pi never sends its owner to setup. */

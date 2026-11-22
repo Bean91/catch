@@ -103,6 +103,40 @@ class PieceSplitRow(BaseModel):
     # HR-bearing row "typed" from scratch, permanently freezing derived values against a
     # later re-align. A real bug an advisor review caught.
     hr_source: str | None = None
+    # Session 34, same reason: "pace" marks watts Catch calculated from the split (recomputed on save, never checked as a contradiction),
+    # "entered" watts someone typed or a screen showed; `watts_entered` keeps a typed value the split overruled on "Save anyway".
+    watts_source: str | None = None
+    watts_entered: float | None = None
+
+
+class PiecePreviewRequest(BaseModel):
+    piece_type: str = "custom"
+    modality: str = "rowing_erg"
+    splits: list[PieceSplitRow] = []
+    distance_m: float | None = None
+    duration_s: float | None = None
+    avg_watts: float | None = Field(None, ge=0)
+
+
+@router.post("/api/pieces/preview")
+def preview_piece(body: PiecePreviewRequest):
+    """Session 34: the server's own numbers for rows being typed or reviewed — each row's watts (calculated from its split on a rowing
+    erg, never on a bike), the issues, and the piece's average split and watts. Nothing is saved. The browser holds no power formula; it
+    shows what this returns (the library editor's /api/library/templates/preview is the precedent)."""
+    from catch.analytics.piece import aggregate_from_splits, piece_avg_watts, split_m_for, totals_only_splits, validate_splits, with_derived_watts
+
+    if body.modality not in MODALITIES:
+        raise HTTPException(status_code=422, detail=f"modality must be one of {list(MODALITIES)}")
+    rows = [r.model_dump() for r in body.splits] or totals_only_splits(body.distance_m, body.duration_s, None, body.avg_watts)
+    agg = aggregate_from_splits(rows, body.modality)
+    distance = body.distance_m if body.distance_m is not None else agg["distance_m"]
+    duration = body.duration_s if body.duration_s is not None else agg["duration_s"]
+    validation = validate_splits(rows, distance, duration, body.modality)
+    derived = with_derived_watts(rows, body.modality)
+    avg_split = agg["avg_split_s"] if agg["avg_split_s"] is not None else (duration / distance * split_m_for(body.modality) if distance and duration else None)
+    avg_watts, basis = piece_avg_watts(body.modality, avg_split, derived, entered=body.avg_watts)
+    return {"splits": derived, "validation": validation, "avg_split_s": avg_split, "avg_watts": avg_watts, "avg_watts_basis": basis,
+            "distance_m": distance, "duration_s": duration}
 
 
 class IntervalIn(BaseModel):

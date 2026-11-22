@@ -34,7 +34,8 @@ export function mockSummary(structure: TemplateStructure, targetZone: ZoneLabel 
   const total = blocks.reduce((n, b) => n + (b.reps || 1), 0);
   for (const b of blocks) {
     const reps = b.reps || 1;
-    const split = b.split_s ?? (b.watts ? 500 * Math.cbrt(2.8 / b.watts) : null);
+    // A watts-only target's split is the server's to work out (pace_from_watts); the mock has no formula, so its duration is unknown.
+    const split = b.split_s ?? null;
     let d: number | null = null;
     if (b.work_s != null) d = b.work_s;
     else if (b.work_m != null && split) { d = (b.work_m / 500) * split; estimated = true; }

@@ -21,7 +21,10 @@ from catch.core.models import UserProfile
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
-STEPS = ("welcome", "connections", "preferences", "sync", "done")
+# Session 34 added "privacy". Progress is stored as an index, so someone saved mid-setup at the old "sync" (3) resumes on "privacy",
+# which they haven't seen — intended. The privacy step stores nothing here: each choice is saved at once through the same endpoints as
+# Settings → Privacy (AI sharing, leaderboards), so resuming re-reads those rows, and completing or skipping setup changes none of them.
+STEPS = ("welcome", "connections", "preferences", "privacy", "sync", "done")
 COMPLETED = "completed"
 
 

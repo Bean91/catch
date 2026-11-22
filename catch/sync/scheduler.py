@@ -80,7 +80,9 @@ def run_sync(source: str, days: int = 3, *, manual: bool = False) -> dict:
             started = datetime.now(timezone.utc) - timedelta(seconds=5)
             try:
                 result = _sync_provider(session, source, days)
-                state.record_success(session, source, cursor=str(int(datetime.now(timezone.utc).timestamp())))
+                # The cursor is when this run *started*: a record a provider stored while the run was paging is read again next
+                # time rather than skipped (upserts make the overlap harmless).
+                state.record_success(session, source, cursor=str(int(started.timestamp())))
                 connections.mark_ok(session, source)
                 from catch.sync.scoring import changed_since, recompute_scores
 
@@ -111,7 +113,8 @@ def run_sync(source: str, days: int = 3, *, manual: bool = False) -> dict:
             except Exception as exc:
                 logger.exception("sync failed for %s", source)
                 session.rollback()
-                connections.mark(session, source, connections.ERROR, "sync_failed")
+                detail = getattr(exc, "detail", None)
+                connections.mark(session, source, connections.ERROR, detail if detail in connections.DETAILS else "sync_failed")
                 state.record_error(session, source, str(exc))
                 return {"source": source, "error": str(exc)}
     finally:
@@ -143,7 +146,7 @@ def _sync_provider(session, source: str, days: int) -> dict:
 
         row = session.get(SyncState, tenant.pk("withings"))
         cursor = int(row.cursor) if row and row.cursor else None
-        return {"measures": withings_sync(session, lastupdate=cursor)}
+        return {"measures": withings_sync(session, lastupdate=cursor) if cursor else withings_sync(session, days=days)}
     if source == "concept2":
         from catch.sync.concept2_client import sync as concept2_sync
 
@@ -282,13 +285,31 @@ def run_maintenance() -> dict:
 
     with get_session() as session:
         stamped = localtime.ensure_backfilled(session)
+        powered = _backfill_piece_power(session)
         # Session 33: zones moved to heart-rate reserve — every workout's cached zones are re-resolved once, here.
         if not stamped and model_is_current(session) and zones_model_is_current(session):
-            return {"backfilled": False, "recomputed": False}
+            return {"backfilled": False, "recomputed": False, "piece_power_workouts": len(powered)}
         # Re-resolve first: each rowing session's power zones and muscular share now use the 2k estimate as of its own date.
         resolve_all_canonicals(session)
         recompute_scores(session, full=True)
         return {"backfilled": stamped, "recomputed": True}
+
+
+def _backfill_piece_power(session) -> set[int]:
+    """Session 34: stored pieces re-derived to watts-from-pace once per owner (sync/piece_power.py). Its own try/except: a bug in this
+    one-time upgrade must never block the rest of maintenance, and an unfinished run simply repeats next time (idempotent)."""
+    from catch.sync.canonical import resolve_canonical
+    from catch.sync.piece_power import backfill_piece_power
+
+    try:
+        changed = backfill_piece_power(session)
+        for canonical_id in changed:
+            resolve_canonical(session, canonical_id)  # the piece power overlay feeds the workout's power zones
+        return changed
+    except Exception:
+        logger.exception("piece power backfill failed")
+        session.rollback()
+        return set()
 
 
 def run_retention() -> None:

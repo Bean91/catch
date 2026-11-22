@@ -5,6 +5,9 @@
 // the value of record; this is a live preview only. Keep in sync by hand — the shared
 // pytest/Vitest paste-vector fixture (tests/fixtures/pieces/paste_vectors.json) at least
 // catches a parser drift, even if it can't catch every other function drifting.
+//
+// Session 34: power is NOT here. Watts come from the split through one server formula (catch/analytics/erg_math.py); the review step
+// asks POST /api/pieces/preview for each row's watts, the watts check and the piece's average power.
 import type { ErgTestType } from "./types";
 
 export const PIECE_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"];
@@ -34,12 +37,7 @@ export function totalsOnlySplits(distanceM: number | null, durationS: number | n
 const DISTANCE_BY_TYPE: Partial<Record<ErgTestType, number>> = { "500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000 };
 const DURATION_BY_TYPE: Partial<Record<ErgTestType, number>> = { "30min_r20": 1800, "60min": 3600 };
 
-const WATTS_TOLERANCE_FLOOR = 2.0;
-const WATTS_TOLERANCE_PCT = 0.01;
-const DEFAULT_SPLIT_DISTANCE_M = 500.0;
 const DEFAULT_TIME_SPLIT_S = 300.0;
-
-const WATTS_CONSTANT = 2.8;
 
 export interface SplitRow {
   split_index: number;
@@ -49,6 +47,8 @@ export interface SplitRow {
   watts: number | null;
   hr: number | null;
   hr_source?: "typed" | "derived" | "concept2" | null;
+  watts_source?: "pace" | "entered" | null;
+  watts_entered?: number | null;
 }
 
 export interface ValidationIssue {
@@ -60,12 +60,6 @@ export interface ValidationIssue {
 export interface Validation {
   ok: boolean;
   issues: ValidationIssue[];
-}
-
-export function wattsForSplit(splitS: number, distanceDeltaM = DEFAULT_SPLIT_DISTANCE_M): number {
-  const pacePer500 = (splitS / distanceDeltaM) * DEFAULT_SPLIT_DISTANCE_M;
-  const secondsPerMeter = pacePer500 / DEFAULT_SPLIT_DISTANCE_M;
-  return WATTS_CONSTANT / secondsPerMeter ** 3;
 }
 
 export function defaultSplits(pieceType: ErgTestType, distanceM?: number | null, durationS?: number | null, modality: PieceModality = "rowing_erg"): SplitRow[] {
@@ -125,22 +119,11 @@ export function validateSplits(rows: SplitRow[], totalDistanceM: number | null, 
     }
   }
 
-  rows.forEach((row, i) => {
-    const { split_s: splitS, rate, watts } = row;
+  // Rate only. Watts are checked against the split by the server's preview (one formula, catch/analytics/erg_math.py).
+  rows.forEach((row) => {
+    const { rate } = row;
     if (rate != null && (rate < rateLo || rate > rateHi)) {
       issues.push({ split_index: row.split_index, field: "rate", message: `${rate} ${unit} is outside the plausible ${rateLo}-${rateHi} range.` });
-    }
-    if (modality === "rowing_erg" && splitS != null && watts != null && splitS > 0) {
-      const distanceDelta = rowDistanceDelta(rows, i) ?? DEFAULT_SPLIT_DISTANCE_M;
-      const expected = wattsForSplit(splitS, distanceDelta);
-      const toleranceW = Math.max(WATTS_TOLERANCE_FLOOR, expected * WATTS_TOLERANCE_PCT);
-      if (Math.abs(expected - watts) > toleranceW) {
-        issues.push({
-          split_index: row.split_index,
-          field: "watts",
-          message: `${watts}W doesn't match the split (${expected.toFixed(0)}W implied by ${splitS.toFixed(1)}s/${distanceDelta.toFixed(0)}m).`,
-        });
-      }
     }
   });
 
@@ -152,14 +135,13 @@ export interface Aggregate {
   distance_m: number | null;
   avg_split_s: number | null;
   avg_rate: number | null;
-  avg_watts: number | null;
 }
 
+/** Totals for display while typing; power is the server's (POST /api/pieces/preview). */
 export function aggregateFromSplits(rows: SplitRow[], modality: PieceModality = "rowing_erg"): Aggregate {
   const splitM = SPLIT_M[modality];
   const definedSplits = rows.map((r) => r.split_s).filter((s): s is number => s != null);
   const rates = rows.map((r) => r.rate).filter((v): v is number => v != null);
-  const watts = rows.map((r) => r.watts).filter((v): v is number => v != null);
   const durationS = definedSplits.length === rows.length && rows.length > 0 ? definedSplits.reduce((a, b) => a + b, 0) : null;
   const distanceM = rows.length > 0 && rows[rows.length - 1].distance_m != null ? rows[rows.length - 1].distance_m : null;
   // Pace per split_m = total time / total distance (launch audit L-10; mirrors catch/analytics/piece.py), not the mean of split durations.
@@ -177,7 +159,6 @@ export function aggregateFromSplits(rows: SplitRow[], modality: PieceModality = 
     distance_m: distanceM,
     avg_split_s: avgSplitS,
     avg_rate: rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null,
-    avg_watts: watts.length ? watts.reduce((a, b) => a + b, 0) / watts.length : null,
   };
 }
 

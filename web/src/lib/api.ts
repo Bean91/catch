@@ -146,6 +146,7 @@ import {
   mockUnsubscribePush,
   mockPushSubscriptions,
   mockStatus,
+  mockPiecePreview,
 } from "./mock";
 import {
   mockOnWater,
@@ -214,6 +215,7 @@ import type {
   Piece,
   PiecePhotoEstimate,
   PieceSplitRow,
+  PiecePreview,
   PieceTestDetail,
   ProjectionResult,
   Recommendation,
@@ -524,12 +526,12 @@ export async function fetchBody(from?: string, to?: string): Promise<BodyCompRea
   return request<BodyCompReading[]>(`/api/body?${search.toString()}`);
 }
 
-export async function postManualWeight(date: string, weightKg: number): Promise<void> {
-  if (isMock) return delay(postMockManualWeight(date, weightKg), 200);
+export async function postManualWeight(date: string, weight: number, unit: "kg" | "lb" = "kg"): Promise<void> {
+  if (isMock) return delay(postMockManualWeight(date, weight, unit), 200);
   await request("/api/body/manual", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date, weight_kg: weightKg }),
+    body: JSON.stringify({ date, weight, unit }),
   });
 }
 
@@ -695,6 +697,12 @@ export async function createPieceWithPhoto(canonicalId: number, body: CreatePiec
   form.append("payload", JSON.stringify(body));
   form.append("photo", photo, "pm5.jpg");
   return multipart<CreatePieceResult>(`/api/activities/${canonicalId}/pieces/with-photo`, form);
+}
+
+/** Session 34: the server's watts, watts check and average power for rows being typed — the browser holds no power formula. */
+export async function previewPiece(body: { piece_type: ErgTestType; modality: PieceModality; splits: PieceSplitRow[]; distance_m: number | null; duration_s: number | null; avg_watts: number | null }): Promise<PiecePreview> {
+  if (isMock) return delay(mockPiecePreview(body), 80);
+  return request<PiecePreview>("/api/pieces/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
 export async function createPiece(canonicalId: number, body: CreatePieceBody): Promise<CreatePieceResult> {

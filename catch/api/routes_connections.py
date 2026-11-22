@@ -5,6 +5,7 @@ response ever contains a token, key or code — only a masked card (last four ch
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -20,6 +21,7 @@ from catch.core.owner import current_owner_id
 from catch.sync import connections
 from catch.sync.providers import available
 
+logger = logging.getLogger("catch.connections")
 router = APIRouter(dependencies=[Depends(require_auth)])
 OAUTH_PROVIDERS = ("withings", "whoop", "concept2")
 
@@ -211,14 +213,35 @@ def oauth_callback(
     if error or not code:
         return done("denied")
     exchange = {"withings": withings_client.exchange_code, "whoop": whoop_client.exchange_code, "concept2": concept2_client.exchange_code}[provider]
-    try:
-        with tenant.use_owner(owner):
+    with tenant.use_owner(owner):
+        try:
             if tenant.is_public() and session.get(UserProfile, owner) is None:
                 return done("failed")  # the account was deleted between start and callback
             exchange(session, code)
+        except Exception as exc:  # noqa: BLE001 — a fixed outcome for the browser; the class name (never the code, a token or a body) for the operator
+            session.rollback()
+            outcome = _callback_outcome(exc)
+            logger.warning("%s callback failed: %s (%s)", provider, type(exc).__name__, outcome)
+            return done(outcome)
+        # The tokens are stored and committed: from here the account IS connected, whatever happens to queueing the history import
+        # (the next sync retries that), so a failure below must not tell the user it didn't work.
+        try:
             from catch.sync.scheduler import start_backfill
 
             start_backfill(session, provider)
-    except Exception:  # noqa: BLE001 — fixed outcome only; never the code, tokens or the provider's body
-        return done("failed")
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            logger.warning("%s history import couldn't be queued: %s", provider, type(exc).__name__)
     return done("connected")
+
+
+def _callback_outcome(exc: Exception) -> str:
+    """failed | server_setup (the operator's app credentials or callback URL) | expired (the provider refused the one-time code —
+    Withings' lives 30 seconds)."""
+    from catch.sync import withings_client
+
+    if isinstance(exc, withings_client.WithingsAppMisconfigured):
+        return "server_setup"
+    if isinstance(exc, withings_client.WithingsCodeRejected):
+        return "expired"
+    return "failed"

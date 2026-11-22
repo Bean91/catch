@@ -40,6 +40,7 @@ DETAILS = {
     "unreachable": "The provider couldn't be reached.",
     "rate_limited": "The provider is rate-limiting Catch; it will retry on its own.",
     "sync_failed": "The last sync failed.",
+    "app_misconfigured": "This server's sign-in setup for the provider is wrong — nothing to fix on your side; the operator has to.",
 }
 
 AUTH_METHODS = {
@@ -215,6 +216,7 @@ def store_oauth(
     row.credential_enc = None
     row.status, row.status_detail = CONNECTED, None
     row.last_validated_at = row.updated_at = _now()
+    row.connected_at = _now() if row.connected_at is None else row.connected_at
     if legacy is not None:
         session.delete(legacy)
     session.commit()
@@ -479,18 +481,27 @@ def disconnect_provider(session: Session, provider: str) -> dict:
         from catch.sync import whoop_client
 
         return whoop_client.disconnect(session)
+    if provider == "withings" and get(session, provider) is not None:
+        from catch.sync import withings_client
+
+        return withings_client.disconnect(session)
     existed = delete(session, provider)
     return {"revoked": revoked, "was_connected": existed}
 
 
 def revoke_all_for_account_deletion(session: Session) -> None:
-    """Best effort before an account is deleted: end live grants at providers that offer revocation (Whoop). Never blocks deletion."""
+    """Best effort before an account is deleted: end live grants at providers that offer revocation (Whoop, Withings). Never blocks
+    deletion."""
     for provider in PROVIDERS:
         try:
             if provider == "whoop" and get(session, provider) is not None:
                 from catch.sync import whoop_client
 
                 whoop_client.disconnect(session)
+            elif provider == "withings" and get(session, provider) is not None:
+                from catch.sync import withings_client
+
+                withings_client.disconnect(session)
         except Exception:  # noqa: BLE001
             logger.warning("couldn't revoke %s during account deletion", provider)
             session.rollback()

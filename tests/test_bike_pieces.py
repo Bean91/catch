@@ -54,7 +54,11 @@ def test_a_cycling_workouts_piece_defaults_to_bike_with_pace_per_1000m(client, s
     piece = resp.json()["piece"]
     assert piece["modality"] == "bike" and piece["split_unit_m"] == 1000.0
     assert piece["avg_split_s"] == pytest.approx(101.0)  # 202 s over 2 km, per 1000 m — not 50.5 per 500 m
-    assert piece["avg_watts"] == pytest.approx(255.0)  # typed watts kept, never derived from pace
+    # Typed watts kept, never derived from pace; session 34 averages them over time (each row's watts × its seconds), not per row.
+    rows = BIKE_SPLITS
+    expected = sum(r["watts"] * r["split_s"] for r in rows) / sum(r["split_s"] for r in rows)
+    assert piece["avg_watts"] == pytest.approx(expected) and piece["avg_watts_basis"] == "entered"
+    assert all(s.get("watts_source") == "entered" for s in piece["splits"])
 
 
 def test_rowing_stays_the_default_and_a_bike_piece_can_sit_on_any_workout(client, session):
