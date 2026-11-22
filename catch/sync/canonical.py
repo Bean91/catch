@@ -178,17 +178,33 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     if not members:
         return canonical
 
-    settings = get_settings(session)
+    compute_resolution(session, canonical, members)
+
+    canonical.updated_at = datetime.now(timezone.utc)
+    session.add(canonical)
+    session.commit()
+    session.refresh(canonical)
+    return canonical
+
+
+def compute_resolution(session: Session, canonical: CanonicalActivity, members: list[Activity], settings: dict | None = None) -> dict:
+    """Fills `canonical`'s resolved fields, zones and strain from `members` — reads only; nothing is added to the session or
+    committed here (session 33: the merge preview runs this on an unsaved CanonicalActivity to show the real result before
+    anything is written). Returns {"parts": [...]} describing a combined workout's time-overlap groups (empty otherwise)."""
+    settings = settings or get_settings(session)
     priority = settings["field_priority"]
     overrides = _overrides(canonical)
 
     sport = members[0].sport_family or _sport_family(members[0].source, members[0].type)
     base_priority = _STRENGTH_PRIORITY if sport == "strength" else _DEFAULT_PRIORITY
+    distance_priority = priority["distance_indoor_bike"] + _DEFAULT_PRIORITY if sport == "cycling" else base_priority
+
+    if canonical.merge_mode == "combined":
+        return _compute_combined(session, canonical, members, settings, sport, base_priority, distance_priority, overrides)
+
     start, start_src = _pick(members, "start", base_priority)
     duration, duration_src = _pick(members, "duration", base_priority)
-    distance_field = "distance"
-    distance_priority = priority["distance_indoor_bike"] + _DEFAULT_PRIORITY if sport == "cycling" else base_priority
-    distance, distance_src = _pick(members, distance_field, distance_priority)
+    distance, distance_src = _pick(members, "distance", distance_priority)
     power, power_src = _pick(members, "avg_power", priority["power"] + _DEFAULT_PRIORITY)
     cadence, cadence_src = _pick(members, "avg_cadence", priority["cadence"] + _DEFAULT_PRIORITY)
     calories, calories_src = _pick(members, "calories", base_priority)
@@ -212,6 +228,14 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     title = overrides.get("title") or auto_title(sport, members, priority["title"])
     field_sources["title"] = "override" if overrides.get("title") else "auto"
 
+    _apply_fields(canonical, members, overrides, sport, start, duration, distance, power, cadence, calories, avg_hr, max_hr, title, field_sources)
+    localtime.stamp_canonical(session, canonical, members)
+
+    _resolve_zones(session, canonical, members, avg_hr, power_src, settings)
+    return {"parts": []}
+
+
+def _apply_fields(canonical, members, overrides, sport, start, duration, distance, power, cadence, calories, avg_hr, max_hr, title, field_sources) -> None:
     resolved_sport = overrides.get("sport_family") or sport
     canonical.sport_family = resolved_sport
     # Persisted (not recomputed per request) so GET /api/activities' category filter can run
@@ -228,15 +252,132 @@ def resolve_canonical(session: Session, canonical_id: int) -> Optional[Canonical
     canonical.max_hr = max_hr
     canonical.title = title
     canonical.field_sources_json = json.dumps(field_sources)
-    localtime.stamp_canonical(session, canonical, members)
 
-    _resolve_zones(session, canonical, members, avg_hr, power_src, settings)
 
-    canonical.updated_at = datetime.now(timezone.utc)
-    session.add(canonical)
-    session.commit()
-    session.refresh(canonical)
-    return canonical
+# --- Session 33: combined workouts (docs/analytics.md §31) ------------------------------------------------------------------
+
+
+def combined_parts(members: list[Activity], settings: dict) -> list[dict]:
+    """The time-overlap groups of a combined workout, each resolved with the ordinary duplicate rules (one value per field),
+    in time order. A member with no start joins the first group."""
+    from catch.analytics.activity_merge import cluster, span_of
+
+    priority = settings["field_priority"]
+    sport = members[0].sport_family or _sport_family(members[0].source, members[0].type)
+    base_priority = _STRENGTH_PRIORITY if sport == "strength" else _DEFAULT_PRIORITY
+    distance_priority = priority["distance_indoor_bike"] + _DEFAULT_PRIORITY if sport == "cycling" else base_priority
+    by_id = {m.id: m for m in members}
+    spans = [s for s in (span_of(m.id, m.start, m.duration) for m in members) if s is not None]
+    groups = [[by_id[s.key] for s in g] for g in cluster(spans)] or [list(members)]
+    placed = {m.id for g in groups for m in g}
+    groups[0].extend(m for m in members if m.id not in placed)
+
+    parts = []
+    for group in groups:
+        start, start_src = _pick(group, "start", base_priority)
+        duration, duration_src = _pick(group, "duration", base_priority)
+        distance, distance_src = _pick(group, "distance", distance_priority)
+        power, power_src = _pick(group, "avg_power", priority["power"] + _DEFAULT_PRIORITY)
+        cadence, _ = _pick(group, "avg_cadence", priority["cadence"] + _DEFAULT_PRIORITY)
+        calories, _ = _pick(group, "calories", base_priority)
+        avg_hr, max_hr, hr_src = pick_hr(group)
+        parts.append(
+            {
+                "members": group,
+                "start": start,
+                "duration": duration,
+                "distance": distance,
+                "avg_power": power,
+                "avg_cadence": cadence,
+                "calories": calories,
+                "avg_hr": avg_hr,
+                "max_hr": max_hr,
+                "hr_member": hr_src,
+                "power_member": power_src,
+                "sources": {"start": _key(start_src) if start_src else None, "duration": _key(duration_src) if duration_src else None,
+                            "distance": _key(distance_src) if distance_src else None, "avg_hr": _key(hr_src) if hr_src else None},
+            }
+        )
+    parts.sort(key=lambda p: p["start"] or datetime.max.replace(tzinfo=timezone.utc))
+    return parts
+
+
+def combined_samples(session: Session, parts: list[dict], start: Optional[datetime]) -> tuple[Optional[dict], Optional[dict], dict[int, int]]:
+    """One 1 Hz timeline per channel for a combined workout: each group's heart-rate member (and power member) placed at its own
+    offset from the workout's start, gaps left empty, never two values for one second. Returns (hr_samples, power_samples,
+    {member activity id: offset seconds}) — the offsets let a piece window, stored relative to its own recording, be placed."""
+    if start is None:
+        return None, None, {}
+    offsets: dict[int, int] = {}
+    placed: dict[str, list] = {"hr": [], "power": [], "cadence": []}
+    have_hr = have_power = False
+
+    def put(channel: str, values: list, at: int) -> None:
+        arr = placed[channel]
+        if len(arr) < at + len(values):
+            arr.extend([None] * (at + len(values) - len(arr)))
+        for i, v in enumerate(values):
+            if v is not None and arr[at + i] is None:
+                arr[at + i] = v
+
+    for part in parts:
+        for m in part["members"]:
+            if m.start is not None and m.id is not None:
+                offsets[m.id] = max(0, int(round((m.start - start).total_seconds())))
+        hr_m = part["hr_member"] or next((m for m in part["members"] if session.get(ActivitySamples, m.id) is not None), None)
+        if hr_m is not None and hr_m.id in offsets:
+            samples = _activity_samples(session, hr_m.id)
+            if samples:
+                put("hr", samples["hr"], offsets[hr_m.id])
+                put("cadence", samples["cadence"], offsets[hr_m.id])
+                have_hr = have_hr or any(v is not None for v in samples["hr"])
+                if part["power_member"] is None or part["power_member"].id == hr_m.id:
+                    put("power", samples["power"], offsets[hr_m.id])
+                    have_power = have_power or any(v is not None for v in samples["power"])
+        pm = part["power_member"]
+        if pm is not None and (hr_m is None or pm.id != hr_m.id) and pm.id in offsets:
+            samples = _activity_samples(session, pm.id)
+            if samples:
+                put("power", samples["power"], offsets[pm.id])
+                put("cadence", samples["cadence"], offsets[pm.id])
+                have_power = have_power or any(v is not None for v in samples["power"])
+    n = max(len(placed["hr"]), len(placed["power"]), len(placed["cadence"]))
+    for channel in placed.values():
+        channel.extend([None] * (n - len(channel)))
+    if not n:
+        return None, None, offsets
+    return (placed if have_hr else None), (placed if (have_power or n) else None), offsets
+
+
+def _compute_combined(session, canonical, members, settings, sport, base_priority, distance_priority, overrides) -> dict:
+    from catch.analytics.activity_merge import sum_known, weighted_mean
+
+    parts = combined_parts(members, settings)
+    start = min((p["start"] for p in parts if p["start"] is not None), default=None)
+    duration, _ = sum_known([p["duration"] for p in parts])
+    distance, distance_partial = sum_known([p["distance"] for p in parts])
+    calories, _ = sum_known([p["calories"] for p in parts])
+    avg_hr = weighted_mean((p["avg_hr"], p["duration"]) for p in parts)
+    max_hrs = [p["max_hr"] for p in parts if p["max_hr"] is not None]
+    power = weighted_mean((p["avg_power"], p["duration"]) for p in parts)
+    cadence = weighted_mean((p["avg_cadence"], p["duration"]) for p in parts)
+    priority = settings["field_priority"]
+    title = overrides.get("title") or auto_title(sport, parts[0]["members"], priority["title"])
+    field_sources = {
+        name: "combined" for name, value in (("start", start), ("duration", duration), ("distance", distance), ("avg_power", power),
+                                             ("avg_cadence", cadence), ("calories", calories), ("avg_hr", avg_hr), ("max_hr", max_hrs))
+        if value
+    }
+    field_sources["title"] = "override" if overrides.get("title") else "auto"
+    field_sources["combined_parts"] = [p["sources"] for p in parts]
+    if distance_partial:
+        field_sources["distance_partial"] = True
+    _apply_fields(canonical, members, overrides, sport, start, duration, distance, power, cadence, calories, avg_hr, max(max_hrs) if max_hrs else None, title, field_sources)
+    localtime.stamp_canonical(session, canonical, parts[0]["members"])
+
+    hr_samples, power_samples, offsets = combined_samples(session, parts, start)
+    _resolve_zones(session, canonical, members, avg_hr, None, settings, combined=(hr_samples, power_samples, offsets))
+    return {"parts": parts, "offsets": offsets}
 
 
 def _resting_hr_for(session: Session, when: Optional[datetime], day=None) -> Optional[float]:
@@ -261,6 +402,7 @@ def _resolve_zones(
     avg_hr: Optional[float],
     power_member: Optional[Activity],
     settings: dict,
+    combined: Optional[tuple] = None,
 ) -> None:
     """HR-based zones/strain (every sport, Part E) and cycling power-based TSS-style strain
     (Part B.3) are resolved independently — the HR-contributing member and the
@@ -269,11 +411,16 @@ def _resolve_zones(
     there's no single shared "usable_n" to align them on. Power-based strain wins for
     cycling when it's available (task Part B.3's "power-based ... when power exists,
     HR-based otherwise"); HR zones/label still use whichever member has HR, independently."""
-    hr_member = next((m for m in members if m.avg_hr == avg_hr and avg_hr is not None), members[0] if members else None)
-    hr_samples = _activity_samples(session, hr_member.id) if hr_member and hr_member.id else None
+    offsets: Optional[dict] = None
+    if combined is not None:
+        # Session 33: a combined workout's members are consecutive parts — one timeline built from all of them.
+        hr_samples, power_samples, offsets = combined
+        power_member = next(iter(members), None) if power_samples else None
+    else:
+        hr_member = next((m for m in members if m.avg_hr == avg_hr and avg_hr is not None), members[0] if members else None)
+        hr_samples = _activity_samples(session, hr_member.id) if hr_member and hr_member.id else None
+        power_samples = _activity_samples(session, power_member.id) if power_member and power_member.id else None
     has_hr = bool(hr_samples) and any(v is not None for v in hr_samples["hr"])
-
-    power_samples = _activity_samples(session, power_member.id) if power_member and power_member.id else None
 
     # Session 17 (see PLAN.md Part D.3): any piece aligned to a window on one of this
     # canonical's members overlays its own per-split watts into that window, refining the
@@ -283,7 +430,7 @@ def _resolve_zones(
     # typed/photo 2k piece still gets a real power-zone label below.
     from catch.sync.piece import power_member_and_samples
 
-    power_member, power_samples = power_member_and_samples(session, canonical.id, members, power_member, power_samples, canonical.sport_family)
+    power_member, power_samples = power_member_and_samples(session, canonical.id, members, power_member, power_samples, canonical.sport_family, offsets)
     has_power = bool(power_samples) and any(v is not None for v in power_samples["power"])
 
     # Reset once up front (session 15) rather than only inside each branch below that might

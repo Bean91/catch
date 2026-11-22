@@ -3,7 +3,7 @@ everything else is kept until the person deletes it (Privacy center) or their ac
 
     notification_log     90 days   (dedup needs "sent today", not history)
     ai_usage_events      400 days  (the spend caps read today; a year of history is plenty for the usage page)
-    merge_log            400 days
+    merge_log            400 days, except "combine": the undo record of a merged workout, kept while that workout exists
     match_decisions      400 days, except not_duplicate/split: those block a re-merge for as long as both activities exist
     tool_call_log        90 days   (an audit of recent outside-client activity, not a history)
 
@@ -38,6 +38,14 @@ def prune_owner(session: Session, now: datetime | None = None) -> dict:
         if cls is MatchDecision:
             # Matching rescans all history, so pruning these undid the person's own "not a duplicate"/"split" (launch audit L-37).
             stmt = stmt.where(MatchDecision.decision.not_in(BLOCKING_DECISIONS))
+        if cls is MergeLog:
+            # Session 33: a combine's snapshot is what "Undo merge" restores from — kept while the merged workout still exists.
+            from sqlmodel import select
+
+            from catch.core.models import CanonicalActivity
+
+            live = select(CanonicalActivity.id).where(CanonicalActivity.merge_mode == "combined")
+            stmt = stmt.where(~((MergeLog.action == "combine") & MergeLog.canonical_id.in_(live)))
         removed[cls.__tablename__] = session.execute(stmt).rowcount or 0
     # Grants that ended (revoked or past their absolute lifetime) more than 30 days ago.
     cutoff = now - timedelta(days=30)

@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity } from "../lib/api";
+import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily } from "../lib/types";
@@ -137,9 +137,13 @@ export function WorkoutDetailPage() {
   const [addPieceOpen, setAddPieceOpen] = useState(false);
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
   const effectiveSelectedPieceId = selectedPieceId ?? pieces?.[0]?.id ?? null;
+  // Session 33: a piece window is stored relative to its own recording; on a merged workout the chart's timeline starts at the
+  // first recording, so each window is shifted by its recording's offset (all zero for an ordinary workout).
+  const memberOffsets: Record<string, number> = samples?.has_data ? (samples.member_offsets ?? {}) : {};
+  const offsetFor = (activityId: number | null) => (activityId != null ? (memberOffsets[String(activityId)] ?? 0) : 0);
   const pieceBands: PieceBand[] = (pieces ?? [])
     .filter((p) => p.window_start_s != null && p.window_end_s != null)
-    .map((p) => ({ id: p.id, startS: p.window_start_s as number, endS: p.window_end_s as number }));
+    .map((p) => ({ id: p.id, startS: (p.window_start_s as number) + offsetFor(p.window_activity_id), endS: (p.window_end_s as number) + offsetFor(p.window_activity_id) }));
   const importIntervals = useMutation({
     mutationFn: (activityId: number) => importConcept2Intervals(canonicalId, activityId),
     onSuccess: () => {
@@ -151,7 +155,8 @@ export function WorkoutDetailPage() {
   const alignMutation = useMutation({
     mutationFn: ({ pieceId, startS }: { pieceId: number; startS: number }) => {
       const piece = pieces?.find((p) => p.id === pieceId);
-      return alignPiece(pieceId, piece?.window_activity_id ?? undefined, startS);
+      const activityId = piece?.window_activity_id ?? undefined;
+      return alignPiece(pieceId, activityId, Math.max(0, startS - offsetFor(activityId ?? null)));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
@@ -181,6 +186,18 @@ export function WorkoutDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
       queryClient.invalidateQueries({ queryKey: ["workouts"] });
+    },
+  });
+
+  const [confirmUndoMerge, setConfirmUndoMerge] = useState(false);
+  const undoMergeMutation = useMutation({
+    mutationFn: () => undoMerge(canonicalId),
+    onSuccess: () => {
+      setConfirmUndoMerge(false);
+      queryClient.invalidateQueries({ queryKey: ["workout", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["workouts"] });
+      queryClient.invalidateQueries({ queryKey: ["pieces", canonicalId] });
+      queryClient.invalidateQueries({ queryKey: ["activity-samples", canonicalId] });
     },
   });
 
@@ -574,6 +591,41 @@ export function WorkoutDetailPage() {
           </div>
 
           <div>
+            {workout.merge && (
+              <div className="mb-3 rounded-md bg-surface-2 p-3 text-sm" data-testid="merged-workout">
+                <p className="text-text-primary">
+                  Merged from {workout.merge.merged_workouts ?? "several"} workouts ({workout.merge.recordings} recording{workout.merge.recordings === 1 ? "" : "s"}). Times and
+                  distances are added; anything recorded twice counts once.
+                </p>
+                {workout.merge.can_undo && !confirmUndoMerge && (
+                  <button type="button" onClick={() => setConfirmUndoMerge(true)} className="mt-2 min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:border-accent">
+                    Undo merge
+                  </button>
+                )}
+                {confirmUndoMerge && (
+                  <div role="group" aria-label="Confirm undo merge" className="mt-2 rounded-md border border-border p-3">
+                    <p className="text-sm text-text-secondary">
+                      Each workout comes back separately, with its own recordings, edits, pieces, plan link and notes. Edits made to the merged workout stay on the
+                      earliest one.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setConfirmUndoMerge(false)} className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary">
+                        Keep merged
+                      </button>
+                      <button
+                        type="button"
+                        disabled={undoMergeMutation.isPending}
+                        onClick={() => undoMergeMutation.mutate()}
+                        className="min-h-11 flex-1 rounded-md bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                      >
+                        {undoMergeMutation.isPending ? "Undoing…" : "Undo merge"}
+                      </button>
+                    </div>
+                    {undoMergeMutation.isError && <p role="alert" className="mt-2 text-sm text-band-red-text">Couldn't undo — nothing was changed.</p>}
+                  </div>
+                )}
+              </div>
+            )}
             <p className="mb-2 text-xs text-text-tertiary">Sources — which record each metric came from. Edits never push back to Garmin.</p>
             <ul className="flex flex-col gap-1">
               {workout.sources.map((s) => (

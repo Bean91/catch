@@ -772,6 +772,9 @@ export interface WorkoutDetail extends WorkoutListItem {
    * real intervals is flagged so the page can offer the on-demand import. */
   pieces?: Piece[];
   concept2_interval_activity_id?: number | null;
+  /** Session 33: set when this workout was merged from separate workouts. */
+  merge?: MergeSummary | null;
+  merge_mode?: "combined" | null;
   /** Session 14 (see PLAN.md Part C.4) — present only when category === "strength": this
    * session's own logged/draft sets, and its per-muscle-group raw AU breakdown (the same
    * cache catch/sync/gym.py writes onto the canonical). */
@@ -814,6 +817,9 @@ export type ActivitySamplesResponse =
       zones_config: TrainingZones;
       session_label: string | null;
       laps: LapMarker[];
+      /** Session 33: seconds from the workout's start to each recording's start (all 0 for an ordinary workout). A piece window
+       * is stored relative to its own recording, so the chart adds this to draw it and removes it when a band is dragged. */
+      member_offsets?: Record<string, number>;
       hr_recovery: HrRecovery;
       points: SamplePoint[];
       returned_count: number;
@@ -2779,4 +2785,66 @@ export interface Me {
   current_zone: string;
   today: string;
   onboarding: { state: "pending" | "completed"; show: boolean };
+}
+
+// --- Session 33: merging workouts ------------------------------------------------------------
+
+export interface MergeSummary {
+  recordings: number;
+  merged_workouts: number | null;
+  merged_at: string | null;
+  can_undo: boolean;
+}
+
+export interface MergePreviewItem {
+  id: number;
+  title: string | null;
+  sport_family: string | null;
+  category: string | null;
+  start: string | null;
+  local_date: string | null;
+  local_tz: string | null;
+  duration: number | null;
+  distance: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_power: number | null;
+  avg_split_500m: number | null;
+  calories: number | null;
+  strain_trimp: number | null;
+  sources: { source: string; external_id: string; activity_id: number }[];
+  has_samples: boolean;
+  test_type: string | null;
+  published: boolean;
+}
+
+export interface MergePreview {
+  compatible: boolean;
+  /** Why these can't be merged, as sentences (empty when they can). */
+  reasons: string[];
+  items: MergePreviewItem[];
+  overlaps: { a: number; b: number; seconds: number }[];
+  groups: number[][];
+  keep_id: number | null;
+  preview_hash: string;
+  separate_strain_trimp: number;
+  result: {
+    title: string | null;
+    sport_family: string | null;
+    start: string | null;
+    local_date: string | null;
+    local_tz: string | null;
+    duration: number | null;
+    distance: number | null;
+    distance_partial: boolean;
+    avg_hr: number | null;
+    max_hr: number | null;
+    avg_power: number | null;
+    avg_split_500m: number | null;
+    calories: number | null;
+    strain_trimp: number | null;
+    session_label: string | null;
+    zones: Record<string, number> | null;
+    parts: { start: string | null; duration: number | null; distance: number | null; recordings: number }[];
+  } | null;
 }

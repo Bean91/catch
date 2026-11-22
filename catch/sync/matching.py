@@ -7,6 +7,7 @@ session and merges their canonicals — run after every sync and as a one-off ba
 all history (task Part A.4), both idempotent (a pair that already shares a canonical, or one
 a human has explicitly marked "not a duplicate", is never reconsidered)."""
 
+import json
 import logging
 from collections import defaultdict
 from datetime import timedelta
@@ -84,6 +85,17 @@ def find_candidate_pairs(session: Session) -> list[tuple[Activity, Activity, Mat
         for offset in (-1, 0, 1):
             by_day[day + timedelta(days=offset)].append(a)
 
+    # Session 33: a combined workout's members are parts of one session — compare a new recording with the whole session's span,
+    # so one that covers it is flagged for review (never auto-merged: it would overlap several parts at once).
+    combined_ids = set(session.exec(select(CanonicalActivity.id).where(CanonicalActivity.merge_mode == "combined")).all())
+    combined_spans: dict = {}
+    for a in rows:
+        if a.canonical_id in combined_ids and a.start is not None:
+            end = a.start + timedelta(seconds=a.duration or 0)
+            lo, hi = combined_spans.get(a.canonical_id, (a.start, end))
+            combined_spans[a.canonical_id] = (min(lo, a.start), max(hi, end))
+    combined_spans = {cid: (lo, (hi - lo).total_seconds()) for cid, (lo, hi) in combined_spans.items()}
+
     seen_pairs: set[tuple[int, int]] = set()
     results: list[tuple[Activity, Activity, MatchResult]] = []
     for day, candidates in by_day.items():
@@ -98,23 +110,44 @@ def find_candidate_pairs(session: Session) -> list[tuple[Activity, Activity, Mat
                 if _decision_key(a, b) in blocked:
                     continue
                 result = match_pair(_to_match_input(a), _to_match_input(b))
+                if not result.is_candidate and (a.canonical_id in combined_spans or b.canonical_id in combined_spans):
+                    # Not a duplicate of any one part — but it may cover the whole merged session (another device that ran
+                    # throughout). Flag that for review; joining it would overlap several parts at once.
+                    spanning = match_pair(_span_input(a, combined_spans), _span_input(b, combined_spans))
+                    if not spanning.is_candidate:
+                        continue
+                    result = MatchResult(True, spanning.score, True, [*spanning.reasons, "covers a merged workout — review it, never merged automatically"])
                 if result.is_candidate and result.score >= 0.0:
                     results.append((a, b, result))
     results.sort(key=lambda r: r[2].score, reverse=True)
     return results
 
 
+def _span_input(a: Activity, combined_spans: dict) -> MatchInput:
+    base = _to_match_input(a)
+    span = combined_spans.get(a.canonical_id)
+    if span is None:
+        return base
+    from dataclasses import replace
+
+    return replace(base, start=span[0], duration=span[1])
+
+
 def _merge_canonicals(session: Session, keep: CanonicalActivity, drop: CanonicalActivity, members_of_drop: list[Activity]) -> None:
     for m in members_of_drop:
         m.canonical_id = keep.id
         session.add(m)
-    # A calendar plan linked to the canonical being deleted must follow the survivor (this is
-    # the only place a CanonicalActivity is ever deleted).
-    from catch.sync.coaching_notes import repoint_canonical
-    from catch.sync.planning import relink_after_merge
+    # Everything linked to the canonical being deleted follows the survivor: plans, notes, feedback, and (session 33 — they used to
+    # be left pointing at the deleted row) pieces and leaderboard publications.
+    from catch.sync.activity_merge import move_references
 
-    relink_after_merge(session, keep.id, drop.id)
-    repoint_canonical(session, keep.id, drop.id)
+    move_references(session, keep.id, drop.id)
+    if drop.overrides_json and drop.overrides_json != "{}" and keep.overrides_json != drop.overrides_json:
+        # Both had edits: keep the survivor's, but don't silently lose the dropped side's tags and notes.
+        from catch.sync.activity_merge import _merged_overrides
+
+        keep.overrides_json = json.dumps(_merged_overrides([keep, drop]))
+        session.add(keep)
     session.flush()
     session.delete(drop)
     session.commit()
@@ -233,6 +266,10 @@ def manual_merge(session: Session, activity_id_a: int, activity_id_b: int) -> Ca
 
     canonical_a = session.get(CanonicalActivity, a.canonical_id)
     canonical_b = session.get(CanonicalActivity, b.canonical_id)
+    if "combined" in (canonical_a.merge_mode, canonical_b.merge_mode):
+        from catch.sync.activity_merge import MergeError
+
+        raise MergeError("One of these is a merged workout. Undo that merge first, then merge all the workouts together from Workouts → Select.")
     keep, drop = _choose_surviving(session, canonical_a, canonical_b)
     drop_members = session.exec(select(Activity).where(Activity.canonical_id == drop.id)).all()
     _merge_canonicals(session, keep, drop, drop_members)

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { bulkEditActivities, fetchWorkouts } from "../lib/api";
 import type { WorkoutCategory } from "../lib/types";
 import { WorkoutRow } from "../components/workouts/WorkoutRow";
+import { MergeSheet } from "../components/workouts/MergeSheet";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { EmptyState, ErrorState } from "../components/ui/EmptyState";
 
@@ -24,6 +25,7 @@ export function WorkoutsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkTag, setBulkTag] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ["workouts", filter],
@@ -154,8 +156,31 @@ export function WorkoutsPage() {
           >
             Include in totals
           </button>
+          {selected.size >= 2 && (
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => setMergeOpen(true)}
+              className="min-h-9 rounded-md border border-accent px-3 text-sm font-medium text-accent"
+              data-testid="merge-selected"
+            >
+              Merge…
+            </button>
+          )}
         </div>
       )}
+      <MergeSheet
+        open={mergeOpen}
+        ids={Array.from(selected)}
+        onClose={() => setMergeOpen(false)}
+        onMerged={() => {
+          setMergeOpen(false);
+          setSelected(new Set());
+          setBulkMode(false);
+          void queryClient.invalidateQueries({ queryKey: ["workouts"] });
+          void queryClient.invalidateQueries({ queryKey: ["today"] });
+        }}
+      />
 
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Filter by type">
         {FILTERS.map((f) => (

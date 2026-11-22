@@ -90,6 +90,7 @@ SETTINGS_READS = (
     "/api/coach/settings",
     "/api/coach/tokens",
     "/api/ai/providers",
+    "/api/zones",
 )
 
 

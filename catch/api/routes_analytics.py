@@ -852,25 +852,46 @@ def activity_samples(
         raise HTTPException(status_code=404, detail="Activity not found")
 
     members = db.exec(select(Activity).where(Activity.canonical_id == canonical_id)).all()
-    _, _, hr_member = pick_hr(members)
-    if hr_member is None:
-        hr_member = members[0] if members else None
-    if hr_member is None or hr_member.id is None:
-        return {"has_data": False, "reason": "no source activity"}
+    settings = get_settings(db)
+    # Session 33: {recording id: seconds from this workout's start}. A piece window is stored relative to its own recording, so
+    # the chart adds this offset to draw it (and removes it when a band is dragged). Zero for an ordinary workout's one recording.
+    member_offsets: dict[int, int] = {}
+    if canonical.merge_mode == "combined":
+        from catch.sync.canonical import combined_parts, combined_samples
 
-    samples_row = db.get(ActivitySamples, hr_member.id)
-    if samples_row is None:
-        return {"has_data": False, "reason": "no per-sample data for this activity"}
+        parts = combined_parts(members, settings)
+        combined_hr, _, member_offsets = combined_samples(db, parts, canonical.start)
+        if not combined_hr:
+            return {"has_data": False, "reason": "no heart-rate data"}
+        hr_full, power_full, cadence_full = combined_hr["hr"], combined_hr["power"], combined_hr["cadence"]
+        n = len(hr_full)
+        laps = []
+        for m in members:
+            if m.id in member_offsets:
+                for lap in json.loads(m.laps_json) if m.laps_json else _concept2_laps(db, m.id):
+                    laps.append({**lap, "offset_s": lap["offset_s"] + member_offsets[m.id]})
+        laps.sort(key=lambda lap: lap["offset_s"])
+    else:
+        _, _, hr_member = pick_hr(members)
+        if hr_member is None:
+            hr_member = members[0] if members else None
+        if hr_member is None or hr_member.id is None:
+            return {"has_data": False, "reason": "no source activity"}
 
-    n = samples_row.n_samples
-    hr_full = unpack_series(samples_row.hr_blob, n)
-    power_full = unpack_series(samples_row.power_blob, n)
-    cadence_full = unpack_series(samples_row.cadence_blob, n)
+        samples_row = db.get(ActivitySamples, hr_member.id)
+        if samples_row is None:
+            return {"has_data": False, "reason": "no per-sample data for this activity"}
+
+        n = samples_row.n_samples
+        hr_full = unpack_series(samples_row.hr_blob, n)
+        power_full = unpack_series(samples_row.power_blob, n)
+        cadence_full = unpack_series(samples_row.cadence_blob, n)
+        laps = json.loads(hr_member.laps_json) if hr_member.laps_json else _concept2_laps(db, hr_member.id)
+        member_offsets = {m.id: 0 for m in members if m.id is not None}
     has_hr = any(v is not None for v in hr_full)
     if not has_hr:
         return {"has_data": False, "reason": "no heart-rate data"}
 
-    settings = get_settings(db)
     from catch.api.routes_activities import workout_hr_basis
 
     basis = workout_hr_basis(db, canonical, settings)
@@ -887,8 +908,6 @@ def activity_samples(
     defined_idx = [i for i in range(window_lo, window_hi) if hr_full[i] is not None]
     indices = lttb_indices([elapsed[i] for i in defined_idx], [hr_full[i] for i in defined_idx], points) if defined_idx else []
     chosen = [defined_idx[i] for i in indices]
-
-    laps = json.loads(hr_member.laps_json) if hr_member.laps_json else _concept2_laps(db, hr_member.id)
 
     defined_hr = [hr_full[i] for i in range(usable_n) if hr_full[i] is not None]
     recoveries = {
@@ -913,6 +932,7 @@ def activity_samples(
         "zones_config": training_zones(basis, settings=settings),
         "session_label": canonical.session_label,
         "laps": laps,
+        "member_offsets": {str(k): v for k, v in member_offsets.items()},
         "hr_recovery": recoveries,
         "points": [
             {

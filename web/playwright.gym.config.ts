@@ -22,7 +22,10 @@ const PORT = 8731;
 const webDir = path.resolve(import.meta.dirname);
 const repoRoot = path.resolve(webDir, "..");
 
-const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "catch-gym-offline-"));
+// Playwright evaluates this file again in every worker process; a worker inherits the main process's environment, so it reuses the
+// main process's scratch directory (where the running server's database is) instead of making a new, empty one, and skips the build.
+const inWorker = Boolean(process.env.CATCH_GYM_TEST_SCRATCH_DIR);
+const scratchDir = process.env.CATCH_GYM_TEST_SCRATCH_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "catch-gym-offline-"));
 process.env.CATCH_GYM_TEST_SCRATCH_DIR = scratchDir;
 const dbPath = path.join(scratchDir, "catch.db");
 const TEST_PASSWORD = "correct-horse-battery-staple";
@@ -43,7 +46,7 @@ const { passwordHash, fernetKey } = pythonSecrets();
 
 // Built once, synchronously, before webServer starts — Playwright's config loading is
 // synchronous, and webServer needs a real catch/api/static the moment uvicorn boots.
-execSync("npx tsc -b && npx vite build", { cwd: webDir, stdio: "inherit" });
+if (!inWorker) execSync("npx tsc -b && npx vite build", { cwd: webDir, stdio: "inherit" });
 
 export default defineConfig({
   testDir: "./tests/gym-offline",

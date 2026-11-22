@@ -5,7 +5,7 @@ import json
 from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import defer
 from sqlmodel import Session, select
@@ -238,6 +238,9 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
     from catch.sync.piece_intervals import has_concept2_intervals
 
     data["pieces"] = piece_sync.list_pieces_payload(db, canonical_id)
+    from catch.sync.activity_merge import merge_summary
+
+    data["merge"] = merge_summary(db, canonical)
     data["concept2_interval_activity_id"] = next((m.id for m in members if m.source == "concept2" and has_concept2_intervals(m)), None)
     if canonical.sport_family == "strength":
         from catch.sync import gym
@@ -358,10 +361,13 @@ class ActivityPairRequest(BaseModel):
 
 @router.post("/api/activities/merge")
 def merge_activities(body: ActivityPairRequest = Body(...), db: Session = Depends(get_db)):
+    from catch.sync.activity_merge import MergeError
     from catch.sync.matching import manual_merge
 
     try:
         canonical = manual_merge(db, body.activity_id_a, body.activity_id_b)
+    except MergeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -369,6 +375,49 @@ def merge_activities(body: ActivityPairRequest = Body(...), db: Session = Depend
 
     recompute_scores(db)
     return get_activity(canonical.id, db=db)
+
+
+class CombineRequest(BaseModel):
+    canonical_ids: list[int] = Field(..., min_length=2, max_length=10)
+
+
+class CombineConfirmRequest(CombineRequest):
+    preview_hash: str = Field(..., min_length=8, max_length=64)
+
+
+@router.post("/api/activities/combine/preview")
+def combine_preview(body: CombineRequest, db: Session = Depends(get_db)):
+    """Session 33: what merging these workouts into one would produce — computed by the real resolver, nothing is written."""
+    from catch.sync import activity_merge
+
+    try:
+        return activity_merge.preview(db, body.canonical_ids)
+    except activity_merge.MergeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/api/activities/combine")
+def combine_activities(body: CombineConfirmRequest, db: Session = Depends(get_db)):
+    """Merge the previewed workouts into one (the earliest is kept). Refused if any of them changed since the preview."""
+    from catch.sync import activity_merge
+
+    try:
+        canonical = activity_merge.combine(db, body.canonical_ids, body.preview_hash)
+    except activity_merge.MergeError as exc:
+        raise HTTPException(status_code=exc.status, detail={"message": str(exc), "reasons": exc.reasons} if exc.status == 422 else str(exc)) from exc
+    return get_activity(canonical.id, db=db)
+
+
+@router.post("/api/activities/{canonical_id}/uncombine")
+def uncombine_activity(canonical_id: int, db: Session = Depends(get_db)):
+    """Undo a merge: every merged-away workout comes back with its recordings, edits, pieces, plan link, notes and feedback."""
+    from catch.sync import activity_merge
+
+    try:
+        ids = activity_merge.uncombine(db, canonical_id)
+    except activity_merge.MergeError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    return {"canonical_ids": ids}
 
 
 class SplitActivityRequest(BaseModel):

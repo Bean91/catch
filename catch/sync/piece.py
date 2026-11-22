@@ -458,6 +458,7 @@ def power_member_and_samples(
     power_member: Optional[Activity],
     power_samples: Optional[dict],
     sport_family: Optional[str] = None,
+    offsets: Optional[dict] = None,
 ) -> tuple[Optional[Activity], Optional[dict]]:
     """Called from catch/sync/canonical.py's _resolve_zones. Overlays each aligned piece's
     own per-split watts onto its window — never a flat average over the whole window, and
@@ -477,6 +478,31 @@ def power_member_and_samples(
     ]
     if not pieces:
         return power_member, power_samples
+
+    if offsets is not None:
+        # Session 33: a combined workout — `power_samples` is already the one timeline across its recordings, and each piece's
+        # window (stored relative to its own recording) is shifted by that recording's offset.
+        arr = list(power_samples["power"]) if power_samples and power_samples.get("power") else []
+        for p in pieces:
+            if p.window_activity_id not in offsets:
+                continue
+            shift = offsets[p.window_activity_id]
+            cum = 0.0
+            for row in json.loads(p.splits_json) if p.splits_json else []:
+                split_s, watts = row.get("split_s"), row.get("watts")
+                if split_s is None:
+                    continue
+                if watts is not None:
+                    lo, hi = int(shift + p.window_start_s + cum), int(shift + p.window_start_s + cum + split_s)
+                    if len(arr) < hi:
+                        arr.extend([None] * (hi - len(arr)))
+                    for i in range(lo, hi):
+                        if arr[i] is None:
+                            arr[i] = watts
+                cum += split_s
+        out = dict(power_samples or {"hr": [], "cadence": []})
+        out["power"] = arr
+        return power_member, out
 
     if power_member is None:
         target_id = pieces[0].window_activity_id

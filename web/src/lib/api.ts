@@ -79,6 +79,9 @@ import {
   mockPieceTemplate,
   mockPiecePhotoEstimate,
   mockBikePieces,
+  mockMergePreview,
+  mockMerge,
+  mockUndoMerge,
   mockZonesView,
   mockPieceTestDetail,
   createMockPiece,
@@ -221,6 +224,7 @@ import type {
   SavedMealRow,
   Settings,
   ZonesSettingsView,
+  MergePreview,
   SeriesResponse,
   StrengthSetRow,
   StrengthTemplate,
@@ -434,6 +438,30 @@ export async function mergeActivities(activityIdA: number, activityIdB: number):
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ activity_id_a: activityIdA, activity_id_b: activityIdB }),
   });
+}
+
+/** Session 33: what merging these workouts would produce — nothing is written. */
+export async function previewMerge(canonicalIds: number[]): Promise<MergePreview> {
+  if (isMock) return delay(mockMergePreview(canonicalIds), 300);
+  return request<MergePreview>("/api/activities/combine/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ canonical_ids: canonicalIds }),
+  });
+}
+
+export async function combineWorkouts(canonicalIds: number[], previewHash: string): Promise<WorkoutDetail> {
+  if (isMock) return delay(mockMerge(canonicalIds), 400);
+  return request<WorkoutDetail>("/api/activities/combine", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ canonical_ids: canonicalIds, preview_hash: previewHash }),
+  });
+}
+
+export async function undoMerge(canonicalId: number): Promise<{ canonical_ids: number[] }> {
+  if (isMock) return delay(mockUndoMerge(canonicalId), 300);
+  return request<{ canonical_ids: number[] }>(`/api/activities/${canonicalId}/uncombine`, { method: "POST" });
 }
 
 export async function splitActivity(activityId: number): Promise<WorkoutDetail> {

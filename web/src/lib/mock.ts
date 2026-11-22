@@ -86,6 +86,7 @@ import type {
   ZoneRow,
   HrBasis,
   ZonesSettingsView,
+  MergePreview,
   Exercise,
   GymRow,
   GymStation,
@@ -489,6 +490,29 @@ function mockWorkout(i: number): WorkoutListItem {
 
 const MOCK_WORKOUTS: WorkoutListItem[] = Array.from({ length: MOCK_WORKOUT_COUNT }, (_, i) => mockWorkout(i));
 
+// Session 33: one erg session recorded in two parts (the watch stopped between them) — the merge flow's worked example. Ids 900/901,
+// appended (never inserted: other fixtures address MOCK_WORKOUTS by index) and dated the day before the oldest generated workout, so
+// the list stays in date order.
+const MOCK_PART_START = `${shiftDate((MOCK_WORKOUTS[MOCK_WORKOUTS.length - 1].start ?? TODAY).slice(0, 10), -1)}T06:00:00.000Z`;
+for (const [id, offsetMin, minutes, distance, hr, ext] of [
+  [900, 0, 30, 7000, 142, "part-1"],
+  [901, 40, 20, 5000, 163, "part-2"],
+] as const) {
+  const base = mockWorkout(1);
+  MOCK_WORKOUTS.push({
+    ...base,
+    id,
+    start: new Date(new Date(MOCK_PART_START).getTime() + offsetMin * 60_000).toISOString(),
+    duration: minutes * 60,
+    distance,
+    avg_hr: hr,
+    max_hr: hr + 10,
+    title: `Steady state ${minutes}'`,
+    strain: null,
+    sources: [{ ...base.sources[0], activity_id: 9000 + id, external_id: ext }],
+  });
+}
+
 // A Peloton-pushed Garmin ride that hasn't been merged with its watch counterpart yet, plus
 // the watch's own recording — the Duplicates review screen's worked example (task Part A.5).
 const PELOTON_PUSH = mockSource("garmin", "indoor_cycling", "peloton", "peloton", { has_fit: true });
@@ -559,6 +583,8 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
     has_track: base.category === "on_water" && Math.floor((id - 1) / 5) % 4 !== 3,
     strength_sets: base.category === "strength" ? mockStrengthSets(id) : undefined,
     muscular_by_muscle: base.category === "strength" ? MOCK_STRENGTH_MUSCULAR_BY_MUSCLE : null,
+    merge: mockMergeSummary(id),
+    merge_mode: MOCK_MERGED.has(id) ? "combined" : null,
   };
 }
 
@@ -654,6 +680,135 @@ export function splitMockActivity(activityId: number): WorkoutDetail {
   };
   MOCK_WORKOUTS.push(split);
   return mockWorkoutDetail(newCanonicalId);
+}
+
+// --- Session 33: merging workouts (mock) ------------------------------------------------------
+// Mirrors catch/analytics/activity_merge.py's reasons and the resolver's sums closely enough to drive the UI with no backend: same
+// sport and erg/on-water category, ≤ 6 h span, ≤ 2 h gaps, durations and distances added, average HR weighted by duration.
+
+const MOCK_MERGED: Map<number, WorkoutListItem[]> = new Map();
+
+function mockReasons(items: WorkoutListItem[]): string[] {
+  const reasons: string[] = [];
+  if (items.length < 2) reasons.push("Choose at least two workouts to merge.");
+  const families = new Set(items.map((w) => w.sport_family));
+  if (families.size > 1) reasons.push(`These are different sports (${[...families].sort().join(", ")}). Only workouts of the same sport can be merged — change a workout's type first if it was recorded as the wrong one.`);
+  if (families.has("strength")) reasons.push("Strength sessions can't be merged: their sets belong to one logged session.");
+  const cats = new Set(items.map((w) => w.category).filter((c) => c === "erg" || c === "on_water"));
+  if (cats.size > 1) reasons.push("An erg session and an on-water row can't be merged into one workout.");
+  const sorted = [...items].sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+  const t = (w: WorkoutListItem) => new Date(w.start ?? 0).getTime();
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (first && last && t(last) + (last.duration ?? 0) * 1000 - t(first) > 6 * 3600_000) reasons.push("These span more than 6 hours, which is longer than one session.");
+  for (let i = 1; i < sorted.length; i++) {
+    if (t(sorted[i]) - (t(sorted[i - 1]) + (sorted[i - 1].duration ?? 0) * 1000) > 2 * 3600_000) {
+      reasons.push("There's a gap of more than 2 hours between two of them — that's two sessions, not one.");
+      break;
+    }
+  }
+  return reasons;
+}
+
+export function mockMergePreview(ids: number[]): MergePreview {
+  const items = ids.map((id) => MOCK_WORKOUTS.find((w) => w.id === id)).filter((w): w is WorkoutListItem => !!w);
+  const sorted = [...items].sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+  const reasons = mockReasons(items);
+  const sum = (f: (w: WorkoutListItem) => number | null) => {
+    const v = sorted.map(f).filter((x): x is number => x != null);
+    return v.length ? v.reduce((a, b) => a + b, 0) : null;
+  };
+  const duration = sum((w) => w.duration);
+  const distance = sum((w) => w.distance);
+  const hrWeight = sorted.filter((w) => w.avg_hr != null && w.duration);
+  const avgHr = hrWeight.length ? hrWeight.reduce((a, w) => a + (w.avg_hr as number) * (w.duration as number), 0) / hrWeight.reduce((a, w) => a + (w.duration as number), 0) : null;
+  const row = sorted[0]?.sport_family === "rowing";
+  return {
+    compatible: reasons.length === 0,
+    reasons,
+    items: sorted.map((w) => ({
+      id: w.id,
+      title: w.title,
+      sport_family: w.sport_family,
+      category: w.category,
+      start: w.start,
+      local_date: (w.start ?? "").slice(0, 10),
+      local_tz: null,
+      duration: w.duration,
+      distance: w.distance,
+      avg_hr: w.avg_hr,
+      max_hr: w.avg_hr != null ? w.avg_hr + 15 : null,
+      avg_power: null,
+      avg_split_500m: row && w.duration && w.distance ? (w.duration / w.distance) * 500 : null,
+      calories: null,
+      strain_trimp: null,
+      sources: w.sources.map((s) => ({ source: s.source, external_id: s.external_id, activity_id: s.activity_id })),
+      has_samples: true,
+      test_type: null,
+      published: false,
+    })),
+    overlaps: [],
+    groups: sorted.map((w) => [w.id]),
+    keep_id: sorted[0]?.id ?? null,
+    preview_hash: `mock-${sorted.map((w) => w.id).join("-")}`,
+    separate_strain_trimp: 0,
+    result: reasons.length
+      ? null
+      : {
+          title: sorted[0].title,
+          sport_family: sorted[0].sport_family,
+          start: sorted[0].start,
+          local_date: (sorted[0].start ?? "").slice(0, 10),
+          local_tz: null,
+          duration,
+          distance,
+          distance_partial: sorted.some((w) => w.distance == null) && distance != null,
+          avg_hr: avgHr,
+          max_hr: avgHr != null ? Math.round(avgHr + 15) : null,
+          avg_power: null,
+          avg_split_500m: row && duration && distance ? (duration / distance) * 500 : null,
+          calories: null,
+          strain_trimp: null,
+          session_label: null,
+          zones: null,
+          parts: sorted.map((w) => ({ start: w.start, duration: w.duration, distance: w.distance, recordings: w.sources.length })),
+        },
+  };
+}
+
+export function mockMerge(ids: number[]): WorkoutDetail {
+  const preview = mockMergePreview(ids);
+  if (!preview.compatible || !preview.result) throw new Error(preview.reasons[0] ?? "Can't merge these.");
+  const keep = MOCK_WORKOUTS.find((w) => w.id === preview.keep_id)!;
+  const parts = preview.items.map((i) => MOCK_WORKOUTS.find((w) => w.id === i.id)!).map((w) => ({ ...w, sources: [...w.sources] }));
+  MOCK_MERGED.set(keep.id, parts);
+  keep.sources = parts.flatMap((w) => w.sources);
+  keep.duration = preview.result.duration;
+  keep.distance = preview.result.distance;
+  keep.avg_hr = preview.result.avg_hr != null ? Math.round(preview.result.avg_hr) : null;
+  for (const p of parts) {
+    if (p.id === keep.id) continue;
+    const idx = MOCK_WORKOUTS.findIndex((w) => w.id === p.id);
+    if (idx >= 0) MOCK_WORKOUTS.splice(idx, 1);
+  }
+  return mockWorkoutDetail(keep.id);
+}
+
+export function mockUndoMerge(id: number): { canonical_ids: number[] } {
+  const parts = MOCK_MERGED.get(id);
+  if (!parts) throw new Error("This workout wasn't merged from separate workouts, so there's nothing to undo.");
+  MOCK_MERGED.delete(id);
+  const keep = MOCK_WORKOUTS.find((w) => w.id === id)!;
+  const original = parts.find((p) => p.id === id)!;
+  Object.assign(keep, original);
+  for (const p of parts) if (p.id !== id) MOCK_WORKOUTS.push(p);
+  MOCK_WORKOUTS.sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""));
+  return { canonical_ids: parts.map((p) => p.id) };
+}
+
+export function mockMergeSummary(id: number): WorkoutDetail["merge"] {
+  const parts = MOCK_MERGED.get(id);
+  return parts ? { recordings: parts.reduce((a, p) => a + p.sources.length, 0), merged_workouts: parts.length, merged_at: new Date().toISOString(), can_undo: true } : null;
 }
 
 export function markMockNotDuplicate(activityIdA: number, activityIdB: number): void {
