@@ -4882,7 +4882,7 @@ wraps the routes inside `AppShell` (the page shows the error with Try again / Re
 
 Branch `session-34-withings-privacy-power`, merged to `main`. **No migration** (`EXPECTED_SCHEMA_REVISION` stays "0012"), so deploying is `fastapi deploy` only.
 Deployed to production 2026-11-22 (`b6c85a9`; `version.json` confirms; `scripts/smoke_public.py` 31 passed / 0 failed; a Withings sync on the new
-code succeeded). The Pi is updated with `./deploy.sh` (the owner's step: SSH to the Pi goes through a Cloudflare Access browser login).
+code succeeded). The Raspberry Pi was retired the same day (the owner wiped it): production is the only deployment, and `./deploy.sh` is not run.
 
 ## Decisions (the user chose the first three)
 

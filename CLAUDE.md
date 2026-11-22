@@ -2,8 +2,13 @@
 
 Self-hosted, single-user rowing training app. Garmin + Withings + Concept2 data, Whoop-style
 recovery/strain, an AI coach (bring-your-own Anthropic key or a local Ollama model) with a
-shared MCP server for Claude Desktop. Runs 24/7 on a Raspberry Pi 3 (1GB RAM, ARM) alongside
-PiAware.
+shared MCP server for Claude Desktop.
+
+**The Raspberry Pi is retired (2026-11-22; the owner wiped it).** The only live deployment is the public one
+(`https://catch.openoted.com`, FastAPI Cloud + Supabase). Never run `./deploy.sh`, SSH to the Pi, or plan, test or verify
+anything "on the Pi". Don't suggest registering Pi callbacks or Pi-only steps. The personal (`CATCH_DEPLOYMENT=personal`,
+SQLite) code path still exists and its tests still run, but the Pi memory/ARM limits below are history, not constraints on
+new work. Mentions of the Pi elsewhere in this file and in PLAN.md/docs are historical.
 
 ## Stack
 
@@ -807,8 +812,8 @@ Tests: `tests/test_withings_flow.py`, `tests/tenancy/test_withings_isolation.py`
   generated secrets, port 8731) via Playwright's `webServer`, needs `uv` on PATH but no running
   `.env`-backed instance of its own
 - `cd web && CATCH_NATIVE_ENV=development npm run native:sync` — build the native bundle for an environment and `cap sync`; then `npm run native:ios|native:android` (Xcode/Android Studio), `cd web/android && ./gradlew assembleDevDebug`, `npm run native:assets`, `npm run check:native-secrets` (docs/mobile/README.md; Android needs JDK 21)
-- `./deploy.sh` — build the frontend + rsync the backend to the Pi + restart + health-check
-  (needs `deploy/pi-bootstrap.sh` to have been run on the Pi at least once; see that file)
+- `./deploy.sh` — **retired with the Pi; do not run.** Production deploys are `uv run catch db upgrade` (when there is a
+  migration) then `fastapi deploy` — see `docs/fastapi-cloud-deployment.md`
 
 ## Conventions
 
@@ -824,7 +829,7 @@ Tests: `tests/test_withings_flow.py`, `tests/tenancy/test_withings_isolation.py`
 - No comments explaining *what* code does. Only *why*, for non-obvious Garmin/Withings field
   mappings or Pi-memory tradeoffs.
 
-## Pi 3 limits
+## Pi 3 limits (historical — the Pi is retired)
 
 - 1GB RAM shared with PiAware — keep per-request memory bounded, stream large responses.
 - ARM — avoid deps that need compiling heavy C extensions; prefer pure-Python or wheels with
