@@ -10,6 +10,7 @@ import { zoneColor, ZONE_NAMES } from "../../lib/zoneColors";
 import { IntervalEditor } from "./IntervalEditor";
 import { MassPower } from "./MassPower";
 import { PieceIntervalTable } from "./PieceIntervalTable";
+import { StackedBar } from "../charts/StackedBar";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
@@ -229,26 +230,11 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
           {piece.time_in_zone && Object.values(piece.time_in_zone).some((s) => s > 0) && (
             <div className="mt-3">
               <div className="text-xs text-text-tertiary">Time in zone</div>
-              <div className="mt-1 flex h-2 overflow-hidden rounded-full">
-                {ZONE_NAMES.map((zone) => {
-                  const seconds = piece.time_in_zone?.[zone] ?? 0;
-                  const total = Object.values(piece.time_in_zone ?? {}).reduce((a, b) => a + b, 0);
-                  if (!seconds || !total) return null;
-                  return <div key={zone} style={{ width: `${(seconds / total) * 100}%`, background: zoneColor(zone as ZoneName) }} title={`${zone}: ${formatDuration(seconds)}`} />;
-                })}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-tertiary">
-                {ZONE_NAMES.map((zone) => {
-                  const seconds = piece.time_in_zone?.[zone] ?? 0;
-                  if (!seconds) return null;
-                  return (
-                    <span key={zone} className="flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full" style={{ background: zoneColor(zone as ZoneName) }} aria-hidden />
-                      {zone} {formatDuration(seconds)}
-                    </span>
-                  );
-                })}
-              </div>
+              <StackedBar
+                className="mt-1"
+                legend
+                segments={ZONE_NAMES.map((zone) => ({ key: zone, label: zone, value: piece.time_in_zone?.[zone] ?? 0, color: zoneColor(zone as ZoneName), detail: formatDuration(piece.time_in_zone?.[zone] ?? 0) }))}
+              />
             </div>
           )}
 

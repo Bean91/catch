@@ -1,3 +1,4 @@
+import { PlanBar } from "../charts/PlanBar";
 import { Card } from "../ui/Card";
 import type { PlanWeekSummary, PlanPhase } from "../../lib/types";
 import { formatMinutes, phaseKindLabel, ZONES } from "./labels";
@@ -14,11 +15,7 @@ function Bar({ label, planned, completed, target, unit }: { label: string; plann
         </span>
       </div>
       {/* Neutral bars only — nothing is coloured as ahead/behind. The dashed marker is the target. */}
-      <div className="relative h-2 rounded-full bg-surface-2" role="img" aria-label={`${label}: ${fmt(completed)} completed, ${fmt(planned)} planned${target != null ? `, target ${fmt(target)}` : ""}`}>
-        <div className="absolute inset-y-0 left-0 rounded-full border border-accent/50 bg-accent/10" style={{ width: `${(planned / max) * 100}%` }} />
-        <div className="absolute inset-y-0 left-0 rounded-full bg-text-secondary/70" style={{ width: `${(completed / max) * 100}%` }} />
-        {target != null && <div className="absolute -inset-y-0.5 w-0 border-l-2 border-dashed border-text-tertiary" style={{ left: `${(target / max) * 100}%` }} />}
-      </div>
+      <PlanBar planned={planned} completed={completed} target={target} max={max} label={`${label}: ${fmt(completed)} completed, ${fmt(planned)} planned${target != null ? `, target ${fmt(target)}` : ""}`} />
     </div>
   );
 }

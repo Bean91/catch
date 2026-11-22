@@ -1,4 +1,5 @@
 import { todayISO, toISODate } from "../lib/dates";
+import { dateRangeText, padDateRange, quantizePoints } from "../lib/chartFetch";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -20,16 +21,7 @@ function sourceLabel(source: string | null | undefined): string {
   return SOURCE_LABELS[source] ?? source;
 }
 
-function quantizePoints(plotWidthPx: number): number {
-  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
-}
 
-function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
-  const span = domain.max - domain.min;
-  const min = Math.max(full.min, domain.min - span);
-  const max = Math.min(full.max, domain.max + span);
-  return { from: toISODate(new Date(min)), to: toISODate(new Date(max)) };
-}
 
 export function BodyPage() {
   const navigate = useNavigate();
@@ -124,7 +116,7 @@ export function BodyPage() {
   };
   const resetDomain = () => selectPreset(lastPreset);
 
-  const padded = padDomain(queryDomain, fullDomain);
+  const padded = padDateRange(queryDomain, fullDomain);
   const points = quantizePoints(600);
   const seriesQuery = useQuery({
     queryKey: ["series", "weight,w_per_kg", padded.from, padded.to, points],
@@ -217,6 +209,7 @@ export function BodyPage() {
                 onChange={setDomain}
                 onChangeSettled={onDomainSettled}
                 backdrop={navigatorBackdrop}
+                valueText={dateRangeText}
               />
             </div>
             <p className="mt-2 text-xs text-text-tertiary">

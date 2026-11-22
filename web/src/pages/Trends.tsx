@@ -1,4 +1,5 @@
 import { todayISO, toISODate } from "../lib/dates";
+import { dateRangeText, padDateRange, quantizePoints } from "../lib/chartFetch";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -43,20 +44,7 @@ const CHECKIN_METRIC_VALUES = new Set(CHECKIN_METRICS.map((m) => m.value));
 
 const DAY_MS = 86_400_000;
 
-function quantizePoints(plotWidthPx: number): number {
-  // 2x the chart's pixel width (task spec's default), rounded to a step so a few px of
-  // ResizeObserver jitter doesn't spawn a new TanStack Query cache entry every time.
-  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
-}
 
-function padDomain(domain: Domain, full: Domain): { from: string; to: string } {
-  // Fetches the visible range plus one screen of padding on each side (task spec's DATA #3)
-  // so a small pan has data to show immediately instead of a loading edge.
-  const span = domain.max - domain.min;
-  const min = Math.max(full.min, domain.min - span);
-  const max = Math.min(full.max, domain.max + span);
-  return { from: toISODate(new Date(min)), to: toISODate(new Date(max)) };
-}
 
 const TAPPABLE_WORKOUT_METRICS = new Set<TrendMetric>(["w_per_kg", "predicted_2k"]);
 
@@ -194,7 +182,7 @@ export function TrendsPage() {
 
   const resetDomain = useCallback(() => selectPreset(lastPreset), [selectPreset, lastPreset]);
 
-  const padded = padDomain(queryDomain, fullDomain);
+  const padded = padDateRange(queryDomain, fullDomain);
   const points = quantizePoints(plotWidthPx);
   const seriesQuery = useQuery({
     queryKey: ["series", metric, padded.from, padded.to, points],
@@ -259,6 +247,7 @@ export function TrendsPage() {
             onChange={setDomain}
             onChangeSettled={onDomainSettled}
             backdrop={navigatorBackdrop}
+            valueText={dateRangeText}
           />
         </div>
       </Card>

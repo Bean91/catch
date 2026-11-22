@@ -7,6 +7,7 @@ import type { SeriesPoint } from "../../lib/types";
 import { useReducedMotion } from "../../lib/useReducedMotion";
 import type { Domain } from "../../lib/useChartInteraction";
 import { useChartInteraction } from "../../lib/useChartInteraction";
+import { AreaGradient, ChartTooltip, YGrid, areaPath, linePath, lowerBound, nearestIndex, niceTicks, useSvgId } from "./core";
 
 const HEIGHT = 240;
 const PAD_X = 36;
@@ -17,20 +18,6 @@ const DAY_MS = 86_400_000;
 
 function dateToMs(date: string): number {
   return new Date(date + "T00:00:00").getTime();
-}
-
-function nearestPoint(points: SeriesPoint[], targetMs: number): SeriesPoint | null {
-  if (points.length === 0) return null;
-  let best = points[0];
-  let bestDist = Math.abs(dateToMs(best.date) - targetMs);
-  for (const p of points) {
-    const dist = Math.abs(dateToMs(p.date) - targetMs);
-    if (dist < bestDist) {
-      best = p;
-      bestDist = dist;
-    }
-  }
-  return best;
 }
 
 export function TrendLineChart({
@@ -69,6 +56,8 @@ export function TrendLineChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const [plotWidthPx, setPlotWidthPx] = useState(600);
   const hasAnimatedIn = useRef(false);
+  const gradId = useSvgId("trend-area");
+  const clipId = useSvgId("trend-clip");
 
   useEffect(() => {
     const el = containerRef.current;
@@ -81,6 +70,14 @@ export function TrendLineChart({
     return () => observer.disconnect();
   }, []);
 
+  // Dates parsed once per data change, not once per point per pan frame.
+  const msArr = useMemo(() => points.map((p) => dateToMs(p.date)), [points]);
+
+  const nearest = (targetMs: number): SeriesPoint | null => {
+    const i = nearestIndex(msArr, targetMs);
+    return i < 0 ? null : points[i];
+  };
+
   const { handlers, hoverX, setHoverX, isPanning } = useChartInteraction({
     domain,
     fullDomain,
@@ -92,7 +89,7 @@ export function TrendLineChart({
     onSettled: onDomainSettled,
     onTap: (domainX, clientX) => {
       if (!onPointTap) return;
-      const point = nearestPoint(points, domainX);
+      const point = nearest(domainX);
       if (!point) return;
       // Without a screen-distance check, tapping *anywhere* on the chart — including empty
       // space between two widely-spaced points — would still "find" and open the nearest one.
@@ -107,38 +104,63 @@ export function TrendLineChart({
   });
 
   const width = plotWidthPx + PAD_X * 2;
-  const visible = useMemo(() => points.filter((p) => dateToMs(p.date) >= domain.min && dateToMs(p.date) <= domain.max), [points, domain]);
-
-  const allValues = showBand
-    ? visible.flatMap((p) => [p.value_min, p.value_max])
-    : visible.map((p) => p.value);
-  const min = allValues.length ? Math.min(...allValues) : 0;
-  const max = allValues.length ? Math.max(...allValues) : 1;
-  const range = max - min || 1;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
 
-  const x = (ms: number) => PAD_X + ((ms - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
-  const y = (v: number) => PAD_TOP + plotHeight - ((v - min) / range) * plotHeight;
+  // The visible slice (binary search on the pre-parsed dates) sets the y-range; paths are built from it plus a margin of
+  // one point either side, so a line still runs off the edge of the plot instead of stopping short.
+  const lo = Math.max(lowerBound(msArr, domain.min) - 1, 0);
+  const hi = Math.min(lowerBound(msArr, domain.max + 1) + 1, points.length);
+  const geometry = useMemo(() => {
+    let vmin = Infinity;
+    let vmax = -Infinity;
+    for (let i = lo; i < hi; i++) {
+      const ms = msArr[i];
+      if (ms < domain.min || ms > domain.max) continue;
+      const p = points[i];
+      const a = showBand ? p.value_min : p.value;
+      const b = showBand ? p.value_max : p.value;
+      if (a < vmin) vmin = a;
+      if (b > vmax) vmax = b;
+    }
+    if (vmin === Infinity) {
+      vmin = 0;
+      vmax = 1;
+    }
+    const nice = niceTicks(vmin, vmax, plotHeight < 180 ? 3 : 4);
+    const range = nice.max - nice.min || 1;
+    const yOf = (v: number) => PAD_TOP + plotHeight - ((v - nice.min) / range) * plotHeight;
+    const span = Math.max(domain.max - domain.min, 1);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const yMax: number[] = [];
+    const yMin: number[] = [];
+    const ySec: (number | null)[] = [];
+    for (let i = lo; i < hi; i++) {
+      const p = points[i];
+      xs.push(PAD_X + ((msArr[i] - domain.min) / span) * plotWidthPx);
+      ys.push(yOf(p.value));
+      if (showBand) {
+        yMax.push(yOf(p.value_max));
+        yMin.push(yOf(p.value_min));
+      }
+      if (secondaryKey) ySec.push(p[secondaryKey] != null ? yOf(p[secondaryKey] as number) : null);
+    }
+    const base = PAD_TOP + plotHeight;
+    const line = xs.length ? linePath(xs, ys) : null;
+    const area = xs.length > 1 ? areaPath(xs, ys, base) : null;
+    let band: string | null = null;
+    if (showBand && xs.length > 1) {
+      band = linePath(xs, yMax, false);
+      for (let i = xs.length - 1; i >= 0; i--) band += `L${xs[i].toFixed(1)},${yMin[i].toFixed(1)}`;
+      band += "Z";
+    }
+    const secondary = secondaryKey && xs.length ? linePath(xs, ySec) : null;
+    return { ticks: nice.ticks, yOf, line, area, band, secondary };
+  }, [points, msArr, lo, hi, domain.min, domain.max, plotWidthPx, plotHeight, showBand, secondaryKey]);
 
-  const linePath = points.length
-    ? "M " + points.map((p) => `${x(dateToMs(p.date))},${y(p.value)}`).join(" L ")
-    : null;
-  const bandPath =
-    showBand && points.length > 1
-      ? `M ${points.map((p) => `${x(dateToMs(p.date))},${y(p.value_max)}`).join(" L ")} L ${points
-          .slice()
-          .reverse()
-          .map((p) => `${x(dateToMs(p.date))},${y(p.value_min)}`)
-          .join(" L ")} Z`
-      : null;
-  const secondaryPath =
-    secondaryKey && points.length
-      ? "M " +
-        points
-          .filter((p) => p[secondaryKey] != null)
-          .map((p) => `${x(dateToMs(p.date))},${y(p[secondaryKey] as number)}`)
-          .join(" L ")
-      : null;
+  const x = (ms: number) => PAD_X + ((ms - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
+  const y = geometry.yOf;
+  const linePath_ = geometry.line;
 
   const ticks = useMemo(() => buildDateTicks(domain, plotWidthPx), [domain, plotWidthPx]);
   const visibleAnnotations = annotations.filter((a) => {
@@ -146,7 +168,7 @@ export function TrendLineChart({
     return ms >= domain.min - DAY_MS && ms <= domain.max + DAY_MS;
   });
 
-  const hoverPoint = hoverX != null && !isPanning ? nearestPoint(points, hoverX) : null;
+  const hoverPoint = hoverX != null && !isPanning ? nearest(hoverX) : null;
 
   useEffect(() => {
     hasAnimatedIn.current = true;
@@ -164,13 +186,18 @@ export function TrendLineChart({
   }, [domain]);
 
   if (points.length === 0) {
-    return <div className="flex h-40 items-center justify-center text-sm text-text-tertiary">Not enough history yet.</div>;
+    return (
+      <div className="flex h-40 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border-strong/60 text-sm text-text-tertiary">
+        Not enough history yet.
+      </div>
+    );
   }
 
   const describeDomain = (d: Domain) =>
     `Showing ${formatShortDate(toISODate(new Date(d.min)))} to ${formatShortDate(toISODate(new Date(d.max)))}`;
   const rangeLabel = describeDomain(domain);
   const announcedRangeLabel = describeDomain(announcedDomain);
+  const hoverXPx = hoverPoint ? x(dateToMs(hoverPoint.date)) : 0;
 
   return (
     <div ref={containerRef} className="relative">
@@ -197,104 +224,96 @@ export function TrendLineChart({
         onDoubleClick={handlers.onDoubleClick}
       >
       <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
+        <defs>
+          <AreaGradient id={gradId} color={color} from={0.3} />
+          <clipPath id={clipId}>
+            <rect x={PAD_X} y={0} width={plotWidthPx} height={HEIGHT} />
+          </clipPath>
+        </defs>
+
+        <YGrid ticks={geometry.ticks} y={y} x0={PAD_X} x1={PAD_X + plotWidthPx} format={formatValue} labelX={2} />
         {ticks.map((t, i) => (
-          <g key={i}>
-            <line x1={x(t.ms)} x2={x(t.ms)} y1={PAD_TOP} y2={PAD_TOP + plotHeight} stroke="var(--border)" strokeWidth={1} opacity={0.5} />
-            <text x={x(t.ms)} y={HEIGHT - 8} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
-              {t.label}
-            </text>
-          </g>
-        ))}
-        {[min, (min + max) / 2, max].map((v, i) => (
-          <g key={i}>
-            <text x={2} y={y(v) - 3} fontSize={10} fill="var(--text-tertiary)" className="font-mono-nums">
-              {formatValue(v)}
-            </text>
-          </g>
+          <text key={i} x={x(t.ms)} y={HEIGHT - 8} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
+            {t.label}
+          </text>
         ))}
 
-        {visibleAnnotations.map((a, i) => (
-          <g key={i}>
-            {a.taperStart && (
-              <rect
-                x={x(dateToMs(a.taperStart))}
-                width={Math.max(x(dateToMs(a.date)) - x(dateToMs(a.taperStart)), 0)}
-                y={PAD_TOP}
-                height={plotHeight}
-                fill="var(--accent)"
-                opacity={0.06}
+        <g clipPath={`url(#${clipId})`}>
+          {visibleAnnotations.map((a, i) => (
+            <g key={i}>
+              {a.taperStart && (
+                <rect
+                  x={x(dateToMs(a.taperStart))}
+                  width={Math.max(x(dateToMs(a.date)) - x(dateToMs(a.taperStart)), 0)}
+                  y={PAD_TOP}
+                  height={plotHeight}
+                  fill="var(--accent)"
+                  opacity={0.07}
+                />
+              )}
+              <line
+                x1={x(dateToMs(a.date))}
+                x2={x(dateToMs(a.date))}
+                y1={PAD_TOP}
+                y2={PAD_TOP + plotHeight}
+                // DESIGN.md reserves --band-red/yellow/green for recovery/strain status only —
+                // an A-race marker is emphasis, not a status color, so it uses the accent instead.
+                stroke={a.emphasized ? "var(--accent)" : "var(--text-tertiary)"}
+                strokeWidth={a.emphasized ? 2 : 1}
+                strokeDasharray={a.emphasized ? undefined : "3 3"}
+                opacity={0.8}
               />
-            )}
-            <line
-              x1={x(dateToMs(a.date))}
-              x2={x(dateToMs(a.date))}
-              y1={PAD_TOP}
-              y2={PAD_TOP + plotHeight}
-              // DESIGN.md reserves --band-red/yellow/green for recovery/strain status only —
-              // an A-race marker is emphasis, not a status color, so it uses the accent instead.
-              stroke={a.emphasized ? "var(--accent)" : "var(--text-tertiary)"}
-              strokeWidth={a.emphasized ? 2 : 1}
-              strokeDasharray={a.emphasized ? undefined : "3 3"}
-              opacity={0.8}
-            />
-            <title>{`${a.label} — ${formatShortDate(a.date)}`}</title>
-          </g>
-        ))}
-
-        {bandPath && <path d={bandPath} fill={color} opacity={0.08} />}
-        {secondaryPath && (
-          <path d={secondaryPath} fill="none" stroke="var(--text-secondary)" strokeWidth={2} strokeDasharray="4 4" strokeLinecap="round" />
-        )}
-        {linePath &&
-          (reduced || hasAnimatedIn.current ? (
-            // A plain <path> once the one-time draw-in has played — re-rendering a
-            // motion.path on every pan/zoom frame (hundreds of times during a drag) carries
-            // real Framer Motion overhead for an animation that's already a no-op by then;
-            // measured as dropped frames in a CPU-throttled pan test before this split.
-            <path data-testid="chart-line" d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          ) : (
-            <motion.path
-              data-testid="chart-line"
-              d={linePath}
-              fill="none"
-              stroke={color}
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-            />
+              <title>{`${a.label} — ${formatShortDate(a.date)}`}</title>
+            </g>
           ))}
+
+          {geometry.area && <path d={geometry.area} fill={`url(#${gradId})`} />}
+          {geometry.band && <path d={geometry.band} fill={color} opacity={0.1} />}
+          {geometry.secondary && (
+            <path d={geometry.secondary} fill="none" stroke="var(--text-secondary)" strokeWidth={1.5} strokeDasharray="4 4" strokeLinecap="round" opacity={0.8} />
+          )}
+          {linePath_ &&
+            (reduced || hasAnimatedIn.current ? (
+              // A plain <path> once the one-time draw-in has played — re-rendering a
+              // motion.path on every pan/zoom frame (hundreds of times during a drag) carries
+              // real Framer Motion overhead for an animation that's already a no-op by then;
+              // measured as dropped frames in a CPU-throttled pan test before this split.
+              <path data-testid="chart-line" d={linePath_} fill="none" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+              <motion.path
+                data-testid="chart-line"
+                d={linePath_}
+                fill="none"
+                stroke={color}
+                strokeWidth={2.25}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              />
+            ))}
+        </g>
 
         {hoverPoint && (
           <g>
-            <line
-              x1={x(dateToMs(hoverPoint.date))}
-              x2={x(dateToMs(hoverPoint.date))}
-              y1={PAD_TOP}
-              y2={PAD_TOP + plotHeight}
-              stroke="var(--text-secondary)"
-              strokeWidth={1}
-            />
-            <circle cx={x(dateToMs(hoverPoint.date))} cy={y(hoverPoint.value)} r={4} fill={color} />
+            <line x1={hoverXPx} x2={hoverXPx} y1={PAD_TOP} y2={PAD_TOP + plotHeight} stroke="var(--text-tertiary)" strokeWidth={1} strokeDasharray="3 3" />
+            <circle cx={hoverXPx} cy={y(hoverPoint.value)} r={5} fill={color} stroke="var(--surface)" strokeWidth={2} />
           </g>
         )}
       </svg>
       </div>
 
       {hoverPoint && (
-        <div
-          data-testid="chart-tooltip"
-          className="pointer-events-none absolute top-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm"
-          style={{ left: `clamp(4px, ${(x(dateToMs(hoverPoint.date)) / width) * 100}%, calc(100% - 100px))` }}
-        >
-          <div className="text-text-tertiary">{formatShortDate(hoverPoint.date)}</div>
-          <div className="font-mono-nums text-text-primary">{formatValue(hoverPoint.value)}</div>
-          {secondaryKey && hoverPoint[secondaryKey] != null && (
-            <div className="font-mono-nums text-text-secondary">smoothed {formatValue(hoverPoint[secondaryKey] as number)}</div>
-          )}
-        </div>
+        <ChartTooltip
+          testId="chart-tooltip"
+          xPct={(hoverXPx / width) * 100}
+          title={formatShortDate(hoverPoint.date)}
+          rows={[
+            { label: "Value", value: formatValue(hoverPoint.value), color },
+            ...(secondaryKey && hoverPoint[secondaryKey] != null ? [{ label: "Smoothed", value: formatValue(hoverPoint[secondaryKey] as number) }] : []),
+          ]}
+        />
       )}
 
       <p className="sr-only" aria-live="polite">

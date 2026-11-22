@@ -1,4 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { padDomain, quantizePoints } from "../lib/chartFetch";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
@@ -24,14 +25,7 @@ import { ErrorState } from "../components/ui/EmptyState";
 import { addDays } from "../lib/dates";
 import { formatInstantTime } from "../lib/localTime";
 
-function quantizePoints(plotWidthPx: number): number {
-  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
-}
 
-function padDomain(domain: Domain, full: Domain): { min: number; max: number } {
-  const span = domain.max - domain.min;
-  return { min: Math.max(full.min, domain.min - span), max: Math.min(full.max, domain.max + span) };
-}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -106,7 +100,11 @@ export function WorkoutDetailPage() {
     queryFn: () => fetchActivitySamples(canonicalId, { points: 800 }),
     enabled: !!workout && workout.has_samples,
   });
-  const hrFullDomain: Domain | null = samples?.has_data ? { min: 0, max: Math.max(samples.n_samples, 1) } : null;
+  // The chart's x is elapsed seconds; n_samples equals that for 1 Hz recordings, and the last point's elapsed time covers any that
+  // aren't, so the full range never cuts a recording short.
+  const hrFullDomain: Domain | null = samples?.has_data
+    ? { min: 0, max: Math.max(samples.n_samples, samples.points[samples.points.length - 1]?.elapsed_s ?? 0, 1) }
+    : null;
   const [hrDomain, setHrDomain] = useState<Domain | null>(null);
   const [hrQueryDomain, setHrQueryDomain] = useState<Domain | null>(null);
   const effectiveHrDomain = hrDomain ?? hrFullDomain ?? { min: 0, max: 1 };

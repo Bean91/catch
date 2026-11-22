@@ -1,11 +1,12 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { PlanBar } from "../components/charts/PlanBar";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { PhaseSheet } from "../components/calendar/PhaseSheet";
 import { formatMinutes, phaseKindLabel } from "../components/calendar/labels";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
-import { CardSkeleton } from "../components/ui/Skeleton";
+import { CardSkeleton, Skeleton } from "../components/ui/Skeleton";
 import { fetchPhases, fetchPlanWeekSummary } from "../lib/api";
 import { addDays, todayISO, weekRangeLabel, weekStart } from "../lib/dates";
 import { formatShortDate } from "../lib/format";
@@ -86,17 +87,15 @@ export function PlanPage() {
                     {weekRangeLabel(w)}
                     {w === weekStart(today) ? " · this week" : ""}
                   </span>
-                  <span className="font-mono-nums text-text-secondary">{s ? `${formatMinutes(s.completed.minutes)} / ${formatMinutes(s.planned.minutes)}` : "…"}</span>
+                  <span className="font-mono-nums text-text-secondary">{s ? `${formatMinutes(s.completed.minutes)} / ${formatMinutes(s.planned.minutes)}` : summaries[i].isError ? "—" : ""}</span>
                 </div>
-                <div className="relative h-2 rounded-full bg-surface-2" role="img" aria-label={s ? `${formatMinutes(s.completed.minutes)} completed of ${formatMinutes(s.planned.minutes)} planned` : "loading"}>
-                  {s && (
-                    <>
-                      <div className="absolute inset-y-0 left-0 rounded-full border border-accent/50 bg-accent/10" style={{ width: `${(s.planned.minutes / maxMin) * 100}%` }} />
-                      <div className="absolute inset-y-0 left-0 rounded-full bg-text-secondary/70" style={{ width: `${(s.completed.minutes / maxMin) * 100}%` }} />
-                      {s.targets.minutes != null && <div className="absolute -inset-y-0.5 border-l-2 border-dashed border-text-tertiary" style={{ left: `${(s.targets.minutes / maxMin) * 100}%` }} />}
-                    </>
-                  )}
-                </div>
+                {s ? (
+                  <PlanBar planned={s.planned.minutes} completed={s.completed.minutes} target={s.targets.minutes} max={maxMin} label={`${formatMinutes(s.completed.minutes)} completed of ${formatMinutes(s.planned.minutes)} planned`} />
+                ) : summaries[i].isError ? (
+                  <p className="text-xs text-text-tertiary">Couldn't load this week.</p>
+                ) : (
+                  <Skeleton className="h-2 w-full" />
+                )}
                 {s && (
                   <p className="text-xs text-text-tertiary">
                     {s.completed.sessions} of {s.planned.sessions} sessions · strength {s.completed.strength_sessions} of {s.planned.strength_sessions}

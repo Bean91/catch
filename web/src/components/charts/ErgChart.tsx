@@ -1,54 +1,35 @@
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zoneForBpm } from "../../lib/zoneColors";
 import { formatDistance, formatSplit } from "../../lib/format";
+import { METRIC_COLOR } from "../../lib/metricColors";
 import type { Stroke, ZoneName } from "../../lib/types";
 import type { Domain } from "../../lib/useChartInteraction";
 import { useChartInteraction } from "../../lib/useChartInteraction";
 import { useReducedMotion } from "../../lib/useReducedMotion";
 import { zoneColor } from "../../lib/zoneColors";
 import { EmptyState } from "../ui/EmptyState";
+import { ChartTooltip, Legend, extent, linePath as buildLine, lowerBound, nearestIndex, niceTicks, secondsTicks, useSvgId } from "./core";
 
+// Session 35: split, power and stroke rate are three small panels sharing one distance axis (they used to be three lines on three
+// unlabelled scales over one plot). Each panel has its own labelled y-axis; one crosshair runs through all three.
 const WIDTH = 640;
-const HEIGHT = 260;
-const PAD_X = 12;
-const PAD_TOP = 12;
-const BAND_HEIGHT = 14;
-const PAD_BOTTOM = BAND_HEIGHT + 8;
-const PLOT_HEIGHT = HEIGHT - PAD_TOP - PAD_BOTTOM;
+const PAD_LEFT = 44;
+const PAD_RIGHT = 12;
+const PANEL_H = 64;
+const PANEL_GAP = 30;
+const TOP = 20;
+const BAND_HEIGHT = 12;
+const HEIGHT = TOP + 3 * PANEL_H + 2 * PANEL_GAP + 14 + BAND_HEIGHT + 20;
+const BAND_Y = TOP + 3 * PANEL_H + 2 * PANEL_GAP + 14;
 const MIN_SPAN_M = 50;
 
-function scaleY(values: number[]): (v: number) => number {
-  if (values.length === 0) return () => PAD_TOP + PLOT_HEIGHT;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  return (v: number) => PAD_TOP + PLOT_HEIGHT - ((v - min) / range) * PLOT_HEIGHT;
-}
-
-// split/500m and pace read better "lower = faster", so this line is flipped: faster splits
-// sit higher on the chart, same visual direction as watts/rate (higher = harder).
-function invertedScaleY(values: number[]): (v: number) => number {
-  if (values.length === 0) return () => PAD_TOP + PLOT_HEIGHT;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  return (v: number) => PAD_TOP + ((v - min) / range) * PLOT_HEIGHT;
-}
-
-function nearestStroke(strokes: Stroke[], distance: number): Stroke | null {
-  if (strokes.length === 0) return null;
-  let best = strokes[0];
-  let bestDist = Math.abs((best.distance_cum ?? 0) - distance);
-  for (const s of strokes) {
-    const d = Math.abs((s.distance_cum ?? 0) - distance);
-    if (d < bestDist) {
-      best = s;
-      bestDist = d;
-    }
-  }
-  return best;
-}
+type PanelKey = "pace_500m" | "watts" | "stroke_rate";
+const PANELS: { key: PanelKey; label: string; unit: string; color: string; inverted?: boolean }[] = [
+  { key: "pace_500m", label: "Split", unit: "/500m", color: METRIC_COLOR.pace, inverted: true },
+  { key: "watts", label: "Power", unit: "W", color: METRIC_COLOR.power },
+  { key: "stroke_rate", label: "Rate", unit: "spm", color: METRIC_COLOR.rate },
+];
 
 export function ErgChart({
   strokes,
@@ -74,15 +55,16 @@ export function ErgChart({
 }) {
   const reduced = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [plotWidthPx, setPlotWidthPx] = useState(WIDTH - PAD_X * 2);
+  const [plotWidthPx, setPlotWidthPx] = useState(WIDTH - PAD_LEFT - PAD_RIGHT);
   const hasAnimatedIn = useRef(false);
+  const clipId = useSvgId("erg-clip");
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
-      if (w) setPlotWidthPx(Math.max(w - PAD_X * 2, 50));
+      if (w) setPlotWidthPx(Math.max(w - PAD_LEFT - PAD_RIGHT, 50));
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -98,60 +80,76 @@ export function ErgChart({
     minSpan: MIN_SPAN_M,
     plotWidthPx,
     surfaceRef: containerRef,
-    padLeft: PAD_X,
+    padLeft: PAD_LEFT,
     onViewChange: onDomainChange,
     onSettled: onDomainSettled,
     onDoubleTap: onResetDomain,
   });
 
-  const withDistance = strokes.filter((s) => s.distance_cum != null).sort((a, b) => (a.distance_cum ?? 0) - (b.distance_cum ?? 0));
+  // Sorted once per data change (it used to filter and sort every stroke on every render).
+  const withDistance = useMemo(
+    () => strokes.filter((s) => s.distance_cum != null).sort((a, b) => (a.distance_cum ?? 0) - (b.distance_cum ?? 0)),
+    [strokes],
+  );
+  const dists = useMemo(() => withDistance.map((s) => s.distance_cum as number), [withDistance]);
+
+  const bandSegments = useMemo(() => {
+    const out: { zone: ZoneName | null; x0: number; x1: number; interval: number }[] = [];
+    let prevZone: ZoneName | null = null;
+    let segStart = 0;
+    withDistance.forEach((s, i) => {
+      const zone = zoneForBpm(s.hr, hrBoundsBpm);
+      const d = s.distance_cum as number;
+      if (zone !== prevZone) {
+        if (prevZone != null) out.push({ zone: prevZone, x0: segStart, x1: d, interval: s.interval_index ?? 0 });
+        segStart = d;
+        prevZone = zone;
+      }
+      if (i === withDistance.length - 1 && prevZone != null) out.push({ zone: prevZone, x0: segStart, x1: d, interval: s.interval_index ?? 0 });
+    });
+    return out;
+  }, [withDistance, hrBoundsBpm]);
+
+  const lo = Math.max(lowerBound(dists, domain.min) - 1, 0);
+  const hi = Math.min(lowerBound(dists, domain.max + 1e-6) + 1, withDistance.length);
+
+  const panels = useMemo(() => {
+    const span = Math.max(domain.max - domain.min, 1);
+    const xs: number[] = [];
+    for (let i = lo; i < hi; i++) xs.push(PAD_LEFT + ((dists[i] - domain.min) / span) * plotWidthPx);
+    return PANELS.map((panel, pi) => {
+      const vals: (number | null)[] = [];
+      for (let i = lo; i < hi; i++) vals.push(withDistance[i][panel.key] ?? null);
+      const inView = vals.filter((v, k): v is number => v != null && dists[lo + k] >= domain.min && dists[lo + k] <= domain.max);
+      const [vmin, vmax] = extent(inView);
+      const t = panel.key === "pace_500m" ? secondsTicks(vmin, vmax, 2) : niceTicks(vmin, vmax, 2);
+      const top = TOP + pi * (PANEL_H + PANEL_GAP);
+      const range = t.max - t.min || 1;
+      const y = (v: number) => (panel.inverted ? top + ((v - t.min) / range) * PANEL_H : top + PANEL_H - ((v - t.min) / range) * PANEL_H);
+      const ys = vals.map((v) => (v == null ? null : y(v)));
+      return { ...panel, top, y, ticks: t.ticks, path: inView.length ? buildLine(xs, ys, false) : null, hasData: inView.length > 0 };
+    });
+  }, [withDistance, dists, lo, hi, domain.min, domain.max, plotWidthPx]);
 
   if (withDistance.length < 2) {
     return <EmptyState message="Not enough per-stroke data to chart (Garmin-only erg sessions have no stroke-level data)." />;
   }
 
-  const width = plotWidthPx + PAD_X * 2;
-  const x = (d: number) => PAD_X + ((d - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
-
-  const visible = withDistance.filter((s) => (s.distance_cum ?? 0) >= domain.min && (s.distance_cum ?? 0) <= domain.max);
-  const splitValues = visible.map((s) => s.pace_500m).filter((v): v is number => v != null);
-  const wattsValues = visible.map((s) => s.watts).filter((v): v is number => v != null);
-  const rateValues = visible.map((s) => s.stroke_rate).filter((v): v is number => v != null);
-  const ySplit = invertedScaleY(splitValues);
-  const yWatts = scaleY(wattsValues);
-  const yRate = scaleY(rateValues);
-
-  const bandSegments: { zone: ZoneName | null; x0: number; x1: number; interval: number }[] = [];
-  let prevZone: ZoneName | null = null;
-  let segStart = 0;
-  withDistance.forEach((s, i) => {
-    const zone = zoneForBpm(s.hr, hrBoundsBpm);
-    const d = s.distance_cum as number;
-    if (zone !== prevZone) {
-      if (prevZone != null) bandSegments.push({ zone: prevZone, x0: segStart, x1: d, interval: s.interval_index ?? 0 });
-      segStart = d;
-      prevZone = zone;
-    }
-    if (i === withDistance.length - 1 && prevZone != null) bandSegments.push({ zone: prevZone, x0: segStart, x1: d, interval: s.interval_index ?? 0 });
-  });
-
-  const lines: { key: "pace_500m" | "watts"; color: string; y: (v: number) => number; label: string; dashed?: boolean }[] = [
-    { key: "pace_500m", color: "var(--accent)", y: ySplit, label: "Split" },
-    { key: "watts", color: "var(--text-secondary)", y: yWatts, label: "Watts", dashed: true },
-  ];
-  const rateDots = visible.filter((s) => s.stroke_rate != null);
-
-  const linePath = (key: "pace_500m" | "watts", y: (v: number) => number) => {
-    const defined = visible.filter((s) => s[key] != null);
-    return defined.map((s) => `${x(s.distance_cum as number)},${y(s[key] as number)}`).join(" L ");
-  };
-
-  const hovered = hoverX != null ? nearestStroke(visible, hoverX) : null;
+  const width = plotWidthPx + PAD_LEFT + PAD_RIGHT;
+  const x = (d: number) => PAD_LEFT + ((d - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
+  const hovered = hoverX != null ? withDistance[nearestIndex(dists, hoverX)] ?? null : null;
   const intervalBounds = (idx: number): { min: number; max: number } => {
-    const inInterval = withDistance.filter((s) => (s.interval_index ?? 0) === idx);
-    const ds = inInterval.map((s) => s.distance_cum as number);
-    return { min: Math.min(...ds), max: Math.max(...ds) };
+    let min = Infinity;
+    let max = -Infinity;
+    for (const s of withDistance) {
+      if ((s.interval_index ?? 0) !== idx) continue;
+      const d = s.distance_cum as number;
+      if (d < min) min = d;
+      if (d > max) max = d;
+    }
+    return { min, max };
   };
+  const fmtTick = (key: PanelKey, v: number) => (key === "pace_500m" ? formatSplit(v) : `${Math.round(v)}`);
 
   return (
     <div ref={containerRef} className="relative">
@@ -176,96 +174,106 @@ export function ErgChart({
         onDoubleClick={handlers.onDoubleClick}
       >
       <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="block">
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={PAD_LEFT} y={0} width={plotWidthPx} height={HEIGHT} />
+          </clipPath>
+        </defs>
         {hoveredInterval != null &&
           (() => {
             const { min, max } = intervalBounds(hoveredInterval);
-            return <rect x={x(min)} width={Math.max(x(max) - x(min), 1)} y={PAD_TOP} height={PLOT_HEIGHT} fill="var(--accent)" opacity={0.08} />;
+            if (!Number.isFinite(min)) return null;
+            return <rect x={x(min)} width={Math.max(x(max) - x(min), 1)} y={TOP - 8} height={BAND_Y + BAND_HEIGHT - TOP + 8} fill="var(--accent)" opacity={0.08} />;
           })()}
 
-        {rateDots.map((s, i) => (
-          <circle key={i} cx={x(s.distance_cum as number)} cy={yRate(s.stroke_rate as number)} r={1.6} fill="var(--text-tertiary)" opacity={0.6} />
+        {panels.map((p) => (
+          <g key={p.key}>
+            <text x={PAD_LEFT} y={p.top - 8} fontSize={10} fontWeight={600} fill="var(--text-secondary)">
+              {p.label} <tspan fill="var(--text-tertiary)" fontWeight={400}>{p.unit}{p.inverted ? " · faster is higher" : ""}</tspan>
+            </text>
+            {p.ticks.map((t, i) => (
+              <g key={i}>
+                <line x1={PAD_LEFT} x2={PAD_LEFT + plotWidthPx} y1={p.y(t)} y2={p.y(t)} stroke="var(--border)" strokeDasharray="2 4" opacity={0.8} />
+                <text x={PAD_LEFT - 6} y={p.y(t) + 3} fontSize={10} fill="var(--text-tertiary)" textAnchor="end" className="font-mono-nums">
+                  {fmtTick(p.key, t)}
+                </text>
+              </g>
+            ))}
+            <g clipPath={`url(#${clipId})`}>
+              {p.path &&
+                (reduced || hasAnimatedIn.current ? (
+                  // Plain <path> once the one-time draw-in has played — see TrendLineChart's
+                  // identical split for why a motion.path re-rendered on every pan/zoom frame
+                  // is real, measured dropped-frame cost for an animation that's already done.
+                  <path d={p.path} fill="none" stroke={p.color} strokeWidth={p.key === "pace_500m" ? 2 : 1.6} strokeLinecap="round" strokeLinejoin="round" />
+                ) : (
+                  <motion.path
+                    d={p.path}
+                    fill="none"
+                    stroke={p.color}
+                    strokeWidth={p.key === "pace_500m" ? 2 : 1.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                  />
+                ))}
+              {hovered && hovered[p.key] != null && (
+                <circle cx={x(hovered.distance_cum as number)} cy={p.y(hovered[p.key] as number)} r={3.5} fill={p.color} stroke="var(--surface)" strokeWidth={1.5} />
+              )}
+            </g>
+          </g>
         ))}
-        {lines.map((line) =>
-          reduced || hasAnimatedIn.current ? (
-            // Plain <path> once the one-time draw-in has played — see TrendLineChart's
-            // identical split for why a motion.path re-rendered on every pan/zoom frame
-            // (hundreds of times during a drag) is real, measured dropped-frame cost for an
-            // animation that's already a no-op by then.
-            <path
-              key={line.key}
-              d={`M ${linePath(line.key, line.y)}`}
-              fill="none"
-              stroke={line.color}
-              strokeWidth={line.key === "pace_500m" ? 2.5 : 1.5}
-              strokeDasharray={line.dashed ? "3 3" : undefined}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          ) : (
-            <motion.path
-              key={line.key}
-              d={`M ${linePath(line.key, line.y)}`}
-              fill="none"
-              stroke={line.color}
-              strokeWidth={line.key === "pace_500m" ? 2.5 : 1.5}
-              strokeDasharray={line.dashed ? "3 3" : undefined}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-            />
-          ),
-        )}
+
+        <text x={PAD_LEFT} y={BAND_Y - 4} fontSize={10} fill="var(--text-tertiary)">
+          HR zone
+        </text>
         {bandSegments.map((seg, i) =>
           seg.zone ? (
             <rect
               key={i}
               x={x(seg.x0)}
               width={Math.max(x(seg.x1) - x(seg.x0), 1)}
-              y={HEIGHT - BAND_HEIGHT}
+              y={BAND_Y}
               height={BAND_HEIGHT}
+              rx={2}
               fill={zoneColor(seg.zone)}
+              clipPath={`url(#${clipId})`}
               onPointerEnter={() => onHoverInterval?.(seg.interval)}
               style={{ cursor: "pointer" }}
             />
           ) : null,
         )}
 
+        {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
+          <text key={i} x={PAD_LEFT + f * plotWidthPx} y={HEIGHT - 4} fontSize={10} fill="var(--text-tertiary)" textAnchor={i === 0 ? "start" : i === 4 ? "end" : "middle"} className="font-mono-nums">
+            {formatDistance(domain.min + f * (domain.max - domain.min))}
+          </text>
+        ))}
+
         {hovered && (
-          <line
-            x1={x(hovered.distance_cum as number)}
-            x2={x(hovered.distance_cum as number)}
-            y1={PAD_TOP}
-            y2={PAD_TOP + PLOT_HEIGHT}
-            stroke="var(--text-secondary)"
-            strokeWidth={1}
-          />
+          <line x1={x(hovered.distance_cum as number)} x2={x(hovered.distance_cum as number)} y1={TOP - 4} y2={BAND_Y + BAND_HEIGHT} stroke="var(--text-tertiary)" strokeWidth={1} strokeDasharray="3 3" />
         )}
       </svg>
       </div>
 
       {hovered && (
-        <div className="pointer-events-none absolute top-1 left-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm">
-          <div className="text-text-tertiary">{formatDistance(hovered.distance_cum)}</div>
-          {hovered.pace_500m != null && <div className="font-mono-nums text-text-primary">{formatSplit(hovered.pace_500m)}/500m</div>}
-          {hovered.watts != null && <div className="font-mono-nums text-text-secondary">{hovered.watts.toFixed(0)}w</div>}
-          {hovered.stroke_rate != null && <div className="font-mono-nums text-text-tertiary">{hovered.stroke_rate.toFixed(0)}spm</div>}
-        </div>
+        <ChartTooltip
+          xPct={(x(hovered.distance_cum as number) / width) * 100}
+          title={formatDistance(hovered.distance_cum)}
+          rows={[
+            ...(hovered.pace_500m != null ? [{ label: "Split", value: `${formatSplit(hovered.pace_500m)}/500m`, color: METRIC_COLOR.pace }] : []),
+            ...(hovered.watts != null ? [{ label: "Power", value: `${hovered.watts.toFixed(0)} W`, color: METRIC_COLOR.power }] : []),
+            ...(hovered.stroke_rate != null ? [{ label: "Rate", value: `${hovered.stroke_rate.toFixed(0)} spm`, color: METRIC_COLOR.rate }] : []),
+            ...(hovered.hr != null ? [{ label: "HR", value: `${hovered.hr} bpm`, color: METRIC_COLOR.hr }] : []),
+          ]}
+        />
       )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
-        {lines.map((line) => (
-          <span key={line.key} className="inline-flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded-full" style={{ background: line.color }} />
-            {line.label}
-          </span>
-        ))}
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--text-tertiary)" }} />
-          Rate (spm)
-        </span>
-        <span className="ml-auto">band beneath = HR zone</span>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <Legend items={PANELS.map((p) => ({ label: p.label, color: p.color }))} />
+        <span className="text-xs text-text-tertiary">Strip beneath = heart-rate zone</span>
       </div>
     </div>
   );

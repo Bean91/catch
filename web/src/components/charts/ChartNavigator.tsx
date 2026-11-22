@@ -16,6 +16,7 @@ export function ChartNavigator({
   onChange,
   onChangeSettled,
   backdrop,
+  valueText,
 }: {
   fullDomain: Domain;
   viewDomain: Domain;
@@ -24,6 +25,8 @@ export function ChartNavigator({
   /** Fired once per drag/click, not per pointermove — the data-fetch/URL-commit hook. */
   onChangeSettled?: (domain: Domain) => void;
   backdrop?: { x: number; y: number }[];
+  /** Spoken value for the slider ("Showing 1 Sep to 24 Nov"); `aria-valuenow` stays the raw midpoint. */
+  valueText?: (domain: Domain) => string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ mode: "move" | "left" | "right"; startClientX: number; startView: Domain } | null>(null);
@@ -134,6 +137,20 @@ export function ChartNavigator({
     [backdrop, fullDomain, fullSpan, width],
   );
 
+  // Arrow keys move the window by a tenth of its span; Home/End jump to either end (the slider was mouse/touch-only).
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const span = viewDomain.max - viewDomain.min;
+    let next: Domain | null = null;
+    if (e.key === "ArrowLeft") next = clamp({ min: viewDomain.min - span / 10, max: viewDomain.max - span / 10 });
+    else if (e.key === "ArrowRight") next = clamp({ min: viewDomain.min + span / 10, max: viewDomain.max + span / 10 });
+    else if (e.key === "Home") next = clamp({ min: fullDomain.min, max: fullDomain.min + span });
+    else if (e.key === "End") next = clamp({ min: fullDomain.max - span, max: fullDomain.max });
+    if (!next) return;
+    e.preventDefault();
+    onChange(next);
+    onChangeSettled?.(next);
+  };
+
   return (
     // Handlers + touch-action live on this wrapping HTML div, not the <svg> — same reasoning
     // as the main charts in useChartInteraction.ts's file-level comment: WebKit's touch-action
@@ -155,7 +172,11 @@ export function ChartNavigator({
       height={HEIGHT}
       viewBox={`0 0 ${width} ${HEIGHT}`}
       role="slider"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
       aria-label="Visible range"
+      aria-valuetext={valueText ? valueText(viewDomain) : undefined}
       aria-valuemin={fullDomain.min}
       aria-valuemax={fullDomain.max}
       aria-valuenow={(viewDomain.min + viewDomain.max) / 2}
@@ -170,13 +191,14 @@ export function ChartNavigator({
         width={Math.max(winX1 - winX0, 2)}
         height={HEIGHT - 2}
         rx={5}
-        fill="var(--accent)"
-        opacity={0.18}
+        fill="var(--accent-soft)"
         stroke="var(--accent)"
         strokeWidth={1.5}
         onPointerDown={onHandlePointerDown("move")}
         className="cursor-grab"
       />
+      <rect x={winX0 + 3} y={HEIGHT / 2 - 7} width={3} height={14} rx={1.5} fill="var(--accent)" pointerEvents="none" />
+      <rect x={winX1 - 6} y={HEIGHT / 2 - 7} width={3} height={14} rx={1.5} fill="var(--accent)" pointerEvents="none" />
       <rect
         x={winX0 - HANDLE_WIDTH / 2}
         y={0}

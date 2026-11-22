@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDuration } from "../../lib/format";
 import { formatMmSs, formatPace } from "../../lib/gpsFormat";
+import { METRIC_COLOR } from "../../lib/metricColors";
 import type { PaceUnit, TrackPoint } from "../../lib/types";
+import { AreaGradient, areaPath, linePath, nearestIndex, useSvgId } from "../charts/core";
 
 export type TrackMetric = "pace" | "speed" | "elevation";
 
@@ -52,6 +54,7 @@ export function TrackChart({
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const gradId = useSvgId("track-area");
 
   useEffect(() => {
     const el = ref.current;
@@ -64,52 +67,66 @@ export function TrackChart({
     return () => ro.disconnect();
   }, []);
 
-  const xs = points.map((p) => (xAxis === "time" ? p.elapsed_s : p.distance_m));
-  const xMin = xs[0] ?? 0;
-  const xMax = Math.max(xs[xs.length - 1] ?? 1, xMin + 1);
-  const ys = points.map((p) => value(p, metric));
-  const defined = ys.filter((v): v is number => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+  // Everything that depends only on the data is computed once per data change — not on every hover (it used to re-sort the
+  // values for the percentile on each pointer move).
+  const geo = useMemo(() => {
+    const xs = points.map((p) => (xAxis === "time" ? p.elapsed_s : p.distance_m));
+    const ys = points.map((p) => value(p, metric));
+    const defined = ys.filter((v): v is number => v != null && Number.isFinite(v)).sort((a, b) => a - b);
+    if (defined.length < 2) return null;
+    // 2nd-98th percentile with a margin: one noisy fix must not flatten the whole line.
+    const lo0 = percentile(defined, 0.02);
+    const hi0 = percentile(defined, 0.98);
+    const margin = (hi0 - lo0 || 1) * 0.1;
+    return { xs, ys, xMin: xs[0] ?? 0, xMax: Math.max(xs[xs.length - 1] ?? 1, (xs[0] ?? 0) + 1), yLo: lo0 - margin, yHi: hi0 + margin, margin };
+  }, [points, xAxis, metric]);
 
-  if (defined.length < 2) {
+  // Pace is "lower is faster": plotted inverted so a faster stretch rises, like speed does.
+  const invert = metric === "pace" && paceUnit !== "km_per_h";
+  const plotW = Math.max(width - PAD_X - PAD_RIGHT, 50);
+  const plotH = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const color = metric === "elevation" ? "var(--text-secondary)" : METRIC_COLOR.pace;
+
+  const paths = useMemo(() => {
+    if (!geo) return null;
+    const { xs, ys, xMin, xMax, yLo, yHi } = geo;
+    const px: number[] = [];
+    const py: (number | null)[] = [];
+    // Break the line at missing values and at segment changes (a GPS gap is never bridged).
+    points.forEach((p, i) => {
+      const v = ys[i];
+      const prev = points[i - 1];
+      if (prev && prev.segment !== p.segment) {
+        px.push(px.length ? px[px.length - 1] : 0);
+        py.push(null);
+      }
+      px.push(PAD_X + ((xs[i] - xMin) / (xMax - xMin)) * plotW);
+      if (v == null || !Number.isFinite(v)) {
+        py.push(null);
+        return;
+      }
+      const f = (Math.min(Math.max(v, yLo), yHi) - yLo) / (yHi - yLo);
+      py.push(PAD_TOP + (invert ? f : 1 - f) * plotH);
+    });
+    return { line: linePath(px, py, false), area: areaPath(px, py, PAD_TOP + plotH, false) };
+  }, [geo, points, plotW, plotH, invert]);
+
+  if (!geo || !paths) {
     const why = metric === "elevation" ? "This device recorded no elevation." : "Not enough data to chart.";
     return <div className="flex h-32 items-center justify-center text-sm text-text-tertiary">{why}</div>;
   }
-
-  // 2nd-98th percentile with a margin: one noisy fix must not flatten the whole line.
-  const lo0 = percentile(defined, 0.02);
-  const hi0 = percentile(defined, 0.98);
-  const margin = (hi0 - lo0 || 1) * 0.1;
-  const yLo = lo0 - margin;
-  const yHi = hi0 + margin;
-  // Pace is "lower is faster": plotted inverted so a faster stretch rises, like speed does.
-  const invert = metric === "pace" && paceUnit !== "km_per_h";
-
-  const plotW = Math.max(width - PAD_X - PAD_RIGHT, 50);
-  const plotH = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const { xs, xMin, xMax, yLo, yHi, margin } = geo;
   const x = (v: number) => PAD_X + ((v - xMin) / (xMax - xMin)) * plotW;
   const y = (v: number) => {
     const f = (Math.min(Math.max(v, yLo), yHi) - yLo) / (yHi - yLo);
     return PAD_TOP + (invert ? f : 1 - f) * plotH;
   };
 
-  // Break the line at missing values and at segment changes (a GPS gap is never bridged).
-  let path = "";
-  let pen = false;
-  points.forEach((p, i) => {
-    const v = ys[i];
-    const prev = points[i - 1];
-    if (v == null || !Number.isFinite(v) || (prev && prev.segment !== p.segment)) pen = false;
-    if (v == null || !Number.isFinite(v)) return;
-    path += `${pen ? "L" : "M"}${x(xs[i]).toFixed(1)},${y(v).toFixed(1)} `;
-    pen = true;
-  });
-
   const setFromClient = (clientX: number) => {
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     const target = xMin + ((clientX - rect.left - PAD_X) / plotW) * (xMax - xMin);
-    let best = 0;
-    for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - target) < Math.abs(xs[best] - target)) best = i;
+    const best = Math.max(nearestIndex(xs, target), 0);
     setHoverIdx(best);
     onHoverElapsed?.(points[best].elapsed_s);
   };
@@ -138,17 +155,21 @@ export function TrackChart({
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
           {[yLo + margin, (yLo + yHi) / 2, yHi - margin].map((v, i) => (
             <g key={i}>
-              <line x1={PAD_X} x2={PAD_X + plotW} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
+              <line x1={PAD_X} x2={PAD_X + plotW} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} strokeDasharray={i === 0 ? undefined : "2 4"} />
               <text x={2} y={y(v) - 3} fontSize={10} fill="var(--text-tertiary)" className="font-mono-nums">
                 {fmtTick(metric, paceUnit, v)}
               </text>
             </g>
           ))}
-          <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <defs>
+            <AreaGradient id={gradId} color={color} from={0.24} />
+          </defs>
+          <path d={paths.area} fill={`url(#${gradId})`} />
+          <path d={paths.line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           {hp && hv != null && (
             <g>
-              <line x1={x(xs[hoverIdx!])} x2={x(xs[hoverIdx!])} y1={PAD_TOP} y2={PAD_TOP + plotH} stroke="var(--text-secondary)" strokeWidth={1} />
-              <circle cx={x(xs[hoverIdx!])} cy={y(hv)} r={4} fill="var(--accent)" />
+              <line x1={x(xs[hoverIdx!])} x2={x(xs[hoverIdx!])} y1={PAD_TOP} y2={PAD_TOP + plotH} stroke="var(--text-tertiary)" strokeWidth={1} strokeDasharray="3 3" />
+              <circle cx={x(xs[hoverIdx!])} cy={y(hv)} r={4.5} fill={color} stroke="var(--surface)" strokeWidth={2} />
             </g>
           )}
           {Array.from({ length: 5 }, (_, i) => xMin + ((xMax - xMin) * i) / 4).map((v, i) => (
@@ -161,7 +182,7 @@ export function TrackChart({
       {hp && (
         <div
           data-testid="track-chart-tooltip"
-          className="pointer-events-none absolute top-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm"
+          className="pointer-events-none absolute top-1 rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
           style={{ left: `clamp(4px, ${(x(xs[hoverIdx!]) / width) * 100}%, calc(100% - 110px))` }}
         >
           <div className="text-text-tertiary">
