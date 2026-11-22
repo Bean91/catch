@@ -3,7 +3,7 @@ import { fetchIntervalTemplate } from "../../lib/api";
 import type { IntervalTarget, IntervalValidationIssue, PieceInterval } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
 
-const inputCls = "min-h-9 w-full min-w-0 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary";
+const inputCls = "min-h-9 w-full min-w-0 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary";
 const btnCls = "min-h-9 min-w-9 rounded-md border border-border px-2 text-xs font-medium text-text-primary disabled:opacity-40";
 
 export function blankInterval(target: IntervalTarget = "distance"): PieceInterval {
@@ -198,7 +198,7 @@ export function IntervalEditor({
                   <Num label="Max HR" value={r.max_hr} onChange={(v) => patch(i, { max_hr: v })} />
                   <label className="col-span-3 flex flex-col gap-1">
                     <span className="text-xs text-text-tertiary">Notes</span>
-                    <input type="text" aria-label={`Interval ${i + 1} notes`} value={r.notes ?? ""} onChange={(e) => patch(i, { notes: e.target.value || null })} className="min-h-9 w-full rounded-md border border-border bg-bg px-2 text-base text-text-primary" />
+                    <input type="text" aria-label={`Interval ${i + 1} notes`} value={r.notes ?? ""} onChange={(e) => patch(i, { notes: e.target.value || null })} className="min-h-9 w-full rounded-md border border-border bg-surface-2 px-2 text-base text-text-primary" />
                   </label>
                 </div>
               )}

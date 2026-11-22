@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { putAiKey } from "../../lib/api";
 import type { AiProviderCard } from "../../lib/types";
+import { SheetContent } from "../ui/Sheet";
 
 const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
 
@@ -40,14 +41,8 @@ export function ProviderKeySheet({ card, open, onOpenChange }: { card: AiProvide
 
   return (
     <Dialog.Root open={open} onOpenChange={close}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          data-testid="provider-key-sheet"
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
-        >
-          <Dialog.Title className="text-base font-semibold text-text-primary">
+      <SheetContent width="md" onOpenAutoFocus={(e) => e.preventDefault()} data-testid="provider-key-sheet">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">
             {replacing ? `Replace your ${card.label} key` : `Add your ${card.label} key`}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
@@ -101,8 +96,7 @@ export function ProviderKeySheet({ card, open, onOpenChange }: { card: AiProvide
               </button>
             </div>
           </form>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </SheetContent>
     </Dialog.Root>
   );
 }

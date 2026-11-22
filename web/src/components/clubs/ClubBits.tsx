@@ -1,13 +1,15 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { Club, ClubRole } from "../../lib/types";
 import { PrivacyBadge } from "../coaching/PrivacyBadge";
+import { buttonClass } from "../ui/Button";
+import { controlClass } from "../ui/Field";
+import { Sheet as UiSheet } from "../ui/Sheet";
 
-export const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
-export const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:cursor-not-allowed disabled:opacity-50";
-export const btnPrimary = "min-h-11 rounded-md bg-accent px-4 text-sm font-semibold text-surface transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50";
-export const btnDanger = "min-h-11 rounded-md border border-band-red/40 px-4 text-sm font-medium text-band-red-text transition-colors hover:border-band-red disabled:cursor-not-allowed disabled:opacity-50";
+export const inputCls = controlClass;
+export const btn = buttonClass("secondary");
+export const btnPrimary = buttonClass("primary");
+export const btnDanger = buttonClass("danger");
 
 export const ROLE_LABEL: Record<ClubRole, string> = { owner: "Owner", admin: "Admin", coach: "Coach", athlete: "Athlete" };
 
@@ -54,24 +56,9 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 
 type SheetProps = { open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; testId: string; children: ReactNode };
 
-/** The bottom sheet every club form uses: z-30 so it clears the bottom nav, a bottom sheet on a phone and centred from `sm:`, no autofocus. */
-export function Sheet({ open, onOpenChange, title, description, testId, children }: SheetProps) {
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content
-          data-testid={testId}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,520px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
-        >
-          <Dialog.Title className="text-base font-semibold text-text-primary">{title}</Dialog.Title>
-          <Dialog.Description className="mt-1 text-sm text-text-secondary">{description}</Dialog.Description>
-          <div className="mt-4 flex flex-col gap-3">{children}</div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
+/** The club forms' sheet is the app-wide one (components/ui/Sheet). */
+export function Sheet(props: SheetProps) {
+  return <UiSheet {...props} />;
 }
 
 /** Every club query is keyed ["club-…", clubId, …] (or ["clubs-mine"]); after any change, refetch the lot for that club. Explicit key prefixes, not a predicate. */

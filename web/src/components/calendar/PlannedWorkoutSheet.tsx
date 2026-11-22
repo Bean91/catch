@@ -6,8 +6,9 @@ import { createPlanned, deletePlanned, updatePlanned } from "../../lib/api";
 import { addDays, dayLabel } from "../../lib/dates";
 import type { IntervalBlock, PlannedInput, PlannedWorkout, SessionType, ZoneLabel } from "../../lib/types";
 import { SESSION_TYPES, ZONES } from "./labels";
+import { SheetContent } from "../ui/Sheet";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -154,15 +155,8 @@ export function PlannedWorkoutSheet({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        {/* z-30, like CheckinSheet: a bottom-anchored sheet reaches the z-20 BottomNav. */}
-        <Dialog.Content
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          data-testid="planned-sheet"
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
-        >
-          <Dialog.Title className="text-base font-semibold text-text-primary">{existing ? "Planned session" : "Plan a session"}</Dialog.Title>
+      {/* z-30, like CheckinSheet: a bottom-anchored sheet reaches the z-20 BottomNav. */}<SheetContent width="md" onOpenAutoFocus={(e) => e.preventDefault()} data-testid="planned-sheet">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">{existing ? "Planned session" : "Plan a session"}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             A plan is an intention — it never counts as training until a real workout is logged.
           </Dialog.Description>
@@ -352,8 +346,7 @@ export function PlannedWorkoutSheet({
               </div>
             )}
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </SheetContent>
     </Dialog.Root>
   );
 }

@@ -89,7 +89,7 @@ export function LibraryPage() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search templates"
           aria-label="Search templates"
-          className="min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+          className="min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
         />
         <div role="tablist" aria-label="Workout type" className="flex gap-2 overflow-x-auto pb-1">
           {[{ value: "", label: "All types" }, ...WORKOUT_TYPES].map((t) => (

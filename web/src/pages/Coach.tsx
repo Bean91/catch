@@ -16,6 +16,7 @@ import { buildTimeline, type TimelineEntry } from "../lib/timeline";
 import type { CoachConversation, CoachProviderName } from "../lib/types";
 import { SuggestedPrompts } from "../components/coach/SuggestedPrompts";
 import { Timeline } from "../components/coach/Timeline";
+import { ModalContent } from "../components/ui/Sheet";
 
 const MORNING_BRIEF_PROMPT =
   "Give me my morning brief — how's recovery and strain looking today, and what should today's training look like?";
@@ -279,10 +280,8 @@ export function CoachPage() {
       </form>
 
       <Dialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[80dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-            <Dialog.Title className="text-base font-semibold text-text-primary">Conversations</Dialog.Title>
+        <ModalContent width="sm">
+            <Dialog.Title className="text-lg font-semibold text-text-primary">Conversations</Dialog.Title>
             <div className="mt-3 flex flex-col gap-1">
               {conversationsQuery.data?.length ? (
                 conversationsQuery.data.map((c) => (
@@ -313,8 +312,7 @@ export function CoachPage() {
                 Close
               </button>
             </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
+          </ModalContent>
       </Dialog.Root>
     </div>
   );

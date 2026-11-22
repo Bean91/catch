@@ -47,7 +47,7 @@ export function AiSharingCard() {
           <label htmlFor="age-band" className="text-sm font-medium text-text-primary">Age (optional)</label>
           <select
             id="age-band"
-            className="min-h-11 rounded-md border border-border bg-bg px-3 text-text-primary"
+            className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-text-primary"
             value={band ?? ""}
             onChange={(e) => {
               setPickedBand(e.target.value || null);

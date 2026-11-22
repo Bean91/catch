@@ -8,6 +8,7 @@ import { BandBadge } from "../ui/Badge";
 import { CountUp } from "../ui/CountUp";
 import { EmptyState } from "../ui/EmptyState";
 import { Waterline } from "../ui/Waterline";
+import { ModalContent } from "../ui/Sheet";
 
 const BAND_COLOR: Record<string, string> = {
   green: "var(--band-green)",
@@ -88,10 +89,8 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
           <Waterline />
         </button>
       </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
+      <ModalContent width="sm">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             {recovery?.explanation ?? "Need at least 7 nights of HRV history before a baseline exists."}
           </Dialog.Description>
@@ -153,8 +152,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
               Close
             </button>
           </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

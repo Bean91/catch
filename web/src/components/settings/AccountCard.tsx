@@ -111,7 +111,7 @@ export function AccountCard() {
               aria-label="Type DELETE to confirm"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-text-primary outline-none focus-visible:border-accent"
+              className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-text-primary outline-none focus-visible:border-accent"
             />
             {remove.isError && remove.error instanceof ApiError && remove.error.status === 403 && remove.error.message === "reauth_required" && (
               <div className="flex flex-col gap-2" data-testid="reauth-required">

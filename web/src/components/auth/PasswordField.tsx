@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { PASSWORD_RULES } from "../../lib/passwordPolicy";
 
 const INPUT =
-  "min-h-11 w-full rounded-md border border-border bg-bg py-2 pl-3 pr-20 text-text-primary outline-none focus-visible:border-accent";
+  "min-h-11 w-full rounded-md border border-border bg-surface-2 py-2 pl-3 pr-20 text-text-primary outline-none focus-visible:border-accent";
 
 /** A password input with its own show/hide button (each field independent) and, when `checklist` is set, the requirements listed
  * before anything is submitted and ticked off live as they're met — a glyph and a word for each, never colour alone. */

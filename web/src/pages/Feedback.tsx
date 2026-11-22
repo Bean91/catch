@@ -13,7 +13,7 @@ import { Skeleton } from "../components/ui/Skeleton";
 import { fetchFeedback, fetchTechniqueNotes } from "../lib/api";
 import type { FeedbackEntry, FocusArea, TechniqueNote } from "../lib/types";
 
-const selectCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const selectCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 
 export function FeedbackPage() {
   const [coach, setCoach] = useState("");

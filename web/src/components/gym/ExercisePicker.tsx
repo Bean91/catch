@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { createExercise } from "../../lib/api";
 import type { EquipmentType, Exercise, MovementPattern } from "../../lib/types";
 import { EmptyState } from "../ui/EmptyState";
+import { ModalContent } from "../ui/Sheet";
 
 const EQUIPMENT_OPTIONS: { value: EquipmentType; label: string }[] = [
   { value: "barbell", label: "Barbell" },
@@ -71,10 +72,8 @@ export function ExercisePicker({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85dvh] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Add exercise</Dialog.Title>
+      <ModalContent width="md" className="flex flex-col">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Add exercise</Dialog.Title>
 
           {creating ? (
             <div className="mt-4 flex flex-col gap-3">
@@ -83,12 +82,12 @@ export function ExercisePicker({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Exercise name"
-                className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
               />
               <select
                 value={newEquipment}
                 onChange={(e) => setNewEquipment(e.target.value as EquipmentType)}
-                className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
               >
                 {EQUIPMENT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -99,7 +98,7 @@ export function ExercisePicker({
               <select
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value as MovementPattern)}
-                className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
               >
                 {MOVEMENT_OPTIONS.map((p) => (
                   <option key={p} value={p}>
@@ -132,7 +131,7 @@ export function ExercisePicker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search exercises…"
-                className="mt-3 min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+                className="mt-3 min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
               />
               <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
                 {filtered.length === 0 ? (
@@ -166,8 +165,7 @@ export function ExercisePicker({
               </button>
             </>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

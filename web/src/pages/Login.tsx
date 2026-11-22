@@ -6,7 +6,7 @@ import { confirmProblem, describeAuthError, passwordProblem } from "../lib/authE
 import { isPublic } from "../lib/deployment";
 
 const INPUT =
-  "min-h-11 w-full rounded-md border border-border bg-bg px-3 text-text-primary outline-none focus-visible:border-accent";
+  "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-text-primary outline-none focus-visible:border-accent";
 const BUTTON =
   "mt-4 min-h-11 w-full rounded-md bg-accent text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
 const LINK = "min-h-11 text-sm text-text-secondary underline-offset-4 hover:text-text-primary hover:underline";

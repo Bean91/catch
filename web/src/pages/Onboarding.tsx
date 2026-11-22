@@ -17,7 +17,7 @@ const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Your
 const LAST = STEP_TITLES.length - 1;
 const PRIMARY = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
 const SECONDARY = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent";
-const INPUT = "min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
+const INPUT = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
 
 /** First-run setup (session 32, docs/onboarding.md). Six short steps, each skippable; progress is saved on the server so it resumes
  * on any device. Nothing here waits for history to import, and no step ever shows a key or token. Session 34 added the privacy step:

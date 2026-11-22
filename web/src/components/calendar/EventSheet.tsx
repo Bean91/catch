@@ -5,8 +5,9 @@ import { createEvent, deleteEvent, updateEvent } from "../../lib/api";
 import type { EventInput, UpcomingEvent } from "../../lib/types";
 import { EVENT_TYPES } from "./labels";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
+import { SheetContent } from "../ui/Sheet";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -85,14 +86,8 @@ export function EventSheet({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          data-testid="event-sheet"
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
-        >
-          <Dialog.Title className="text-base font-semibold text-text-primary">{existing ? "Edit event" : "Add an event"}</Dialog.Title>
+      <SheetContent width="md" onOpenAutoFocus={(e) => e.preventDefault()} data-testid="event-sheet">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">{existing ? "Edit event" : "Add an event"}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">A race, erg test, camp or selection.</Dialog.Description>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="col-span-2">
@@ -164,8 +159,7 @@ export function EventSheet({
               </div>
             )}
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </SheetContent>
     </Dialog.Root>
   );
 }

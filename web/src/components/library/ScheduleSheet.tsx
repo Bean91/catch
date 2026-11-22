@@ -6,8 +6,9 @@ import { scheduleLibraryTemplate } from "../../lib/api";
 import { addDays, todayISO } from "../../lib/dates";
 import type { PlannedWorkout, WorkoutTemplate } from "../../lib/types";
 import { invalidateCalendar } from "../calendar/PlannedWorkoutSheet";
+import { SheetContent } from "../ui/Sheet";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean; onOpenChange: (open: boolean) => void; template: WorkoutTemplate }) {
@@ -47,14 +48,8 @@ export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          data-testid="schedule-sheet"
-          className="fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,460px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border"
-        >
-          <Dialog.Title className="text-base font-semibold text-text-primary">Add to calendar</Dialog.Title>
+      <SheetContent width="md" onOpenAutoFocus={(e) => e.preventDefault()} data-testid="schedule-sheet">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Add to calendar</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             {template.name} becomes a planned session — an intention, not a workout. Changing the template later won't change sessions already planned.
           </Dialog.Description>
@@ -118,8 +113,7 @@ export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean;
               </div>
             </>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
+        </SheetContent>
     </Dialog.Root>
   );
 }

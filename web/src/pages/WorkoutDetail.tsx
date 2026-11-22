@@ -675,7 +675,7 @@ function ChangeDay({ recorded, current, overridden, onChange, busy }: { recorded
         value={current}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-11 rounded-md border border-border bg-bg px-2 text-xs text-text-primary"
+        className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary"
       >
         {options.map((d) => (
           <option key={d} value={d}>

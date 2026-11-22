@@ -3,6 +3,7 @@ import { lazy, Suspense, useState } from "react";
 import type { TrendMetric, VitalTrend } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { Sparkline } from "./Sparkline";
+import { ModalContent } from "../ui/Sheet";
 
 const ExpandedTrendChart = lazy(() => import("./ExpandedTrendChart"));
 
@@ -45,9 +46,7 @@ export function VitalsCard({
           </Card>
         </button>
       </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(94vw,640px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+      <ModalContent width="xl">
           <div className="mb-3 flex items-center justify-between">
             <Dialog.Title className="text-sm font-medium text-text-secondary">{title}</Dialog.Title>
             <Dialog.Close
@@ -63,8 +62,7 @@ export function VitalsCard({
               <ExpandedTrendChart metric={metric} formatValue={formatValue} />
             </Suspense>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

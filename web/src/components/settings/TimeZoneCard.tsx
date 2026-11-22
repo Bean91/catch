@@ -4,7 +4,7 @@ import { fetchTimeZone, putTimeZone } from "../../lib/api";
 import { allZones, deviceZone, setActiveZone, zoneLabel } from "../../lib/localTime";
 import { Card } from "../ui/Card";
 
-const INPUT = "min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
+const INPUT = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
 
 /** The IANA zone list from the browser itself (no data shipped), with the device's own zone suggested first. */
 export function TimeZoneSelect({ value, onChange, id = "tz-select" }: { value: string; onChange: (zone: string) => void; id?: string }) {
