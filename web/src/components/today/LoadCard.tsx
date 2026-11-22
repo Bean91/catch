@@ -3,6 +3,7 @@ import { bandLabel } from "../../lib/format";
 import { BandBadge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
+import { InfoTip } from "../ui/InfoTip";
 
 export function LoadCard({ load, rowingLoad }: { load: Load | null; rowingLoad?: Load | null }) {
   if (!load || load.value == null) {
@@ -17,10 +18,14 @@ export function LoadCard({ load, rowingLoad }: { load: Load | null; rowingLoad?:
   const highRisk = load.band === "high_risk";
 
   return (
-    <Card title="Training load" action={<BandBadge band={load.band} label={bandLabel(load.band)} />}>
+    <Card className="h-full" title="Training load" action={<BandBadge band={load.band} label={bandLabel(load.band)} />}>
       <div className="flex items-baseline gap-2">
-        <span className="font-mono-nums text-3xl font-semibold text-text-primary">{load.value.toFixed(2)}</span>
+        <span className="font-mono-nums text-[2rem] font-semibold leading-none tracking-tight text-text-primary">{load.value.toFixed(2)}</span>
         <span className="text-sm text-text-tertiary">acute : chronic</span>
+        <InfoTip label="acute : chronic load">
+          The last 7 days' training load divided by your 42-day average. Around 0.8–1.3 means this week is in line with what you're used to;
+          well above it means load is rising faster than you've adapted to.
+        </InfoTip>
       </div>
       {component && (
         <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">

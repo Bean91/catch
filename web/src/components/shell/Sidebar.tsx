@@ -15,7 +15,7 @@ function Item({ item, active }: { item: NavItem; active: boolean }) {
       to={to}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex min-h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-colors duration-150",
+        "group relative flex min-h-9 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-colors duration-150",
         active ? "bg-accent-soft text-text-primary" : "text-text-secondary hover:bg-surface-2/70 hover:text-text-primary",
       )}
     >
@@ -35,13 +35,13 @@ export function Sidebar() {
 
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border/80 bg-surface/40 px-3 py-5 backdrop-blur-sm lg:flex">
-      <Link to="/" className="mb-6 flex items-center gap-2.5 px-2.5" aria-label="Catch — Today">
+      <Link to="/" className="mb-5 flex items-center gap-2.5 px-2.5" aria-label="Catch — Today">
         <Logomark className="h-7 w-7" />
         <span className="text-[15px] font-semibold tracking-[0.14em] text-text-primary">CATCH</span>
       </Link>
       <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto pl-3 -ml-3">
         {groups.map((g) => (
-          <div key={g.id} className="mb-5">
+          <div key={g.id} className="mb-4">
             <p className="mb-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-text-tertiary">{GROUP_LABEL[g.id]}</p>
             <ul className="flex flex-col gap-0.5">
               {g.items.map((item) => (

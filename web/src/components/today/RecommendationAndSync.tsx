@@ -29,8 +29,9 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
   });
 
   return (
-    <Card className="flex h-full flex-col">
-      <p className="text-lg font-medium text-text-primary lg:text-xl">{recommendation}</p>
+    <Card tone="accent" className="flex h-full flex-col">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-accent">Today's guidance</p>
+      <p className="mt-1 text-lg font-medium leading-snug text-text-primary lg:text-xl">{recommendation}</p>
 
       {nextARace && (
         <p className="mt-2 text-sm text-text-secondary">
@@ -44,7 +45,7 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
           )}
           <span className="font-mono-nums"> · {nextARace.days_to_go}d</span>
           {nextARace.taper && (
-            <span className="ml-2 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Taper</span>
+            <span className="ml-2 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">Taper</span>
           )}
         </p>
       )}
@@ -54,7 +55,7 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
           gap under the recommendation text. */}
       <div className="mt-4 flex-1" aria-hidden />
 
-      <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
         <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-text-tertiary">
           {(statusQuery.data ?? []).map((s) => (
             <li key={s.source} className="inline-flex items-center gap-1.5">
@@ -72,7 +73,7 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
           type="button"
           onClick={() => syncAll.mutate()}
           disabled={syncAll.isPending}
-          className="min-h-11 shrink-0 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 px-4 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-3 disabled:opacity-45"
         >
           {syncAll.isPending ? "Syncing…" : "Sync now"}
         </button>

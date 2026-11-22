@@ -8,7 +8,7 @@ export function ErgCard({ erg, predicted2k }: { erg: ErgPiece | null; predicted2
   const avgSplit = erg?.duration && erg?.distance ? (erg.duration / erg.distance) * 500 : null;
 
   return (
-    <Card title="Latest erg piece">
+    <Card title="Latest erg piece" className="h-full">
       {erg ? (
         <>
           <Link to={`/workouts/${erg.canonical_id}`} className="grid grid-cols-2 gap-3 rounded-md transition-opacity hover:opacity-80 sm:grid-cols-3">
@@ -33,7 +33,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-xs text-text-tertiary">{label}</div>
-      <div className="font-mono-nums text-base font-medium text-text-primary">{value}</div>
+      <div className="mt-0.5 font-mono-nums text-lg font-semibold tracking-tight text-text-primary">{value}</div>
     </div>
   );
 }
@@ -60,7 +60,7 @@ function TwoKEstimate({ p }: { p: Predicted2k }) {
       {time != null ? (
         <>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-            <span className="font-mono-nums text-2xl font-semibold text-text-primary">{formatTimeTenths(time)}</span>
+            <span className="font-mono-nums text-[1.75rem] font-semibold tracking-tight text-text-primary">{formatTimeTenths(time)}</span>
             {range && (
               <span className="font-mono-nums text-xs text-text-tertiary">
                 likely {formatTimeTenths(range[0])}–{formatTimeTenths(range[1])}

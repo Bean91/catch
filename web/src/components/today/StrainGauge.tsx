@@ -46,18 +46,20 @@ export function StrainGauge({
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button type="button" className="w-full text-left" aria-label="Strain breakdown">
-          <Card title="Strain today" action={strain && <BandBadge band={strain.band} label={bandLabel(strain.band)} />}>
+        <button type="button" className="h-full w-full text-left transition-transform duration-150 active:scale-[0.995]" aria-label="Strain breakdown">
+          <Card className="h-full hover:border-accent/40" title="Strain today" action={strain && <BandBadge band={strain.band} label={bandLabel(strain.band)} />}>
             <div className="flex items-baseline gap-2">
               {hasValue ? (
-                <CountUp value={value} decimals={1} className="text-3xl font-semibold text-text-primary" />
+                <CountUp value={value} decimals={1} className="text-[2.5rem] font-semibold leading-none tracking-tight text-text-primary" />
               ) : (
-                <span className="font-mono-nums text-3xl font-semibold text-text-tertiary">—</span>
+                <span className="font-mono-nums text-[2.5rem] font-semibold leading-none text-text-tertiary">—</span>
               )}
               <span className="text-sm text-text-tertiary font-mono-nums">/ {MAX}</span>
             </div>
             <div className="relative mt-4 h-3 w-full">
               <div className="absolute inset-0 overflow-hidden rounded-full bg-surface-2">
+                {/* The target range as a quiet track segment, under the fill. */}
+                <div aria-hidden className="absolute inset-y-0 bg-text-primary/[0.06]" style={{ left: `${(lo / MAX) * 100}%`, width: `${((hi - lo) / MAX) * 100}%` }} />
                 {hasSplit ? (
                   <motion.div
                     className="absolute inset-y-0 left-0 flex overflow-hidden rounded-full"
@@ -65,13 +67,13 @@ export function StrainGauge({
                     animate={{ width: `${pct}%` }}
                     transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
                   >
-                    <div className="h-full bg-accent" style={{ width: `${(cardioValue / Math.max(value, 0.01)) * 100}%` }} />
+                    <div className="h-full bg-accent shadow-[0_0_12px_var(--accent-soft)]" style={{ width: `${(cardioValue / Math.max(value, 0.01)) * 100}%` }} />
                     <div className="h-full bg-accent/60" style={{ width: `${(muscularValue / Math.max(value, 0.01)) * 100}%` }} />
                     <div className="h-full bg-accent/30" style={{ width: `${(dailyValue / Math.max(value, 0.01)) * 100}%` }} />
                   </motion.div>
                 ) : (
                   <motion.div
-                    className="absolute inset-y-0 left-0 rounded-full bg-accent"
+                    className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,color-mix(in_oklab,var(--accent)_60%,transparent),var(--accent))]"
                     initial={{ width: reduced ? `${pct}%` : "0%" }}
                     animate={{ width: `${pct}%` }}
                     transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}

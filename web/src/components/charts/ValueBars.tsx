@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ChartTooltip, extent, niceTicks, secondsTicks, useChartWidth } from "./core";
 
-export type ValueBar = { key: string | number; label: string; value: number; target?: number | null; emphasis?: boolean };
+export type ValueBar = { key: string | number; label: string; title?: string; value: number; target?: number | null; emphasis?: boolean };
 
 const PAD_LEFT = 44;
 const PAD_RIGHT = 8;
@@ -119,7 +119,7 @@ export function ValueBars({
       {hover != null && bars[hover] && (
         <ChartTooltip
           xPct={((PAD_LEFT + slot * hover + slot / 2) / width) * 100}
-          title={bars[hover].label}
+          title={bars[hover].title ?? bars[hover].label}
           rows={[
             { label: "Value", value: format(bars[hover].value), color },
             ...(bars[hover].target != null ? [{ label: "Target", value: format(bars[hover].target as number) }] : []),

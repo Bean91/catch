@@ -37,7 +37,7 @@ export function Histogram({
   if (total < 5) return <p className="text-sm text-text-tertiary">Not enough data for a distribution.</p>;
   return (
     <ValueBars
-      bars={data.map((b, i) => ({ key: i, label: `${format(b.lo)}–${format(b.hi)}`, value: (b.count / total) * 100 }))}
+      bars={data.map((b, i) => ({ key: i, label: format(b.lo), title: `${format(b.lo)}–${format(b.hi)}`, value: (b.count / total) * 100 }))}
       format={(v) => `${Math.round(v)}%`}
       zeroBased
       showValues={false}
