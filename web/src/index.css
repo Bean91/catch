@@ -212,6 +212,18 @@ body {
   }
 }
 
+/* The phone/tablet shell's fixed bars (AppShell header, BottomNav). Coach and the toast stack size themselves from these. */
+:root {
+  --shell-top: 60px;
+  --shell-bottom: 52px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --shell-top: 0px;
+    --shell-bottom: 0px;
+  }
+}
+
 /* Route change: a short fade-up on the page container (AppShell keys it on the pathname). */
 .page-enter {
   animation: enter 260ms var(--ease-out) both;

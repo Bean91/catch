@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 type IconProps = { className?: string };
 
 export function TodayIcon({ className }: IconProps) {
@@ -223,6 +225,78 @@ export function GlobeIcon({ className }: IconProps) {
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
       <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" />
       <path d="M3.8 12h16.4M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function TrainIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M13 3L5 13.5h6L10 21l8.5-11H12.5L13 3z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function MoreIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <rect x="4.5" y="4.5" width="6" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="13.5" y="4.5" width="6" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="4.5" y="13.5" width="6" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="16.5" cy="16.5" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+export function SparkIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9L12 3.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M18.5 16v4M16.5 18h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function DuplicatesIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <rect x="4" y="7" width="11" height="13" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M9 4h9a2 2 0 012 2v11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function MemoryIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M7 4h10a1 1 0 011 1v15l-6-3.5L6 20V5a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ReadinessIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M3.5 12h3.5l2-5 4 10 2-5h5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** The wordmark's glyph: a blade's catch, drawn as two strokes meeting the water line. */
+export function Logomark({ className }: IconProps) {
+  // Unique per instance: the sidebar's copy is display:none on a phone, and a gradient referenced from a hidden SVG doesn't paint.
+  const id = `catch-logo-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="var(--accent-strong)" />
+          <stop offset="1" stopColor="var(--metric-pace)" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="30" height="30" rx="9" fill={`url(#${id})`} />
+      <path d="M8 20.5c3-1.4 5.3-1.4 8 0s5 1.4 8 0" stroke="var(--accent-contrast)" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+      <path d="M11 9.5l5 8 5-8" stroke="var(--accent-contrast)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </svg>
   );
 }

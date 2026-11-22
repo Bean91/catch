@@ -19,17 +19,42 @@ async function noHorizontalOverflow(page: Page) {
   expect(overflow).toBeLessThanOrEqual(0);
 }
 
-test("bottom nav still fits eight labels at 390px, with the calendar tab", async ({ page }) => {
+// Session 35: four tabs and a More button (Today · Plan · Train · Coach · More); every other destination is in the More sheet.
+test("bottom nav fits its labels at 390px, with the calendar tab", async ({ page }) => {
   await page.goto("/?mock=1");
   const nav = page.getByRole("navigation", { name: "Primary" });
-  await expect(nav.getByRole("link")).toHaveCount(8);
-  const clipped = await nav.locator("a span").evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent));
+  await expect(nav.getByRole("link")).toHaveCount(4);
+  await expect(nav.getByRole("button", { name: "More" })).toBeVisible();
+  const clipped = await nav.locator("a span, button span").evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent));
   expect(clipped, `nav labels truncated at 390px: ${clipped.join(", ")}`).toEqual([]);
   const navOverflow = await nav.evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(navOverflow).toBeLessThanOrEqual(0);
   await nav.getByRole("link", { name: "Plan" }).tap();
   await expect(page).toHaveURL(/\/calendar/);
   await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Plan" })).toHaveAttribute("aria-current", "page");
+});
+
+test("the More sheet reaches every other destination and sits above the nav", async ({ page }) => {
+  await page.goto("/?mock=1");
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "More" }).tap();
+  const sheet = page.getByTestId("more-sheet");
+  for (const name of ["Trends", "Body", "Nutrition", "Settings", "Coach memory"]) await expect(sheet.getByRole("link", { name: new RegExp(`^${name}`) })).toBeVisible();
+  await sheet.getByRole("link", { name: /^Nutrition/ }).tap();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/nutrition/);
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "More" })).toBeVisible();
+});
+
+test("the Train tab is a hub for every training page and stays active under them", async ({ page }) => {
+  await page.goto("/?mock=1");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  await nav.getByRole("link", { name: "Train" }).tap();
+  await expect(page.getByRole("heading", { level: 1, name: "Train" })).toBeVisible();
+  await page.getByRole("list", { name: "Training sections" }).getByRole("link", { name: /^Workouts/ }).tap();
+  await expect(page).toHaveURL(/\/workouts/);
+  await expect(nav.getByRole("link", { name: "Train" })).toHaveAttribute("aria-current", "page");
+  await noHorizontalOverflow(page);
 });
 
 test("week view lists seven days with no sideways scroll", async ({ page }) => {

@@ -44,7 +44,7 @@ export function PageHeader({
     <header className={cn("flex flex-col gap-1", className)}>
       {back && <BackLink to={back.to}>{back.label}</BackLink>}
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-60">
           {eyebrow && <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-accent">{eyebrow}</p>}
           <h1
             className={cn(

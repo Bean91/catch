@@ -66,8 +66,6 @@
   --highlight: inset 0 1px 0 rgb(255 255 255 / 0.035);
 
   --touch-target: 44px;
-  --shell-top: 0px;
-  --shell-bottom: 0px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;

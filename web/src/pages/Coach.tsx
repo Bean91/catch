@@ -177,7 +177,7 @@ export function CoachPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-9.5rem)] flex-col gap-3 lg:h-[calc(100dvh-7rem)]">
+    <div className="flex h-[calc(100dvh-var(--shell-top)-var(--shell-bottom)-2.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 lg:h-[calc(100dvh-7rem)]">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-text-primary">Coach</h1>
         <div className="flex items-center gap-2">

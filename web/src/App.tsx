@@ -15,6 +15,7 @@ import { TodayPage } from "./pages/Today";
 // Only Today (the landing screen, and the one page the offline shell needs) is eager —
 // every other route (and its chart code) is its own chunk, fetched on first visit, to keep
 // the initial bundle under the 250KB-gzip budget as more screens are added.
+const TrainPage = lazy(() => import("./pages/Train").then((m) => ({ default: m.TrainPage })));
 const WorkoutsPage = lazy(() => import("./pages/Workouts").then((m) => ({ default: m.WorkoutsPage })));
 const WorkoutDetailPage = lazy(() => import("./pages/WorkoutDetail").then((m) => ({ default: m.WorkoutDetailPage })));
 const DuplicatesPage = lazy(() => import("./pages/Duplicates").then((m) => ({ default: m.DuplicatesPage })));
@@ -126,6 +127,7 @@ export function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/calendar/plan" element={<PlanPage />} />
           <Route path="/calendar/events/:id" element={<EventDetailPage />} />
+          <Route path="/train" element={<TrainPage />} />
           <Route path="/workouts" element={<WorkoutsPage />} />
           <Route path="/workouts/duplicates" element={<DuplicatesPage />} />
           <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
