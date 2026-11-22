@@ -1,83 +1,149 @@
-/* Design tokens — see /DESIGN.md for the palette rationale and contrast checks.
-   Dark is the default/first-class theme; [data-theme="light"] overrides it. */
+/* Design tokens — see /DESIGN.md "Design system (session 35)" for the palette rationale, the contrast ratios and the
+   chart-palette validator output. Dark is the default/first-class theme; [data-theme="light"] overrides it, and with no
+   stored choice the system preference decides. Every value a component uses comes from here. */
 
 :root {
-  --bg: #0d0f11;
-  --surface: #161a1d;
-  --surface-2: #1e2327;
-  --border: #2b3135;
-  --text-primary: #f2f0ec;
-  --text-secondary: #a4abb0;
-  --text-tertiary: #7d8489;
-  --accent: #a79cff;
-  --accent-contrast: #0d0f11;
-  --band-green: #49b382;
-  --band-yellow: #e0b23c;
-  --band-red: #e2614f;
-  /* A darker red than --band-red specifically for small text sitting on a --band-red tint
-     (e.g. the high-risk load warning) — --band-red itself is tuned for dots/badges on
-     --bg/--surface and falls short of 4.5:1 on its own 10%-opacity tint at small text sizes
-     in the light theme. Dark theme's --band-red already clears 4.5:1 there, so it's reused. */
+  color-scheme: dark;
+
+  /* Surfaces: layered navy, each step a little brighter. */
+  --bg: #0b1120;
+  --surface: #111a2e;
+  --surface-2: #18233a;
+  --surface-3: #1f2b45;
+  --border: #243049;
+  --border-strong: #34425f;
+  --overlay: rgb(3 6 14 / 0.62);
+
+  --text-primary: #edf1f8;
+  --text-secondary: #a9b3c8;
+  --text-tertiary: #8893ab;
+
+  /* A refined periwinkle: chrome, focus, selection, and the training-load/volume series. */
+  --accent: #8c9cff;
+  --accent-strong: #aab6ff;
+  --accent-soft: rgb(140 156 255 / 0.14);
+  --accent-contrast: #0b1120;
+
+  /* Status bands — reserved for status (recovery/strain/load/illness), always with a glyph and a word. */
+  --band-green: #4cc38a;
+  --band-yellow: #e5b84b;
+  --band-red: #ef7565;
+  /* For small text on a --band-red tint; dark --band-red already clears 4.5:1 there. */
   --band-red-text: var(--band-red);
   --band-calibrating: var(--text-tertiary);
+
+  /* Per-metric series colours: muted mid-tones (never neon); the pastel feel comes from their -soft tints in area fills.
+     Pairs that share a plot (HR+power, HR+stroke rate, power+rate, pace+power) pass the dataviz validator in both modes. */
+  --metric-hr: #d9677f;
+  --metric-power: #bb8b2f;
+  --metric-pace: #3b9fd1;
+  --metric-rate: #9380e8;
+  --metric-load: var(--accent);
+  --metric-sleep: #7f8fe0;
+  --metric-hr-soft: rgb(217 103 127 / 0.16);
+  --metric-power-soft: rgb(187 139 47 / 0.16);
+  --metric-pace-soft: rgb(59 159 209 / 0.16);
+  --metric-rate-soft: rgb(147 128 232 / 0.16);
+  --metric-load-soft: var(--accent-soft);
 
   --focus-ring: var(--accent);
 
   --font-ui: "Inter", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  /* Radii — values only; the class names (rounded-md/lg/…) stay as they are. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
   --radius-full: 999px;
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
+  /* Elevation: navy-tinted, restrained. The inner highlight gives a card a lit top edge in the dark theme. */
+  --shadow-1: 0 1px 2px rgb(2 6 18 / 0.35);
+  --shadow-2: 0 4px 16px -4px rgb(2 6 18 / 0.5), 0 1px 2px rgb(2 6 18 / 0.3);
+  --shadow-3: 0 18px 48px -12px rgb(2 6 18 / 0.65), 0 2px 6px rgb(2 6 18 / 0.35);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.035);
 
   --touch-target: 44px;
+  --shell-top: 0px;
+  --shell-bottom: 0px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;
-  --duration-normal: 300ms;
+  --duration-normal: 260ms;
   --duration-slow: 900ms;
 }
 
 :root[data-theme="light"] {
-  --bg: #f7f5f1;
+  color-scheme: light;
+  --bg: #f4f6fb;
   --surface: #ffffff;
-  --surface-2: #efede8;
-  --border: #dedad2;
-  --text-primary: #1b1d1f;
-  --text-secondary: #53585c;
-  --text-tertiary: #6b7075;
-  --accent: #5e4fd9;
+  --surface-2: #eef1f7;
+  --surface-3: #e5e9f2;
+  --border: #dce1eb;
+  --border-strong: #c5ccda;
+  --overlay: rgb(15 23 42 / 0.42);
+  --text-primary: #111827;
+  --text-secondary: #4a5468;
+  --text-tertiary: #5b667c;
+  --accent: #4d58d0;
+  --accent-strong: #3b45b8;
+  --accent-soft: rgb(77 88 208 / 0.1);
   --accent-contrast: #ffffff;
   --band-green: #1a7a50;
   --band-yellow: #8a6a14;
   --band-red: #c7402c;
   --band-red-text: #b8371f;
+  --metric-hr: #c4456a;
+  --metric-power: #966810;
+  --metric-pace: #1f7fae;
+  --metric-rate: #7655d0;
+  --metric-sleep: #5866c8;
+  --metric-hr-soft: rgb(196 69 106 / 0.12);
+  --metric-power-soft: rgb(150 104 16 / 0.12);
+  --metric-pace-soft: rgb(31 127 174 / 0.12);
+  --metric-rate-soft: rgb(118 85 208 / 0.12);
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-2: 0 4px 14px -4px rgb(15 23 42 / 0.1), 0 1px 2px rgb(15 23 42 / 0.05);
+  --shadow-3: 0 20px 44px -12px rgb(15 23 42 / 0.22), 0 2px 6px rgb(15 23 42 / 0.06);
+  --highlight: inset 0 0 0 transparent;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f7f5f1;
+    color-scheme: light;
+    --bg: #f4f6fb;
     --surface: #ffffff;
-    --surface-2: #efede8;
-    --border: #dedad2;
-    --text-primary: #1b1d1f;
-    --text-secondary: #53585c;
-    --text-tertiary: #6b7075;
-    --accent: #5e4fd9;
+    --surface-2: #eef1f7;
+    --surface-3: #e5e9f2;
+    --border: #dce1eb;
+    --border-strong: #c5ccda;
+    --overlay: rgb(15 23 42 / 0.42);
+    --text-primary: #111827;
+    --text-secondary: #4a5468;
+    --text-tertiary: #5b667c;
+    --accent: #4d58d0;
+    --accent-strong: #3b45b8;
+    --accent-soft: rgb(77 88 208 / 0.1);
     --accent-contrast: #ffffff;
     --band-green: #1a7a50;
     --band-yellow: #8a6a14;
     --band-red: #c7402c;
     --band-red-text: #b8371f;
+    --metric-hr: #c4456a;
+    --metric-power: #966810;
+    --metric-pace: #1f7fae;
+    --metric-rate: #7655d0;
+    --metric-sleep: #5866c8;
+    --metric-hr-soft: rgb(196 69 106 / 0.12);
+    --metric-power-soft: rgb(150 104 16 / 0.12);
+    --metric-pace-soft: rgb(31 127 174 / 0.12);
+    --metric-rate-soft: rgb(118 85 208 / 0.12);
+    --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06);
+    --shadow-2: 0 4px 14px -4px rgb(15 23 42 / 0.1), 0 1px 2px rgb(15 23 42 / 0.05);
+    --shadow-3: 0 20px 44px -12px rgb(15 23 42 / 0.22), 0 2px 6px rgb(15 23 42 / 0.06);
+    --highlight: inset 0 0 0 transparent;
   }
 }
 
