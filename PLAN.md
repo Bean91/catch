@@ -4880,7 +4880,9 @@ wraps the routes inside `AppShell` (the page shows the error with Try again / Re
 
 # Session 34: Withings connection, privacy in setup, watts from split pace, weight-adjusted power
 
-Branch `session-34-withings-privacy-power`. **No migration** (`EXPECTED_SCHEMA_REVISION` stays "0012"), so deploying is `fastapi deploy` only.
+Branch `session-34-withings-privacy-power`, merged to `main`. **No migration** (`EXPECTED_SCHEMA_REVISION` stays "0012"), so deploying is `fastapi deploy` only.
+Deployed to production 2026-11-22 (`b6c85a9`; `version.json` confirms; `scripts/smoke_public.py` 31 passed / 0 failed; a Withings sync on the new
+code succeeded). The Pi is updated with `./deploy.sh` (the owner's step: SSH to the Pi goes through a Cloudflare Access browser login).
 
 ## Decisions (the user chose the first three)
 
@@ -4984,7 +4986,6 @@ Branch `session-34-withings-privacy-power`. **No migration** (`EXPECTED_SCHEMA_R
 - **NOT VERIFIED live:**
   - Withings' authorize page, the callback for a new connection, and revoke of a real grant (they need a person to disconnect and reconnect;
     covered by `tests/withings_fake.py`);
-  - this branch's code in production (not deployed);
   - the backfill on real stored pieces (runs at the first maintenance after deploy).
 - **Worked examples:**
   - Watts: 1:45.0 → 2.8/0.21³ = 302.343 W; 2:00.0 → 202.546; 1:50.0 → 262.960; 1:40.0 → 350.0.
