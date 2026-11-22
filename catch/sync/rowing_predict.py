@@ -5,7 +5,11 @@ from __future__ import annotations
 
 Evidence = confirmed tests and confirmed single-effort pieces ("declared"), plus continuous Concept2 rows with no rest whose heart
 rate shows a hard effort ("hr_verified") or that have no heart rate at all ("effort_unknown", weak). Read through canonical activities
-so the athlete's own "exclude from totals" is respected; a rate-capped piece (30 min at r20) and interval work never count."""
+so the athlete's own "exclude from totals" is respected; a rate-capped piece (30 min at r20) never counts.
+
+2026-11-22: interval work counts (analytics/predict.py::interval_point) — a saved interval piece ("declared"), or a Concept2 interval
+result whose peak heart rate reached 90 % of max (one workout counts once: a piece imported from that result wins). Heart rate is the
+workout's own (merged across sources): a Concept2 row has none when the athlete's HR comes from a watch."""
 
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -15,9 +19,19 @@ from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
 from catch.analytics.erg_math import watts_from_pace
-from catch.analytics.predict import LOOKBACK_DAYS, MAX_DISTANCE_M, MIN_DISTANCE_M, effort_class, predict_2k
+from catch.analytics.predict import (
+    INTERVAL_HR_PEAK_FRACTION,
+    LOOKBACK_DAYS,
+    MAX_DISTANCE_M,
+    MIN_DISTANCE_M,
+    effort_class,
+    interval_point,
+    point_implied_2k,
+    predict_2k,
+    unusable_reason,
+)
 from catch.core import localtime
-from catch.core.models import Activity, CanonicalActivity
+from catch.core.models import Activity, CanonicalActivity, Piece, PieceInterval
 
 # Continuous single efforts. Concept2 stores interval rest inside Activity.duration while distance is work-only, so an untyped
 # result ("unknown"/None) only counts when its raw record shows no rest time.
@@ -49,6 +63,7 @@ def evidence(session: Session, settings: dict, since: datetime | None = None) ->
     if cached is not None and cached[0] == key:
         return cached[1]
     from catch.sync.erg_test import list_tests
+    from catch.sync.piece_intervals import _concept2_interval_defs
 
     points: list[dict] = []
     declared_canonicals: set[int] = set()
@@ -66,36 +81,93 @@ def evidence(session: Session, settings: dict, since: datetime | None = None) ->
         })
 
     max_hr = settings.get("max_hr")
+    interval_pieces, imported_c2 = _interval_piece_points(session, since, declared_canonicals)
+    points += interval_pieces
     rows = session.exec(
         select(Activity).options(defer(Activity.raw_json)).where(
             Activity.source == "concept2", Activity.type == "rower", Activity.distance >= MIN_DISTANCE_M, Activity.distance <= MAX_DISTANCE_M,
             Activity.duration.is_not(None), Activity.start.is_not(None), *([Activity.start >= since] if since is not None else []),
         )
     ).all()
-    canonical_ids = sorted({a.canonical_id for a in rows if a.canonical_id is not None})
-    canonicals = {}
-    for i in range(0, len(canonical_ids), 500):
-        for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(canonical_ids[i : i + 500]))).all():
-            canonicals[c.id] = c
+    canonicals = _canonicals(session, {a.canonical_id for a in rows})
+    interval_piece_canonicals = {p["canonical_id"] for p in interval_pieces}
     for a in rows:
         c = canonicals.get(a.canonical_id)
-        if a.canonical_id in declared_canonicals or a.workout_type not in CONTINUOUS_WORKOUT_TYPES:
+        if a.canonical_id in declared_canonicals:
             continue
         if c is not None and (_overrides(c).get("exclude_from_totals") or c.absorbed_into_piece_id is not None):
             continue
-        if not _no_rest(a):
-            continue
-        effort = effort_class(declared=False, avg_hr=a.avg_hr, max_hr=max_hr)
-        if effort is None:
-            continue
         day = localtime.day_of(session, c) if c is not None else localtime.day_of(session, a)
-        points.append({
-            "distance_m": a.distance, "duration_s": a.duration, "date": day, "start": a.start, "effort": effort,
-            "label": f"{a.distance:.0f} m row", "canonical_id": a.canonical_id, "source": "concept2",
-        })
+        # A watch's heart rate lands on the workout, not on the Concept2 row (the PM5 records HR only from a paired strap).
+        avg_hr = a.avg_hr if a.avg_hr is not None else (c.avg_hr if c is not None else None)
+        peak_hr = a.max_hr if a.max_hr is not None else (c.max_hr if c is not None else None)
+        if a.workout_type in CONTINUOUS_WORKOUT_TYPES and _no_rest(a):
+            effort = effort_class(declared=False, avg_hr=avg_hr, max_hr=max_hr)
+            if effort is None:
+                continue
+            points.append({
+                "distance_m": a.distance, "duration_s": a.duration, "date": day, "start": a.start, "effort": effort,
+                "label": f"{a.distance:.0f} m row", "canonical_id": a.canonical_id, "source": "concept2", "kind": "continuous",
+            })
+            continue
+        if a.id in imported_c2 or a.canonical_id in interval_piece_canonicals:
+            continue  # the athlete's interval piece for this workout already counts
+        defs = _concept2_interval_defs(a)
+        point = interval_point([(d.get("distance"), (d.get("time") or 0) / 10.0, (d.get("rest_time") or 0) / 10.0) for d in defs])
+        if point is None:
+            continue
+        if peak_hr is None or not max_hr:
+            effort = "effort_unknown"
+        elif peak_hr >= INTERVAL_HR_PEAK_FRACTION * max_hr:
+            effort = "hr_verified"
+        else:
+            continue
+        points.append({**point, "date": day, "start": a.start, "effort": effort, "label": _interval_label(point),
+                       "canonical_id": a.canonical_id, "source": "concept2"})
     points.sort(key=lambda p: p["start"], reverse=True)
     session.info[_CACHE_KEY] = (key, points)
     return points
+
+
+def _canonicals(session: Session, ids) -> dict[int, CanonicalActivity]:
+    ids = sorted(i for i in ids if i is not None)
+    out = {}
+    for i in range(0, len(ids), 500):
+        for c in session.exec(select(CanonicalActivity).where(CanonicalActivity.id.in_(ids[i : i + 500]))).all():
+            out[c.id] = c
+    return out
+
+
+def _interval_label(point: dict) -> str:
+    return f"Intervals: {point['reps']} × {point['rep_distance_m']:,.0f} m"
+
+
+def _interval_piece_points(session: Session, since: datetime | None, declared_canonicals: set[int]) -> tuple[list[dict], set[int]]:
+    """Saved rowing-erg interval pieces as evidence, and the Concept2 results they were imported from (so those count once)."""
+    pieces = session.exec(select(Piece).where(Piece.has_intervals.is_(True), Piece.modality == "rowing_erg")).all()
+    if not pieces:
+        return [], set()
+    canonicals = _canonicals(session, {p.canonical_id for p in pieces})
+    rows_by_piece: dict[int, list[PieceInterval]] = {}
+    ids = [p.id for p in pieces]
+    for i in range(0, len(ids), 500):
+        for r in session.exec(select(PieceInterval).where(PieceInterval.piece_id.in_(ids[i : i + 500])).order_by(PieceInterval.position)).all():
+            rows_by_piece.setdefault(r.piece_id, []).append(r)
+    points, imported = [], set()
+    for p in pieces:
+        c = canonicals.get(p.canonical_id)
+        if c is None or c.start is None or (since is not None and c.start < since) or p.canonical_id in declared_canonicals:
+            continue
+        if p.concept2_activity_id is not None:
+            imported.add(p.concept2_activity_id)
+        if _overrides(c).get("exclude_from_totals") or p.piece_type in RATE_CAPPED_PIECE_TYPES:
+            continue
+        point = interval_point([(r.work_distance_m, r.work_duration_s, r.rest_duration_s) for r in rows_by_piece.get(p.id, [])])
+        if point is None:
+            continue
+        points.append({**point, "date": localtime.day_of(session, c), "start": c.start, "effort": "declared", "label": _interval_label(point),
+                       "canonical_id": p.canonical_id, "source": "piece"})
+    return points, imported
 
 
 def invalidate(session: Session) -> None:
@@ -132,14 +204,14 @@ def measured_2k(session: Session, settings: dict, as_of: date, pts: list[dict] |
 
 def implied_2k_history(session: Session, settings: dict, from_: date | None = None, to: date | None = None) -> list[dict]:
     """One point per qualifying effort: the 2k that effort alone implies (historical, per effort — never the current estimate)."""
-    from catch.analytics.predict import implied_2k_time
-
     out = []
     for p in sorted(evidence(session, settings), key=lambda p: p["start"]):
         if (from_ and p["date"] < from_) or (to and p["date"] > to):
             continue
-        out.append({"date": p["date"], "value": implied_2k_time(p["distance_m"], p["duration_s"]), "activity_id": p["canonical_id"],
-                    "effort": p["effort"], "distance_m": p["distance_m"]})
+        if unusable_reason(p) is not None:  # same gate as the estimate: a mis-entered piece isn't a point on the chart either
+            continue
+        out.append({"date": p["date"], "value": point_implied_2k(p), "activity_id": p["canonical_id"],
+                    "effort": p["effort"], "distance_m": p["distance_m"], "kind": p.get("kind", "continuous")})
     return out
 
 
@@ -161,9 +233,7 @@ _EVIDENCE_FIELDS = ("overrides_json", "category", "absorbed_into_piece_id", "loc
 def _affects_evidence(obj) -> bool:
     from sqlalchemy import inspect as sa_inspect
 
-    from catch.core.models import Piece
-
-    if isinstance(obj, (Activity, Piece)):
+    if isinstance(obj, (Activity, Piece, PieceInterval)):
         return True
     if isinstance(obj, CanonicalActivity):
         state = sa_inspect(obj)

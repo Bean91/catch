@@ -19,8 +19,9 @@ from catch.analytics.defaults import DEFAULT_SETTINGS
 ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"]
 ZONE_NOTE = "Zone boundaries are defaults — confirm with your coach before training off them."
 HR_METHODS = ("hrr", "max_pct")
-# Bumped when the meaning of stored zone seconds changes, so run_maintenance re-resolves history once (2 = HRR zones, session 33).
-ZONES_MODEL = 2
+# Bumped when the meaning of stored zone seconds changes, so run_maintenance re-resolves history once (2 = HRR zones, session 33;
+# 3 = the as-of 2k estimate behind rowing power zones drops implausible pieces and counts interval work, 2026-11-22).
+ZONES_MODEL = 3
 # A max HR within this of the resting HR leaves no usable reserve to divide — treated as not reliable.
 MIN_RESERVE_BPM = 40.0
 

@@ -36,24 +36,42 @@ performance implies `2k_time = 4 x (pace_500 - 5 * log2(distance / 2000))`. Hand
 
 | Class | What | Weight |
 |---|---|---|
-| `declared` | a confirmed test or a confirmed single-effort piece (never a rate-capped `30min_r20`, never an interval piece) | 1.0 |
-| `hr_verified` | a continuous Concept2 row whose average heart rate is ≥ 85 % of max HR | 0.7 |
-| `effort_unknown` | a continuous row with no heart rate (could have been steady) | 0.3 |
+| `declared` | a confirmed test or a confirmed single-effort piece (never a rate-capped `30min_r20`), or a saved rowing-erg interval piece | 1.0 |
+| `hr_verified` | a continuous Concept2 row whose average heart rate is ≥ 85 % of max HR, or a Concept2 interval result whose peak heart rate reached 90 % | 0.7 |
+| `effort_unknown` | a row with no heart rate (could have been steady) | 0.3 |
 
-Never counted: a row whose heart rate shows it was steady (< 85 %), interval workouts, an untyped result with rest time (Concept2 adds
-rest into `duration`), anything outside 500 m–10 km (at most ~2 doublings of extrapolation), anything older than 365 days.
+Heart rate is the row's own, else the workout's (merged across sources): a PM5 records HR only from a paired strap, so an athlete who
+wears a watch has none on the Concept2 row. Interval evidence is weighted × 0.5 on top.
+
+Never counted: a row whose heart rate shows it was steady, an untyped result with rest time (Concept2 adds rest into `duration`),
+anything outside 500 m–10 km (at most ~2 doublings of extrapolation), anything older than 365 days, BikeErg/SkiErg results and bike
+pieces. A workout counts once: a declared test wins over its Concept2 row, and an interval piece over the Concept2 result it was
+imported from (or any Concept2 interval result on the same workout).
+
+**Interval work** (`interval_point`, 2026-11-22): work rows only (at least two reps of ≥ 100 m, both distance and time); the rest after
+the last rep doesn't count. Paul's law needs one distance to extrapolate from: with no rest the set behaves like one continuous effort of
+its total distance, with long rests each rep is close to its own effort, so the distance used sits between the two in log terms, by the
+share of the session spent resting — `exp((1 − f)·ln(total) + f·ln(rep))`, `f = rest / (rest + work)`. 4 × 500 m with a minute's rest
+extrapolates from ~1,320 m. A heuristic, so interval work never sets the near-2k yardstick and never earns "high" confidence alone.
+
+**Plausibility** (`unusable_reason`, shared by the estimate and the per-effort history chart): a pace outside 1:10–3:30/500 m is a data
+error, not a performance, and is left out with that reason. The case that prompted it: a PM5 photo of a 3 × ~3,050 m interval session
+saved as one 3,046 m piece over the whole 44 minutes (7:13/500 m), which implied a 28-minute 2k and gave a range of −2:10 to 16:18.
 
 **Model** (`predict_2k(points, as_of)`):
 1. Pool: when any declared/verified effort exists in the last 120 days, only the last 120 days are used; otherwise older data is a
    fallback, flagged `stale` and capped at low confidence ("no hard effort in the last 4 months").
 2. Submaximal efforts can only make an estimate too slow, so points more than 4 % slower than the best **near-2k** effort (within one
    doubling, when one exists) are dropped. The reference is near-2k because Paul's law from a 500 m usually flatters a sprint-strong
-   rower; a declared effort within one doubling of 2,000 m is never dropped (test: a 1:22 500 m can't discard a real 6:30 2k).
+   rower. A declared single effort within one doubling of 2,000 m is kept up to 10 % slower than that best (a real 2k after a dip in
+   fitness still counts; a mis-entered one doesn't). Every dropped point is returned in `excluded` with its reason, and named in the
+   explanation.
 3. Estimate = weighted median of the kept implied times; weight = `0.5^(age/60 days) x effort weight / (1 + |log2(d/2000)|)`.
-4. Range (seconds) = `sqrt(extrapolation² + spread² + 2 s²) + staleness`: extrapolation = 2 s/500 m per doubling (how far one athlete's
-   curve sits from 5 s — rowers measure roughly 3–7) × 4; spread = the weighted SD of the kept points; staleness = 0.5 s per week
-   after the newest point is 4 weeks old, capped at 10 s.
-5. Confidence: **high** needs ≥ 2 strong efforts in 90 days, one within a doubling of 2k, and a half-range ≤ 4 s; **moderate** needs a
+4. Range (seconds) = `sqrt(extrapolation² + spread² + 2 s²) + staleness`, capped at 8 % of the estimate: extrapolation = 2 s/500 m per
+   doubling (how far one athlete's curve sits from 5 s — rowers measure roughly 3–7) × 4; spread = the weighted mean absolute deviation
+   of the kept points from the estimate (× 1.2533; it was the SD, which one stray point could inflate past the estimate itself); staleness
+   = 0.5 s per week after the newest point is 4 weeks old, capped at 10 s.
+5. Confidence: **high** needs ≥ 2 strong single efforts in 90 days, one within a doubling of 2k, and a half-range ≤ 4 s; **moderate** needs a
    strong effort within 1.6 doublings and a half-range ≤ 8 s; otherwise **low**; **insufficient_data** when nothing qualifies (or only
    old no-HR rows). One effort is never "high".
 
@@ -62,7 +80,11 @@ Legacy keys stay for old readers: `value` and `range` are pace (s/500 m), `predi
 event's fallback range was the pace range printed as times.
 
 **As of a date** (`estimate_2k(..., before=start)`): the rowing power-zone threshold (`rowing_watts_2k`) and its muscular tiers use
-only evidence up to that session's day, so a later full re-resolve never rewrites an old session's zones with today's fitness.
+only evidence up to that session's day, so a later full re-resolve never rewrites an old session's zones with today's fitness. The
+2026-11-22 rule changes move that threshold for some past sessions, so `ZONES_MODEL` went to 3 and maintenance re-resolves history once.
+
+**Today's "Latest erg piece"** and the W/kg trend read rowing-erg Concept2 results only (`type == "rower"`); a BikeErg session showed
+there per 500 m with its cadence as spm.
 
 **Limitations**: Paul's law is a population rule; a sprinter or a diesel will sit off it, which the range only partly covers. Heart
 rate verifies effort only when a strap recorded it; "max HR" is the setting (or the Concept2 profile's). On-water pieces are not used.

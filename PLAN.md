@@ -4863,3 +4863,17 @@ wraps the routes inside `AppShell` (the page shows the error with Try again / Re
 - Text pushed the page sideways in several places. Fix and rules in DESIGN.md "Text never widens the page". A 320px sweep of every mock page found
   three causes beyond the missing global rule: `break-words` containers resetting it, a `grid-cols-[auto_1fr]` (now `minmax(0,1fr)`) on connection
   details, and WebKit's ~20-character minimum on inputs in rows (workout tags, food search, meal-photo items, Add piece totals, interval rest).
+
+## Follow-up: 2k estimate on bad data and interval work, BikeErg on Today (2026-11-22)
+
+- Today showed a BikeErg marathon as the "Latest erg piece" (per 500 m, cadence as spm): `_latest_erg` took the newest Concept2 result
+  of any machine. It (and the W/kg trend) now read `type == "rower"` only.
+- The 2k range read "likely −2:10.9–16:18.1": a PM5 photo of a 3 × ~3,050 m interval session had been saved as one 3,046 m custom piece
+  over the whole 44 minutes (7:13/500 m), the near-2k exemption kept every declared piece unconditionally, and the range's SD exploded.
+  Now: a pace plausibility gate, the declared exemption bounded at 10 %, a mean-absolute-deviation spread, the half-range capped at 8 %,
+  and every dropped point reported. On the reported data: 7:14.5, likely 7:11.6–7:17.4.
+- Interval work counts (interval pieces; Concept2 interval results whose peak HR reached 90 % of max), once per workout, weighted × 0.5,
+  never the yardstick. Effort uses the workout's merged HR when the Concept2 row has none (a watch wearer's rows never had any).
+- `ZONES_MODEL` 3: maintenance re-resolves history once so stored rowing power zones use the corrected as-of estimate.
+- Not changed: the mis-saved piece itself (the athlete's data), and the PM5 photo reader still reads an interval screen as splits.
+  Docs: analytics.md §2. Tests: `tests/analytics/test_predict_robust.py`, `tests/test_2k_estimate_sources.py`.

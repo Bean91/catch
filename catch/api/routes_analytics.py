@@ -119,7 +119,10 @@ def _baseline_band(component: dict | None, log_space: bool) -> dict | None:
 
 
 def _latest_erg(db: Session) -> dict | None:
-    stmt = select(Activity).options(defer(Activity.raw_json)).where(Activity.source == "concept2", Activity.start.is_not(None)).order_by(Activity.start.desc())
+    # The card pairs the piece with the 2k estimate and shows it per 500 m and in spm: rowing erg only, never a BikeErg or SkiErg.
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(
+        Activity.source == "concept2", Activity.type == "rower", Activity.start.is_not(None)
+    ).order_by(Activity.start.desc())
     row = db.exec(stmt).first()
     if row is None:
         return None
@@ -398,7 +401,10 @@ def _weight_trend(db: Session, from_: date | None, to: date | None) -> list[dict
 
 def _w_per_kg_trend(db: Session, from_: date | None, to: date | None) -> list[dict]:
     start, end = localtime.date_bounds(db, from_, to)
-    stmt = select(Activity).options(defer(Activity.raw_json)).where(Activity.source == "concept2", Activity.avg_power.is_not(None))
+    # Rowing erg only: BikeErg watts per kg aren't the same measure (same rule as PBs and the 2k).
+    stmt = select(Activity).options(defer(Activity.raw_json)).where(
+        Activity.source == "concept2", Activity.type == "rower", Activity.avg_power.is_not(None)
+    )
     if start:
         stmt = stmt.where(Activity.start >= start)
     if end:

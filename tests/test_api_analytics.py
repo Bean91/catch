@@ -247,7 +247,7 @@ def test_predict_2k_uses_best_piece_per_bucket(client, session):
             type="rower",
             start=datetime.now(timezone.utc) - timedelta(days=10),
             distance=6000,
-            duration=660.0,  # 110.0 s/500m
+            duration=1320.0,  # 110.0 s/500m
         )
     )
     session.commit()
