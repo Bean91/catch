@@ -700,7 +700,7 @@ def _estimated_zone_totals(activity: CanonicalActivity, basis) -> dict[str, floa
 
 
 @router.get("/api/trends/volume")
-def trends_volume(weeks: int = Query(12, ge=1, le=52), db: Session = Depends(get_db)):
+def trends_volume(weeks: int = Query(12, ge=1, le=104), db: Session = Depends(get_db)):
     settings = get_settings(db)
     today = localtime.today(db)
     this_week_start = today - timedelta(days=today.weekday())
@@ -836,6 +836,9 @@ def _hr_recovery(hr_full: list[float | None], from_offset: int, window_s: int = 
     return hr_recovery_drop(hr_full, from_offset, window_s)
 
 
+SAMPLE_GAP_S = 8  # a dropout longer than this breaks the drawn line; shorter ones are a sensor's normal recording interval
+
+
 @router.get("/api/activities/{canonical_id}/samples")
 def activity_samples(
     canonical_id: int,
@@ -890,8 +893,11 @@ def activity_samples(
         laps = json.loads(hr_member.laps_json) if hr_member.laps_json else _concept2_laps(db, hr_member.id)
         member_offsets = {m.id: 0 for m in members if m.id is not None}
     has_hr = any(v is not None for v in hr_full)
-    if not has_hr:
-        return {"has_data": False, "reason": "no heart-rate data"}
+    has_power = any(v is not None for v in power_full)
+    has_cadence = any(v is not None for v in cadence_full)
+    # Session 36: a recording with power or cadence but no heart rate (a power meter without a strap) still has a chart.
+    if not (has_hr or has_power or has_cadence):
+        return {"has_data": False, "reason": "no heart-rate, power or cadence data"}
 
     from catch.api.routes_activities import workout_hr_basis
 
@@ -906,9 +912,24 @@ def activity_samples(
     # bounds the summary chips/zones/strain above, computed separately.
     window_lo = max(0, start_s) if start_s is not None else 0
     window_hi = min(n, end_s) if end_s is not None else n
-    defined_idx = [i for i in range(window_lo, window_hi) if hr_full[i] is not None]
-    indices = lttb_indices([elapsed[i] for i in defined_idx], [hr_full[i] for i in defined_idx], points) if defined_idx else []
+    shape = hr_full if has_hr else power_full if has_power else cadence_full
+    defined_idx = [i for i in range(window_lo, window_hi) if shape[i] is not None]
+    indices = lttb_indices([elapsed[i] for i in defined_idx], [shape[i] for i in defined_idx], points) if defined_idx else []
     chosen = [defined_idx[i] for i in indices]
+    # A dropout must break the line, not be bridged: one empty second at the start of every gap longer than GAP_S in any channel
+    # (the chart draws a null as a break). Nothing is filled in.
+    gap_markers = set()
+    for series in (hr_full, power_full, cadence_full):
+        run_start = None
+        for i in range(window_lo, window_hi):
+            if series[i] is None:
+                if run_start is None:
+                    run_start = i
+            else:
+                if run_start is not None and i - run_start > SAMPLE_GAP_S and run_start > window_lo:
+                    gap_markers.add(run_start)
+                run_start = None
+    chosen = sorted(set(chosen) | gap_markers)
 
     defined_hr = [hr_full[i] for i in range(usable_n) if hr_full[i] is not None]
     recoveries = {
@@ -946,4 +967,8 @@ def activity_samples(
         ],
         "returned_count": len(chosen),
         "raw_count": len(defined_idx),
+        "has_hr": has_hr,
+        "has_power": has_power,
+        "has_cadence": has_cadence,
+        "gaps": len(gap_markers),
     }

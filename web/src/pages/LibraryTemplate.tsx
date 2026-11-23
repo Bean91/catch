@@ -75,9 +75,11 @@ export function LibraryTemplatePage() {
         <button type="button" data-testid="duplicate" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} className={btn}>
           Duplicate
         </button>
-        <button type="button" data-testid="archive" onClick={() => archive.mutate(!t.archived)} disabled={archive.isPending} className={btn}>
-          {t.archived ? "Unarchive" : "Archive"}
-        </button>
+        {t.can_archive !== false && (
+          <button type="button" data-testid="archive" onClick={() => archive.mutate(!t.archived)} disabled={archive.isPending} className={btn}>
+            {t.archived ? "Unarchive" : "Archive"}
+          </button>
+        )}
       </div>
       {error && (
         <p role="alert" className="text-sm text-text-secondary">
@@ -102,7 +104,7 @@ export function LibraryTemplatePage() {
 
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
         <Card title="Structure">
-          <StructureView structure={t.structure} exerciseNames={names} />
+          <StructureView structure={t.structure} exerciseNames={names} bike={t.session_type === "bike"} />
         </Card>
         <Card title="Totals">
           <SummaryPanel summary={t.summary} />

@@ -3,6 +3,7 @@ import { declineMatch, linkPlanned, setPlannedSkipped, unlinkPlanned } from "../
 import { dayLabel, isSameMonth, monthGrid, parseISODate, weekdayShort } from "../../lib/dates";
 import type { CalendarDay, CalendarPayload, MatchSuggestion, PlannedWorkout } from "../../lib/types";
 import { CompletedChip, EventChip, PlannedSessionChip } from "./Chips";
+import { BlockLine } from "./BlockLine";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
 import { PillNav } from "../ui/PillNav";
 import { EmptyState } from "../ui/EmptyState";
@@ -134,7 +135,7 @@ export function DayView({
       {day.planned.length === 0 && loose.length === 0 && day.events.length === 0 && <p className="text-sm text-text-tertiary">Nothing planned or logged for this day.</p>}
       {day.planned.map((p) => {
         const s = daySuggestions.find((x) => x.planned_id === p.id);
-        const completed = day.completed.find((c) => c.id === p.linked_canonical_id);
+        const completed = day.completed.find((c) => c.id === p.linked_canonical_id) ?? p.linked_completed ?? undefined;
         return (
           <div key={p.id} className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-2">
             <PlannedSessionChip p={p} onOpen={onOpenPlanned} />
@@ -142,9 +143,7 @@ export function DayView({
               <ul className="px-2 text-xs text-text-secondary">
                 {p.structure.map((b, i) => (
                   <li key={i}>
-                    {b.reps} × {b.work_min ? `${b.work_min} min` : `${b.work_m} m`}
-                    {b.rest_min ? `, ${b.rest_min} min rest` : ""}
-                    {b.zone ? ` @ ${b.zone}` : ""}
+                    <BlockLine b={b} sportFamily={p.sport_family} />
                   </li>
                 ))}
               </ul>

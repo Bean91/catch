@@ -227,12 +227,46 @@ def test_planner_totals_agree_with_the_template_summary(entry):
         assert totals["distance_m"] == pytest.approx(summary["total_distance_m"])
 
 
-def test_planned_fields_carry_targets_in_notes_and_only_known_numbers():
+def test_planned_fields_carry_structured_targets_and_only_known_numbers():
+    # Session 36: targets travel as fields the plan comparison can read (they used to become a free-text note).
     tpl = {"name": "Ladder", "workout_type": "rate_ladder", "session_type": "erg", "purpose": "Rate control",
-           "structure": {"blocks": [{"reps": 1, "work_s": 240, "rest_s": 60, "rate_min": 18, "rate_max": 20, "split_s": 125.5}, {"reps": 1, "work_s": 240, "watts": 200}]}}
+           "structure": {"blocks": [{"reps": 1, "work_s": 240, "rest_s": 60, "rate_min": 18, "rate_max": 20, "split_s": 125.5}, {"reps": 1, "work_s": 240, "watts": 200, "hr_max": 165}]}}
     f = wl.to_planned_fields(tpl)
-    assert f["structure"][0]["note"] == "18-20 spm; split 2:05.5"
-    assert f["structure"][1]["note"] == "200 W" and f["intensity_note"] == "Rate control"
+    assert f["structure"][0] == {"reps": 1, "work_min": 4.0, "rest_min": 1.0, "rate_min": 18.0, "rate_max": 20.0, "split_s": 125.5}
+    assert f["structure"][1]["watts"] == 200.0 and f["structure"][1]["hr_max"] == 165.0 and "note" not in f["structure"][1]
+    assert f["intensity_note"] == "Rate control"
     assert f["duration_min"] == pytest.approx((480 + 60) / 60)
+    assert pl.validate_structure(f["structure"]) == f["structure"]
     no_duration = wl.to_planned_fields({"name": "x", "workout_type": "distance_piece", "session_type": "erg", "structure": {"blocks": [{"reps": 1, "work_m": 5000}]}})
     assert "duration_min" not in no_duration and no_duration["distance_m"] == 5000.0
+
+
+def test_warmup_and_cooldown_become_kind_blocks_not_description_text():
+    tpl = {"name": "W", "workout_type": "steady_state", "session_type": "erg", "description": "base",
+           "structure": {"warmup": {"duration_min": 10, "zone": "UT2", "rate_max": 20}, "blocks": [{"reps": 1, "work_s": 1800, "zone": "UT1"}], "cooldown": {"distance_m": 1000}}}
+    f = wl.to_planned_fields(tpl)
+    kinds = [b.get("kind", "work") for b in f["structure"]]
+    assert kinds == ["warmup", "work", "cooldown"]
+    assert f["structure"][0]["rate_max"] == 20.0 and f["description"] == "base"
+    # Zone minutes still describe the work only, matching the template summary.
+    totals = pl.planned_totals([{**_planned_input(f)}])
+    assert totals["zone_minutes"]["UT1"] == pytest.approx(30.0) and totals["zone_minutes"]["UT2"] == 0.0
+
+
+def test_bike_splits_are_per_1000m_and_watts_are_never_derived_from_pace():
+    base = {"name": "B", "workout_type": "steady_state", "session_type": "bike"}
+    ok = wl.validate_template({**base, "structure": {"blocks": [{"reps": 1, "work_m": 20000, "split_s": 120, "rate_min": 85, "rate_max": 95}]}})
+    assert ok["ok"], ok
+    s = wl.summarize_template({"blocks": [{"reps": 1, "work_m": 20000, "split_s": 120}]}, None, wl.split_basis_m("bike"))
+    assert s["total_duration_s"] == pytest.approx(20 * 120)  # 20 km at 2:00 per 1000 m
+    w = wl.summarize_template({"blocks": [{"reps": 1, "work_m": 20000, "watts": 200}]}, None, wl.split_basis_m("bike"))
+    assert w["total_duration_s"] is None  # no rowing formula on a bike
+    rowing_rate = wl.validate_template({**base, "session_type": "erg", "structure": {"blocks": [{"reps": 1, "work_s": 600, "rate_min": 90}]}})
+    assert not rowing_rate["ok"]
+
+
+def test_hr_targets_are_validated():
+    bad = wl.validate_template({"name": "x", "workout_type": "time_piece", "session_type": "erg", "structure": {"blocks": [{"reps": 1, "work_s": 600, "hr_min": 170, "hr_max": 150}]}})
+    assert any(i["path"].endswith("hr_min") for i in bad["issues"])
+    with pytest.raises(ValueError):
+        pl.validate_structure([{"reps": 1, "work_min": 10, "hr_min": 300}])

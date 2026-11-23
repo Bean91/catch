@@ -137,6 +137,29 @@ def delete_planned(planned_id: int, scope: str = Query("this"), db: Session = De
     return {"deleted": _guard(lambda: sp.delete_planned(db, current_owner(), planned_id, scope))}
 
 
+@router.get("/api/planned/{planned_id}/link-candidates")
+def link_candidates(planned_id: int, db: Session = Depends(get_db)):
+    return {"candidates": _guard(lambda: sp.link_candidates(db, current_owner(), planned_id))}
+
+
+@router.get("/api/planned/{planned_id}/comparison")
+def planned_comparison(planned_id: int, db: Session = Depends(get_db)):
+    from catch.sync import plan_compare
+
+    return _guard(lambda: plan_compare.comparison(db, current_owner(), planned_id))
+
+
+@router.get("/api/activities/{canonical_id}/plan-comparison")
+def workout_plan_comparison(canonical_id: int, db: Session = Depends(get_db)):
+    """The plan a workout was linked to, compared with it — or `{"planned": null}` when it isn't linked to one."""
+    from catch.core.models import CanonicalActivity
+    from catch.sync import plan_compare
+
+    if db.get(CanonicalActivity, canonical_id) is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return _guard(lambda: plan_compare.comparison_for_workout(db, current_owner(), canonical_id)) or {"planned": None}
+
+
 @router.get("/api/planned/{planned_id}")
 def get_planned(planned_id: int, db: Session = Depends(get_db)):
     return sp.planned_dict(_guard(lambda: sp.get_planned(db, current_owner(), planned_id)))

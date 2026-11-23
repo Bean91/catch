@@ -2,7 +2,7 @@ import { formatClock } from "../../lib/duration";
 import type { TemplateStructure } from "../../lib/types";
 import { blockTargets, blockWork, segmentText } from "./labels";
 
-export function StructureView({ structure, exerciseNames }: { structure: TemplateStructure; exerciseNames?: Record<number, string> }) {
+export function StructureView({ structure, exerciseNames, bike = false }: { structure: TemplateStructure; exerciseNames?: Record<number, string>; bike?: boolean }) {
   const warm = segmentText(structure.warmup);
   const cool = segmentText(structure.cooldown);
   const blocks = structure.blocks ?? [];
@@ -23,10 +23,10 @@ export function StructureView({ structure, exerciseNames }: { structure: Templat
             {b.reps} × {blockWork(b)}
             {b.rest_s ? <span className="text-text-secondary"> · rest {formatClock(b.rest_s)}</span> : null}
           </p>
-          {(blockTargets(b).length > 0 || b.note) && (
+          {(blockTargets(b, bike).length > 0 || b.note) && (
             <p className="text-text-secondary">
-              {blockTargets(b).join(" · ")}
-              {b.note ? `${blockTargets(b).length ? " · " : ""}${b.note}` : ""}
+              {blockTargets(b, bike).join(" · ")}
+              {b.note ? `${blockTargets(b, bike).length ? " · " : ""}${b.note}` : ""}
             </p>
           )}
         </li>

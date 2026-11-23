@@ -3,6 +3,8 @@
 // browser's *local* today, never a UTC slice.
 import { addDays, daysBetween, todayISO, weekStart } from "./dates";
 import type {
+  LinkCandidate,
+  PlanComparisonResponse,
   CalendarCompleted,
   CalendarDay,
   CalendarPayload,
@@ -49,7 +51,7 @@ function seed() {
   const w3 = addDays(m, 21); // ...followed by a 420-minute one, which is what raises the review flag
   return {
     planned: [
-      planned({ id: 1, date: addDays(t, -9), session_type: "erg", title: "Steady UT2", duration_min: 70, target_zone: "UT2", linked_canonical_id: 11 }),
+      planned({ id: 1, date: addDays(t, -9), session_type: "erg", title: "Steady UT2", duration_min: 70, target_zone: "UT2", linked_canonical_id: 11, structure: [{ reps: 1, kind: "warmup", work_min: 10, zone: "UT2" }, { reps: 1, work_min: 60, zone: "UT2", rate_min: 18, rate_max: 20, hr_max: 145 }] }),
       planned({ id: 2, date: addDays(t, -8), session_type: "strength", title: "Legs + core", duration_min: 45, linked_canonical_id: 12 }),
       planned({ id: 3, date: addDays(t, -3), session_type: "erg", title: "Steady UT2", duration_min: 60, target_zone: "UT2" }),
       planned({ id: 4, date: addDays(t, -2), session_type: "on_water", title: "Long row", duration_min: 80, target_zone: "UT2" }),
@@ -99,8 +101,7 @@ function displayStatus(p: PlannedWorkout): PlannedDisplayStatus {
 
 function view(p: PlannedWorkout): PlannedWorkout {
   const completed = state.completed.find((c) => c.id === p.linked_canonical_id);
-  void completed;
-  return { ...p, display_status: displayStatus(p) };
+  return { ...p, display_status: displayStatus(p), linked_completed: completed ? { ...completed, linked_planned_id: p.id } : null };
 }
 
 function suggestions(): MatchSuggestion[] {
@@ -436,4 +437,73 @@ export function unapproveMockPhase(id: number): PlanPhase {
   if (!row) throw new Error("not found");
   Object.assign(row, { coach_approved: false, coach_approved_at: null, coach_approved_by: null, coach_approved_note: null, edited_since_approval: false });
   return row;
+}
+
+// --- Session 36: planned vs done. Fixed figures: the browser holds no comparison maths, the mock just answers. ---
+
+export function mockPlanComparison(plannedId: number): PlanComparisonResponse {
+  const p = state.planned.find((x) => x.id === plannedId);
+  if (!p) throw new Error("not found");
+  const v = view(p);
+  if (p.linked_canonical_id == null) return { planned_id: p.id, planned: v, linked: false, comparison: null, reason: "Link a completed workout to compare it with this plan." };
+  return {
+    planned_id: p.id,
+    planned: v,
+    linked: true,
+    workout: { id: p.linked_canonical_id, ref: `/workouts/${p.linked_canonical_id}`, title: v.linked_completed?.title ?? null, sport_family: "rowing" },
+    split_basis_m: 500,
+    reason: null,
+    comparison: {
+      mode: "whole",
+      reason: "This recording has no per-rep data, so only the session as a whole can be compared. Rep targets aren't compared with a whole-session average, which would include warm-up and rest.",
+      reps_source: null,
+      totals: [{ metric: "duration_s", target: { value: 4200 }, actual: 4080, actual_basis: "measured", delta: -120 }],
+      reps: [],
+      whole: [],
+      has_targets: true,
+    },
+  };
+}
+
+export function mockWorkoutPlanComparison(canonicalId: number): PlanComparisonResponse | { planned: null } {
+  const p = state.planned.find((x) => x.linked_canonical_id === canonicalId);
+  if (!p) return { planned: null };
+  if (canonicalId === 11) {
+    const base = mockPlanComparison(p.id);
+    return {
+      ...base,
+      comparison: {
+        mode: "per_rep",
+        reason: null,
+        reps_source: "laps",
+        totals: [{ metric: "duration_s", target: { value: 4200 }, actual: 4080, actual_basis: "measured", delta: -120 }],
+        reps: [
+          { index: 0, block_index: 0, kind: "warmup", metrics: [{ metric: "duration_s", target: { value: 600 }, actual: 540, actual_basis: "measured", delta: -60 }] },
+          {
+            index: 1, block_index: 1, kind: "work", metrics: [
+              { metric: "duration_s", target: { value: 3600 }, actual: 3540, actual_basis: "measured", delta: -60 },
+              { metric: "rate", target: { min: 18, max: 20 }, actual: 19.4, actual_basis: "measured", status: "in_range" },
+              { metric: "hr", target: { min: null, max: 145 }, actual: 141, actual_basis: "measured", status: "in_range" },
+            ],
+          },
+        ],
+        whole: [],
+        has_targets: true,
+      },
+    };
+  }
+  return mockPlanComparison(p.id);
+}
+
+export function mockLinkCandidates(plannedId: number): LinkCandidate[] {
+  const p = state.planned.find((x) => x.id === plannedId);
+  if (!p) return [];
+  return state.completed
+    .map((c) => {
+      const day = (c.start ?? "").slice(0, 10);
+      const linkedTo = state.planned.find((x) => x.linked_canonical_id === c.id)?.id ?? null;
+      return { ...c, linked_planned_id: linkedTo, local_date: day, days_from_plan: daysBetween(p.date, day), linked_elsewhere: linkedTo != null && linkedTo !== p.id };
+    })
+    .filter((c) => Math.abs(c.days_from_plan) <= 3)
+    .sort((a, b) => Math.abs(a.days_from_plan) - Math.abs(b.days_from_plan));
 }

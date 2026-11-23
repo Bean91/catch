@@ -20,6 +20,7 @@ Rules that matter more than they look:
 from typing import Any, Optional
 
 from catch.analytics.erg_math import pace_from_watts
+from catch.analytics.piece import SPLIT_M_BY_MODALITY
 from catch.analytics.piece_intervals import MAX_DURATION_S, MAX_WORK_DISTANCE_M, RATE_RANGE
 from catch.analytics.planning import SESSION_TYPES
 from catch.analytics.zones import ZONE_ORDER
@@ -32,8 +33,12 @@ MAX_BLOCKS = 30
 MAX_REPS = 100
 MAX_STRENGTH_ITEMS = 30
 MAX_TAGS = 10
-SPLIT_RANGE = (60.0, 300.0)  # seconds per 500 m
+SPLIT_RANGE = (60.0, 300.0)  # seconds per 500 m (rowing erg / on the water)
+# Session 36: a bike's split is per 1000 m, its own display unit (the piece convention, analytics/piece.py), never a rowing pace.
+SPLIT_RANGE_BY_BASIS = {500.0: SPLIT_RANGE, 1000.0: (60.0, 480.0)}
 WATTS_RANGE = (20.0, 1500.0)
+HR_RANGE = (40, 230)
+CADENCE_RANGE = (30.0, 150.0)  # a bike's rate target is pedal cadence (rpm), not a stroke rate
 
 _DEFAULT_SESSION_TYPE = {
     "erg_intervals": "erg", "steady_state": "erg", "rate_ladder": "erg", "distance_piece": "erg",
@@ -44,8 +49,20 @@ _ALLOWED_SESSION_TYPES = {
     "rate_ladder": ("erg", "on_water"), "distance_piece": ("erg", "on_water"), "time_piece": ("erg", "on_water"),
     "strength": ("strength",), "on_water": ("on_water",), "custom": tuple(t for t in SESSION_TYPES if t != "rest"),
 }
-_SEGMENT_KEYS = ("duration_min", "distance_m", "zone", "note")
-_BLOCK_KEYS = ("reps", "work_s", "work_m", "rest_s", "zone", "rate_min", "rate_max", "split_s", "watts", "note")
+_SEGMENT_KEYS = ("duration_min", "distance_m", "zone", "note", "rate_min", "rate_max", "hr_min", "hr_max")
+_BLOCK_KEYS = ("reps", "work_s", "work_m", "rest_s", "zone", "rate_min", "rate_max", "split_s", "watts", "hr_min", "hr_max", "note")
+
+
+def split_basis_m(session_type: Optional[str] = None, sport_family: Optional[str] = None) -> float:
+    """The distance a split target is quoted per: 1000 m for a bike, 500 m for everything rowed."""
+    if session_type == "bike" or sport_family == "cycling":
+        return SPLIT_M_BY_MODALITY["bike"]
+    return SPLIT_M_BY_MODALITY["rowing_erg"]
+
+
+def _watts_from_pace_applies(split_m: float) -> bool:
+    # The Concept2 power formula describes a rowing erg; a bike's watts are measured, never derived from its pace.
+    return split_m == SPLIT_M_BY_MODALITY["rowing_erg"]
 _STRENGTH_KEYS = ("exercise_id", "target_sets", "target_reps", "note")
 
 
@@ -106,8 +123,9 @@ def validate_template(fields: dict) -> dict:
     if unknown:
         add("structure", f"Unknown structure key(s): {sorted(unknown)}.")
 
+    split_m = split_basis_m(st or (default_session_type(wt) if wt in WORKOUT_TYPES else None), fields.get("sport_family"))
     for seg in ("warmup", "cooldown"):
-        _validate_segment(structure.get(seg), f"structure.{seg}", add)
+        _validate_segment(structure.get(seg), f"structure.{seg}", add, split_m)
 
     blocks = structure.get("blocks") or []
     if not isinstance(blocks, list):
@@ -116,7 +134,7 @@ def validate_template(fields: dict) -> dict:
     if len(blocks) > MAX_BLOCKS:
         add("structure.blocks", f"At most {MAX_BLOCKS} blocks.")
     for i, b in enumerate(blocks):
-        _validate_block(b, f"structure.blocks[{i}]", add)
+        _validate_block(b, f"structure.blocks[{i}]", add, split_m)
 
     items = structure.get("strength_items") or []
     if not isinstance(items, list):
@@ -132,7 +150,7 @@ def validate_template(fields: dict) -> dict:
     return {"ok": not issues, "issues": issues}
 
 
-def _validate_segment(seg: Any, path: str, add) -> None:
+def _validate_segment(seg: Any, path: str, add, split_m: float = 500.0) -> None:
     if seg is None:
         return
     if not isinstance(seg, dict):
@@ -151,9 +169,27 @@ def _validate_segment(seg: Any, path: str, add) -> None:
         add(f"{path}.zone", f"zone must be one of {ZONE_ORDER}.")
     if seg.get("note") is not None and (not isinstance(seg["note"], str) or len(seg["note"]) > 200):
         add(f"{path}.note", "note must be text up to 200 characters.")
+    _validate_rate_hr(seg, path, add, split_m)
 
 
-def _validate_block(b: Any, path: str, add) -> None:
+def _validate_rate_hr(b: dict, path: str, add, split_m: float = 500.0) -> None:
+    rmin, rmax = b.get("rate_min"), b.get("rate_max")
+    bike = not _watts_from_pace_applies(split_m)
+    lo, hi = CADENCE_RANGE if bike else RATE_RANGE
+    for key, v in (("rate_min", rmin), ("rate_max", rmax)):
+        if v is not None and (not _is_num(v) or not lo <= v <= hi):
+            add(f"{path}.{key}", f"Cadence should be {lo:.0f}-{hi:.0f} rpm." if bike else f"Stroke rate should be {lo:.0f}-{hi:.0f} spm.")
+    if _is_num(rmin) and _is_num(rmax) and rmin > rmax:
+        add(f"{path}.rate_min", "rate_min can't be above rate_max.")
+    hmin, hmax = b.get("hr_min"), b.get("hr_max")
+    for key, v in (("hr_min", hmin), ("hr_max", hmax)):
+        if v is not None and (not _is_num(v) or not HR_RANGE[0] <= v <= HR_RANGE[1]):
+            add(f"{path}.{key}", f"Heart-rate target should be {HR_RANGE[0]}-{HR_RANGE[1]} bpm.")
+    if _is_num(hmin) and _is_num(hmax) and hmin > hmax:
+        add(f"{path}.hr_min", "hr_min can't be above hr_max.")
+
+
+def _validate_block(b: Any, path: str, add, split_m: float = 500.0) -> None:
     if not isinstance(b, dict):
         add(path, "Each block must be an object.")
         return
@@ -172,15 +208,11 @@ def _validate_block(b: Any, path: str, add) -> None:
     rest = b.get("rest_s")
     if rest is not None and (not _is_num(rest) or rest < 0 or rest > MAX_DURATION_S):
         add(f"{path}.rest_s", "Rest can't be negative or longer than 12 hours.")
-    rmin, rmax = b.get("rate_min"), b.get("rate_max")
-    for key, v in (("rate_min", rmin), ("rate_max", rmax)):
-        if v is not None and (not _is_num(v) or not RATE_RANGE[0] <= v <= RATE_RANGE[1]):
-            add(f"{path}.{key}", f"Stroke rate should be {RATE_RANGE[0]:.0f}-{RATE_RANGE[1]:.0f} spm.")
-    if _is_num(rmin) and _is_num(rmax) and rmin > rmax:
-        add(f"{path}.rate_min", "rate_min can't be above rate_max.")
+    _validate_rate_hr(b, path, add, split_m)
     split = b.get("split_s")
-    if split is not None and (not _is_num(split) or not SPLIT_RANGE[0] <= split <= SPLIT_RANGE[1]):
-        add(f"{path}.split_s", "Target split should be 1:00-5:00 per 500m.")
+    lo, hi = SPLIT_RANGE_BY_BASIS.get(split_m, SPLIT_RANGE)
+    if split is not None and (not _is_num(split) or not lo <= split <= hi):
+        add(f"{path}.split_s", f"Target split should be {int(lo // 60)}:{int(lo % 60):02d}-{int(hi // 60)}:{int(hi % 60):02d} per {int(split_m)}m.")
     watts = b.get("watts")
     if watts is not None and (not _is_num(watts) or not WATTS_RANGE[0] <= watts <= WATTS_RANGE[1]):
         add(f"{path}.watts", f"Target watts should be {WATTS_RANGE[0]:.0f}-{WATTS_RANGE[1]:.0f}.")
@@ -251,31 +283,32 @@ def _validate_shape(wt: str, fields: dict, blocks: list, items: list, add) -> No
 # --- Arithmetic -------------------------------------------------------------------------------
 
 
-def _split_for(block: dict) -> Optional[float]:
+def _split_for(block: dict, split_m: float = 500.0) -> Optional[float]:
     if block.get("split_s"):
         return float(block["split_s"])
-    if block.get("watts"):
+    if block.get("watts") and _watts_from_pace_applies(split_m):
         return pace_from_watts(float(block["watts"]))
     return None
 
 
-def _segment_amounts(work_s: Optional[float], work_m: Optional[float], split: Optional[float]) -> tuple[Optional[float], Optional[float], bool]:
+def _segment_amounts(work_s: Optional[float], work_m: Optional[float], split: Optional[float], split_m: float = 500.0) -> tuple[Optional[float], Optional[float], bool]:
     """(duration_s, distance_m, estimated) for one rep from whichever side is prescribed. The
     prescribed side is exact; the other is derived from the split/watts target, so `estimated`
     describes the derived side only."""
     if work_s is not None:
         if split:
-            return work_s, work_s / split * 500.0, True
+            return work_s, work_s / split * split_m, True
         return work_s, None, False
     if work_m is not None:
         if split:
-            return work_m / 500.0 * split, work_m, True
+            return work_m / split_m * split, work_m, True
         return None, work_m, False
     return None, None, False
 
 
-def summarize_template(structure: dict, target_zone: Optional[str] = None) -> dict:
-    """Totals for a *valid* structure. Every figure is None when it can't be known."""
+def summarize_template(structure: dict, target_zone: Optional[str] = None, split_m: float = 500.0) -> dict:
+    """Totals for a *valid* structure. Every figure is None when it can't be known. `split_m` is the
+    split basis (500 m rowed, 1000 m on a bike — `split_basis_m`)."""
     structure = structure or {}
     blocks = structure.get("blocks") or []
     work_s = work_m = rest_s = 0.0
@@ -287,7 +320,7 @@ def summarize_template(structure: dict, target_zone: Optional[str] = None) -> di
     work_time_known = 0.0
     for b in blocks:
         reps = b.get("reps", 1)
-        d, m, est = _segment_amounts(b.get("work_s"), b.get("work_m"), _split_for(b))
+        d, m, est = _segment_amounts(b.get("work_s"), b.get("work_m"), _split_for(b, split_m), split_m)
         if est:
             duration_estimated = duration_estimated or b.get("work_s") is None
             distance_estimated = distance_estimated or b.get("work_s") is not None
@@ -381,21 +414,11 @@ def _n(v: float) -> str:
 # --- Calendar conversion ----------------------------------------------------------------------
 
 
-def _rate_note(b: dict) -> str:
-    bits = []
-    lo, hi = b.get("rate_min"), b.get("rate_max")
-    if lo is not None and hi is not None and lo != hi:
-        bits.append(f"{_n(lo)}-{_n(hi)} spm")
-    elif lo is not None or hi is not None:
-        bits.append(f"{_n(lo if lo is not None else hi)} spm")
-    if b.get("split_s"):
-        s = float(b["split_s"])
-        bits.append(f"split {int(s // 60)}:{s % 60:04.1f}")
-    if b.get("watts"):
-        bits.append(f"{_n(b['watts'])} W")
-    if b.get("note"):
-        bits.append(b["note"])
-    return "; ".join(bits)[:200]
+_TARGET_KEYS = ("split_s", "watts", "rate_min", "rate_max", "hr_min", "hr_max")
+
+
+def _targets(src: dict) -> dict:
+    return {k: float(src[k]) for k in _TARGET_KEYS if src.get(k) is not None}
 
 
 def to_planned_fields(template: dict) -> dict:
@@ -403,14 +426,37 @@ def to_planned_fields(template: dict) -> dict:
     `duration_min`/`distance_m` are set only when summarize_template knows them, so the week
     summary and the plan-to-workout matcher see exactly the template's own figures. The
     structure uses planning's vocabulary (work_min/work_m/rest_min); a distance block whose
-    duration is known also carries work_min so the planner's zone minutes agree with ours."""
+    duration is known also carries work_min so the planner's zone minutes agree with ours.
+
+    Session 36: every target (split, watts, rate, heart rate) travels with its block, and the
+    warm-up and cool-down are blocks of their own (`kind`), so a plan keeps what was prescribed and
+    can be compared with what was done. They used to be folded into a free-text note and the
+    description, which nothing could read back."""
     structure = template.get("structure") or {}
-    summary = summarize_template(structure, template.get("target_zone"))
+    split_m = split_basis_m(template.get("session_type"), template.get("sport_family"))
+    summary = summarize_template(structure, template.get("target_zone"), split_m)
     blocks_out = []
-    blocks = structure.get("blocks") or []
-    for i, b in enumerate(blocks):
-        out: dict = {"reps": b.get("reps", 1)}
-        d, _m, _est = _segment_amounts(b.get("work_s"), b.get("work_m"), _split_for(b))
+
+    def segment(key: str) -> None:
+        seg = structure.get(key)
+        if not seg:
+            return
+        out: dict = {"reps": 1, "kind": key}
+        if seg.get("duration_min") is not None:
+            out["work_min"] = float(seg["duration_min"])
+        if seg.get("distance_m") is not None:
+            out["work_m"] = float(seg["distance_m"])
+        if seg.get("zone"):
+            out["zone"] = seg["zone"]
+        out.update(_targets(seg))
+        if seg.get("note"):
+            out["note"] = str(seg["note"])[:200]
+        blocks_out.append(out)
+
+    segment("warmup")
+    for b in structure.get("blocks") or []:
+        out = {"reps": b.get("reps", 1)}
+        d, _m, _est = _segment_amounts(b.get("work_s"), b.get("work_m"), _split_for(b, split_m), split_m)
         if b.get("work_s") is not None:
             out["work_min"] = b["work_s"] / 60.0
         elif d is not None:
@@ -421,17 +467,13 @@ def to_planned_fields(template: dict) -> dict:
             out["rest_min"] = b["rest_s"] / 60.0
         if b.get("zone"):
             out["zone"] = b["zone"]
-        note = _rate_note(b)
-        if note:
-            out["note"] = note
+        out.update(_targets(b))
+        if b.get("note"):
+            out["note"] = str(b["note"])[:200]
         blocks_out.append(out)
+    segment("cooldown")
     desc = template.get("description") or ""
     extra = []
-    for label, key in (("Warm-up", "warmup"), ("Cool-down", "cooldown")):
-        seg = structure.get(key)
-        if seg:
-            amount = f"{_n(seg['duration_min'])} min" if seg.get("duration_min") is not None else f"{_n(seg['distance_m'])} m"
-            extra.append(f"{label}: {amount}" + (f" ({seg['note']})" if seg.get("note") else ""))
     if structure.get("strength_items"):
         extra.append(f"{len(structure['strength_items'])} exercises")
     description = "\n".join(p for p in [desc, *extra] if p) or None

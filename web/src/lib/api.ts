@@ -249,6 +249,7 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
+import type { LinkCandidate, PlanComparisonResponse } from "./types";
 import type {
   FeedbackEntry,
   FeedbackFilters,
@@ -400,15 +401,20 @@ export async function revertActivityField(id: number, field: keyof ActivityOverr
   });
 }
 
-export async function bulkEditActivities(ids: number[], patch: ActivityOverrides): Promise<{ updated: number[] }> {
+/** `tagsAdd`/`tagsRemove` change each workout's own tags; a bulk edit never replaces the whole list (that dropped the "test" tag). */
+export async function bulkEditActivities(
+  ids: number[],
+  patch: Omit<ActivityOverrides, "tags" | "local_date">,
+  opts?: { tagsAdd?: string[]; tagsRemove?: string[] },
+): Promise<{ updated: number[] }> {
   if (isMock) {
-    ids.forEach((id) => patchMockActivity(id, patch));
+    ids.forEach((id) => patchMockActivity(id, patch, opts));
     return delay({ updated: ids }, 300);
   }
   return request("/api/activities/bulk", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ canonical_ids: ids, patch }),
+    body: JSON.stringify({ canonical_ids: ids, patch, tags_add: opts?.tagsAdd, tags_remove: opts?.tagsRemove }),
   });
 }
 
@@ -1717,6 +1723,22 @@ export async function deletePlanned(id: number, scope: "this" | "this_and_follow
 export async function linkPlanned(id: number, canonicalId: number): Promise<PlannedWorkout> {
   if (isMock) return mocked(() => mockCal.linkMockPlanned(id, canonicalId));
   return send(`/api/planned/${id}/link`, "POST", { canonical_id: canonicalId });
+}
+
+export async function fetchPlanComparison(plannedId: number): Promise<PlanComparisonResponse> {
+  if (isMock) return delay(mockCal.mockPlanComparison(plannedId), 120);
+  return request<PlanComparisonResponse>(`/api/planned/${plannedId}/comparison`);
+}
+
+/** The plan a workout was linked to, compared with it; `{planned: null}` when the workout isn't linked to a plan. */
+export async function fetchWorkoutPlanComparison(canonicalId: number): Promise<PlanComparisonResponse | { planned: null }> {
+  if (isMock) return delay(mockCal.mockWorkoutPlanComparison(canonicalId), 120);
+  return request(`/api/activities/${canonicalId}/plan-comparison`);
+}
+
+export async function fetchLinkCandidates(plannedId: number): Promise<{ candidates: LinkCandidate[] }> {
+  if (isMock) return delay({ candidates: mockCal.mockLinkCandidates(plannedId) }, 120);
+  return request(`/api/planned/${plannedId}/link-candidates`);
 }
 
 export async function unlinkPlanned(id: number): Promise<PlannedWorkout> {

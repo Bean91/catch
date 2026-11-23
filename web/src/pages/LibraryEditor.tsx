@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { BlockEditor, blankRow, blockToRow, rowToBlock, type BlockRow } from "../components/library/BlockEditor";
+import { BlockEditor, SegmentEditor, blankRow, blankSegment, blockToRow, rowToBlock, rowToSegment, segmentToRow, type BlockRow, type SegmentRow } from "../components/library/BlockEditor";
 import { SummaryPanel } from "../components/library/SummaryPanel";
 import { DIFFICULTIES, SESSION_TYPE_CHOICES, WORKOUT_TYPES } from "../components/library/labels";
 import { Card } from "../components/ui/Card";
@@ -51,8 +51,8 @@ export function LibraryEditorPage() {
   const [difficulty, setDifficulty] = useState<Difficulty | "">("");
   const [zone, setZone] = useState<ZoneLabel | "">("");
   const [tags, setTags] = useState("");
-  const [warm, setWarm] = useState("");
-  const [cool, setCool] = useState("");
+  const [warm, setWarm] = useState<SegmentRow>(blankSegment());
+  const [cool, setCool] = useState<SegmentRow>(blankSegment());
   const [rows, setRows] = useState<BlockRow[]>(FIRST_ROWS.erg_intervals);
   const [items, setItems] = useState<TemplateStrengthItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +69,8 @@ export function LibraryEditorPage() {
     setDifficulty(t.difficulty ?? "");
     setZone(t.target_zone ?? "");
     setTags(t.tags.join(", "));
-    setWarm(t.structure.warmup?.duration_min != null ? String(t.structure.warmup.duration_min) : "");
-    setCool(t.structure.cooldown?.duration_min != null ? String(t.structure.cooldown.duration_min) : "");
+    setWarm(segmentToRow(t.structure.warmup));
+    setCool(segmentToRow(t.structure.cooldown));
     setRows((t.structure.blocks ?? []).map(blockToRow));
     setItems(t.structure.strength_items ?? []);
     setLoaded(true);
@@ -86,17 +86,13 @@ export function LibraryEditorPage() {
       if (e) problems.push(e);
       else if (block) blocks.push(block);
     });
-    const minutes = (s: string, label: string) => {
-      if (!s.trim()) return null;
-      const n = Number(s);
-      if (!Number.isFinite(n) || n <= 0) {
-        problems.push(`${label} must be a number of minutes.`);
-        return null;
-      }
-      return { duration_min: n };
+    const seg = (r: SegmentRow, label: string) => {
+      const { segment, error: e } = rowToSegment(r, label);
+      if (e) problems.push(e);
+      return segment;
     };
-    const warmup = minutes(warm, "Warm-up");
-    const cooldown = minutes(cool, "Cool-down");
+    const warmup = seg(warm, "Warm-up");
+    const cooldown = seg(cool, "Cool-down");
     const input: TemplateInput = {
       name: name.trim(),
       workout_type: type,
@@ -257,15 +253,9 @@ export function LibraryEditorPage() {
           ) : (
             <Card title={type === "rate_ladder" ? "Steps" : "Structure"}>
               <div className="flex flex-col gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Warm-up (minutes)">
-                    <input value={warm} onChange={(e) => setWarm(e.target.value)} inputMode="decimal" className={inputCls} aria-label="Warm-up minutes" />
-                  </Field>
-                  <Field label="Cool-down (minutes)">
-                    <input value={cool} onChange={(e) => setCool(e.target.value)} inputMode="decimal" className={inputCls} aria-label="Cool-down minutes" />
-                  </Field>
-                </div>
-                <BlockEditor rows={rows} onChange={setRows} ladder={type === "rate_ladder"} />
+                <SegmentEditor label="Warm-up" row={warm} onChange={setWarm} bike={sessionType === "bike"} />
+                <BlockEditor rows={rows} onChange={setRows} ladder={type === "rate_ladder"} bike={sessionType === "bike"} />
+                <SegmentEditor label="Cool-down" row={cool} onChange={setCool} bike={sessionType === "bike"} />
               </div>
             </Card>
           )}

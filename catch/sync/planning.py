@@ -139,8 +139,17 @@ def _planned_input(row: PlannedWorkout) -> dict:
     }
 
 
-def _prepare_fields(fields: dict) -> dict:
+def _prepare_fields(fields: dict, current_type: str | None = None) -> dict:
     out = {k: v for k, v in _coerce_dates(fields, "date").items() if k in _EDITABLE}
+    # A cleared title falls back to the session type's default name (the column can't be empty): on create the default is applied
+    # later; on update (`current_type` given) it's the default for the type the row will have.
+    if "title" in out and not (isinstance(out["title"], str) and out["title"].strip()):
+        if current_type is None:
+            out.pop("title")
+        else:
+            out["title"] = _DEFAULT_TITLES.get(out.get("session_type", current_type), "Session")
+    elif "title" in out:
+        out["title"] = out["title"].strip()[:200]
     unknown = set(fields) - set(_EDITABLE) - {"repeat", "scope"}
     if unknown:
         raise PlanningError(f"Unknown planned-workout field(s): {sorted(unknown)}")
@@ -235,7 +244,7 @@ def update_planned(session: Session, owner_id: str, planned_id: int, fields: dic
     if scope not in ("this", "this_and_following"):
         raise PlanningError("scope must be 'this' or 'this_and_following'")
     row = get_planned(session, owner_id, planned_id)
-    clean = _prepare_fields(fields)
+    clean = _prepare_fields(fields, row.session_type)
     if not clean:
         return [row]
     _check_event(session, owner_id, clean.get("event_id"))
@@ -323,6 +332,34 @@ def link_planned(session: Session, owner_id: str, planned_id: int, canonical_id:
         raise PlanningError("That workout is already linked to another planned session") from exc
     session.refresh(row)
     return row
+
+
+LINK_CANDIDATE_DAYS = 3
+
+
+def link_candidates(session: Session, owner_id: str, planned_id: int) -> list[dict]:
+    """Workouts the athlete can link by hand when the matcher didn't suggest one: within three days of the plan, nearest
+    first, each saying whether another plan already has it. The matcher's own rules still decide what is *suggested*."""
+    row = get_planned(session, owner_id, planned_id)
+    if row.session_type == "rest":
+        return []
+    start, end = row.date - timedelta(days=LINK_CANDIDATE_DAYS), row.date + timedelta(days=LINK_CANDIDATE_DAYS)
+    completed = [c for c in _completed_in_range(session, start, end) if c.start is not None]
+    ids = [c.id for c in completed]
+    taken = {
+        p.linked_canonical_id: p.id
+        for p in session.exec(select(PlannedWorkout).where(PlannedWorkout.linked_canonical_id.in_(ids))).all()
+    } if ids else {}
+    out = []
+    for c in completed:
+        day = localtime.day_of(session, c)
+        d = _completed_dict(c, taken.get(c.id))
+        d["local_date"] = day
+        d["days_from_plan"] = (day - row.date).days
+        d["linked_elsewhere"] = c.id in taken and taken[c.id] != row.id
+        out.append(d)
+    out.sort(key=lambda d: (abs(d["days_from_plan"]), d["start"]))
+    return out
 
 
 def unlink_planned(session: Session, owner_id: str, planned_id: int) -> PlannedWorkout:
@@ -755,8 +792,16 @@ def build_calendar(session: Session, owner_id: str, start: date, end: date) -> d
     for i in range((end - start).days + 1):
         d = start + timedelta(days=i)
         days[d.isoformat()] = {"date": d, "planned": [], "completed": [], "events": [], "phase_id": None}
+    completed_by_id = {c.id: c for c in completed_wide}
     for p in planned:
-        days[p.date.isoformat()]["planned"].append(planned_dict(p, today_))
+        pd = planned_dict(p, today_)
+        # The linked workout may sit on the next or previous day (the matcher allows ±1), so it isn't always in this day's own
+        # "completed" list; the plan carries it so the day view can show what it was done with.
+        linked = completed_by_id.get(p.linked_canonical_id) if p.linked_canonical_id is not None else None
+        if linked is None and p.linked_canonical_id is not None:
+            linked = session.get(CanonicalActivity, p.linked_canonical_id)
+        pd["linked_completed"] = _completed_dict(linked, p.id) if linked is not None else None
+        days[p.date.isoformat()]["planned"].append(pd)
     for c in sorted(completed, key=lambda c: c.start):
         days[localtime.day_of(session, c).isoformat()]["completed"].append(_completed_dict(c, link_by_canonical.get(c.id)))
     for e in events:
@@ -1027,7 +1072,7 @@ def preview_update_planned(session: Session, owner_id: str, planned_id: int, fie
     if scope not in ("this", "this_and_following"):
         raise PlanningError("scope must be 'this' or 'this_and_following'")
     row = get_planned(session, owner_id, planned_id)
-    clean = _prepare_fields(fields)
+    clean = _prepare_fields(fields, row.session_type)
     _check_event(session, owner_id, clean.get("event_id"))
     current = planned_dict(row)
     changes = {}

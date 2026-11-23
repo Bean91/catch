@@ -861,6 +861,11 @@ export type ActivitySamplesResponse =
       points: SamplePoint[];
       returned_count: number;
       raw_count: number;
+      /** Session 36: which channels the recording has; `gaps` = dropouts the line breaks at (nothing filled in). */
+      has_hr?: boolean;
+      has_power?: boolean;
+      has_cadence?: boolean;
+      gaps?: number;
     };
 
 export interface Stroke {
@@ -1936,6 +1941,14 @@ export interface IntervalBlock {
   rest_min?: number;
   zone?: ZoneLabel;
   note?: string;
+  /** Session 36: targets carried from a template (or typed in). A split is per 500 m on a rowing erg, per 1000 m on a bike. */
+  kind?: "warmup" | "work" | "cooldown";
+  split_s?: number;
+  watts?: number;
+  rate_min?: number;
+  rate_max?: number;
+  hr_min?: number;
+  hr_max?: number;
 }
 
 export interface PlannedWorkout {
@@ -1960,6 +1973,8 @@ export interface PlannedWorkout {
   notes: string | null;
   coach_feedback: string | null;
   planned_minutes: number;
+  /** The workout this plan is linked to, even when it was done on the day before or after. */
+  linked_completed?: CalendarCompleted | null;
 }
 
 export interface CalendarCompleted {
@@ -1977,6 +1992,49 @@ export interface CalendarCompleted {
   rpe: number | null;
   excluded_from_totals: boolean;
   linked_planned_id: number | null;
+}
+
+// --- Session 36: planned vs done ---------------------------------------------------------------
+
+export type CompareMetric = "duration_s" | "distance_m" | "split_s" | "watts" | "rate" | "hr";
+/** measured = the device's own figure; derived = worked out (a split from time ÷ distance, rowing watts from pace); entered = typed by you. */
+export type ValueBasis = "measured" | "derived" | "entered";
+
+export interface CompareRow {
+  metric: CompareMetric;
+  target: { value?: number; min?: number | null; max?: number | null };
+  actual: number | null;
+  actual_basis: ValueBasis | null;
+  /** Single-value targets: actual − target (a positive split delta is slower). */
+  delta?: number | null;
+  /** Range targets: where the actual fell. */
+  status?: "below" | "in_range" | "above" | null;
+}
+
+export interface PlanComparison {
+  mode: "per_rep" | "whole" | "none";
+  reason: string | null;
+  reps_source: "piece" | "concept2" | "laps" | null;
+  totals: CompareRow[];
+  reps: { index: number; block_index: number; kind: "warmup" | "work" | "cooldown"; metrics: CompareRow[] }[];
+  whole: CompareRow[];
+  has_targets: boolean;
+}
+
+export interface PlanComparisonResponse {
+  planned_id: number;
+  planned: PlannedWorkout;
+  linked: boolean;
+  workout?: { id: number; ref: string; title: string | null; sport_family: string | null };
+  split_basis_m?: number;
+  comparison: PlanComparison | null;
+  reason: string | null;
+}
+
+export interface LinkCandidate extends CalendarCompleted {
+  local_date: string;
+  days_from_plan: number;
+  linked_elsewhere: boolean;
 }
 
 export interface UpcomingEvent {
@@ -2189,12 +2247,18 @@ export interface TemplateBlock {
   rate_max?: number | null;
   split_s?: number | null;
   watts?: number | null;
+  hr_min?: number | null;
+  hr_max?: number | null;
   note?: string | null;
 }
 export interface TemplateSegment {
   duration_min?: number | null;
   distance_m?: number | null;
   zone?: ZoneLabel | null;
+  rate_min?: number | null;
+  rate_max?: number | null;
+  hr_min?: number | null;
+  hr_max?: number | null;
   note?: string | null;
 }
 export interface TemplateStrengthItem {
@@ -2241,6 +2305,8 @@ export interface WorkoutTemplate {
   example_label: string | null;
   duplicated_from_id: number | null;
   archived: boolean;
+  /** False for a shared built-in example on the public build (one row serves everyone). */
+  can_archive?: boolean;
   signature: string | null;
   summary: TemplateSummary;
   created_at: string;

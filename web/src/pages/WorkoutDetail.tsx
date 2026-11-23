@@ -3,7 +3,7 @@ import { BackLink } from "../components/ui/PageHeader";
 import { padDomain, quantizePoints } from "../lib/chartFetch";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
+import { alignPiece, fetchWorkoutPlanComparison, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { EditableActivityField, SportFamily, Stroke } from "../lib/types";
@@ -13,6 +13,7 @@ import { GpsSection } from "../components/gps/GpsSection";
 import { WeatherChips } from "../components/gps/WeatherCard";
 import { AddPieceDialog } from "../components/pieces/AddPieceDialog";
 import { TechniqueNotesCard } from "../components/coaching/TechniqueNotesCard";
+import { PlanComparisonView } from "../components/calendar/PlanComparisonView";
 import { PieceCard } from "../components/pieces/PieceCard";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
@@ -52,6 +53,12 @@ export function WorkoutDetailPage() {
   });
 
   const isRowing = workout?.category === "erg" || workout?.category === "on_water";
+  const planComparison = useQuery({
+    queryKey: ["workout-plan-comparison", canonicalId],
+    queryFn: () => fetchWorkoutPlanComparison(canonicalId),
+    enabled: !!workout,
+  });
+  const linkedPlan = planComparison.data && "planned_id" in planComparison.data ? planComparison.data : null;
   // Strokes are tied to a *raw* Concept2 source record, never the canonical id — pick the
   // first concept2 member, if any (session 8/12 — see PLAN.md).
   const concept2Source = workout?.sources.find((s) => s.source === "concept2");
@@ -116,7 +123,9 @@ export function WorkoutDetailPage() {
     setHrQueryDomain(hrFullDomain);
   };
   const onHrDomainSettled = (next: Domain) => setHrQueryDomain(next);
-  const [overlay, setOverlay] = useState<"none" | "power" | "cadence">("none");
+  const [overlayChoice, setOverlay] = useState<"none" | "power" | "cadence" | null>(null);
+  // A recording with no heart rate opens on whichever channel it does have.
+  const overlay = overlayChoice ?? (samples?.has_data && samples.has_hr === false ? (samples.has_power ? "power" : "cadence") : "none");
 
   const hrPadded = hrFullDomain ? padDomain(effectiveHrQueryDomain, hrFullDomain) : null;
   const hrPoints = quantizePoints(640);
@@ -310,9 +319,16 @@ export function WorkoutDetailPage() {
         )}
       </Card>
 
+      {linkedPlan && (
+        <Card title="Planned and done" eyebrow={linkedPlan.planned.title} testId="planned-and-done">
+          <PlanComparisonView data={linkedPlan} showWorkoutLink={false} />
+        </Card>
+      )}
+
       {samples?.has_data && (
-        <Card title="Heart rate">
-          <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card title={samples.has_hr === false ? "Power and cadence" : "Heart rate"}>
+          {samples.has_hr === false && <p className="mb-3 text-sm text-text-tertiary">No heart rate was recorded — this recording has {samples.has_power ? "power" : "cadence"} only.</p>}
+          {samples.has_hr !== false && <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile size="sm" label="Average" value={Math.round(samples.avg_hr ?? 0)} unit="bpm" accent={METRIC_COLOR.hr} />
             <StatTile size="sm" label="Max" value={samples.max_hr_observed ?? "—"} unit="bpm" />
             <StatTile size="sm" label="Min" value={samples.min_hr_observed ?? "—"} unit="bpm" />
@@ -325,7 +341,8 @@ export function WorkoutDetailPage() {
                 info={<InfoTip label="heart-rate recovery">How far your heart rate fell in the 60 seconds after the session ended. A bigger drop usually means fitter, fresher, or both.</InfoTip>}
               />
             )}
-          </div>
+          </div>}
+          {(samples.gaps ?? 0) > 0 && <p className="mb-2 text-xs text-text-tertiary">The line breaks where the sensor dropped out — nothing is filled in.</p>}
           {samples.trimmed_tail_s > 0 && <p className="mb-2 text-xs text-text-tertiary">Watch left running {Math.round(samples.trimmed_tail_s)}s — greyed out, excluded above.</p>}
           {samples.zones?.hr && (
             <div className="mb-3">
@@ -340,7 +357,7 @@ export function WorkoutDetailPage() {
               value={overlay}
               onChange={setOverlay}
               options={[
-                { value: "none", label: "HR only" },
+                ...(samples.has_hr === false ? [] : [{ value: "none" as const, label: "HR only" }]),
                 { value: "power", label: "+ Power" },
                 { value: "cadence", label: "+ Cadence" },
               ]}

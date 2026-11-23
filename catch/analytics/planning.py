@@ -133,10 +133,17 @@ def expand_repeat(start: date, repeat: dict | None) -> list[date]:
 # --- Structure / validation -----------------------------------------------------------------
 
 
+BLOCK_KINDS = ("warmup", "work", "cooldown")
+# Target bounds wide enough for a rowing /500 m or a bike /1000 m split; the builder checks the sport-specific range.
+_TARGET_BOUNDS = {"split_s": (30.0, 600.0), "watts": (10.0, 2000.0), "rate_min": (10.0, 150.0), "rate_max": (10.0, 150.0), "hr_min": (30.0, 240.0), "hr_max": (30.0, 240.0)}
+
+
 def validate_structure(blocks: Any) -> list[dict]:
     """A planned session's optional structure: a list of blocks
     `{"reps": int, "work_min": float?, "work_m": float?, "rest_min": float?, "zone": str?,
-    "note": str?}`. Returns the cleaned list; raises ValueError naming the first bad block."""
+    "note": str?}` plus, since session 36, optional `kind` (warmup | work | cooldown) and the
+    targets `split_s`, `watts`, `rate_min`, `rate_max`, `hr_min`, `hr_max`. Returns the cleaned
+    list; raises ValueError naming the first bad block. A target that wasn't set stays absent."""
     if blocks is None:
         return []
     if not isinstance(blocks, list):
@@ -160,11 +167,27 @@ def validate_structure(blocks: Any) -> list[dict]:
             block[key] = float(value)
         if "work_min" not in block and "work_m" not in block:
             raise ValueError(f"block {i}: needs work_min or work_m")
+        kind = raw.get("kind")
+        if kind is not None:
+            if kind not in BLOCK_KINDS:
+                raise ValueError(f"block {i}: kind must be one of {list(BLOCK_KINDS)}")
+            if kind != "work":
+                block["kind"] = kind
         zone = raw.get("zone")
         if zone is not None:
             if zone not in ZONE_ORDER:
                 raise ValueError(f"block {i}: zone must be one of {list(ZONE_ORDER)}")
             block["zone"] = zone
+        for key, (lo, hi) in _TARGET_BOUNDS.items():
+            value = raw.get(key)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not lo <= value <= hi:
+                raise ValueError(f"block {i}: {key} must be between {lo:g} and {hi:g}")
+            block[key] = float(value)
+        for lo_key, hi_key in (("rate_min", "rate_max"), ("hr_min", "hr_max")):
+            if lo_key in block and hi_key in block and block[lo_key] > block[hi_key]:
+                raise ValueError(f"block {i}: {lo_key} can't be above {hi_key}")
         note = raw.get("note")
         if note:
             block["note"] = str(note)[:200]
@@ -187,6 +210,8 @@ def structure_minutes(blocks: list[dict]) -> float | None:
 
 
 def validate_planned_fields(fields: dict) -> None:
+    if "title" in fields and not (isinstance(fields["title"], str) and fields["title"].strip()):
+        raise ValueError("A planned session needs a title")
     if "session_type" in fields and fields["session_type"] not in SESSION_TYPES:
         raise ValueError(f"session_type must be one of {list(SESSION_TYPES)}")
     zone = fields.get("target_zone")
@@ -334,6 +359,8 @@ def planned_totals(rows: list[dict]) -> dict:
         blocks = r.get("structure") or []
         assigned = 0.0
         for b in blocks:
+            if b.get("kind") in ("warmup", "cooldown"):
+                continue  # zone minutes describe the work, as the library's summary does
             zone = b.get("zone") or r.get("target_zone")
             work = b.get("work_min")
             if zone in zone_minutes and work is not None:

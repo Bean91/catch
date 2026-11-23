@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from catch.analytics import workout_library as wl
@@ -46,6 +47,15 @@ def _own(session: Session, owner_id: str, template_id: int) -> WorkoutTemplate:
     return row
 
 
+def _readable(session: Session, owner_id: str, template_id: int) -> WorkoutTemplate:
+    """Own templates, plus the built-in examples. On the public deployment the examples are one shared, ownerless set (seeded once),
+    so a lookup that insisted on `owner_id == owner` made them impossible to open, duplicate or schedule there."""
+    row = session.get(WorkoutTemplate, template_id)
+    if row is None or not (row.owner_id == owner_id or (row.owner_id is None and row.is_example)):
+        raise NotFound(f"No workout template with id {template_id}")
+    return row
+
+
 def template_dict(row: WorkoutTemplate, *, summary: bool = True) -> dict:
     structure = json.loads(row.structure_json or "{}")
     out = {
@@ -64,12 +74,15 @@ def template_dict(row: WorkoutTemplate, *, summary: bool = True) -> dict:
         "example_label": EXAMPLE_LABEL if row.is_example else None,
         "duplicated_from_id": row.duplicated_from_id,
         "archived": row.archived_at is not None,
+        # A shared built-in example (public deployment) serves every account, so it can't be archived per person.
+        "can_archive": not (row.owner_id is None and row.is_example),
         "signature": wl.template_signature(structure),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
     if summary:
-        out["summary"] = wl.summarize_template(structure, row.target_zone)
+        out["summary"] = wl.summarize_template(structure, row.target_zone, wl.split_basis_m(row.session_type, row.sport_family))
+        out["split_basis_m"] = wl.split_basis_m(row.session_type, row.sport_family)
     return out
 
 
@@ -101,7 +114,7 @@ def preview_template(session: Session, fields: dict) -> dict:
     out: dict[str, Any] = {**result, "summary": None, "planned": None}
     if result["ok"]:
         structure = merged.get("structure") or {}
-        out["summary"] = wl.summarize_template(structure, merged.get("target_zone"))
+        out["summary"] = wl.summarize_template(structure, merged.get("target_zone"), wl.split_basis_m(merged.get("session_type"), merged.get("sport_family")))
         out["signature"] = wl.template_signature(structure)
         out["planned"] = wl.to_planned_fields({**merged, "name": merged.get("name", ""), "structure": structure})
     return out
@@ -158,7 +171,7 @@ def _merged(row: WorkoutTemplate, clean: dict) -> dict:
 
 
 def update_template(session: Session, owner_id: str, template_id: int, fields: dict) -> WorkoutTemplate:
-    row = _own(session, owner_id, template_id)
+    row = _readable(session, owner_id, template_id)
     if row.is_example:
         raise LibraryError("Examples are read-only — duplicate it to make your own copy.")
     clean = _clean(fields)
@@ -176,7 +189,7 @@ def update_template(session: Session, owner_id: str, template_id: int, fields: d
 
 
 def preview_update_template(session: Session, owner_id: str, template_id: int, fields: dict) -> dict:
-    row = _own(session, owner_id, template_id)
+    row = _readable(session, owner_id, template_id)
     if row.is_example:
         raise LibraryError("Examples are read-only — duplicate it to make your own copy.")
     clean = _clean(fields)
@@ -184,7 +197,7 @@ def preview_update_template(session: Session, owner_id: str, template_id: int, f
     _raise_issues(validate(session, merged))
     current = template_dict(row, summary=False)
     changes = {k: {"from": current[k], "to": merged[k]} for k in clean if current.get(k) != merged.get(k)}
-    return {"id": row.id, "name": row.name, "changes": changes, "summary": wl.summarize_template(merged.get("structure") or {}, merged.get("target_zone"))}
+    return {"id": row.id, "name": row.name, "changes": changes, "summary": wl.summarize_template(merged.get("structure") or {}, merged.get("target_zone"), wl.split_basis_m(merged.get("session_type"), merged.get("sport_family")))}
 
 
 def preview_create_template(session: Session, owner_id: str, fields: dict) -> dict:
@@ -192,11 +205,11 @@ def preview_create_template(session: Session, owner_id: str, fields: dict) -> di
     st = clean.get("session_type") or wl.default_session_type(clean.get("workout_type", ""))
     _raise_issues(validate(session, {**clean, "session_type": st}))
     structure = clean.get("structure") or {}
-    return {"template": {**clean, "session_type": st}, "summary": wl.summarize_template(structure, clean.get("target_zone")), "signature": wl.template_signature(structure)}
+    return {"template": {**clean, "session_type": st}, "summary": wl.summarize_template(structure, clean.get("target_zone"), wl.split_basis_m(st, clean.get("sport_family"))), "signature": wl.template_signature(structure)}
 
 
 def duplicate_template(session: Session, owner_id: str, template_id: int, name: Optional[str] = None) -> WorkoutTemplate:
-    src = _own(session, owner_id, template_id)
+    src = _readable(session, owner_id, template_id)
     copy = WorkoutTemplate(
         owner_id=owner_id,
         name=(name or f"{src.name} (copy)")[:120],
@@ -212,6 +225,10 @@ def duplicate_template(session: Session, owner_id: str, template_id: int, name: 
 
 
 def set_archived(session: Session, owner_id: str, template_id: int, archived: bool) -> WorkoutTemplate:
+    shared = session.get(WorkoutTemplate, template_id)
+    if shared is not None and shared.owner_id is None and shared.is_example:
+        # One row serves every account; archiving it would hide it for everyone.
+        raise LibraryError("Built-in examples are shared, so they can't be archived. Duplicate one to make your own copy.")
     row = _own(session, owner_id, template_id)
     row.archived_at = _now() if archived else None
     session.add(row)
@@ -221,7 +238,7 @@ def set_archived(session: Session, owner_id: str, template_id: int, archived: bo
 
 
 def get_template(session: Session, owner_id: str, template_id: int) -> WorkoutTemplate:
-    return _own(session, owner_id, template_id)
+    return _readable(session, owner_id, template_id)
 
 
 def search_templates(
@@ -238,7 +255,9 @@ def search_templates(
     include_archived: bool = False,
     limit: int = 50,
 ) -> list[WorkoutTemplate]:
-    stmt = select(WorkoutTemplate).where(WorkoutTemplate.owner_id == owner_id)
+    stmt = select(WorkoutTemplate).where(
+        or_(WorkoutTemplate.owner_id == owner_id, (WorkoutTemplate.owner_id.is_(None)) & (WorkoutTemplate.is_example.is_(True)))
+    )
     if not include_archived:
         stmt = stmt.where(WorkoutTemplate.archived_at.is_(None))
     if only_examples:
@@ -280,7 +299,7 @@ def _schedule_fields(row: WorkoutTemplate, day: date, start_time: Optional[str],
 
 
 def preview_schedule(session: Session, owner_id: str, template_id: int, day: date, *, start_time: Optional[str] = None, repeat: Optional[dict] = None, event_id: Optional[int] = None) -> dict:
-    row = _own(session, owner_id, template_id)
+    row = _readable(session, owner_id, template_id)
     try:
         return planning.preview_create_planned(session, owner_id, _schedule_fields(row, day, start_time, event_id), repeat)
     except planning.PlanningError as exc:
@@ -288,7 +307,7 @@ def preview_schedule(session: Session, owner_id: str, template_id: int, day: dat
 
 
 def schedule_template(session: Session, owner_id: str, template_id: int, day: date, *, start_time: Optional[str] = None, repeat: Optional[dict] = None, event_id: Optional[int] = None) -> list[PlannedWorkout]:
-    row = _own(session, owner_id, template_id)
+    row = _readable(session, owner_id, template_id)
     try:
         planned = planning.create_planned(session, owner_id, _schedule_fields(row, day, start_time, event_id), repeat)
     except planning.PlanningError as exc:

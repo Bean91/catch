@@ -47,11 +47,11 @@ export function WorkoutsPage() {
     });
   };
 
-  const runBulk = async (patch: Parameters<typeof bulkEditActivities>[1]) => {
+  const runBulk = async (patch: Parameters<typeof bulkEditActivities>[1], opts?: Parameters<typeof bulkEditActivities>[2]) => {
     if (selected.size === 0) return;
     setBulkBusy(true);
     try {
-      await bulkEditActivities(Array.from(selected), patch);
+      await bulkEditActivities(Array.from(selected), patch, opts);
       await queryClient.invalidateQueries({ queryKey: ["workouts"] });
       setSelected(new Set());
       setBulkTag("");
@@ -134,7 +134,7 @@ export function WorkoutsPage() {
           <button
             type="button"
             disabled={bulkBusy || selected.size === 0 || !bulkTag}
-            onClick={() => runBulk({ tags: [bulkTag] })}
+            onClick={() => runBulk({}, { tagsAdd: [bulkTag.trim()] })}
             className={buttonClass("secondary", "sm")}
           >
             Tag

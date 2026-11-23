@@ -591,9 +591,14 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
 
 // --- Activity editing (task Part C) -----------------------------------------
 
-export function patchMockActivity(id: number, patch: ActivityOverrides): WorkoutDetail {
+export function patchMockActivity(id: number, patch: ActivityOverrides, opts?: { tagsAdd?: string[]; tagsRemove?: string[] }): WorkoutDetail {
   const workout = MOCK_WORKOUTS.find((w) => w.id === id);
   if (!workout) throw new Error("not found");
+  if (opts?.tagsAdd || opts?.tagsRemove) {
+    const drop = new Set(opts.tagsRemove ?? []);
+    const kept = workout.tags.filter((t) => !drop.has(t));
+    patch = { ...patch, tags: [...kept, ...(opts.tagsAdd ?? []).filter((t) => !kept.includes(t))] };
+  }
   workout.overrides = { ...workout.overrides, ...patch };
   if (patch.title !== undefined) workout.title = patch.title;
   if (patch.sport_family !== undefined) workout.sport_family = patch.sport_family;

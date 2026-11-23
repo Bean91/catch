@@ -20,7 +20,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 _PAGE_SIZE_DEFAULT = 30
 _PAGE_SIZE_MAX = 100
-_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date"}
+_OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date", "conditions", "equipment"}
 # Session 15 (see PLAN.md Part C): the standard test types auto-detection/confirmation and
 # the pacing-plan generator both key on — "test" in `tags` plus one of these in `test_type`
 # (an override field, same free-form overrides_json dict every other edit already uses — no
@@ -117,6 +117,8 @@ def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[
     data["exclude_from_totals"] = bool(overrides.get("exclude_from_totals"))
     data["tags"] = overrides.get("tags") or []
     data["test_type"] = overrides.get("test_type")
+    data["conditions"] = overrides.get("conditions")
+    data["equipment"] = overrides.get("equipment")
     data["overrides"] = overrides
     data["sources"] = [_source_summary(m) for m in members]
     data["editable_fields"] = sorted(_OVERRIDE_FIELDS)
@@ -264,6 +266,29 @@ class ActivityEditRequest(BaseModel):
     # Session 32 "Change day": the calendar day this workout counts on, for the rare case a device's zone was wrong. Within a day
     # of the day it was recorded on; the workout's time itself never changes.
     local_date: date | None = None
+    # Session 36: the athlete's own context, kept apart from anything a provider measured.
+    conditions: str | None = Field(default=None, max_length=300)
+    equipment: str | None = Field(default=None, max_length=300)
+
+
+def _clean_tags(tags: list[str]) -> list[str]:
+    out: list[str] = []
+    for t in tags:
+        t = (t or "").strip()
+        if t and t not in out:
+            out.append(t[:40])
+    return out[:30]
+
+
+def _validate_edit(db: Session, canonical: CanonicalActivity, body: ActivityEditRequest) -> None:
+    if body.rpe is not None and not (0 <= body.rpe <= 10):
+        raise HTTPException(status_code=422, detail="rpe must be between 0 and 10")
+    if body.test_type is not None and body.test_type not in TEST_TYPES:
+        raise HTTPException(status_code=422, detail=f"test_type must be one of {TEST_TYPES}")
+    if body.local_date is not None:
+        recorded = _recorded_day(db, canonical)
+        if recorded is None or abs((body.local_date - recorded).days) > 1:
+            raise HTTPException(status_code=422, detail="A workout can only move to the day before or after the day it was recorded on.")
 
 
 def _recorded_day(db: Session, canonical: CanonicalActivity) -> date | None:
@@ -280,17 +305,12 @@ def patch_activity(canonical_id: int, body: ActivityEditRequest = Body(...), db:
     canonical = db.get(CanonicalActivity, canonical_id)
     if canonical is None:
         raise HTTPException(status_code=404, detail="Activity not found")
-    if body.rpe is not None and not (0 <= body.rpe <= 10):
-        raise HTTPException(status_code=422, detail="rpe must be between 0 and 10")
-    if body.test_type is not None and body.test_type not in TEST_TYPES:
-        raise HTTPException(status_code=422, detail=f"test_type must be one of {TEST_TYPES}")
-    if body.local_date is not None:
-        recorded = _recorded_day(db, canonical)
-        if recorded is None or abs((body.local_date - recorded).days) > 1:
-            raise HTTPException(status_code=422, detail="A workout can only move to the day before or after the day it was recorded on.")
+    _validate_edit(db, canonical, body)
 
     overrides = _overrides(canonical)
     patch = body.model_dump(exclude_unset=True, mode="json")
+    if "tags" in patch and patch["tags"] is not None:
+        patch["tags"] = _clean_tags(patch["tags"])
     overrides.update(patch)
     canonical.overrides_json = json.dumps(overrides)
     db.add(canonical)
@@ -329,19 +349,33 @@ def revert_activity_field(canonical_id: int, body: RevertFieldRequest = Body(...
 
 
 class BulkEditRequest(BaseModel):
-    canonical_ids: list[int]
-    patch: ActivityEditRequest
+    canonical_ids: list[int] = Field(max_length=500)
+    patch: ActivityEditRequest = Field(default_factory=ActivityEditRequest)
+    # Session 36: tagging a selection adds to (or removes from) each workout's own tags. Sending `patch.tags` replaced them all,
+    # which silently dropped the "test" tag that marks a confirmed test.
+    tags_add: list[str] | None = None
+    tags_remove: list[str] | None = None
 
 
 @router.post("/api/activities/bulk")
 def bulk_edit_activities(body: BulkEditRequest = Body(...), db: Session = Depends(get_db)):
+    if body.patch.local_date is not None:
+        raise HTTPException(status_code=422, detail="Change a workout's day one workout at a time.")
+    patch = body.patch.model_dump(exclude_unset=True, mode="json")
+    if "tags" in patch:
+        raise HTTPException(status_code=422, detail="Use tags_add / tags_remove to tag several workouts.")
+    add, remove = _clean_tags(body.tags_add or []), set(_clean_tags(body.tags_remove or []))
     updated = []
     for canonical_id in body.canonical_ids:
         canonical = db.get(CanonicalActivity, canonical_id)
         if canonical is None:
             continue
+        _validate_edit(db, canonical, body.patch)
         overrides = _overrides(canonical)
-        overrides.update(body.patch.model_dump(exclude_unset=True))
+        overrides.update(patch)
+        if add or remove:
+            tags = [t for t in (overrides.get("tags") or []) if t not in remove]
+            overrides["tags"] = _clean_tags(tags + add)
         canonical.overrides_json = json.dumps(overrides)
         db.add(canonical)
         db.commit()

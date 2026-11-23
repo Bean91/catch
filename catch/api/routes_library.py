@@ -38,7 +38,7 @@ def list_templates(
 ):
     rows = lib.search_templates(
         db, current_owner(), q=q, workout_type=workout_type, difficulty=difficulty, tags=[tag] if tag else None,
-        include_examples=scope in ("examples", "all"), only_examples=scope == "examples",
+        include_examples=scope in ("examples", "all", "archived"), only_examples=scope == "examples",
         include_archived=scope == "archived", limit=limit,
     )
     if scope == "archived":
