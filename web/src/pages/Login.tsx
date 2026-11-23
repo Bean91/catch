@@ -1,3 +1,4 @@
+import { Logomark } from "../components/shell/icons";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -8,15 +9,18 @@ import { isPublic } from "../lib/deployment";
 const INPUT =
   "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-text-primary outline-none focus-visible:border-accent";
 const BUTTON =
-  "mt-4 min-h-11 w-full rounded-md bg-accent text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
+  "mt-5 min-h-11 w-full rounded-md bg-accent text-sm font-semibold text-accent-contrast shadow-subtle transition-colors hover:bg-accent-strong disabled:opacity-45";
 const LINK = "min-h-11 text-sm text-text-secondary underline-offset-4 hover:text-text-primary hover:underline";
 
 function Frame({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-bg px-4 text-text-primary">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-6">
-        <div className="mb-6 text-center">
-          <p className="font-mono-nums text-lg font-semibold tracking-wide">CATCH</p>
+    // The one branded surface: a soft accent glow behind a raised card, the logomark, and the app's h1.
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10 text-text-primary">
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_45%_at_50%_0%,var(--accent-soft),transparent_70%),radial-gradient(40%_35%_at_85%_100%,color-mix(in_oklab,var(--metric-pace)_10%,transparent),transparent_70%)]" />
+      <div className="relative w-full max-w-sm animate-enter rounded-xl border border-border bg-surface/95 p-6 shadow-float backdrop-blur sm:p-7">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <Logomark className="h-11 w-11" />
+          <h1 className="mt-3 text-lg font-semibold tracking-[0.16em]">CATCH</h1>
           <p className="mt-1 text-sm text-text-tertiary">Rowing training &amp; recovery</p>
         </div>
         {children}
