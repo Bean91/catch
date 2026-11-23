@@ -58,6 +58,30 @@ def export_everything(owner_id: str = Depends(current_owner_id)):
     )
 
 
+EXPORT_TABLES_PER_DAY = 60
+
+
+@router.get("/api/export/{category}", dependencies=[rate_limit("export_table")])
+def export_category(category: str, format: str = "csv", owner_id: str = Depends(current_owner_id), db: Session = Depends(get_db)):
+    """Session 36: one category as CSV or JSON (catch/sync/exports.py). The owner's rows only, whitelisted columns only."""
+    from catch.sync import exports
+
+    if category not in exports.CATEGORIES:
+        raise HTTPException(status_code=404, detail="No such export")
+    if format not in ("csv", "json"):
+        raise HTTPException(status_code=422, detail="format must be csv or json")
+    try:
+        limits.check_daily(owner_id, "export_table", EXPORT_TABLES_PER_DAY)
+    except limits.LimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=exc.message, headers={"Retry-After": str(exc.retry_after_s)}) from None
+    rows = exports.build(db, owner_id, category)
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    headers = {"Content-Disposition": f'attachment; filename="catch-{category}-{day}.{format}"', "Cache-Control": "no-store"}
+    if format == "json":
+        return StreamingResponse(iter([exports.as_json(category, rows)]), media_type="application/json", headers=headers)
+    return StreamingResponse(exports.iter_csv(rows), media_type="text/csv; charset=utf-8", headers=headers)
+
+
 @router.delete("/api/privacy/data/{category}")
 def delete_data(category: str, body: ConfirmBody, request: Request, db: Session = Depends(get_db)):
     throttle("account")

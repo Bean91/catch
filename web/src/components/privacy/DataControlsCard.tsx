@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { deleteCategory, downloadExport, fetchPrivacySummary } from "../../lib/privacy";
+import { EXPORT_CATEGORIES, deleteCategory, downloadCategory, downloadExport, fetchPrivacySummary } from "../../lib/privacy";
 import { Card } from "../ui/Card";
 import { buttonClass } from "../ui/Button";
 
@@ -22,8 +22,42 @@ export function ExportCard() {
           </button>
         </div>
         {error && <p role="alert" className="text-sm text-band-red-text">{error}</p>}
+        <CategoryDownloads />
       </div>
     </Card>
+  );
+}
+
+/** Session 36: one part of your data as a spreadsheet (CSV) or a structured file (JSON). Units are in the column names; times are UTC
+ * beside your own local day. */
+function CategoryDownloads() {
+  const [error, setError] = useState<string | null>(null);
+  const run = useMutation({
+    mutationFn: (v: { key: string; format: "csv" | "json" }) => downloadCategory(v.key, v.format),
+    onMutate: () => setError(null),
+    onError: (e: Error) => setError(e.message),
+  });
+  return (
+    <div className="mt-2 border-t border-border pt-3" data-testid="category-exports">
+      <h4 className="text-sm font-medium text-text-primary">Or one part at a time</h4>
+      <p className="mt-1 text-xs text-text-tertiary">CSV opens in a spreadsheet; JSON is for other software. Units are in the column names, and times are UTC beside your own calendar day.</p>
+      <ul className="mt-2 flex flex-col divide-y divide-border/70">
+        {EXPORT_CATEGORIES.map((c) => (
+          <li key={c.key} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+            <span className="text-text-secondary">{c.label}</span>
+            <span className="flex gap-2">
+              <button type="button" className={buttonClass("secondary", "sm")} disabled={run.isPending} onClick={() => run.mutate({ key: c.key, format: "csv" })}>
+                CSV
+              </button>
+              <button type="button" className={buttonClass("subtle", "sm")} disabled={run.isPending} onClick={() => run.mutate({ key: c.key, format: "json" })}>
+                JSON
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {error && <p role="alert" className="text-sm text-band-red-text">{error}</p>}
+    </div>
   );
 }
 

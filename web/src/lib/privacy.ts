@@ -98,6 +98,43 @@ export async function downloadExport(): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+export const EXPORT_CATEGORIES = [
+  { key: "activities", label: "Workouts" },
+  { key: "pieces", label: "Pieces" },
+  { key: "intervals", label: "Intervals" },
+  { key: "daily_metrics", label: "Daily recovery, strain and load" },
+  { key: "records", label: "Personal records" },
+  { key: "goals", label: "Goals" },
+  { key: "notes", label: "Notes" },
+] as const;
+
+/** Session 36: one category as a CSV (for a spreadsheet) or JSON file — same bearer-fetch-then-save path as the full export. */
+export async function downloadCategory(category: string, format: "csv" | "json"): Promise<void> {
+  const name = `catch-${category}-${todayISO().replaceAll("-", "")}.${format}`;
+  if (isMock) {
+    const blob = new Blob([format === "csv" ? "mock,file\n" : "{}"], { type: format === "csv" ? "text/csv" : "application/json" });
+    return saveBlob(blob, name);
+  }
+  const res = await authedFetch(`/api/export/${category}?format=${format}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : res.statusText);
+  }
+  return saveBlob(await res.blob(), name);
+}
+
+async function saveBlob(blob: Blob, name: string): Promise<void> {
+  if (isNative()) return shareExportNatively(blob, name);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export type OauthGrant = { grant_id: string; client_name: string; scopes: string[]; created_at: string; last_used_at: string | null; expires_at: string };
 export type ConsentRequest = { client_name: string; redirect_host: string | null; scopes: { scope: string; text: string }[] };
 

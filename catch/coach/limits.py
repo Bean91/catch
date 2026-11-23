@@ -38,6 +38,7 @@ BUCKET_LIMITS = {
     "callback": 60,  # keyed per source address, unauthenticated
     "internal": 30,
     "export": 2,
+    "export_table": 30,  # session 36: the per-category CSV/JSON downloads, small and quick
     "health": 20,  # health import batches: the app sends a handful of 200-row pages per sync
 }
 
