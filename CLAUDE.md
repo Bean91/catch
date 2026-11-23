@@ -186,7 +186,7 @@ catch/
                 tests/notify/test_push.py), triggers.py (the five notification types'
                 trigger logic + the shared quiet-hours/type-toggle gate — see
                 docs/notifications.md), ntfy.py (the optional second ops-alert channel)
-  mcp_server/   server.py (MCPServer + all 66 tools + 3 prompts, built once, shared by both
+  mcp_server/   server.py (MCPServer + all 74 tools + 3 prompts, built once, shared by both
                 transports — session 18 added the 7 training-intelligence tools, hand-written
                 @mcp.tool() wrappers matching coach/tools.py's TOOLS keys exactly, plus a
                 training_review prompt; a parity test asserts the two sets match), backend.py
@@ -780,6 +780,34 @@ the chart); one y-axis per plot (extra series = a panel sharing x); `ValueBars`/
 196/250 KB after the follow-ups removed framer-motion). Card titles stay `h3`, Card keeps `rounded-lg`. Follow-ups: `controlSkin` (control look,
 no height) for dense rows; disabled buttons keep pointer events; a native build never reloads on `vite:preloadError`; the sticky top bar carries the
 safe-area padding; `native:assets` is `--ios --android` only (otherwise it rewrites the PWA manifest).
+
+Session 36 (training environment: audit, bug fixes, planning targets, Performance Lab, records, goals, exports — see PLAN.md,
+`docs/feature-audit.md`, docs/analytics.md §35, DESIGN.md "Performance lab, goals, records and planned-vs-done"). Migration **0013**
+(columns only: `goals` measurable fields, `events.participation/sport/result_canonical_id/result_piece_id` with composite tenant FKs,
+`training_phases.category`); `EXPECTED_SCHEMA_REVISION = "0013"`. **Plans keep targets**: planned `structure` blocks carry `kind`
+(warmup|work|cooldown) and `split_s`/`watts`/`rate_min/max`/`hr_min/max`; `workout_library.to_planned_fields` copies them; the split basis
+is per sport (`split_basis_m`: 500 m rowed, 1000 m bike — never the rowing power formula on a bike). Planned vs done is
+`analytics/plan_compare.py` + `sync/plan_compare.py` (`GET /api/planned/{id}/comparison`, `/link-candidates`,
+`/api/activities/{id}/plan-comparison`). **Records** are computed on read in `sync/records.py` (`/api/records`; `/api/pbs` delegates):
+labels test/piece/training, Concept2 `verified`, history, power and bike records, exclusions respected. Test/piece types gained `10000m` and
+open-rate `30min` — **`analytics/piece.PIECE_TYPES` is the one list** (tool enums, MCP `PieceType`, `routes_activities.TEST_TYPES` derive from
+it; `pieceSplits.ts`/`types.ts` mirror it). **Performance Lab** (`/lab`): `analytics|sync/performance_lab.py` (HR at comparable power, split by
+stroke rate — one aggregate stroke query, progression). **Load history**: `analytics/load.weekly_monotony_strain` (Foster) +
+`sync/load_history.py` (`/api/trends/load-history`). **Goals**: `analytics|sync/goals.py`, `/api/goals`, `/goals`; coach `set_goal` is a
+partial update through the same service; goals have their own privacy delete category. **Events** link a result workout/piece
+(`planning.event_result`, repointed by `activity_merge.move_references`/uncombine, cleared by `coaching_notes.detach_piece`). **Search**:
+`/api/activities?q=&tag=&has_notes=` (SQL pre-filter + exact Python check, pages refilled so the cursor stays exact); overrides gained
+`conditions`/`equipment`. **Reconciliation**: `matching.merge_preview` (`POST /api/activities/merge/preview`), Duplicates compares before
+merging; workout detail has `data_quality` ("About this data"). **Exports**: `sync/exports.py`, `GET /api/export/{category}?format=csv|json`
+(owner-only, whitelisted columns, `_utc` + `local_date`/`local_tz`). **Charts**: the erg and HR charts share a cursor only for the same
+recording (`samples.recording_activity_id`) or a combined part with a known offset; `/samples` breaks lines at gaps > 8 s and draws
+power-only recordings. **Coach/MCP: 74 tools** (`coach/lab_tools.py`: `summarize_period`, `compare_tests`, `rank_workouts`,
+`get_split_by_rate`, `get_hr_at_workload`, `get_records`, `get_goals`, `get_load_history`); rows carry `ref` paths, and the coach UI
+links only the allow-listed shapes in `lib/coachRefs.ts`. Bugs fixed: bulk tagging replaced tags (now `tags_add`/`tags_remove`), Trends'
+104-week volume request, a cleared plan title 500, shared examples invisible on public, adjacent-day plan links, LibraryEditor dropping
+warm-up distance/zone. Tests: `tests/test_session36_bugs.py`, `test_plan_compare.py`, `test_blocks_and_months.py`, `test_records_and_lab.py`,
+`test_goals.py`, `test_workout_search.py`, `test_merge_preview.py`, `test_load_history.py`, `tests/tenancy/test_shared_examples.py`,
+`test_category_exports.py`; Playwright `web/tests/touch/session36.spec.ts` (+ `-desktop`).
 
 ## Commands
 

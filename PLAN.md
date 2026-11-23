@@ -5195,3 +5195,111 @@ Branch `session-35-followups`, merged to `main` locally. Frontend only; no Pytho
 - a physical phone;
 - iOS native sign-in;
 - APNs/FCM delivery, verified links and HealthKit/Health Connect, as in session 30.
+
+# Session 36: training environment — audit, bug fixes, planning targets, Performance Lab, records, goals, exports
+
+Branch `session-36-training-environment`.
+- **Migration 0013** (columns only); `EXPECTED_SCHEMA_REVISION = "0013"`. Deploying is `uv run catch db upgrade` **then** `fastapi deploy`
+  (session 31: never the other way round). Not deployed this session.
+- **Docs:** the audit taken before any work is `docs/feature-audit.md`; maths in docs/analytics.md §35; UI in DESIGN.md "Performance lab,
+  goals, records and planned-vs-done (session 36)"; endpoint costs in docs/performance.md "Session 36".
+
+## Decisions (the user chose the first three)
+
+1. **Scope:** everything in the brief, in priority order; anything not finished is listed under "Not done", never half-built.
+2. **Timeline:** augment the existing ErgChart/HrChart (an HR panel on the erg chart, a shared cursor), not a new timeline component.
+3. **Benchmarks:** `10000m` and open-rate `30min` are full test/piece types everywhere. `analytics/piece.PIECE_TYPES` is the one list;
+   tool enums, the MCP `PieceType` literal and `routes_activities.TEST_TYPES` derive from it.
+4. **My choices:**
+   - "Session 1 design system" in the brief = session 35's; "Pi compatibility" = the personal SQLite path (new columns also in `_NEW_COLUMNS`).
+   - Records, goal progress, plan comparison and load history are **computed on read** — edits, merges and exclusions are always reflected,
+     and nothing new has to be kept in step.
+   - The erg and HR charts share a cursor **only** when both come from the same recording, or from a combined workout's parts with a known
+     offset. Otherwise the UI says "Not linked" — two clocks are never guessed into agreement.
+   - Planned-vs-done pairs reps by order only when the counts agree (or alternate with the planned rests); otherwise it compares the whole
+     session and says why.
+   - Goals have no streaks, progress is capped at 100 %, weekly goals read "N of M finished weeks", and nothing says "behind" or "make up".
+   - Load history (Foster monotony/strain) is descriptive: no warning bands. Monotony is null, with the reason, when the week's SD is 0.
+   - The 2k estimate's algorithm is unchanged (the audit found no defect); the Lab only shows its inputs.
+   - Coach links come from structured `ref` paths and render only the allow-listed shapes in `lib/coachRefs.ts`; model text is untrusted.
+
+## Bugs found and fixed (each has a regression test)
+
+1. Trends' volume card always errored: it asked for 104 weeks against a limit of 52 (limit now 104).
+2. Bulk tagging replaced every tag, including `test`: now `tags_add`/`tags_remove`, and `patch.tags`/`local_date` are refused in bulk.
+3. Clearing a planned workout's title returned 500: a blank title falls back to the type's default title.
+4. The coach's `set_goal` update cleared fields it wasn't given: partial update through `sync/goals.py`.
+5. Built-in example templates were invisible on the public build (seeded with no owner): shared examples are readable; archiving one is
+   refused (it would hide it for everyone), and the UI offers no Archive on them.
+6. Archived examples appeared in no tab: the Archived tab includes them.
+7. A workout linked to a plan on the adjacent day didn't show under the plan: the calendar carries `linked_completed`.
+8. The day view showed fractional minutes for distance blocks: distance blocks show metres.
+9. The library editor dropped a warm-up/cool-down's distance or zone: a full segment editor.
+10. **Scheduling a template dropped its split/watts targets** (rate became a hidden note, warm-up/cool-down went into the description):
+    blocks now carry `kind` and every target.
+11. `/samples` bridged HR dropouts with straight lines and showed nothing for power-only recordings: gaps > 8 s break the line; any channel
+    is enough to draw.
+12. `/api/pbs` ignored "exclude from totals": it now delegates to `sync/records.py`, which respects it.
+13. Event result/distance/boat class weren't editable in the sheet, and plans/phases could never be tied to an event from the UI.
+14. Found while building: an old calendar Playwright test asserted the seven-week bars that the block view replaces (updated).
+
+## Changes
+
+- **Plans and templates** (`analytics/planning.py`, `analytics/workout_library.py`): blocks gain `kind` and `split_s`/`watts`/`rate_min|max`/
+  `hr_min|max`; split per 500 m rowed, per 1000 m on a bike (`split_basis_m`), no pace→watts on a bike; `to_planned_fields` copies every target.
+- **Planned vs done** (`analytics|sync/plan_compare.py`): reps from the interval piece, then Concept2 intervals, then laps; a row only for a
+  target that was set; measured/derived on every actual. `GET /api/planned/{id}/comparison`, `/link-candidates`,
+  `/api/activities/{id}/plan-comparison`. UI: "Planned and done" on the plan sheet and on workout detail, "Link a workout…" (±3 days).
+- **Blocks and months:** `training_phases.category` (suggested Base/Build/Peak/Taper/Recovery plus the owner's own), `GET /api/phases/{id}/progress`
+  (Plan page follows a block week by week; the seven-week window remains only with no phases), `GET /api/calendar/month-summary`.
+- **Performance Lab** (`/lab`; `analytics|sync/performance_lab.py`, `api/routes_lab.py`): records with labels and history, power/split
+  progression of equivalent pieces, HR at comparable power (20 W bands, ≥ 2 sessions a side), split by stroke rate (2 spm bands, one
+  aggregate stroke query), the 2k estimate's inputs. Workout detail: HR panel on the erg chart, shared cursor, rest column and rep-to-rep
+  consistency (CV, spread, fade) in the interval table, "About this data".
+- **Records** (`sync/records.py`, `/api/records`): rowing 500 m–10 km, 30/60 min, best average power over 1/5/20/30/60 min efforts; bike
+  1/5/10/20 km with measured power only; labels test/piece/training, Concept2-verified, chronological history; one entry per workout.
+- **Goals** (`analytics|sync/goals.py`, `/api/goals`, `/goals`): seven kinds (text, distance total, target split, target power, workout count,
+  weekly volume, frequency); weekly goals show recovery context; own privacy delete category; coach `set_goal`/`get_goals`.
+- **Events:** participation (planned/entered/completed/withdrawn/did not start), sport, a linked result workout or piece that follows merges
+  and uncombines and is cleared when a piece is deleted (`EXTRA_REFS`, composite tenant FKs `ON DELETE SET NULL (col)`).
+- **Notes and search:** overrides gain `conditions`/`equipment`; `/api/activities?q=&tag=&has_notes=` (SQL pre-filter + exact check, pages
+  refilled so the cursor stays exact); piece notes input; Workouts page search, tag filter and "has notes".
+- **Reconciliation:** `matching.merge_preview` / `POST /api/activities/merge/preview`; Duplicates compares field by field (value and source)
+  before a confirm step.
+- **Load history** (`analytics/load.weekly_monotony_strain`, `sync/load_history.py`, `/api/trends/load-history`): weekly load, monotony,
+  strain, sessions, minutes, metres, rest days, average recovery; monthly volume; recent 4 weeks vs the prior 12; rest days by weekday.
+  Training load = day load − everyday activity (no double counting).
+- **Exports** (`sync/exports.py`, `GET /api/export/{category}?format=csv|json`): activities, pieces, intervals, daily metrics, records, goals,
+  notes; owner-only, whitelisted columns with units in the names, `_utc` instants beside `local_date`/`local_tz`; 30/min and 60/day.
+- **Coach/MCP: 74 tools** (`coach/lab_tools.py`): `summarize_period`, `compare_tests`, `rank_workouts`, `get_split_by_rate`,
+  `get_hr_at_workload`, `get_records`, `get_goals`, `get_load_history`; `list_workouts` gained `limit`/`q`/`tag`; rows carry `ref`;
+  `ai_sharing` categories set (get_load_history strips wellness without consent); prompt section "Analysing training".
+- **Navigation:** Performance lab and Goals in the Train group (sidebar + Train hub).
+
+## Migration 0013
+
+`goals`: kind, sport, target_value, unit, start_date, end_date, completed_at, params_json (old rows read as `text`). `events`: participation,
+sport, result_canonical_id, result_piece_id (composite tenant FKs). `training_phases.category`. SQLite gets the same through `_NEW_COLUMNS`.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,597 passed, 3 skipped |
+| `tests/pg` (local Supabase stack: 0013 applied, schema = models, RLS) | 101 passed, 1 skipped |
+| vitest | 121 passed |
+| `test:touch` (3 projects, production build) | 353 passed, 8 skipped (after the calendar test fix) |
+| `test:public` | 24 passed |
+| `tsc`, oxlint | Clean; only the pre-existing warnings |
+| Initial bundle | 201.4 KB of the 250 KB budget |
+| `scripts/perf_personal.py --years 3` | New reads 2–19 ms p50, 2–5 SQL statements each (docs/performance.md) |
+
+## Not done / limitations
+
+- Drag-and-drop rescheduling (←/→ and the date field remain; drag is poor on touch, DESIGN.md session 21).
+- Cross-device chart sync (watch + PM5 with unknown clock agreement): shown as "Not linked", never guessed.
+- Rolling best power from strokes (a power-duration curve): records use each effort's own average power.
+- Per-rep comparison against Garmin laps only when the lap count matches the plan (or alternates with the planned rests).
+- ICS calendar export and template folders.
+- `test:update`, `test:gym`, `test:live` and the native harnesses weren't re-run (this session touched none of what they cover).
+- Not deployed; the deploy needs `catch db upgrade` (0013) first.

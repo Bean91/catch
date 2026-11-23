@@ -234,7 +234,10 @@ test("Today shows upcoming events and links to the event page", async ({ page })
 test("training plan page: phases with approval state, weekly bars, no sideways scroll", async ({ page }) => {
   await page.goto("/calendar/plan?mock=1");
   await expect(page.getByTestId("phase-list")).toContainText("Coach-approved");
-  await expect(page.getByTestId("plan-weeks").getByRole("listitem")).toHaveCount(7);
+  // Session 36: with phases defined, the page follows one block week by week; the fixed seven-week window is only for an owner
+  // with no phases yet.
+  await expect(page.getByTestId("block-progress").getByTestId("block-weeks").getByRole("listitem").first()).toBeVisible();
+  await expect(page.getByTestId("plan-weeks")).toHaveCount(0);
   await noHorizontalOverflow(page);
   await page.getByTestId("phase-list").getByRole("button").first().tap();
   const sheet = page.getByTestId("phase-sheet");

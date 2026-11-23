@@ -1,5 +1,7 @@
 # MCP server
 
+> **Session 36:** eight read-only analysis tools — `summarize_period`, `compare_tests`, `rank_workouts`, `get_split_by_rate`, `get_hr_at_workload`, `get_records`, `get_goals`, `get_load_history` (74 tools total). Their rows carry a `ref` (an in-app path) to cite; `set_goal` now takes measurable fields and changes only what it is given; `list_workouts` gained `limit`, `q` and `tag`.
+
 > **Session 27:** five read-only club tools were added (`get_my_clubs`, `get_club`, `get_club_calendar`, `get_club_challenges`, `get_club_leaderboard`; 66 tools total). They call the same service as the app, as the signed-in athlete, so club roles, membership and (on Postgres) row-level security apply to them exactly as they do to the person: they show only what a member sees. There are deliberately no club write tools (creating, inviting, approving, removing, posting and moderating are the person's own act in the app), and a coach-role device token reaches none of them. A club's *coach* role is unrelated to a coach *device token*.
 >
 > **Session 26:** three read-only leaderboard tools were added (`get_leaderboards`, `get_public_athlete_profile`, `get_verified_results`; 61 tools total at that point). They return public

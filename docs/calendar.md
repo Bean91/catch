@@ -128,3 +128,15 @@ on the template page). It creates ordinary planned sessions through `create_plan
 `planned_workouts.template_id`; the plan is a snapshot, and matching to completed workouts is unchanged. See
 [library.md](library.md). The legacy `PlannedWorkout.coach_feedback` string is still there and still edited in the
 planned-session sheet; the Feedback page is where authored, versioned feedback lives.
+
+## Session 36: targets, planned vs done, blocks, months
+
+- A planned block may carry `kind` (warmup | work | cooldown) and targets `split_s` (per 500 m rowed, per 1000 m on a bike), `watts`,
+  `rate_min/max`, `hr_min/max`. A template scheduled onto the calendar copies every target (it used to fold them into a free-text note).
+  Warm-up/cool-down blocks never count as zone work minutes.
+- `GET /api/planned/{id}/comparison` (and `/api/activities/{id}/plan-comparison`) compares a linked plan with the workout:
+  docs/analytics.md §35.4. `GET /api/planned/{id}/link-candidates` lists workouts within three days for a manual link.
+- A plan's calendar payload carries `linked_completed`, so a workout linked from the day before or after shows under the plan.
+- Phases have a free `category` label (suggestions Base/Build/Peak/Taper/Recovery); `GET /api/phases/{id}/progress` gives the block week
+  by week; `GET /api/calendar/month-summary?month=YYYY-MM` gives completed vs planned totals for a month (plans never counted as done).
+- Events: `participation`, `sport`, and a linked result (`result_canonical_id`, optionally `result_piece_id`) read live from the workout.

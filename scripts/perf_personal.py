@@ -74,6 +74,15 @@ READS = (
     "/api/training-intelligence/insights",
     "/api/gym/muscle-readiness",
     "/api/status",
+    # Session 36
+    "/api/records",
+    "/api/lab/progression",
+    "/api/lab/hr-at-workload",
+    "/api/lab/split-by-rate",
+    "/api/trends/load-history?weeks=26",
+    "/api/goals",
+    "/api/activities?limit=30&q=steady",
+    "/api/export/activities",
 )
 
 

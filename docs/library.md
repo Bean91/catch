@@ -138,3 +138,10 @@ run in the normal suite. Still SQLite-only: the engine itself (`catch/core/db.py
 `CREATE INDEX IF NOT EXISTS` lines in `_migrate_columns`; the Postgres move must still revisit those. A migration smoke
 on a copy of the real `data/catch.db` (which predates `api_tokens` and `planned_workouts`) creates everything, a second
 `init_db` is a no-op, and the original file's hash is unchanged.
+
+## Session 36
+
+Blocks and the warm-up/cool-down gained heart-rate targets (`hr_min`/`hr_max`); warm-up/cool-down also take a rate cap and a distance.
+A split target is per 500 m for rowed sessions and per 1000 m for `session_type: bike` (its own range, 1:00–8:00); a bike's watts target is
+never converted to a pace. Scheduling copies every target into the plan (docs/calendar.md). On the public deployment the examples are one
+shared, ownerless set: anyone can open, duplicate or schedule them; none can archive them (`can_archive: false`).

@@ -164,3 +164,28 @@ Personal (SQLite, 3 years):
 | `GET /api/ai/providers` | 2.6 | 14 | 1,702 | 1.9 | **7** | 1,702 |
 | `GET /api/zones` (new) | — | — | — | 1.9 | 5 | 1,282 |
 | All Settings requests at once | 41.5 (11 requests) | | | 28.2 (12 requests) | | |
+
+## Session 36: training-environment endpoints
+
+Personal (SQLite, 3 years, `scripts/perf_personal.py --years 3 --repeat 3`, nothing else running). Every new read is a handful of
+statements whatever the history length: records, progression and the split-by-rate stroke aggregate are one query per table, never
+one per workout.
+
+| Request | p50 ms | max ms | SQL | Bytes |
+|---|---|---|---|---|
+| `GET /api/records` | 19.0 | 65.0 | 3 | 7,367 |
+| `GET /api/pbs` (now delegates to records) | 19.0 | 22.5 | 3 | 801 |
+| `GET /api/lab/progression` | 18.4 | 18.6 | 5 | 22,977 |
+| `GET /api/lab/hr-at-workload` | 4.6 | 4.9 | 3 | 106 |
+| `GET /api/lab/split-by-rate` | 6.6 | 7.9 | 5 | 110 |
+| `GET /api/trends/load-history?weeks=26` | 8.5 | 9.5 | 4 | 9,492 |
+| `GET /api/goals` | 1.8 | 4.4 | 4 | 12 |
+| `GET /api/activities?limit=30&q=steady` | 2.0 | 3.4 | 2 | 31 |
+| `GET /api/export/activities` (CSV, 1,241 workouts) | 21.6 | 66.9 | 2 | 188,872 |
+| `PATCH /api/activities/{id}` | 100.6 | 118.5 | 67 | 3,467 |
+
+- The scratch dataset has no Concept2 strokes and no steady pieces, so the HR-at-workload and split-by-rate figures measure the query
+  shape on empty input; the stroke aggregate is a single `GROUP BY activity_id, round(stroke_rate)` either way.
+- `PATCH /api/activities/{id}` went from 85 ms / 60 statements (session 32) to 101 ms / 67: the response is the workout detail, which
+  now also carries `data_quality` (a one-row stroke probe and the members' sync states), plus the edit validation for
+  conditions/equipment/tags. Still bounded and independent of history length.
