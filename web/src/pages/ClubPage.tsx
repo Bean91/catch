@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BackLink } from "../components/ui/PageHeader";
+import { Notice } from "../components/ui/Notice";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Card } from "../components/ui/Card";
@@ -95,7 +96,7 @@ export function ClubPage() {
   return (
     <div className="flex flex-col gap-4" data-testid="club-page">
       <BackLink to="/clubs">Clubs</BackLink>
-      <header data-testid="club-header" className="flex items-start gap-3">
+      <header data-testid="club-header" className="flex items-start gap-4 rounded-lg border border-border bg-[linear-gradient(140deg,var(--accent-soft),transparent_55%),var(--surface)] p-4 shadow-[var(--highlight),var(--shadow-1)] sm:p-5">
         <Logo club={c} />
         <div className="flex min-w-0 flex-col gap-2">
           <h1 className="truncate text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{c.name}</h1>
@@ -103,17 +104,17 @@ export function ClubPage() {
           <p className="text-xs text-text-tertiary">{c.member_count ?? 0} member{c.member_count === 1 ? "" : "s"}{c.my_role ? " · you are " : ""}{c.my_role && <RoleBadge role={c.my_role} />}</p>
         </div>
       </header>
-      {c.status === "suspended" && <p role="status" data-testid="club-suspended" className="rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-sm text-band-red-text">A platform moderator has paused this club while they review reports. You can still read it.</p>}
-      {c.audience === "junior" && isMember && <p data-testid="junior-note" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-secondary">Junior club: members are under 19 and approved by a coach or the owner; staff are adults. Posts from anyone else wait for a coach's approval, and there are no private messages here.</p>}
+      {c.status === "suspended" && <Notice tone="error" role="status" testId="club-suspended">A platform moderator has paused this club while they review reports. You can still read it.</Notice>}
+      {c.audience === "junior" && isMember && <p data-testid="junior-note" className="rounded-md border border-accent/25 bg-accent-soft px-3.5 py-2.5 text-xs text-text-secondary">Junior club: members are under 19 and approved by a coach or the owner; staff are adults. Posts from anyone else wait for a coach's approval, and there are no private messages here.</p>}
       {!isMember ? (
         <PublicView club={c} />
       ) : (
         <>
-          <div role="tablist" aria-label="Club sections" className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+          <div role="tablist" aria-label="Club sections" className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0">
             {visible.map(([key, label]) => (
               <button key={key} type="button" role="tab" aria-selected={tab === key} data-testid={`club-tab-${key}`} onClick={() => setParams({ tab: key }, { replace: true })}
-                className={`min-h-11 shrink-0 rounded-md px-3 text-sm transition-colors ${tab === key ? "bg-surface-2 text-accent" : "text-text-tertiary hover:text-text-secondary"}`}>
-                {label}{key === "manage" && pendingTotal > 0 ? <span data-testid="manage-badge" className="ml-1 rounded-full bg-accent px-1.5 py-0.5 text-xs text-surface">{pendingTotal}</span> : null}
+                className={`-mb-px min-h-11 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors ${tab === key ? "border-accent text-text-primary" : "border-transparent text-text-tertiary hover:text-text-secondary"}`}>
+                {label}{key === "manage" && pendingTotal > 0 ? <span data-testid="manage-badge" className="ml-1 rounded-full bg-accent px-1.5 py-0.5 text-xs text-accent-contrast">{pendingTotal}</span> : null}
               </button>
             ))}
           </div>

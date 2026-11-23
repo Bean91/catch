@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { BackLink } from "../components/ui/PageHeader";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Button } from "../components/ui/Button";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EventSheet } from "../components/calendar/EventSheet";
@@ -91,29 +92,32 @@ export function EventDetailPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <BackLink to="/calendar">Calendar</BackLink>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h1 className="min-w-0 wrap-anywhere text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{e.name}</h1>
-          <p className="text-sm text-text-secondary">
-            {eventTypeLabel(e.type)}
-            {e.priority ? ` · ${e.priority} race` : ""} · {formatShortDate(e.date)}
+      <PageHeader
+        back={{ to: "/calendar", label: "Calendar" }}
+        eyebrow={eventTypeLabel(e.type)}
+        title={e.name}
+        subtitle={
+          <>
+            {e.priority ? `${e.priority} race · ` : ""}
+            {formatShortDate(e.date)}
             {e.location ? ` · ${e.location}` : ""}
-          </p>
-        </div>
-        <button type="button" onClick={() => setEditing(true)} className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">
-          Edit
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <Button size="sm" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        }
+      />
 
-      <Card>
-        <div className="flex items-baseline gap-3" data-testid="countdown">
-          <span className="font-mono-nums text-4xl text-text-primary">{e.days_to_go >= 0 ? e.days_to_go : Math.abs(e.days_to_go)}</span>
+      <Card tone="accent">
+        <div className="flex flex-wrap items-baseline gap-3" data-testid="countdown">
+          <span className="font-mono-nums text-5xl font-semibold tracking-tight text-text-primary">{e.days_to_go >= 0 ? e.days_to_go : Math.abs(e.days_to_go)}</span>
           <span className="text-text-secondary">
             {e.days_to_go > 0 ? "days to go" : e.days_to_go === 0 ? "— it's today" : "days ago"}
             {e.days_to_go > 7 ? ` (${o.weeks_to_go} weeks)` : ""}
           </span>
-          {e.taper && <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">Taper window</span>}
+          {e.taper && <span className="rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent">Taper window</span>}
         </div>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           {e.distance && (

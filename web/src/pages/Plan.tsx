@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { BackLink } from "../components/ui/PageHeader";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Button } from "../components/ui/Button";
 import { PlanBar } from "../components/charts/PlanBar";
 import { useState } from "react";
 import { PhaseSheet } from "../components/calendar/PhaseSheet";
@@ -24,13 +25,17 @@ export function PlanPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <BackLink to="/calendar">Calendar</BackLink>
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Training plan</h1>
-        <button type="button" onClick={() => setSheet({ open: true, existing: null })} className="min-h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-contrast">
-          + Phase
-        </button>
-      </div>
+      <PageHeader
+        back={{ to: "/calendar", label: "Calendar" }}
+        eyebrow="Plan"
+        title="Training plan"
+        subtitle="Blocks of weeks with their own goals, and how each week's training compares with what was planned."
+        actions={
+          <Button size="sm" variant="primary" onClick={() => setSheet({ open: true, existing: null })}>
+            + Phase
+          </Button>
+        }
+      />
 
       <Card title="Phases">
         {phases.isError ? (

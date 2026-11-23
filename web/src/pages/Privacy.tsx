@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { BackLink } from "../components/ui/PageHeader";
+import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
 import { AccountCard } from "../components/settings/AccountCard";
 import { AiSharingCard } from "../components/privacy/AiSharingCard";
 import { ConnectedAppsCard } from "../components/privacy/ConnectedAppsCard";
@@ -10,21 +10,31 @@ import { isPublic } from "../lib/deployment";
 export function PrivacyPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <div>
-        <BackLink to="/settings">Settings</BackLink>
-        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Privacy</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          What Catch holds, what is shared and with whom, and your controls. These are the working controls; the written policies are drafts that
-          have not had legal review —{" "}
-          <Link to="/legal/privacy-policy" className="font-medium text-accent hover:underline">read the drafts</Link>.
-        </p>
-      </div>
+      <PageHeader
+        back={{ to: "/settings", label: "Settings" }}
+        eyebrow="Sharing and visibility"
+        title="Privacy"
+        subtitle={
+          <>
+            What Catch holds, what is shared and with whom, and your controls. These are the working controls; the written policies are drafts that have
+            not had legal review —{" "}
+            <Link to="/legal/privacy-policy" className="font-medium text-accent hover:underline">
+              read the drafts
+            </Link>
+            .
+          </>
+        }
+      />
       <RestrictionsCard />
+      <SectionHeader title="Sharing" description="What an AI may see, and what other people can see." />
       <AiSharingCard />
       <VisibilityCard />
       <ConnectedAppsCard />
-      <ExportCard />
-      <DeleteDataCard />
+      <SectionHeader title="Your data" description="Take a copy, or delete parts of it. Each delete says what it removes first." />
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+        <ExportCard />
+        <DeleteDataCard />
+      </div>
       {isPublic && <AccountCard />}
     </div>
   );

@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { BackLink } from "../components/ui/PageHeader";
+import { buttonClass } from "../components/ui/Button";
+import { ErrorState } from "../components/ui/EmptyState";
+import { Notice } from "../components/ui/Notice";
+import { PageHeader } from "../components/ui/PageHeader";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchConnections } from "../lib/api";
 import { CONNECT_RESULT_TEXT } from "../lib/connections";
@@ -18,37 +21,35 @@ export function ConnectionsPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <div>
-        <BackLink to="/settings">Settings</BackLink>
-        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Connections</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          Each source uses your own account. Passwords are never asked for or stored; keys and tokens are stored encrypted on the server and never
-          shown again. Disconnecting never deletes what Catch already imported.
-        </p>
-      </div>
+      <PageHeader
+        back={{ to: "/settings", label: "Settings" }}
+        eyebrow="Sources and data"
+        title="Connections"
+        subtitle="Each source uses your own account. Passwords are never asked for or stored; keys and tokens are stored encrypted on the server and never shown again. Disconnecting never deletes what Catch already imported."
+      />
 
       {provider && result && (
-        <p role="status" data-testid="connection-result" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
+        <Notice tone={params.get("result") === "connected" ? "success" : "info"} role="status" testId="connection-result">
           {label} {result}
-        </p>
+        </Notice>
       )}
 
       {query.isLoading && <CardSkeleton lines={4} />}
-      {query.isError && <p className="text-sm text-band-red-text">Couldn't load your connections.</p>}
-      {query.data?.connections.map((c) => <ConnectionCard key={c.provider} card={c} />)}
+      {query.isError && <ErrorState message="Couldn't load your connections." onRetry={() => query.refetch()} />}
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">{query.data?.connections.map((c) => <ConnectionCard key={c.provider} card={c} />)}</div>
 
       {isNative() && healthPlatform() && (
         <Card title={healthPlatform() === "apple_health" ? "Apple Health" : "Health Connect"}>
           <p className="text-sm text-text-secondary">
             Optional. Bring workouts, sleep and heart data from your phone into Catch — only the types you choose, only after you confirm a preview.
           </p>
-          <Link to="/settings/health" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent">
+          <Link to="/settings/health" className={buttonClass("secondary", "md", "mt-3")}>
             Set up
           </Link>
         </Card>
       )}
 
-      <Card title="Sync health">
+      <Card tone="inset" title="Sync health">
         <p className="text-sm text-text-secondary">
           Catch checks each connected source on its own schedule and backs off when a source fails or asks it to slow down, so one source's trouble never
           holds up the others. For the raw numbers, see{" "}

@@ -1,5 +1,5 @@
 import { formatInstantDateTime } from "../lib/localTime";
-import { BackLink } from "../components/ui/PageHeader";
+import { PageHeader } from "../components/ui/PageHeader";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -32,15 +32,13 @@ export function LeaderboardSettingsPage() {
   const me = useQuery({ queryKey: ["lb-me"], queryFn: fetchLbMe, retry: false });
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <div>
-        <BackLink to="/settings">Settings</BackLink>
-        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Leaderboards and verified results</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          Nothing is public unless you publish it. You preview exactly what will be shown, you can take a result down at any time, and recovery, sleep, HRV, weight,
-          body composition, nutrition and your training history are never part of it.
-        </p>
-      </div>
-      <Card title="What “verified” means">
+      <PageHeader
+        back={{ to: "/settings", label: "Settings" }}
+        eyebrow="Community"
+        title="Leaderboards and verified results"
+        subtitle="Nothing is public unless you publish it. You preview exactly what will be shown, you can take a result down at any time, and recovery, sleep, HRV, weight, body composition, nutrition and your training history are never part of it."
+      />
+      <Card tone="inset" title="What “verified” means">
         <div className="flex flex-col gap-3" data-testid="verification-explainer">
           {(["verified", "provider_linked", "unverified"] as Verification[]).map((v) => (
             <div key={v} className="flex flex-col gap-1">

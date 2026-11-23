@@ -5098,8 +5098,8 @@ Branch `session-35-redesign`.
   - Tests changed on purpose: the two that counted 8 tabs (now 4 links plus More, with the More sheet and Train hub tested); ai-providers
     goes through More; library's back link is named "Library".
 - **`test:live`** on the local Supabase stack starts and reaches the redesigned onboarding under the real CSP. It then fails at "Check your
-  email", because that stack has email confirmations switched off (sign-up logs straight in). This is an environment setting; the test needs
-  `enable_confirmations = true`.
+  email", because that stack has email confirmations switched off (sign-up logs straight in): its `supabase/config.toml` has
+  `enable_confirmations = false` (checked). This is an environment setting; the test needs `true`.
 - **Builds:**
   - Personal, public (dummy Supabase config) and native-development builds all succeed; `check:build-secrets` is clean.
   - Initial JS **245.1 KB** of 250 (236.5 before; the shell and primitives are eager, and Today's new sections are a lazy chunk).
@@ -5115,10 +5115,11 @@ Branch `session-35-redesign`.
 
 ## Not done / limitations
 
-- **Pages that kept their old layout and changed only through tokens, unified titles and shared buttons:**
-  - Settings sub-pages: Connections, AI providers, Privacy, Health data, Leaderboard settings, Moderation.
-  - Library editor and template, Routes and route detail, Feedback, Memory, Duplicates, Plan, Event detail.
-  - Club pages. Their headings and back links were unified, but nothing else changed.
+- **Pages that kept their old layout and changed only through tokens, unified titles and shared buttons:** library editor and template,
+  routes and route detail, feedback, memory, duplicates, health data and moderation. The pages the brief names were reworked: Connections,
+  AI providers, Privacy, leaderboard settings, the three club pages, Plan and Event detail.
+- **More error states fixed:** AI providers' "Loading…" and Connections' ad hoc red text are now skeletons and ErrorStates. The AI-sharing card's
+  "Loading…" no longer stays up forever on an error.
 - **Still hand-rolled:** about 400 buttons and inputs in older components are hand-rolled classes, now on the new tokens. New and touched code
   uses the primitives; the rest can be moved over as those files change.
 - **Nutrition's day:** the starting day follows the browser's zone before the account zone loads. This was there before; on the mock it shows
