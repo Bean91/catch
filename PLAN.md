@@ -5001,3 +5001,127 @@ code succeeded). The Raspberry Pi was retired the same day (the owner wiped it):
 - A measure deleted at Withings stays in Catch (getmeas has no deletion signal).
 - Three consecutive `app_misconfigured` failures still send the athlete the generic "sync broken" push, though it is an operator problem.
 - `getnonce`/`revoke` refusals are always treated as the app's. A live probe showed a made-up client id answers `503 "invalid client id/secret"`.
+
+# Session 35: app-wide visual redesign
+
+Branch `session-35-redesign`.
+- **Frontend only:** no API, schema or backend change (`EXPECTED_SCHEMA_REVISION` stays "0012"), so deploying is `fastapi deploy` alone.
+- **Docs:** the audit taken before the work is `docs/redesign-audit.md`; the design system is DESIGN.md "Design system (session 35)".
+
+## Decisions (the user chose the first three)
+
+1. **Palette:** deep navy surfaces, a periwinkle accent, and muted per-metric colours ("not overly neon … some pastels").
+   - Validated with the dataviz checker; the accepted deviations are recorded in DESIGN.md.
+   - Bands stay status-only.
+2. **Phone nav:** five slots, **Today · Plan · Train · Coach · More**.
+   - Train is a new hub at `/train`; More is a grouped sheet.
+3. Only this brief is in scope ("both sessions" was a slip).
+4. **My choices:**
+   - Tokens are the main lever, since the app already used them almost everywhere (3 raw hex values in all the `.tsx`).
+   - No new runtime dependency.
+   - `useChartInteraction` is unchanged.
+   - Charts never get a second y-axis: overlays become panels.
+   - Today's new sections load as a separate chunk.
+
+## Changes
+
+- **Tokens and global CSS** (`styles/tokens.css`, `index.css`):
+  - layered navy surfaces, `surface-3` and `border-strong`, accent `strong`/`soft`, `--metric-*`, navy-tinted shadows;
+  - radii retuned by value, motion animations, base focus ring for every control;
+  - `@theme inline` (no self-referencing variables);
+  - `theme-color` follows the theme; manifest and native splash colours updated.
+- **Primitives** (`components/ui/`): Button, Field/Input/Select, Sheet/SheetContent/ModalContent, Segmented, PillNav, PageHeader/SectionHeader/BackLink,
+  StatTile, Notice, Toast, InfoTip, Switch, DefinitionList/DataTable, Badge; Card, Skeleton, Empty and Error restyled.
+  - All 22 dialogs moved onto SheetContent/ModalContent. The six with no z-index now clear the tab bar.
+  - ClubBits' button/input/sheet helpers are now the shared ones.
+- **Shell:**
+  - `lib/navigation.ts` is the one list of destinations.
+  - Desktop gets a grouped sidebar with a logomark. Phones and tablets get the fixed five-slot bar and a More sheet; tablets used to get a
+    non-sticky row at the page end.
+  - New `/train` hub.
+  - Shell heights live in `--shell-top`/`--shell-bottom`, and Coach sizes itself from them.
+  - Route changes fade up.
+- **Charts** (`components/charts/core.tsx` kit):
+  - TrendLineChart, HrChart, WeeklyVolumeBars and TrackChart are memoised, with area gradients and rounded axes.
+  - ErgChart becomes three linked panels (split, power, rate).
+  - The HR overlay is its own panel.
+  - ValueBars, StackedBar and PlanBar replace the duplicated bars.
+  - New: CalendarHeatmap, MiniLineChart, ScatterPlot and Histogram.
+  - The navigator slider has keyboard support and `aria-valuetext`.
+  - The Sparkline is spaced by date.
+  - Per-metric colours (`lib/metricColors.ts`); one copy of the fetch helpers (`lib/chartFetch.ts`).
+- **Pages:**
+  - Every title and back link is unified; sections have `h2`s.
+  - **Today:** dated header, readiness hero, guidance, vitals, and a lazy Training section (week vs plan, 8-week hours, 26-week strain heatmap,
+    recent training, top insight, PBs).
+  - **Calendar:** Agenda view, sport-stripe chips, month shading, compact day totals.
+  - **Workout detail:** stat tiles, HR summary tiles, segmented overlay, and a Stroke analysis card (split distribution, split against rate,
+    both from the full stroke list).
+  - **Workouts:** sticky bulk bar, segmented filter.
+  - **Test center:** test and piece detail share PacingCard/CompareCard.
+  - **Training intelligence:** sections and a Progression card (implied 2k with measured tests as rings; weight-adjusted power).
+  - **Trends:** compact header, one scrolling metric row on phones, metric colours.
+  - **Body:** stat strip, mutation-based manual weight.
+  - Gym, Nutrition and Coach (bubbles, composer) restyled.
+  - **Settings:** six sections and a desktop jump list.
+  - **Sign-in:** branded frame with an `h1`; onboarding progress restyled.
+  - **Leaderboards:** podium ranks.
+  - Success toasts for settings, check-in and planned sessions.
+
+## Bugs found and fixed
+
+- **Errors that showed a skeleton forever or nothing:**
+  - Status checked `!data` before `isError`, so an error showed a skeleton forever.
+  - A calendar day missing from the payload, the event projection, and Plan's week bars did the same.
+  - The test center's PBs rendered nothing on error.
+- **No error UI:** Trends, Body and Gym had none, and muscle readiness showed its empty message on error.
+- **Tests:** the test center's filter was a tablist whose buttons weren't tabs.
+- **Muscle map:** its SVG was both `role="img"` and `aria-hidden`.
+- **Duplicate cache keys:** `plan-week`/`plan-weeks`, `memory`/`coach-memory` and `gym-exercises`/`exercises`. The persisted name `plan-week` is
+  kept.
+- **Spread over big arrays:** WorkoutDetail took `Math.max(...)` over every stroke, which can hit the argument limit on a long session.
+- **HR chart range:** the full range now also covers the last sample's elapsed time, not only `n_samples`.
+- **A 320px page widened intermittently** (found under parallel test load). Two causes:
+  - Charts drew at a 600px guess until the first ResizeObserver callback; they now measure synchronously.
+  - The HR piece-drag handle rendered off-chart when its start was outside the view.
+- **`npm run test:live`** could no longer start: its tick secret was shorter than session 28's startup check allows.
+
+## Verification
+
+- **Static checks and unit tests:**
+  - `tsc -b` clean.
+  - `oxlint` shows only the 3 warnings already in `gymSync.ts`.
+  - Vitest 119 passed.
+- **Playwright:**
+  - Touch suite, all three projects: **335 passed, 8 skipped** (baseline 331; +4 new nav tests).
+  - `test:public` 24 passed, `test:update` 4 passed, `test:gym` (real backend) 3 passed.
+  - Tests changed on purpose: the two that counted 8 tabs (now 4 links plus More, with the More sheet and Train hub tested); ai-providers
+    goes through More; library's back link is named "Library".
+- **`test:live`** on the local Supabase stack starts and reaches the redesigned onboarding under the real CSP. It then fails at "Check your
+  email", because that stack has email confirmations switched off (sign-up logs straight in). This is an environment setting; the test needs
+  `enable_confirmations = true`.
+- **Builds:**
+  - Personal, public (dummy Supabase config) and native-development builds all succeed; `check:build-secrets` is clean.
+  - Initial JS **245.1 KB** of 250 (236.5 before; the shell and primitives are eager, and Today's new sections are a lazy chunk).
+- **Backend:** `pytest tests/test_main_static.py tests/tenancy/test_hardening.py` 18 passed. No Python changed.
+- **Performance:** CPU 4× throttle, production build, ms per pointer move. Both charts now run at the frame rate.
+
+  | Chart | Before | After |
+  |---|---|---|
+  | Trends, drag | 35.0 | 17.1 |
+  | Workout HR, drag | 20.9 | 16.8 |
+
+- **Screenshots:** 35 routes × 320/390/768/1280 × dark/light on the production build, with **0 horizontal overflow and 0 console errors**.
+
+## Not done / limitations
+
+- **Pages that kept their old layout and changed only through tokens, unified titles and shared buttons:**
+  - Settings sub-pages: Connections, AI providers, Privacy, Health data, Leaderboard settings, Moderation.
+  - Library editor and template, Routes and route detail, Feedback, Memory, Duplicates, Plan, Event detail.
+  - Club pages. Their headings and back links were unified, but nothing else changed.
+- **Still hand-rolled:** about 400 buttons and inputs in older components are hand-rolled classes, now on the new tokens. New and touched code
+  uses the primitives; the rest can be moved over as those files change.
+- **Nutrition's day:** the starting day follows the browser's zone before the account zone loads. This was there before; on the mock it shows
+  "Jump to today" on the browser's today.
+- **Histogram:** its bins describe strokes, not time. The scatter and distribution use the full stroke list, so every stroke counts once.
+- **Not seen on real devices:** iOS PWA and native shells.

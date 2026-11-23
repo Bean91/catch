@@ -767,6 +767,18 @@ constants).
 Tests: `tests/test_withings_flow.py`, `tests/tenancy/test_withings_isolation.py`, `tests/analytics/test_power_and_mass.py`, `tests/test_piece_power_and_mass.py`,
 `tests/tenancy/test_onboarding_privacy.py`; Playwright `pieces-power.spec.ts`, `onboarding*.spec.ts`, `connections.spec.ts`.
 
+Session 35 (app-wide visual redesign; see PLAN.md, `docs/redesign-audit.md`, DESIGN.md "Design system (session 35)", which supersedes older palette/nav notes).
+Frontend only. **Tokens** in `styles/tokens.css`: navy surfaces (`surface`/`-2`/`-3`, `border-strong`), periwinkle accent (`-strong`/`-soft`), status
+`band-*`, and per-metric `--metric-hr|power|pace|rate|sleep` (validated pairs; use `lib/metricColors.ts`, never a new hue), mapped by `@theme inline`.
+**Primitives** in `components/ui/` (Button/`buttonClass`, Field/`controlClass`/`controlBase`, `SheetContent`/`ModalContent`/`Sheet` for every dialog,
+Segmented, PillNav, PageHeader/SectionHeader/BackLink, StatTile, Notice, Toast/`useToast`, InfoTip, Switch, DataTable/DefinitionList, Badge): use them
+for new UI. **Navigation**: `lib/navigation.ts` is the one list; phone/tablet tab bar = Today · Plan · Train · Coach · More (More = grouped sheet,
+`/train` = hub page), desktop = grouped sidebar; shell heights `--shell-top`/`--shell-bottom` (keep the bar ≤ 52px — charts.spec). **Charts**:
+`components/charts/core.tsx` kit (measured width synchronously, nice ticks, monotone paths, binary-search lookup, ChartTooltip that never leaves
+the chart); one y-axis per plot (extra series = a panel sharing x); `ValueBars`/`StackedBar`/`PlanBar`/`CalendarHeatmap`/`MiniLineChart`/
+`ScatterPlot`/`Histogram`; `lib/chartFetch.ts` for quantize/pad. Today's lower half is the lazy `components/today/TodayMore.tsx` (bundle budget:
+245/250 KB). Card titles stay `h3`, Card keeps `rounded-lg`.
+
 ## Commands
 
 - `uv sync` — install deps
