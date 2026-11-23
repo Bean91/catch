@@ -105,7 +105,7 @@ export function MiniLineChart({
         )}
         {[0, 1].map((i) => (
           <text key={i} x={i ? width - PAD_RIGHT : PAD_LEFT} y={height - 6} fontSize={10} textAnchor={i ? "end" : "start"} fill="var(--text-tertiary)">
-            {formatShortDate(new Date(i ? geo.t1 : geo.t0).toISOString().slice(0, 10))}
+            {new Date(i ? geo.t1 : geo.t0).toLocaleDateString(undefined, geo.t1 - geo.t0 > 300 * 86_400_000 ? { month: "short", year: "numeric" } : { month: "short", day: "numeric" })}
           </text>
         ))}
       </svg>
