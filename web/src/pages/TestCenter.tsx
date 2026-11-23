@@ -1,4 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, buttonClass } from "../components/ui/Button";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Segmented } from "../components/ui/Segmented";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { confirmTest, fetchBikePieces, fetchPbs, fetchProjection, fetchTestCandidates, fetchTests, isMock } from "../lib/api";
@@ -38,39 +41,39 @@ export function TestCenterPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1 basis-60">
-          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Test center</h1>
-          <p className="text-sm text-text-tertiary">500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.</p>
-          {(isPublic || isMock) && (
-            <Link to="/settings/leaderboards" data-testid="tests-leaderboards-link" className="text-sm font-medium text-accent hover:underline">
-              Publish verified results to the leaderboards
-            </Link>
-          )}
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={() => setAddPieceOpen(true)}
-            className="min-h-11 rounded-full border border-border px-4 text-sm font-medium text-text-primary"
-          >
-            Add piece
-          </button>
-          <button
-            type="button"
-            onClick={() => setPlanOpen(true)}
-            className="min-h-11 rounded-full border border-accent bg-accent px-4 text-sm font-medium text-accent-contrast"
-          >
-            Build pacing plan
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Training"
+        title="Test center"
+        subtitle={
+          <>
+            500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.
+            {(isPublic || isMock) && (
+              <>
+                {" "}
+                <Link to="/settings/leaderboards" data-testid="tests-leaderboards-link" className="font-medium text-accent hover:underline">
+                  Publish verified results to the leaderboards
+                </Link>
+              </>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <Button size="sm" onClick={() => setAddPieceOpen(true)}>
+              Add piece
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => setPlanOpen(true)}>
+              Build pacing plan
+            </Button>
+          </>
+        }
+      />
 
       {candidatesQuery.data != null && candidatesQuery.data.length > 0 && (
-        <Card title="Looks like a test — confirm?">
+        <Card tone="accent" title="Looks like a test — confirm?">
           <div className="flex flex-col gap-2">
             {candidatesQuery.data.map((c) => (
-              <div key={c.canonical_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
+              <div key={c.canonical_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-surface p-3">
                 <div className="min-w-0 wrap-anywhere text-sm text-text-primary">
                   {c.title ?? "Erg piece"} — {c.date ? formatShortDate(c.date) : "—"}
                   <span className="ml-2 font-mono-nums text-text-tertiary">
@@ -81,7 +84,7 @@ export function TestCenterPage() {
                   type="button"
                   disabled={confirm.isPending}
                   onClick={() => confirm.mutate({ id: c.canonical_id, type: c.suggested_test_type })}
-                  className="min-h-9 rounded-md border border-accent bg-accent px-3 text-sm font-medium text-accent-contrast disabled:opacity-50"
+                  className={buttonClass("primary", "sm")}
                 >
                   Confirm as {c.suggested_test_type}
                 </button>
@@ -102,28 +105,18 @@ export function TestCenterPage() {
       </Card>
 
       <Card title="Confirmed tests">
-        <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Test type">
-          <button
-            type="button"
-            onClick={() => setFilter(null)}
-            className={`min-h-9 rounded-full border px-3 text-xs font-medium ${filter === null ? "border-accent text-accent" : "border-border text-text-tertiary"}`}
-          >
-            All
-          </button>
-          {ERG_TEST_TYPES.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setFilter(t)}
-              className={`min-h-9 rounded-full border px-3 text-xs font-medium ${filter === t ? "border-accent text-accent" : "border-border text-text-tertiary"}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        {/* It was a tablist whose buttons weren't tabs; Segmented gives them the role, selection state and arrow keys. */}
+        <Segmented
+          label="Test type"
+          size="sm"
+          className="mb-3"
+          value={filter ?? "all"}
+          onChange={(v) => setFilter(v === "all" ? null : (v as typeof filter))}
+          options={[{ value: "all", label: "All" }, ...ERG_TEST_TYPES.map((t) => ({ value: t, label: t }))]}
+        />
 
         {filter && (
-          <div className="mb-3 rounded-md bg-surface-2 p-3 text-xs text-text-secondary">
+          <div className="mb-3 rounded-md border border-accent/25 bg-accent-soft p-3 text-sm text-text-secondary">
             {projectionQuery.data ? (
               projectionQuery.data.value != null ? (
                 <>
