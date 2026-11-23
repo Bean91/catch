@@ -12,6 +12,7 @@ import { MassPower } from "./MassPower";
 import { PieceIntervalTable } from "./PieceIntervalTable";
 import { StackedBar } from "../charts/StackedBar";
 import { SplitsReviewTable } from "./SplitsReviewTable";
+import { buttonClass } from "../ui/Button";
 
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
  * so I can check it later; delete option"). Editing re-runs the same validation the create
@@ -166,11 +167,11 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
                 setIvIssues(null);
                 setEditing(true);
               }}
-              className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary"
+              className={buttonClass("secondary", "sm")}
             >
               Edit intervals
             </button>
-            <button type="button" disabled={busy} onClick={remove} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-band-red/40 hover:text-band-red-text disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={remove} className={buttonClass("secondary", "sm")}>
               Delete piece
             </button>
           </div>
@@ -179,14 +180,14 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
         <div className="mt-3 flex flex-col gap-3">
           <IntervalEditor rows={rows} onChange={setRows} canonicalId={canonicalId} issues={ivIssues ?? []} modality={piece.modality} />
           <div className="flex gap-2">
-            <button type="button" onClick={() => setEditing(false)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+            <button type="button" onClick={() => setEditing(false)} className={buttonClass("secondary", "sm")}>
               Cancel
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => saveIntervals(ivIssues != null && ivIssues.length > 0)}
-              className="min-h-9 flex-1 rounded-md border border-accent bg-accent px-3 text-xs font-medium text-accent-contrast disabled:opacity-50"
+              className={buttonClass("primary", "sm", "flex-1")}
             >
               {ivIssues && ivIssues.length > 0 ? "Save anyway" : "Save"}
             </button>

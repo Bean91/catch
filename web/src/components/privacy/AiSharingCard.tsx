@@ -4,8 +4,10 @@ import { Skeleton } from "../ui/Skeleton";
 import { useState } from "react";
 import { fetchSharing, updateSharing, withdrawSharing, YOUTH_BANDS } from "../../lib/privacy";
 import { Card } from "../ui/Card";
+import { controlSkin } from "../ui/Field";
+import { buttonClass } from "../ui/Button";
 
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const btn = buttonClass("secondary", "md");
 const BANDS = [["", "I'd rather not say"], ["adult", "19 or over"], ["u19", "Under 19"], ["u18", "Under 18"], ["u17", "Under 17"], ["u16", "Under 16"], ["u15", "Under 15"], ["u14", "Under 14"]];
 
 /** What the AI coach and your AI provider may see. Nothing is sent until you have read this and agreed, and every category starts off. */
@@ -65,7 +67,7 @@ export function AiSharingCard() {
           <label htmlFor="age-band" className="text-sm font-medium text-text-primary">Age (optional)</label>
           <select
             id="age-band"
-            className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-text-primary"
+            className={controlSkin + " w-auto min-h-11"}
             value={band ?? ""}
             onChange={(e) => {
               setPickedBand(e.target.value || null);

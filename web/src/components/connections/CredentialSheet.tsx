@@ -5,8 +5,10 @@ import { putConnectionCredential } from "../../lib/api";
 import { CONCEPT2_TOKEN_HELP, GARMIN_KEY_PAGE_URL } from "../../lib/connections";
 import type { ConnectionCard } from "../../lib/types";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
+const inputCls = `${controlSkin} min-h-11 w-full`;
 
 /** Add or replace a Garmin Personal API key or a Concept2 personal token. The secret lives only in this component's state, only until the
  *  request is sent, and is cleared on close, success and failure — it is never read back, cached, put in a URL or stored. */
@@ -102,7 +104,7 @@ export function CredentialSheet({ card, open, onOpenChange }: { card: Connection
               </p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => close(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+              <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md")}>
                 Cancel
               </button>
               <button

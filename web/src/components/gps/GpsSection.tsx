@@ -11,6 +11,7 @@ import { Card } from "../ui/Card";
 import { GpsBadge } from "./GpsBadge";
 import { TrackChart, type TrackMetric } from "./TrackChart";
 import { WeatherCard } from "./WeatherCard";
+import { buttonClass } from "../ui/Button";
 
 function Fig({ label, value, sub, source }: { label: string; value: string; sub?: string; source?: "gps_derived" | "provider" }) {
   return (
@@ -74,7 +75,7 @@ function RouteChip({ canonicalId, data, rowing }: { canonicalId: number; data: O
             type="button"
             disabled={change.isPending}
             onClick={() => change.mutate({ new_route: true })}
-            className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50"
+            className={buttonClass("secondary", "sm")}
           >
             Save this course as a route
           </button>

@@ -6,8 +6,10 @@ import { todayISO } from "../../lib/dates";
 import type { FeedbackEntry, FeedbackVisibility, FocusArea } from "../../lib/types";
 import { FOCUS_AREAS } from "./labels";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 
 export function invalidateFeedback(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["coach-feedback"] });
@@ -125,7 +127,7 @@ export function FeedbackSheet({ open, onOpenChange, existing }: { open: boolean;
             </p>
           )}
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !text.trim()} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !text.trim()} className={buttonClass("primary", "md", "flex-1")}>
               {save.isPending ? "Saving…" : existing ? "Save changes" : "Save entry"}
             </button>
             <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
@@ -137,7 +139,7 @@ export function FeedbackSheet({ open, onOpenChange, existing }: { open: boolean;
             {existing && confirmDelete && (
               <div className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-sm">
                 <span className="flex-1 text-text-secondary">Delete this entry? Its edit history is kept.</span>
-                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="min-h-11 rounded-md border border-border px-3 text-text-primary">
+                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className={buttonClass("secondary", "md")}>
                   Delete
                 </button>
               </div>

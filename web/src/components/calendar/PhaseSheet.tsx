@@ -6,8 +6,10 @@ import type { PhaseInput, PhaseKind, PlanPhase } from "../../lib/types";
 import { PHASE_KINDS, ZONES } from "./labels";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -169,10 +171,10 @@ export function PhaseSheet({
                     {existing.edited_since_approval ? " — edited since" : ""}
                   </span>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => approve.mutate()} className="min-h-11 flex-1 rounded-md border border-border px-3 text-text-primary">
+                    <button type="button" onClick={() => approve.mutate()} className={buttonClass("secondary", "md", "flex-1")}>
                       Re-approve as it is
                     </button>
-                    <button type="button" onClick={() => unapprove.mutate()} className="min-h-11 rounded-md border border-border px-3">
+                    <button type="button" onClick={() => unapprove.mutate()} className={buttonClass("secondary", "md")}>
                       Remove approval
                     </button>
                   </div>
@@ -185,7 +187,7 @@ export function PhaseSheet({
                   <Field label="Note (optional)">
                     <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} />
                   </Field>
-                  <button type="button" onClick={() => approve.mutate()} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary">
+                  <button type="button" onClick={() => approve.mutate()} className={buttonClass("secondary", "md")}>
                     Mark as coach-approved
                   </button>
                 </div>
@@ -199,7 +201,7 @@ export function PhaseSheet({
             </p>
           )}
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !name.trim()} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !name.trim()} className={buttonClass("primary", "md", "flex-1")}>
               {save.isPending ? "Saving…" : existing ? "Save changes" : "Add phase"}
             </button>
             <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
@@ -211,7 +213,7 @@ export function PhaseSheet({
             {existing && confirmDelete && (
               <div className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-sm">
                 <span className="flex-1 text-text-secondary">Delete this phase? Planned sessions are kept.</span>
-                <button type="button" onClick={() => remove.mutate()} className="min-h-11 rounded-md border border-border px-3 text-text-primary">
+                <button type="button" onClick={() => remove.mutate()} className={buttonClass("secondary", "md")}>
                   Delete
                 </button>
               </div>

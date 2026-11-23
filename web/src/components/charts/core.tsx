@@ -163,13 +163,13 @@ function straight(xs: number[], ys: number[]): string {
 
 function monotone(xs: number[], ys: number[]): string {
   const n = xs.length;
-  const dx: number[] = new Array(n - 1);
-  const m: number[] = new Array(n - 1);
+  const dx = new Float64Array(n - 1);
+  const m = new Float64Array(n - 1);
   for (let i = 0; i < n - 1; i++) {
     dx[i] = xs[i + 1] - xs[i] || 1e-6;
     m[i] = (ys[i + 1] - ys[i]) / dx[i];
   }
-  const t: number[] = new Array(n);
+  const t = new Float64Array(n);
   t[0] = m[0];
   t[n - 1] = m[n - 2];
   for (let i = 1; i < n - 1; i++) {

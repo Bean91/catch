@@ -6,8 +6,10 @@ import { useAuth } from "../../lib/auth";
 import { confirmProblem, describeAuthError, passwordProblem } from "../../lib/authErrors";
 import { PasswordField } from "../auth/PasswordField";
 import { Card } from "../ui/Card";
+import { controlSkin } from "../ui/Field";
+import { buttonClass } from "../ui/Button";
 
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const btn = buttonClass("secondary", "md");
 
 /** Public deployment only. Sign-in, email and password live in Supabase Auth; this is the person's way out. */
 /** Session 32: change the password while signed in. Supabase's "secure password change" may ask for a recent sign-in; that comes
@@ -111,7 +113,7 @@ export function AccountCard() {
               aria-label="Type DELETE to confirm"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-text-primary outline-none focus-visible:border-accent"
+              className={controlSkin + " min-h-11 w-full"}
             />
             {remove.isError && remove.error instanceof ApiError && remove.error.status === 403 && remove.error.message === "reauth_required" && (
               <div className="flex flex-col gap-2" data-testid="reauth-required">

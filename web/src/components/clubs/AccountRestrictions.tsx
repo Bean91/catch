@@ -4,6 +4,8 @@ import { useState } from "react";
 import { authedFetch } from "../../lib/authedFetch";
 import { ApiError, isMock } from "../../lib/api";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 type ModRestriction = { id: number; user_id: string; scope: string; scope_text: string; active: boolean; reason: string; created_at: string; expires_at: string | null; appeal: { status: string; text: string | null } | null };
 type ModAction = { id: number; actor_id: string; action: string; subject_user_id: string; reason: string; at: string };
@@ -16,8 +18,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 const post = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
-const btn = "min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-secondary disabled:opacity-50";
+const inputCls = `${controlSkin} min-h-11 w-full`;
+const btn = buttonClass("secondary", "md");
 
 /** Platform-moderator tools for account restrictions: who is restricted from what, appeals, and the append-only action log. Ids and reasons only. */
 export function AccountRestrictions() {

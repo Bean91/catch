@@ -13,6 +13,8 @@ import { IntervalEditor } from "./IntervalEditor";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 import { TimeInput } from "./TimeInput";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlBase, controlSkin } from "../ui/Field";
 
 type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "intervals" | "saving" | "saved";
 
@@ -322,10 +324,10 @@ export function AddPieceDialog({
                 }}
               />
 
-              <button type="button" onClick={startTyped} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+              <button type="button" onClick={startTyped} className={buttonClass("secondary", "md")}>
                 Type or paste splits
               </button>
-              <button type="button" onClick={() => setStep("intervals")} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+              <button type="button" onClick={() => setStep("intervals")} className={buttonClass("secondary", "md")}>
                 Intervals (4 × 500m, 8 × 1:00 …)
               </button>
             </div>
@@ -342,10 +344,10 @@ export function AddPieceDialog({
                   onChange={(e) => setPasteText(e.target.value)}
                   placeholder="1:36.8 32 / 1:38.9 30 / 1:39.0 31 / 1:37.7 32"
                   rows={2}
-                  className="rounded-md border border-border bg-surface-2 p-2 text-base text-text-primary"
+                  className={controlBase + " w-auto"}
                 />
                 {pasteError && <span className="text-xs text-band-red-text">{pasteError}</span>}
-                <button type="button" onClick={applyPaste} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+                <button type="button" onClick={applyPaste} className={buttonClass("secondary", "sm", "self-start")}>
                   Apply paste
                 </button>
               </label>
@@ -355,7 +357,7 @@ export function AddPieceDialog({
               <div className="flex gap-3 text-sm">
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total distance (m), if different</span>
-                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 w-full min-w-0 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary" />
+                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className={controlSkin + " min-h-9 w-full min-w-0 font-mono-nums"} />
                 </label>
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total time, if different</span>
@@ -363,7 +365,7 @@ export function AddPieceDialog({
                 </label>
               </div>
 
-              <button type="button" onClick={goToReview} className="min-h-11 rounded-md bg-accent text-sm font-medium text-accent-contrast">
+              <button type="button" onClick={goToReview} className={buttonClass("primary", "md")}>
                 Review
               </button>
             </div>
@@ -388,7 +390,7 @@ export function AddPieceDialog({
                     aria-label="Total distance (m)"
                     value={distanceM ?? ""}
                     onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))}
-                    className="min-h-9 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary"
+                    className={controlSkin + " w-auto min-h-9 font-mono-nums"}
                   />
                 </label>
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
@@ -400,14 +402,14 @@ export function AddPieceDialog({
               <PowerSummary modality={modality} preview={preview.data ?? null} loading={preview.isFetching && !preview.data} failed={preview.isError} />
               {error && <p className="text-sm text-band-red-text">{error}</p>}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep(source === "photo" ? "choose-method" : "typed")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
+                <button type="button" onClick={() => setStep(source === "photo" ? "choose-method" : "typed")} className={buttonClass("secondary", "md")}>
                   Back
                 </button>
                 <button
                   type="button"
                   disabled={splits.length === 0 && distanceM == null && durationS == null}
                   onClick={() => save(!(shownValidation?.ok ?? true))}
-                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                  className={buttonClass("primary", "md", "flex-1")}
                 >
                   {shownValidation && !shownValidation.ok ? "Save anyway" : "Save piece"}
                 </button>
@@ -420,14 +422,14 @@ export function AddPieceDialog({
               <IntervalEditor rows={intervalRows} onChange={setIntervalRows} canonicalId={canonicalId} issues={intervalIssues} modality={modality} />
               {error && <p className="text-sm text-band-red-text">{error}</p>}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setStep("choose-method")} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
+                <button type="button" onClick={() => setStep("choose-method")} className={buttonClass("secondary", "md")}>
                   Back
                 </button>
                 <button
                   type="button"
                   disabled={intervalRows.length === 0}
                   onClick={() => saveIntervals(intervalIssues.length > 0)}
-                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                  className={buttonClass("primary", "md", "flex-1")}
                 >
                   {intervalIssues.length > 0 ? "Save anyway" : "Save intervals"}
                 </button>
@@ -447,7 +449,7 @@ export function AddPieceDialog({
                   {w}
                 </p>
               ))}
-              <button type="button" onClick={close} className="min-h-11 rounded-md bg-accent text-sm font-medium text-accent-contrast">
+              <button type="button" onClick={close} className={buttonClass("primary", "md")}>
                 Done
               </button>
             </div>
@@ -455,7 +457,7 @@ export function AddPieceDialog({
 
           {step !== "saved" && (
             <Dialog.Close asChild>
-              <button type="button" onClick={close} className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+              <button type="button" onClick={close} className={buttonClass("secondary", "md", "mt-4 w-full")}>
                 Cancel
               </button>
             </Dialog.Close>
@@ -492,7 +494,7 @@ function PieceTypeSelect({ modality, value, onChange }: { modality: PieceModalit
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-sm font-medium text-text-primary">Piece type</span>
-      <select value={value} onChange={(e) => onChange(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
+      <select value={value} onChange={(e) => onChange(e.target.value as ErgTestType)} className={controlSkin + " w-auto min-h-11"}>
         {PIECE_TYPES_BY_MODALITY[modality].map((t) => (
           <option key={t} value={t}>
             {t}

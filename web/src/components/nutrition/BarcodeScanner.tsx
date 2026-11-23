@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createBarcodeDetector, type BarcodeDetectorLike } from "../../lib/barcodeScan";
+import { buttonClass } from "../ui/Button";
 
 export function BarcodeScanner({ onDetect, onClose }: { onDetect: (barcode: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -102,7 +103,7 @@ export function BarcodeScanner({ onDetect, onClose }: { onDetect: (barcode: stri
             {torchOn ? "Torch on" : "Torch"}
           </button>
         )}
-        <button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+        <button type="button" onClick={onClose} className={buttonClass("secondary", "md", "flex-1")}>
           Cancel
         </button>
       </div>

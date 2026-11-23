@@ -4,7 +4,7 @@ import { Notice } from "../components/ui/Notice";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Segmented } from "../components/ui/Segmented";
 import { dayLabel } from "../lib/dates";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useSyncExternalStore } from "react";
 import { AddFoodDialog } from "../components/nutrition/AddFoodDialog";
 import { MacroBar } from "../components/nutrition/MacroBar";
 import { MealSection } from "../components/nutrition/MealSection";
@@ -14,6 +14,7 @@ import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { copyDayLogs, fetchDaySummary, fetchWeekSummary } from "../lib/api";
 import { localDateString } from "../lib/format";
+import { activeTimeZone, subscribeActiveZone } from "../lib/localTime";
 import { MEALS, type Meal } from "../lib/types";
 
 import { useVisionAvailable } from "../lib/useVisionAvailable";
@@ -36,12 +37,20 @@ function defaultMealForNow(): Meal {
 
 export function NutritionPage() {
   const [view, setView] = useState<"day" | "week">("day");
-  const [date, setDate] = useState(() => localDateString());
+  // Follow "today" (which moves when the account's zone loads, or at midnight) until the athlete picks a day themselves; the
+  // first render can run before /api/me has set the account zone, and freezing that day showed "Jump to today" on today.
+  useSyncExternalStore(subscribeActiveZone, activeTimeZone);
+  const [picked, setPicked] = useState<string | null>(null);
   const [addMeal, setAddMeal] = useState<Meal | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const today = localDateString();
+  const date = picked ?? today;
+  const setDate = (next: string | ((d: string) => string)) => {
+    const value = typeof next === "function" ? next(date) : next;
+    setPicked(value === today ? null : value);
+  };
   const yesterday = shiftLocalDate(date, -1);
 
   const daySummary = useQuery({ queryKey: ["nutrition-day", date], queryFn: () => fetchDaySummary(date) });

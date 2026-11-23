@@ -5,8 +5,10 @@ import { createToken, deleteToken, fetchAiProviders, fetchCoachSettings, fetchTo
 import { formatRelativeTime } from "../../lib/format";
 import { Card } from "../ui/Card";
 import { ErrorState } from "../ui/EmptyState";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
+const inputCls = `${controlSkin} min-h-11`;
 
 export function CoachSettingsCard() {
   const queryClient = useQueryClient();
@@ -141,7 +143,7 @@ export function CoachSettingsCard() {
             <button
               type="submit"
               disabled={!newTokenName.trim() || createDeviceToken.isPending}
-              className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50"
+              className={buttonClass("secondary", "md")}
             >
               Create token
             </button>

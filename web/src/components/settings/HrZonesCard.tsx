@@ -4,9 +4,10 @@ import { formatNumber, formatShortDate } from "../../lib/format";
 import type { Settings } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { ErrorState } from "../ui/EmptyState";
+import { controlSkin } from "../ui/Field";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
-const inputCls = "font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary";
+const inputCls = `${controlSkin} min-h-11 font-mono-nums w-20 px-2`;
 
 /** Session 33: heart-rate zones — the method, the resting and max heart rate they use (and where each came from), the boundaries
  * in bpm. Every number in the bpm column comes from the server (GET /api/zones); the browser does no zone maths. Edits go through

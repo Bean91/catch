@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { zoneForBpm } from "../../lib/zoneColors";
 import { formatDistance, formatSplit } from "../../lib/format";
@@ -204,20 +203,19 @@ export function ErgChart({
               {p.path &&
                 (reduced || hasAnimatedIn.current ? (
                   // Plain <path> once the one-time draw-in has played — see TrendLineChart's
-                  // identical split for why a motion.path re-rendered on every pan/zoom frame
+                  // identical split for why an animated path re-rendered on every pan/zoom frame
                   // is real, measured dropped-frame cost for an animation that's already done.
                   <path d={p.path} fill="none" stroke={p.color} strokeWidth={p.key === "pace_500m" ? 2 : 1.6} strokeLinecap="round" strokeLinejoin="round" />
                 ) : (
-                  <motion.path
+                  <path
                     d={p.path}
                     fill="none"
                     stroke={p.color}
                     strokeWidth={p.key === "pace_500m" ? 2 : 1.6}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                pathLength={1}
+                className="draw-in"
                   />
                 ))}
               {hovered && hovered[p.key] != null && (

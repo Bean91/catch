@@ -4,6 +4,7 @@ import { fetchSyncStatus, triggerSync } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/format";
 import type { NextARace } from "../../lib/types";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
 
 export function RecommendationAndSync({ recommendation, nextARace }: { recommendation: string; nextARace: NextARace | null }) {
   const queryClient = useQueryClient();
@@ -73,7 +74,7 @@ export function RecommendationAndSync({ recommendation, nextARace }: { recommend
           type="button"
           onClick={() => syncAll.mutate()}
           disabled={syncAll.isPending}
-          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 px-4 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-3 disabled:opacity-45"
+          className={buttonClass("secondary", "md", "shrink-0")}
         >
           {syncAll.isPending ? "Syncing…" : "Sync now"}
         </button>

@@ -7,6 +7,7 @@ import { GROUP_LABEL, moreGroups, tabFor, type TabId } from "../../lib/navigatio
 import { useTheme } from "../../lib/theme";
 import { SheetContent, SheetHeader } from "../ui/Sheet";
 import { CalendarIcon, CoachIcon, LogoutIcon, MoonIcon, MoreIcon, SunIcon, TodayIcon, TrainIcon } from "./icons";
+import { buttonClass } from "../ui/Button";
 
 // Session 35: four destinations and More (was eight squeezed tabs). The calendar's tab keeps the short label "Plan" — "Calendar"
 // clips at 11px on 360–375px phones (DESIGN.md, calendar.spec). Every other destination is one tap away in the More sheet.
@@ -94,7 +95,7 @@ export function BottomNav() {
                   </div>
                 ))}
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-                  <button type="button" onClick={toggle} className="flex min-h-11 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-text-secondary hover:text-text-primary">
+                  <button type="button" onClick={toggle} className={buttonClass("secondary", "md")}>
                     {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                     {theme === "dark" ? "Light theme" : "Dark theme"}
                   </button>
@@ -105,7 +106,7 @@ export function BottomNav() {
                         setMoreOpen(false);
                         logout();
                       }}
-                      className="flex min-h-11 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-text-secondary hover:text-text-primary"
+                      className={buttonClass("secondary", "md")}
                     >
                       <LogoutIcon className="h-5 w-5" />
                       Log out

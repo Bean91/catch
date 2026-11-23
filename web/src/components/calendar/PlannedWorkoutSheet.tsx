@@ -8,8 +8,10 @@ import { addDays, dayLabel } from "../../lib/dates";
 import type { IntervalBlock, PlannedInput, PlannedWorkout, SessionType, ZoneLabel } from "../../lib/types";
 import { SESSION_TYPES, ZONES } from "./labels";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -172,11 +174,11 @@ export function PlannedWorkoutSheet({
 
           {existing && (
             <div className="mt-4 flex items-center justify-between gap-2" role="group" aria-label="Move this session">
-              <button type="button" disabled={moveBy.isPending} onClick={() => moveBy.mutate(-1)} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+              <button type="button" disabled={moveBy.isPending} onClick={() => moveBy.mutate(-1)} className={buttonClass("secondary", "md")}>
                 ← Earlier
               </button>
               <span className="text-sm text-text-secondary">{dayLabel(existing.date)}</span>
-              <button type="button" disabled={moveBy.isPending} onClick={() => moveBy.mutate(1)} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+              <button type="button" disabled={moveBy.isPending} onClick={() => moveBy.mutate(1)} className={buttonClass("secondary", "md")}>
                 Later →
               </button>
             </div>
@@ -257,7 +259,7 @@ export function PlannedWorkoutSheet({
                       ))}
                     </select>
                   </Field>
-                  <button type="button" aria-label={`Remove block ${i + 1}`} onClick={() => setBlocks((x) => x.filter((_, j) => j !== i))} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary">
+                  <button type="button" aria-label={`Remove block ${i + 1}`} onClick={() => setBlocks((x) => x.filter((_, j) => j !== i))} className={buttonClass("secondary", "md", "min-w-11")}>
                     ×
                   </button>
                 </div>
@@ -332,7 +334,7 @@ export function PlannedWorkoutSheet({
           )}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={buttonClass("primary", "md", "flex-1")}>
               {save.isPending ? "Saving…" : existing ? "Save changes" : "Add to plan"}
             </button>
             <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
@@ -344,7 +346,7 @@ export function PlannedWorkoutSheet({
             {existing && confirmDelete && (
               <div className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-sm">
                 <span className="flex-1 text-text-secondary">Remove {scope === "this" ? "this planned session" : "this and later sessions"}? Logged workouts aren’t affected.</span>
-                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="min-h-11 rounded-md border border-border px-3 text-text-primary">
+                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className={buttonClass("secondary", "md")}>
                   Remove
                 </button>
               </div>

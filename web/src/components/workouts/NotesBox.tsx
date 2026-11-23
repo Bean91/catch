@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchNote, saveNote } from "../../lib/api";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
+import { controlBase } from "../ui/Field";
 
 export function NotesBox({ date }: { date: string }) {
   const queryClient = useQueryClient();
@@ -39,7 +41,7 @@ export function NotesBox({ date }: { date: string }) {
         }}
         placeholder="How did it feel?"
         rows={3}
-        className="w-full resize-none rounded-md border border-border bg-surface-2 p-3 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none"
+        className={controlBase + " w-full resize-none"}
       />
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="flex items-center gap-3 text-sm text-text-secondary">
@@ -62,7 +64,7 @@ export function NotesBox({ date }: { date: string }) {
           type="button"
           onClick={() => save.mutate()}
           disabled={save.isPending || !dirty}
-          className="min-h-11 shrink-0 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+          className={buttonClass("primary", "md", "shrink-0")}
         >
           {save.isPending ? "Saving…" : "Save"}
         </button>

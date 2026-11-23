@@ -3,9 +3,11 @@ import { useState } from "react";
 import { lbOptIn } from "../../lib/api";
 import type { LbState } from "../../lib/types";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
-const primary = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50";
+const inputCls = `${controlSkin} min-h-11 w-full`;
+const primary = buttonClass("primary");
 
 /** The leaderboard opt-in (session 26), shared by Settings → Leaderboards and the privacy step of first-run setup (session 34). Opting in
  *  only *allows* publishing: every result still needs its own previewed, confirmed publish, so joining makes nothing public by itself. */

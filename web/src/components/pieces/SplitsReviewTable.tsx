@@ -2,6 +2,8 @@ import { formatSplit, splitUnitLabel } from "../../lib/format";
 import { SPLIT_M, rateUnit, type PieceModality } from "../../lib/pieceSplits";
 import type { PieceSplitRow, PieceValidation } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 /** The one review table both input methods (photo, typed/pasted) land on — task Part A.2.
  * Highlights exactly the rows a validation check flagged (task Part B.3: "highlight ... so I
@@ -92,7 +94,7 @@ export function SplitsReviewTable({
                         inputMode="decimal"
                         value={row.distance_m ?? ""}
                         onChange={(e) => update(i, { distance_m: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-20 rounded-md border border-border bg-surface-2 px-1.5 text-base font-mono-nums text-text-primary"
+                        className={controlSkin + " min-h-9 w-20 font-mono-nums"}
                       />
                     )}
                   </td>
@@ -112,7 +114,7 @@ export function SplitsReviewTable({
                         inputMode="numeric"
                         value={row.rate ?? ""}
                         onChange={(e) => update(i, { rate: e.target.value === "" ? null : Number(e.target.value) })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-surface-2 px-1.5 text-base font-mono-nums text-text-primary"
+                        className={controlSkin + " min-h-9 w-16 font-mono-nums"}
                       />
                     )}
                   </td>
@@ -130,7 +132,7 @@ export function SplitsReviewTable({
                         value={row.watts != null && row.watts_source !== "pace" ? row.watts : ""}
                         placeholder={calcWatts(i)}
                         onChange={(e) => update(i, { watts: e.target.value === "" ? null : Number(e.target.value), watts_source: e.target.value === "" ? null : "entered", watts_entered: null })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-surface-2 px-1.5 text-base font-mono-nums text-text-primary placeholder:text-text-tertiary"
+                        className={controlSkin + " min-h-9 w-16 font-mono-nums"}
                       />
                     )}
                   </td>
@@ -143,7 +145,7 @@ export function SplitsReviewTable({
                         inputMode="numeric"
                         value={row.hr ?? ""}
                         onChange={(e) => update(i, { hr: e.target.value === "" ? null : Number(e.target.value), hr_source: "typed" })}
-                        className="min-h-9 w-16 rounded-md border border-border bg-surface-2 px-1.5 text-base font-mono-nums text-text-primary"
+                        className={controlSkin + " min-h-9 w-16 font-mono-nums"}
                       />
                     )}
                   </td>
@@ -169,7 +171,7 @@ export function SplitsReviewTable({
         </p>
       )}
       {!readOnly && (
-        <button type="button" onClick={add} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-accent">
+        <button type="button" onClick={add} className={buttonClass("secondary", "sm", "self-start")}>
           + Add split
         </button>
       )}

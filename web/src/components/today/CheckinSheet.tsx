@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { postCheckin } from "../../lib/api";
 import type { CheckIn } from "../../lib/types";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlBase, controlSkin } from "../ui/Field";
 
 const NIGGLE_AREAS = ["Left knee", "Right knee", "Lower back", "Left shoulder", "Right shoulder", "Hamstring", "Rib", "Other"];
 
@@ -107,7 +109,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
                   setNiggleArea(e.target.value);
                   if (e.target.value && niggleSeverity == null) setNiggleSeverity(1);
                 }}
-                className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+                className={controlSkin + " min-h-11 w-full"}
               >
                 <option value="">No training issue today</option>
                 {NIGGLE_AREAS.map((a) => (
@@ -141,13 +143,13 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
               onChange={(e) => setNote(e.target.value)}
               placeholder="Anything else? (optional)"
               rows={2}
-              className="w-full resize-none rounded-md border border-border bg-surface-2 p-3 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none"
+              className={controlBase + " w-full resize-none"}
             />
           </div>
 
           <div className="mt-5 flex gap-3">
             <Dialog.Close asChild>
-              <button type="button" className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary">
+              <button type="button" className={buttonClass("secondary", "md", "flex-1")}>
                 Skip for today
               </button>
             </Dialog.Close>
@@ -155,7 +157,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
               type="button"
               onClick={() => save.mutate()}
               disabled={save.isPending}
-              className="min-h-11 flex-1 rounded-md bg-accent text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+              className={buttonClass("primary", "md", "flex-1")}
             >
               {save.isPending ? "Saving…" : "Save"}
             </button>

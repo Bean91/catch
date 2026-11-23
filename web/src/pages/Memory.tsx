@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState, type ReactNode } from "react";
 import {
   addMemoryEvent,
@@ -14,6 +15,8 @@ import type { MemoryEvent, MemoryFact, MemoryGoal } from "../lib/types";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
 const FACT_CATEGORIES = ["injury", "schedule", "equipment", "preference", "other"] as const;
 const EVENT_TYPES = ["race", "2k_test", "camp", "selection"] as const;
@@ -25,7 +28,7 @@ const GOAL_STATUSES = ["active", "done", "abandoned"] as const;
 // text input does — in a grid/flex row, a label's default min-width:auto otherwise lets that
 // native content push past its track and visually overlap the next field (seen live: Date
 // bleeding into Type in the "Add event" row at 390px).
-const inputCls = "min-h-9 w-full min-w-0 overflow-hidden rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-9 w-full min-w-0 overflow-hidden px-2`;
 const rowCls = "grid grid-cols-2 gap-x-2 gap-y-2.5 border-b border-border py-3 last:border-0 sm:flex sm:flex-wrap sm:items-end";
 const labelCls = "flex min-w-0 flex-col gap-1 text-[11px] uppercase tracking-wide text-text-tertiary";
 
@@ -218,8 +221,12 @@ export function MemoryPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Coach memory</h1>
-      <p className="text-sm text-text-tertiary">
+      <div>
+        <BackLink to="/coach">Coach</BackLink>
+        <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.09em] text-accent">Coaching</p>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Coach memory</h1>
+      </div>
+      <p className="-mt-2 text-sm text-text-secondary">
         Everything the coach remembers about you — it saves these on its own during a chat when you mention a race, goal,
         injury, schedule change, or preference. Edit or delete anything here.
       </p>
@@ -277,7 +284,7 @@ export function MemoryPage() {
           <button
             type="submit"
             disabled={addEvent.isPending}
-            className="col-span-2 min-h-11 rounded-md bg-accent px-3 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50 sm:col-span-1 sm:min-h-9"
+            className={buttonClass("primary", "md", "col-span-2 sm:col-span-1")}
           >
             Add event
           </button>
@@ -312,7 +319,7 @@ export function MemoryPage() {
           <button
             type="submit"
             disabled={addGoal.isPending}
-            className="col-span-2 min-h-11 rounded-md bg-accent px-3 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50 sm:col-span-1 sm:min-h-9"
+            className={buttonClass("primary", "md", "col-span-2 sm:col-span-1")}
           >
             Add goal
           </button>
@@ -348,7 +355,7 @@ export function MemoryPage() {
           <button
             type="submit"
             disabled={addFact.isPending}
-            className="col-span-2 min-h-11 rounded-md bg-accent px-3 text-sm font-medium text-accent-contrast hover:opacity-90 disabled:opacity-50 sm:col-span-1 sm:min-h-9"
+            className={buttonClass("primary", "md", "col-span-2 sm:col-span-1")}
           >
             Add fact
           </button>

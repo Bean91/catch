@@ -3,8 +3,9 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { decideConsent, fetchConsentRequest } from "../lib/privacy";
 import { Card } from "../components/ui/Card";
+import { buttonClass } from "../components/ui/Button";
 
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const btn = buttonClass("secondary", "md");
 
 /** An MCP app (Claude Desktop, …) asked to connect to your Catch data. Nothing is granted until you approve here. */
 export function OAuthConsentPage() {

@@ -1,5 +1,4 @@
 import { toISODate } from "../../lib/dates";
-import { motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import type { EventMarker } from "../../lib/chartAnnotations";
 import { formatShortDate } from "../../lib/format";
@@ -276,12 +275,12 @@ export function TrendLineChart({
           {linePath_ &&
             (reduced || hasAnimatedIn.current ? (
               // A plain <path> once the one-time draw-in has played — re-rendering a
-              // motion.path on every pan/zoom frame (hundreds of times during a drag) carries
+              // animated path on every pan/zoom frame (hundreds of times during a drag) carries
               // real Framer Motion overhead for an animation that's already a no-op by then;
               // measured as dropped frames in a CPU-throttled pan test before this split.
               <path data-testid="chart-line" d={linePath_} fill="none" stroke={color} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
             ) : (
-              <motion.path
+              <path
                 data-testid="chart-line"
                 d={linePath_}
                 fill="none"
@@ -289,9 +288,8 @@ export function TrendLineChart({
                 strokeWidth={2.25}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                pathLength={1}
+                className="draw-in"
               />
             ))}
         </g>

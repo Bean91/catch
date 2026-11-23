@@ -7,6 +7,8 @@ import { disableNativePush, enableNativePush, nativePushPermission, nativePushTo
 import { isNative } from "../../lib/native/platform";
 import type { Settings } from "../../lib/types";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const TYPE_LABELS: Record<keyof Settings["notifications"]["types"], string> = {
   morning_brief: "Morning brief",
@@ -145,13 +147,13 @@ export function NotificationsCard() {
         ) : subscribedOnThisDevice ? (
           <div className="flex items-center gap-3">
             <span className="text-sm text-band-green">Enabled on this device</span>
-            <button type="button" onClick={() => disable.mutate()} disabled={disable.isPending} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50">
+            <button type="button" onClick={() => disable.mutate()} disabled={disable.isPending} className={buttonClass("secondary", "md")}>
               Disable
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => enable.mutate()} disabled={enable.isPending} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50">
+            <button type="button" onClick={() => enable.mutate()} disabled={enable.isPending} className={buttonClass("primary", "md")}>
               Enable notifications on this device
             </button>
             {status && <span className="text-xs text-band-red-text">{status}</span>}
@@ -172,7 +174,7 @@ export function NotificationsCard() {
             type="button"
             onClick={() => disable.mutate()}
             disabled={disable.isPending}
-            className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50"
+            className={buttonClass("secondary", "md")}
           >
             Disable
           </button>
@@ -183,7 +185,7 @@ export function NotificationsCard() {
             type="button"
             onClick={() => enable.mutate()}
             disabled={enable.isPending}
-            className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+            className={buttonClass("primary", "md")}
           >
             Enable notifications on this device
           </button>
@@ -207,7 +209,7 @@ export function NotificationsCard() {
                   type="button"
                   onClick={() => sendTest.mutate(sub.id)}
                   disabled={testResult[sub.id] === "sending"}
-                  className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50"
+                  className={buttonClass("secondary", "sm")}
                 >
                   Send test
                 </button>
@@ -238,14 +240,14 @@ export function NotificationsCard() {
           type="time"
           value={notifications.quiet_hours_start}
           onChange={(e) => updateQuietHours("quiet_hours_start", e.target.value)}
-          className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+          className={controlSkin + " w-auto min-h-11"}
         />
         to
         <input
           type="time"
           value={notifications.quiet_hours_end}
           onChange={(e) => updateQuietHours("quiet_hours_end", e.target.value)}
-          className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+          className={controlSkin + " w-auto min-h-11"}
         />
       </div>
     </Card>

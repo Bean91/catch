@@ -4,8 +4,10 @@ import { useState } from "react";
 import { appealLbEntry, reportLbEntry } from "../../lib/api";
 import { REPORT_REASONS } from "../../lib/leaderboards";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full`;
 
 type Props = { mode: "report" | "appeal"; entryId: string; subject: string; open: boolean; onOpenChange: (open: boolean) => void };
 
@@ -53,7 +55,7 @@ export function ReasonSheet({ mode, entryId, subject, open, onOpenChange }: Prop
               <p role="status" data-testid={`${mode}-done`} className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
                 {done}
               </p>
-              <button type="button" onClick={() => close(false)} className="min-h-11 self-end rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+              <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md", "self-end")}>
                 Close
               </button>
             </div>
@@ -87,7 +89,7 @@ export function ReasonSheet({ mode, entryId, subject, open, onOpenChange }: Prop
                 </p>
               )}
               <div className="flex flex-wrap justify-end gap-2">
-                <button type="button" onClick={() => close(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+                <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md")}>
                   Cancel
                 </button>
                 <button

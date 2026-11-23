@@ -1,5 +1,4 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { motion } from "framer-motion";
 import { useState } from "react";
 import type { Recovery } from "../../lib/types";
 import { bandLabel } from "../../lib/format";
@@ -9,6 +8,7 @@ import { CountUp } from "../ui/CountUp";
 import { EmptyState } from "../ui/EmptyState";
 import { useSvgId } from "../charts/core";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
 
 const BAND_COLOR: Record<string, string> = {
   green: "var(--band-green)",
@@ -63,7 +63,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
                 </linearGradient>
               </defs>
               <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="var(--surface-2)" strokeWidth={STROKE} />
-              <motion.circle
+              <circle
                 cx={SIZE / 2}
                 cy={SIZE / 2}
                 r={RADIUS}
@@ -72,10 +72,9 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
                 strokeWidth={STROKE}
                 strokeLinecap="round"
                 strokeDasharray={CIRCUMFERENCE}
-                initial={{ strokeDashoffset: reduced ? offset : CIRCUMFERENCE }}
-                animate={{ strokeDashoffset: offset }}
-                transition={{ duration: reduced ? 0 : 1.1, ease: [0.16, 1, 0.3, 1] }}
-                style={{ filter: `drop-shadow(0 0 6px color-mix(in oklab, ${color} 45%, transparent))` }}
+                strokeDashoffset={offset}
+                className={reduced ? undefined : "ring-draw"}
+                style={{ ["--from" as string]: CIRCUMFERENCE, filter: `drop-shadow(0 0 6px color-mix(in oklab, ${color} 45%, transparent))` }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -150,7 +149,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
           <Dialog.Close asChild>
             <button
               type="button"
-              className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent"
+              className={buttonClass("secondary", "md", "mt-4 w-full")}
             >
               Close
             </button>

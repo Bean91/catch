@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchWorkoutWeather, refreshWorkoutWeather } from "../../lib/api";
 import type { WeatherResponse, WeatherSummary } from "../../lib/types";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
 
 function WindArrow({ fromDeg }: { fromDeg: number }) {
   // Meteorological direction is where the wind blows FROM; the arrow points where it blows TO.
@@ -82,7 +83,7 @@ export function WeatherCard({ canonicalId }: { canonicalId: number }) {
             type="button"
             disabled={refresh.isPending}
             onClick={() => refresh.mutate()}
-            className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50"
+            className={buttonClass("secondary", "sm")}
           >
             {refresh.isPending ? "Looking up…" : data.status === "not_fetched" ? "Look up" : "Refresh"}
           </button>

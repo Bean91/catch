@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { deleteFoodLog, updateFoodLog } from "../../lib/api";
 import type { FoodLogRow, Meal } from "../../lib/types";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const MEAL_LABELS: Record<Meal, string> = {
   breakfast: "Breakfast",
@@ -44,13 +46,13 @@ function LogRow({ log, onChanged }: { log: FoodLogRow; onChanged: () => void }) 
           autoFocus
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
-          className="min-h-9 w-16 rounded-md border border-border bg-surface px-2 text-base text-text-primary"
+          className={controlSkin + " min-h-9 w-16"}
         />
         <span className="text-xs text-text-tertiary">{log.unit}</span>
-        <button type="button" onClick={save} disabled={saving} className="min-h-9 rounded-md border border-accent bg-accent px-2.5 text-xs font-medium text-accent-contrast disabled:opacity-40">
+        <button type="button" onClick={save} disabled={saving} className={buttonClass("primary", "sm")}>
           Save
         </button>
-        <button type="button" onClick={() => setEditing(false)} className="min-h-9 rounded-md border border-border px-2.5 text-xs text-text-secondary">
+        <button type="button" onClick={() => setEditing(false)} className={buttonClass("secondary", "sm")}>
           Cancel
         </button>
       </div>

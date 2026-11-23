@@ -37,3 +37,9 @@ Launch, safe areas, live dark/light following the system, icon/splash assets, `P
 
 ## Not verifiable here — do on devices
 Real APNs/FCM delivery and tap routing; universal links / verified App Links (need the files on the real domain + signing identity); HealthKit/Health Connect data (device read path, permission sheets, the 30-day Android window, field mappings); camera permission prompt and the PM5 photo flow on a phone (the emulator has a virtual camera but it was not driven); iOS Keychain persistence across reinstall; haptics; app-switcher/lock-screen behaviours; iOS Keychain-vs-uninstall marker; scroll/pinch feel of the SVG charts inside WKWebView and Android WebView; TestFlight/Play internal-track installs.
+
+## Session 35 follow-up re-run (2026-11-23)
+Redesigned build. Android emulator: `android-e2e.mjs` **20/20** (sign-in, Keystore, cold start, resume, deep links, offline gym logging). A real bug
+was found and fixed on the way: `vite:preloadError` also fires for failed API fetches, and the app reloaded mid sign-in (see PLAN.md "Follow-ups").
+iOS simulator: Mobile Safari renders the production build correctly. The native shell builds, launches to the login screen in dark mode, and shows
+the new navy icon. iOS native sign-in was not run. Nothing was checked on a physical device.

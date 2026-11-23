@@ -4,6 +4,7 @@ import { dismissRecommendation, rateRecommendation, saveRecommendation } from ".
 import { BandBadge } from "../ui/Badge";
 import { EmptyState } from "../ui/EmptyState";
 import type { Recommendation } from "../../lib/types";
+import { buttonClass } from "../ui/Button";
 
 const TYPE_LABELS: Record<string, string> = {
   training_suggestion: "Training suggestion",
@@ -58,7 +59,7 @@ function RecommendationRow({ rec }: { rec: Recommendation }) {
           type="button"
           disabled={dismiss.isPending}
           onClick={() => dismiss.mutate()}
-          className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary disabled:opacity-50"
+          className={buttonClass("secondary", "md")}
         >
           Dismiss
         </button>
@@ -66,7 +67,7 @@ function RecommendationRow({ rec }: { rec: Recommendation }) {
           type="button"
           disabled={save.isPending}
           onClick={() => save.mutate(!rec.saved)}
-          className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary disabled:opacity-50"
+          className={buttonClass("secondary", "md")}
         >
           {rec.saved ? "Saved" : "Save"}
         </button>

@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
+import { buttonClass } from "../ui/Button";
 
 interface Props {
   children: ReactNode;
@@ -38,14 +39,14 @@ class Boundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => this.setState({ error: null })}
-            className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent"
+            className={buttonClass("secondary", "md")}
           >
             Try again
           </button>
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent"
+            className={buttonClass("secondary", "md")}
           >
             Reload the app
           </button>

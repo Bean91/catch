@@ -6,6 +6,8 @@ import { pickNativePhoto } from "../../lib/native/camera";
 import { isNative } from "../../lib/native/platform";
 import { MEALS, type Meal, type PhotoEstimateItem, type PhotoEstimateResult } from "../../lib/types";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const MEAL_LABELS: Record<Meal, string> = {
   breakfast: "Breakfast",
@@ -119,7 +121,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                 <select
                   value={meal}
                   onChange={(e) => setMeal(e.target.value as Meal)}
-                  className="mt-1 block min-h-11 w-full rounded-md border border-border bg-surface-2 px-2 text-base text-text-primary"
+                  className={controlSkin + " mt-1 block min-h-11 w-full"}
                 >
                   {MEALS.map((m) => (
                     <option key={m} value={m}>
@@ -135,7 +137,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                       <input
                         value={item.name}
                         onChange={(e) => updateItem(i, { name: e.target.value })}
-                        className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+                        className={controlSkin + " min-h-9 min-w-0 flex-1"}
                       />
                       <button type="button" onClick={() => removeItem(i)} aria-label={`Remove ${item.name}`} className="flex min-h-9 min-w-9 items-center justify-center text-text-tertiary hover:text-band-red">
                         ×
@@ -150,7 +152,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                             inputMode="decimal"
                             value={item[field]}
                             onChange={(e) => updateItem(i, { [field]: Number(e.target.value) } as Partial<PhotoEstimateItem>)}
-                            className="min-h-9 w-full rounded-md border border-border bg-surface-2 px-1.5 text-sm text-text-primary"
+                            className={controlSkin + " min-h-9 w-full"}
                           />
                         </label>
                       ))}
@@ -161,14 +163,14 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
               {notes && <p className="mt-3 text-xs text-text-tertiary">{notes}</p>}
               {error && <p className="mt-2 text-sm text-text-secondary">{error}</p>}
               <div className="mt-4 flex gap-2">
-                <button type="button" onClick={reset} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary transition-colors hover:border-accent">
+                <button type="button" onClick={reset} className={buttonClass("secondary", "md")}>
                   Retake
                 </button>
                 <button
                   type="button"
                   onClick={save}
                   disabled={status === "saving" || items.length === 0}
-                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-40"
+                  className={buttonClass("primary", "md", "flex-1")}
                 >
                   {status === "saving" ? "Saving…" : "Log this estimate"}
                 </button>
@@ -179,14 +181,14 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
           {status === "error" && (
             <>
               <p className="mt-4 text-sm text-text-secondary">{error}</p>
-              <button type="button" onClick={reset} className="mt-3 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+              <button type="button" onClick={reset} className={buttonClass("secondary", "md", "mt-3 w-full")}>
                 Try again
               </button>
             </>
           )}
 
           <Dialog.Close asChild>
-            <button type="button" onClick={close} className="mt-3 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+            <button type="button" onClick={close} className={buttonClass("secondary", "md", "mt-3 w-full")}>
               Close
             </button>
           </Dialog.Close>

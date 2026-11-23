@@ -15,10 +15,12 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ACTOR_LABEL, PRECISION_LABEL, STATUS_LABEL, VERIFICATION_MEANING } from "../lib/leaderboards";
 import type { LbDatePrecision, LbResult, LbState, Verification } from "../lib/types";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary";
-const primary = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50";
+const inputCls = `${controlSkin} min-h-11 w-full`;
+const btn = buttonClass("secondary", "md");
+const primary = buttonClass("primary");
 
 function Err({ text }: { text: string | null }) {
   return text ? (

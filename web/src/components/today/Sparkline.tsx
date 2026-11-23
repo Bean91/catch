@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { useMemo } from "react";
 import { AreaGradient, areaPath, extent, linePath, summarize, useSvgId } from "../charts/core";
 import type { BaselineBand, SparklinePoint } from "../../lib/types";
@@ -64,17 +63,7 @@ export function Sparkline({
       </defs>
       {geo.band && <rect x={PAD} width={WIDTH - PAD * 2} y={geo.band.y} height={geo.band.h} rx={3} fill="var(--text-tertiary)" opacity={0.12} />}
       {geo.area && <path d={geo.area} fill={`url(#${gradId})`} />}
-      <motion.path
-        d={geo.line}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        initial={reduced ? { pathLength: 1 } : { pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: reduced ? 0 : 0.9, ease: [0.16, 1, 0.3, 1] }}
-      />
+      <path d={geo.line} pathLength={1} className={reduced ? undefined : "draw-in"} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       <g>
         <circle cx={geo.last.x} cy={geo.last.y} r={6} fill={color} opacity={0.2} />
         <circle cx={geo.last.x} cy={geo.last.y} r={3.5} fill={color} stroke="var(--surface)" strokeWidth={1.5} />

@@ -13,6 +13,8 @@ import type { MapLine } from "../components/maps/RouteMap";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
 const paceOf = (mps: number | null | undefined) => formatPace("s_per_500m", mps ? 500 / mps : null);
 
@@ -95,11 +97,11 @@ export function RouteDetailPage() {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 if (e.key === "Escape") setEditingName(false);
               }}
-              className="min-h-9 rounded-md border border-accent bg-surface px-2 text-lg font-semibold text-text-primary"
+              className={controlSkin + " w-auto min-h-9"}
             />
           ) : (
             <h1
-              className="min-w-0 wrap-anywhere cursor-text text-lg font-semibold text-text-primary"
+              className="min-w-0 wrap-anywhere cursor-text text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]"
               title="Tap to rename"
               onClick={() => {
                 setNameDraft(route.name ?? "");
@@ -126,7 +128,7 @@ export function RouteDetailPage() {
               setTagsDraft(null);
             }}
             placeholder="steady, lake, windy-day…"
-            className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            className={controlSkin + " min-h-9 min-w-0 flex-1"}
           />
         </label>
       </div>
@@ -225,7 +227,7 @@ export function RouteDetailPage() {
                           type="button"
                           aria-pressed={s.canonical_id === selectedCid}
                           onClick={() => setSelected(s.canonical_id)}
-                          className="min-h-9 rounded-md border border-border px-2 font-sans text-xs text-text-primary"
+                          className={buttonClass("secondary", "sm")}
                         >
                           Show
                         </button>

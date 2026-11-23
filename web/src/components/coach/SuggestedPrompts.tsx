@@ -1,3 +1,4 @@
+import { buttonClass } from "../ui/Button";
 const PROMPTS = ["How should I train today?", "Why is my recovery low?", "Plan my week before a 2k test"];
 
 export function SuggestedPrompts({ onPick }: { onPick: (text: string) => void }) {
@@ -8,7 +9,7 @@ export function SuggestedPrompts({ onPick }: { onPick: (text: string) => void })
           key={prompt}
           type="button"
           onClick={() => onPick(prompt)}
-          className="min-h-11 rounded-full border border-border bg-surface-2/60 px-4 text-sm text-text-secondary transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-text-primary"
+          className={buttonClass("secondary", "md")}
         >
           {prompt}
         </button>

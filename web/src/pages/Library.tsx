@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { buttonClass } from "../components/ui/Button";
 import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -9,6 +10,7 @@ import { Skeleton } from "../components/ui/Skeleton";
 import { fetchLibraryTemplates } from "../lib/api";
 import { formatMinutesOrHours } from "../lib/duration";
 import type { TemplateScope, WorkoutTemplate } from "../lib/types";
+import { controlSkin } from "../components/ui/Field";
 
 const SCOPES: { value: TemplateScope; label: string }[] = [
   { value: "mine", label: "My templates" },
@@ -62,7 +64,7 @@ export function LibraryPage() {
           <BackLink to="/calendar">Calendar</BackLink>
           <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Workout library</h1>
         </div>
-        <Link to="/library/new" data-testid="new-template" className="flex min-h-11 items-center rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast">
+        <Link to="/library/new" data-testid="new-template" className={buttonClass("primary")}>
           New template
         </Link>
       </div>
@@ -88,7 +90,7 @@ export function LibraryPage() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search templates"
           aria-label="Search templates"
-          className="min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+          className={controlSkin + " min-h-11 w-full min-w-0"}
         />
         <div role="tablist" aria-label="Workout type" className="flex gap-2 overflow-x-auto pb-1">
           {[{ value: "", label: "All types" }, ...WORKOUT_TYPES].map((t) => (

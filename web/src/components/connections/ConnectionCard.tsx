@@ -17,8 +17,10 @@ import { formatRelativeTime } from "../../lib/format";
 import type { ConnectionCard as Card_, ConnectionTestResult } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { CredentialSheet } from "./CredentialSheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const btn = buttonClass("secondary", "md");
 const TONE: Record<string, string> = {
   good: "border-band-green/40 text-band-green",
   bad: "border-band-red/40 text-band-red-text",
@@ -159,7 +161,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
               type="date"
               defaultValue={card.credential_expires_on ?? ""}
               onBlur={(e) => e.target.value !== (card.credential_expires_on ?? "") && expiry.mutate(e.target.value || null)}
-              className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+              className={controlSkin + " w-auto min-h-11"}
             />
           </label>
         )}
@@ -185,7 +187,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
                   {testMutation.isPending ? "Testing…" : "Test connection"}
                 </button>
                 {!confirm && !card.from_environment && (
-                  <button type="button" onClick={() => setConfirm(true)} className="min-h-11 px-2 text-sm font-medium text-band-red-text hover:underline">
+                  <button type="button" onClick={() => setConfirm(true)} className={buttonClass("danger", "md")}>
                     Disconnect
                   </button>
                 )}
@@ -202,7 +204,7 @@ export function ConnectionCard({ card, returnTo }: { card: Card_; returnTo?: "on
               {card.capabilities.token_revocation === "yes" ? `Catch also ends its access at ${card.label}.` : null}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} className="min-h-11 rounded-md border border-band-red/40 px-4 text-sm font-medium text-band-red-text">
+              <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} className={buttonClass("danger", "md")}>
                 {disconnect.isPending ? "Disconnecting…" : "Disconnect"}
               </button>
               <button type="button" onClick={() => setConfirm(false)} className={btn}>

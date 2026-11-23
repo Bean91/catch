@@ -2,6 +2,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useMemo, useState } from "react";
 import { DEFAULT_PLATES_KG, platesPerSide } from "../../lib/equipment";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 /** Barbell/smith only (task Part A.4) — `plateLoadKg` is the plates-only number the set is
  * already logging (not the bar), so the per-side breakdown matches exactly what the lifter
@@ -28,7 +30,7 @@ export function PlateCalculatorDialog({
             inputMode="decimal"
             value={total}
             onChange={(e) => setTotal(Number(e.target.value) || 0)}
-            className="mt-4 min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-center font-mono-nums text-lg text-text-primary"
+            className={controlSkin + " mt-4 min-h-11 w-full text-center font-mono-nums"}
           />
           <div className="mt-4 rounded-md bg-surface-2 p-4">
             <div className="text-xs text-text-tertiary">Per side</div>
@@ -50,7 +52,7 @@ export function PlateCalculatorDialog({
             )}
           </div>
           <Dialog.Close asChild>
-            <button type="button" className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary">
+            <button type="button" className={buttonClass("secondary", "md", "mt-4 w-full")}>
               Close
             </button>
           </Dialog.Close>

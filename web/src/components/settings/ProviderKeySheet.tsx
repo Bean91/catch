@@ -4,8 +4,10 @@ import { useState } from "react";
 import { putAiKey } from "../../lib/api";
 import type { AiProviderCard } from "../../lib/types";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
+const inputCls = `${controlSkin} min-h-11 w-full`;
 
 /** Add or replace a provider key. The key lives only in this component's state, only until the
  *  request is sent, and is cleared on close, success and failure — it is never read back. */
@@ -84,7 +86,7 @@ export function ProviderKeySheet({ card, open, onOpenChange }: { card: AiProvide
               </p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => close(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+              <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md")}>
                 Cancel
               </button>
               <button

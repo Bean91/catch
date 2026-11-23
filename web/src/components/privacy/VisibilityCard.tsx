@@ -4,8 +4,10 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { appealRestriction, fetchPrivacySummary, fetchRestrictions } from "../../lib/privacy";
 import { Card } from "../ui/Card";
+import { controlSkin } from "../ui/Field";
+import { buttonClass } from "../ui/Button";
 
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const btn = buttonClass("secondary", "md");
 
 /** What other people can see about you, and the controls that live on their own pages. */
 export function VisibilityCard() {
@@ -56,7 +58,7 @@ export function RestrictionsCard() {
               <p className="mt-2 text-xs text-text-secondary">Appeal {r.appeal.status}{r.appeal.resolution ? `: ${r.appeal.resolution}` : "."}</p>
             ) : r.active ? (
               <div className="mt-2 flex flex-col gap-2">
-                <textarea aria-label="Why should this change?" className="min-h-20 rounded-md border border-border bg-surface-2 p-2 text-text-primary" maxLength={500} value={text[r.id] ?? ""} onChange={(e) => setText({ ...text, [r.id]: e.target.value })} />
+                <textarea aria-label="Why should this change?" className={controlSkin + " w-auto min-h-20"} maxLength={500} value={text[r.id] ?? ""} onChange={(e) => setText({ ...text, [r.id]: e.target.value })} />
                 <div><button type="button" className={btn} disabled={!(text[r.id] ?? "").trim() || appeal.isPending} onClick={() => appeal.mutate({ id: r.id, t: text[r.id] })}>Appeal this decision</button></div>
               </div>
             ) : null}

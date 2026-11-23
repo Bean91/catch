@@ -16,7 +16,7 @@ Python 3.12 via `uv`, FastAPI + uvicorn, SQLModel on SQLite (WAL mode), httpx, A
 3.x, pytest, `cryptography` (Fernet), `argon2-cffi` (verify the password hash already in
 `.env`), `anthropic` (official SDK, lazy-imported; the OpenAI and Gemini adapters are plain `httpx`, no SDK — session 23), `mcp` (official Python SDK, lazy-imported
 for the optional HTTP transport). Frontend: React + Vite + TS, Tailwind v4 (CSS-first config,
-tokens as CSS vars), Radix primitives, Framer Motion, TanStack Query, React Router,
+tokens as CSS vars), Radix primitives (no animation library — CSS draw-ins, session 35), TanStack Query, React Router,
 `leaflet` (session 20: the route map — OpenStreetMap tiles, lazy-loaded in its own chunk;
 tile URL in one constant, `web/src/lib/mapConfig.ts`), `barcode-detector` (session 13: a ponyfill over a self-hosted ZXing-wasm binary — Vite's
 `?url` import serves it from `/assets` rather than the package's default jsDelivr-CDN fetch —
@@ -777,7 +777,9 @@ for new UI. **Navigation**: `lib/navigation.ts` is the one list; phone/tablet ta
 `components/charts/core.tsx` kit (measured width synchronously, nice ticks, monotone paths, binary-search lookup, ChartTooltip that never leaves
 the chart); one y-axis per plot (extra series = a panel sharing x); `ValueBars`/`StackedBar`/`PlanBar`/`CalendarHeatmap`/`MiniLineChart`/
 `ScatterPlot`/`Histogram`; `lib/chartFetch.ts` for quantize/pad. Today's lower half is the lazy `components/today/TodayMore.tsx` (bundle budget:
-245/250 KB). Card titles stay `h3`, Card keeps `rounded-lg`.
+196/250 KB after the follow-ups removed framer-motion). Card titles stay `h3`, Card keeps `rounded-lg`. Follow-ups: `controlSkin` (control look,
+no height) for dense rows; disabled buttons keep pointer events; a native build never reloads on `vite:preloadError`; the sticky top bar carries the
+safe-area padding; `native:assets` is `--ios --android` only (otherwise it rewrites the PWA manifest).
 
 ## Commands
 
