@@ -337,7 +337,7 @@ export function PlannedWorkoutSheet({
             <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={buttonClass("primary", "md", "flex-1")}>
               {save.isPending ? "Saving…" : existing ? "Save changes" : "Add to plan"}
             </button>
-            <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
+            <Dialog.Close className={buttonClass("secondary", "md")}>Cancel</Dialog.Close>
             {existing && !confirmDelete && (
               <button type="button" onClick={() => setConfirmDelete(true)} className="min-h-11 rounded-md px-3 text-sm text-text-tertiary underline">
                 Remove from plan

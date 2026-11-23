@@ -258,16 +258,16 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
                 setValidation(null);
                 setEditing(true);
               }}
-              className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary"
+              className={buttonClass("secondary", "sm")}
             >
               Edit splits
             </button>
             {piece.has_photo && (
-              <button type="button" onClick={() => setShowPhoto((v) => !v)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+              <button type="button" onClick={() => setShowPhoto((v) => !v)} className={buttonClass("secondary", "sm")}>
                 {showPhoto ? "Hide photo" : "View photo"}
               </button>
             )}
-            <button type="button" disabled={busy} onClick={() => photoInputRef.current?.click()} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={() => photoInputRef.current?.click()} className={buttonClass("secondary", "sm")}>
               {piece.has_photo ? "Replace photo" : "Add photo"}
             </button>
             <input
@@ -283,7 +283,7 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
                 e.target.value = "";
               }}
             />
-            <button type="button" disabled={busy} onClick={remove} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary hover:border-band-red/40 hover:text-band-red-text disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={remove} className={buttonClass("secondary", "sm")}>
               Delete piece
             </button>
           </div>
@@ -295,7 +295,7 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
           {showPhoto && piece.has_photo && (
             <div className="mt-3">
               <PiecePhoto key={photoVersion} pieceId={piece.id} />
-              <button type="button" disabled={busy} onClick={removePhoto} className="mt-2 min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50">
+              <button type="button" disabled={busy} onClick={removePhoto} className={buttonClass("secondary", "sm", "mt-2")}>
                 Remove photo
               </button>
             </div>
@@ -320,7 +320,7 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
           </div>
           <SplitsReviewTable splits={splits} validation={validation} onChange={setSplits} modality={modality} />
           <div className="flex gap-2">
-            <button type="button" onClick={() => setEditing(false)} className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+            <button type="button" onClick={() => setEditing(false)} className={buttonClass("secondary", "sm")}>
               Cancel
             </button>
             <button

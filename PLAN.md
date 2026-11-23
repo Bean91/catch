@@ -5133,10 +5133,11 @@ Branch `session-35-followups`, merged to `main` locally. Frontend only; no Pytho
 
 - **Nutrition's day:** the page now follows the account's today (`lib/localTime.ts` gained `subscribeActiveZone`, `setActiveZone` notifies)
   until a day is picked. Picking today again goes back to following it.
-- **Hand-rolled controls:** all of them moved onto the primitives' classes. Two mechanical passes did it: about 60 files to
-  `buttonClass(...)`/`controlBase`, and 33 local `inputCls`/`btn` constants rebuilt from them. `Field.tsx` gained `controlSkin`, the control
-  look without a height, for the dense rows that keep `min-h-9`. `Button` no longer sets `disabled:pointer-events-none`: a disabled button
-  still has to receive the hit test above the tab bar (library specs).
+- **Hand-rolled controls:** two mechanical passes moved them onto the primitives' classes: about 60 files to `buttonClass(...)`/`controlBase`,
+  and 33 local `inputCls`/`btn` constants rebuilt from them. A final sweep then converted the 6 sheet "Cancel" buttons and PieceCard's 6
+  actions. What is left on purpose (about 10): dashed "+ Add …" tiles, whole-card buttons (the recovery ring, Today's quick links) and the
+  update toast. `Field.tsx` gained `controlSkin`, the control look without a height, for the dense rows that keep `min-h-9`. `Button` no
+  longer sets `disabled:pointer-events-none`: a disabled button still has to receive the hit test above the tab bar (library specs).
 - **Bundle:** framer-motion is gone. Draw-ins are CSS (`.draw-in` on `pathLength=1` paths, `.ring-draw` with `--from`, `.grow-x`;
   `prefers-reduced-motion` turns them off) and `CountUp` is a small rAF tween. Initial JS **245.1 → 196.2 KB** gzip (budget 250).
 - **Lighter pages:** Routes, Duplicates (raw score → "Strong/Likely/Possible match"), Memory (back link to Coach), Moderation and Health data

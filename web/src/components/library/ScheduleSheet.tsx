@@ -111,7 +111,7 @@ export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean;
                 <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !date} className={buttonClass("primary", "md", "flex-1")}>
                   {save.isPending ? "Adding…" : "Add to calendar"}
                 </button>
-                <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
+                <Dialog.Close className={buttonClass("secondary", "md")}>Cancel</Dialog.Close>
               </div>
             </>
           )}
