@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import type { LapMarker, SamplePoint, TrainingZones } from "../../lib/types";
 import { formatDuration } from "../../lib/format";
 import type { Domain } from "../../lib/useChartInteraction";
@@ -44,6 +44,8 @@ export function HrChart({
   pieceBands,
   selectedPieceId,
   onPieceDragEnd,
+  externalHoverX,
+  onHoverXChange,
 }: {
   points: SamplePoint[];
   /** Full-recording points (any resolution) used only to pick stable axis bounds, so the
@@ -67,6 +69,10 @@ export function HrChart({
   pieceBands?: PieceBand[];
   selectedPieceId?: number | null;
   onPieceDragEnd?: (pieceId: number, startS: number) => void;
+  /** Session 36: an elapsed second hovered on a linked chart (the erg chart), shown here as this chart's own crosshair. */
+  externalHoverX?: number | null;
+  /** The elapsed second hovered here, or null — so a linked chart can follow. */
+  onHoverXChange?: (elapsedS: number | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidthPx, setContainerWidthPx] = useState(600 + PAD_X * 2);
@@ -194,7 +200,11 @@ export function HrChart({
   // the chart whenever the view is zoomed in anywhere but the very end (advisor review finding).
   const trimStart = trimmedTailS > 0 ? fullDomain.max - trimmedTailS : null;
 
-  const hoverIdx = hoverX != null && !isPanning ? nearestIndex(elapsed, hoverX) : -1;
+  useEffect(() => {
+    onHoverXChange?.(isPanning ? null : hoverX);
+  }, [hoverX, isPanning, onHoverXChange]);
+  const shownHoverX = hoverX ?? externalHoverX ?? null;
+  const hoverIdx = shownHoverX != null && !isPanning ? nearestIndex(elapsed, shownHoverX) : -1;
   const hoverPoint = hoverIdx >= 0 ? points[hoverIdx] : null;
 
   if (points.length === 0) {

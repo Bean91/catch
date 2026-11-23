@@ -172,3 +172,25 @@ def interval_summary(strokes: list[dict]) -> dict:
         "avg_watts": _mean("watts"),
         "avg_hr": _mean("hr"),
     }
+
+
+def rep_consistency(summaries: list[dict]) -> dict:
+    """Session 36: how alike a set of repeated reps were, from each rep's own average split and watts. The coefficient of variation
+    (pstdev / mean, %) and the spread between the fastest and slowest rep; `fade_pct` compares the last rep's split with the first's
+    (positive = the last was slower). Descriptive only — no band says what is "consistent enough". Needs at least two reps with a
+    value; otherwise the figure is None."""
+    def cv(vals: list[float]) -> float | None:
+        if len(vals) < 2:
+            return None
+        m = statistics.mean(vals)
+        return statistics.pstdev(vals) / m * 100.0 if m else None
+
+    splits = [r["avg_split_500m"] for r in summaries if r.get("avg_split_500m")]
+    watts = [r["avg_watts"] for r in summaries if r.get("avg_watts")]
+    return {
+        "reps": len(summaries),
+        "split_cv_pct": cv(splits),
+        "watts_cv_pct": cv(watts),
+        "split_spread_s": (max(splits) - min(splits)) if len(splits) >= 2 else None,
+        "fade_pct": ((splits[-1] - splits[0]) / splits[0] * 100.0) if len(splits) >= 2 and splits[0] else None,
+    }

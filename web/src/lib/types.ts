@@ -264,8 +264,8 @@ export interface IllnessBacktestResponse {
 
 // --- Session 15 Part C: erg test center --------------------------------------------------
 
-export type ErgTestType = "500m" | "1000m" | "2000m" | "5000m" | "6000m" | "30min_r20" | "60min" | "custom";
-export const ERG_TEST_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"];
+export type ErgTestType = "500m" | "1000m" | "2000m" | "5000m" | "6000m" | "10000m" | "30min_r20" | "30min" | "60min" | "custom";
+export const ERG_TEST_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "10000m", "30min_r20", "30min", "60min", "custom"];
 export type PacingStyle = "even" | "fast_start_settle" | "negative_split";
 
 export interface ErgTestSummary {
@@ -862,6 +862,8 @@ export type ActivitySamplesResponse =
       returned_count: number;
       raw_count: number;
       /** Session 36: which channels the recording has; `gaps` = dropouts the line breaks at (nothing filled in). */
+      recording_activity_id?: number | null;
+      combined?: boolean;
       has_hr?: boolean;
       has_power?: boolean;
       has_cadence?: boolean;
@@ -897,6 +899,15 @@ export interface ErgTechnique {
   fade: TechniqueMetric;
 }
 
+/** Session 36: how alike repeated reps were (CV = standard deviation as a % of the mean). Descriptive only. */
+export interface IntervalConsistency {
+  reps: number;
+  split_cv_pct: number | null;
+  watts_cv_pct: number | null;
+  split_spread_s: number | null;
+  fade_pct: number | null;
+}
+
 export interface IntervalSummary {
   distance_m: number | null;
   duration_s: number | null;
@@ -905,6 +916,8 @@ export interface IntervalSummary {
   avg_watts: number | null;
   avg_hr: number | null;
   drift_vs_rep1_pct: number | null;
+  rest_s?: number | null;
+  basis?: Record<string, "measured" | "derived">;
 }
 
 export interface ErgStrokesResponse {
@@ -914,6 +927,7 @@ export interface ErgStrokesResponse {
   returned_stroke_count: number;
   technique_by_interval: Record<string, ErgTechnique>;
   interval_summary: Record<string, IntervalSummary>;
+  interval_consistency?: IntervalConsistency | null;
   time_in_zone_by_interval: Record<string, Record<string, number> | null>;
 }
 

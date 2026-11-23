@@ -4,6 +4,7 @@ from typing import Literal, Optional
 
 from mcp.server.mcpserver import MCPServer
 
+from catch.analytics.piece import PIECE_TYPES
 from catch.mcp_server.backend import ToolBackend
 
 # ISO dates/datetimes are passed through as plain strings — the backend (catch/coach/
@@ -13,6 +14,8 @@ from catch.mcp_server.backend import ToolBackend
 
 WorkoutType = Literal["erg_intervals", "steady_state", "rate_ladder", "distance_piece", "time_piece", "strength", "on_water", "custom"]
 Zone = Literal["UT2", "UT1", "AT", "TR", "AN"]
+# The piece/test types, from the one list in catch/analytics/piece.py (a tuple subscript is the same as listing them).
+PieceType = Literal[PIECE_TYPES]  # type: ignore[valid-type]
 Category = Literal["catch", "drive", "finish", "recovery", "sequencing", "posture", "rate_control", "blade_boat_handling"]
 Focus = Literal["catch", "drive", "finish", "recovery", "sequencing", "posture", "rate_control", "blade_boat_handling", "pacing", "fitness", "strength", "racing", "other"]
 
@@ -204,7 +207,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def get_tests(
-        type: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"]] = None,
+        type: Optional[PieceType] = None,
     ) -> dict:
         """List confirmed erg tests, newest first, optionally filtered to one type."""
         return await _call("get_tests", type=type)
@@ -218,7 +221,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def add_piece(
-        piece_type: Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+        piece_type: PieceType,
         canonical_id: Optional[int] = None,
         modality: Optional[Literal["rowing_erg", "bike"]] = None,
         text: Optional[str] = None,
@@ -245,7 +248,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def make_pacing_plan(
-        test_type: Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+        test_type: PieceType,
         goal_time_s: float,
         style: Literal["even", "fast_start_settle", "negative_split"],
         distance_m: Optional[float] = None,
@@ -442,7 +445,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def get_performance_trends(
-        piece_type: Optional[Literal["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"]] = None,
+        piece_type: Optional[PieceType] = None,
     ) -> dict:
         """Equivalent-piece performance trends per test/piece type: best/typical/recent, a
         trend projection, and whether an apparent improvement might just be a pacing/rate

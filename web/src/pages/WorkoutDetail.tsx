@@ -1,7 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BackLink } from "../components/ui/PageHeader";
 import { padDomain, quantizePoints } from "../lib/chartFetch";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { nearestIndex } from "../components/charts/core";
 import { useParams } from "react-router-dom";
 import { alignPiece, fetchWorkoutPlanComparison, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
@@ -136,6 +137,30 @@ export function WorkoutDetailPage() {
     placeholderData: keepPreviousData,
   });
   const chartPoints = windowedSamples?.has_data ? windowedSamples.points : samples?.has_data ? samples.points : [];
+
+  // --- Shared cursor between the HR chart (elapsed time) and the erg chart (distance), session 36 ---------------------------
+  // Only when the stroke list and the HR chart's timeline are the same recording (or, on a combined workout, a part whose offset
+  // is known). A watch and a PM5 started at different moments, and their clocks are never assumed to agree.
+  const syncOffset = useMemo(() => {
+    if (!samples?.has_data || strokesActivityId == null) return null;
+    if (samples.recording_activity_id === strokesActivityId) return 0;
+    if (samples.combined) return samples.member_offsets?.[String(strokesActivityId)] ?? null;
+    return null;
+  }, [samples, strokesActivityId]);
+  const strokeAxis = useMemo(() => {
+    const rows = (fullStrokesData?.strokes ?? []).filter((st) => st.distance_cum != null && st.t_cum != null);
+    return { d: rows.map((st) => st.distance_cum as number), t: rows.map((st) => st.t_cum as number) };
+  }, [fullStrokesData]);
+  const [hrHoverFromErg, setHrHoverFromErg] = useState<number | null>(null);
+  const [ergHoverFromHr, setErgHoverFromHr] = useState<number | null>(null);
+  const onErgHover = useCallback(
+    (d: number | null) => setHrHoverFromErg(d == null || syncOffset == null || !strokeAxis.d.length ? null : strokeAxis.t[nearestIndex(strokeAxis.d, d)] + syncOffset),
+    [syncOffset, strokeAxis],
+  );
+  const onHrHover = useCallback(
+    (e: number | null) => setErgHoverFromHr(e == null || syncOffset == null || !strokeAxis.t.length ? null : strokeAxis.d[nearestIndex(strokeAxis.t, e - syncOffset)]),
+    [syncOffset, strokeAxis],
+  );
 
   // --- Pieces (session 17 — see PLAN.md, the task called itself "session 13") -----------
   const { data: pieces } = useQuery({
@@ -380,6 +405,8 @@ export function WorkoutDetailPage() {
             pieceBands={pieceBands}
             selectedPieceId={effectiveSelectedPieceId}
             onPieceDragEnd={(pieceId, startS) => alignMutation.mutate({ pieceId, startS })}
+            externalHoverX={hrHoverFromErg}
+            onHoverXChange={onHrHover}
           />
         </Card>
       )}
@@ -446,11 +473,20 @@ export function WorkoutDetailPage() {
               onResetDomain={resetDomain}
               hoveredInterval={hoveredInterval}
               onHoverInterval={setHoveredInterval}
+              externalHoverX={ergHoverFromHr}
+              onHoverXChange={onErgHover}
             />
+            {samples?.has_data && (
+              <p className="mt-2 text-xs text-text-tertiary" data-testid="chart-sync-note">
+                {syncOffset != null
+                  ? "Linked to the heart-rate chart above: pointing at one shows the same moment on the other. The distance axis is rowing time only — rest isn't on it."
+                  : "Not linked to the heart-rate chart: that chart is from another device's recording, and the two clocks can't be matched exactly."}
+              </p>
+            )}
           </Card>
           <StrokeAnalysis strokes={fullStrokesData.strokes} />
           <Card title="Intervals">
-            <IntervalTable intervals={fullStrokesData.interval_summary} hoveredInterval={hoveredInterval} onHoverInterval={setHoveredInterval} />
+            <IntervalTable intervals={fullStrokesData.interval_summary} consistency={fullStrokesData.interval_consistency} hoveredInterval={hoveredInterval} onHoverInterval={setHoveredInterval} />
           </Card>
           {Object.entries(fullStrokesData.technique_by_interval)
             .sort((a, b) => Number(a[0]) - Number(b[0]))

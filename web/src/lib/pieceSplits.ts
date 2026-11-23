@@ -10,7 +10,7 @@
 // asks POST /api/pieces/preview for each row's watts, the watts check and the piece's average power.
 import type { ErgTestType } from "./types";
 
-export const PIECE_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"];
+export const PIECE_TYPES: ErgTestType[] = ["500m", "1000m", "2000m", "5000m", "6000m", "10000m", "30min_r20", "30min", "60min", "custom"];
 
 // Session 33: a piece is on a rowing erg (pace per 500 m) or a bike (pace per 1000 m — what a BikeErg's PM5 shows). The split
 // basis is the machine's own display unit; the rowing pace->watts formula never applies to a bike.
@@ -34,8 +34,8 @@ export function totalsOnlySplits(distanceM: number | null, durationS: number | n
   if (distanceM == null && durationS == null) return [];
   return [{ split_index: 1, distance_m: distanceM, split_s: durationS, rate, watts, hr: null }];
 }
-const DISTANCE_BY_TYPE: Partial<Record<ErgTestType, number>> = { "500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000 };
-const DURATION_BY_TYPE: Partial<Record<ErgTestType, number>> = { "30min_r20": 1800, "60min": 3600 };
+const DISTANCE_BY_TYPE: Partial<Record<ErgTestType, number>> = { "500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000, "10000m": 10000 };
+const DURATION_BY_TYPE: Partial<Record<ErgTestType, number>> = { "30min_r20": 1800, "30min": 1800, "60min": 3600 };
 
 const DEFAULT_TIME_SPLIT_S = 300.0;
 

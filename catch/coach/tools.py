@@ -11,6 +11,7 @@ from typing import Any
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session, select
 
+from catch.analytics.piece import PIECE_TYPES
 from catch.analytics.zones import training_zones
 from catch.api import (
     routes_activities,
@@ -1109,7 +1110,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                    "enum": list(PIECE_TYPES),
                 },
             },
             "additionalProperties": False,
@@ -1143,7 +1144,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "piece_type": {
                     "type": "string",
-                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                    "enum": list(PIECE_TYPES),
                 },
             },
             "additionalProperties": False,
@@ -1271,7 +1272,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "piece_type": {
                     "type": "string",
-                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                    "enum": list(PIECE_TYPES),
                 },
                 "canonical_id": {"type": "integer", "description": "Which workout this piece belongs to. Defaults to the most recent workout."},
                 "modality": {"type": "string", "enum": ["rowing_erg", "bike"], "description": "Rowing erg (split per 500 m) or bike (split per 1000 m). Defaults from the workout's sport."},
@@ -1319,7 +1320,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "test_type": {
                     "type": "string",
-                    "enum": ["500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom"],
+                    "enum": list(PIECE_TYPES),
                 },
                 "goal_time_s": {"type": "number", "description": "Goal time in seconds."},
                 "style": {"type": "string", "enum": ["even", "fast_start_settle", "negative_split"]},

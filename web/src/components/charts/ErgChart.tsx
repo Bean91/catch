@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { zoneForBpm } from "../../lib/zoneColors";
-import { formatDistance, formatSplit } from "../../lib/format";
+import { formatDistance, formatDuration, formatSplit } from "../../lib/format";
 import { METRIC_COLOR } from "../../lib/metricColors";
 import type { Stroke, ZoneName } from "../../lib/types";
 import type { Domain } from "../../lib/useChartInteraction";
@@ -19,16 +19,17 @@ const PANEL_H = 64;
 const PANEL_GAP = 30;
 const TOP = 20;
 const BAND_HEIGHT = 12;
-const HEIGHT = TOP + 3 * PANEL_H + 2 * PANEL_GAP + 14 + BAND_HEIGHT + 20;
-const BAND_Y = TOP + 3 * PANEL_H + 2 * PANEL_GAP + 14;
 const MIN_SPAN_M = 50;
 
-type PanelKey = "pace_500m" | "watts" | "stroke_rate";
-const PANELS: { key: PanelKey; label: string; unit: string; color: string; inverted?: boolean }[] = [
+type PanelKey = "pace_500m" | "watts" | "stroke_rate" | "hr";
+type Panel = { key: PanelKey; label: string; unit: string; color: string; inverted?: boolean };
+const PANELS: Panel[] = [
   { key: "pace_500m", label: "Split", unit: "/500m", color: METRIC_COLOR.pace, inverted: true },
   { key: "watts", label: "Power", unit: "W", color: METRIC_COLOR.power },
   { key: "stroke_rate", label: "Rate", unit: "spm", color: METRIC_COLOR.rate },
 ];
+// Session 36: the PM5's own heart rate (same recording, so aligned by construction) as a fourth panel when it has any.
+const HR_PANEL: Panel = { key: "hr", label: "Heart rate", unit: "bpm", color: METRIC_COLOR.hr };
 
 export function ErgChart({
   strokes,
@@ -40,6 +41,8 @@ export function ErgChart({
   onResetDomain,
   hoveredInterval,
   onHoverInterval,
+  externalHoverX,
+  onHoverXChange,
 }: {
   strokes: Stroke[];
   /** Each zone's lower bound in bpm, from the workout's own zone basis (server-computed — no zone maths here). */
@@ -51,6 +54,10 @@ export function ErgChart({
   onResetDomain: () => void;
   hoveredInterval?: number | null;
   onHoverInterval?: (index: number | null) => void;
+  /** Session 36: a distance hovered on a linked chart (the heart-rate chart), shown here as this chart's own crosshair. */
+  externalHoverX?: number | null;
+  /** The distance hovered here, or null — so a linked chart can follow. */
+  onHoverXChange?: (distance: number | null) => void;
 }) {
   const reduced = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -92,6 +99,13 @@ export function ErgChart({
     [strokes],
   );
   const dists = useMemo(() => withDistance.map((s) => s.distance_cum as number), [withDistance]);
+  const panelDefs = useMemo(() => (withDistance.some((s) => s.hr != null) ? [...PANELS, HR_PANEL] : PANELS), [withDistance]);
+  const nPanels = panelDefs.length;
+  const BAND_Y = TOP + nPanels * PANEL_H + (nPanels - 1) * PANEL_GAP + 14;
+  const HEIGHT = BAND_Y + BAND_HEIGHT + 20;
+  useEffect(() => {
+    onHoverXChange?.(hoverX);
+  }, [hoverX, onHoverXChange]);
 
   const bandSegments = useMemo(() => {
     const out: { zone: ZoneName | null; x0: number; x1: number; interval: number }[] = [];
@@ -117,7 +131,7 @@ export function ErgChart({
     const span = Math.max(domain.max - domain.min, 1);
     const xs: number[] = [];
     for (let i = lo; i < hi; i++) xs.push(PAD_LEFT + ((dists[i] - domain.min) / span) * plotWidthPx);
-    return PANELS.map((panel, pi) => {
+    return panelDefs.map((panel, pi) => {
       const vals: (number | null)[] = [];
       for (let i = lo; i < hi; i++) vals.push(withDistance[i][panel.key] ?? null);
       const inView = vals.filter((v, k): v is number => v != null && dists[lo + k] >= domain.min && dists[lo + k] <= domain.max);
@@ -129,7 +143,7 @@ export function ErgChart({
       const ys = vals.map((v) => (v == null ? null : y(v)));
       return { ...panel, top, y, ticks: t.ticks, path: inView.length ? buildLine(xs, ys, false) : null, hasData: inView.length > 0 };
     });
-  }, [withDistance, dists, lo, hi, domain.min, domain.max, plotWidthPx]);
+  }, [withDistance, dists, lo, hi, domain.min, domain.max, plotWidthPx, panelDefs]);
 
   if (withDistance.length < 2) {
     return <EmptyState message="Not enough per-stroke data to chart (Garmin-only erg sessions have no stroke-level data)." />;
@@ -137,7 +151,8 @@ export function ErgChart({
 
   const width = plotWidthPx + PAD_LEFT + PAD_RIGHT;
   const x = (d: number) => PAD_LEFT + ((d - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
-  const hovered = hoverX != null ? withDistance[nearestIndex(dists, hoverX)] ?? null : null;
+  const shownHoverX = hoverX ?? externalHoverX ?? null;
+  const hovered = shownHoverX != null ? withDistance[nearestIndex(dists, shownHoverX)] ?? null : null;
   const intervalBounds = (idx: number): { min: number; max: number } => {
     let min = Infinity;
     let max = -Infinity;
@@ -160,7 +175,7 @@ export function ErgChart({
         // that only surfaced testing on a real iPhone, not Chromium's CDP touch emulation.
         data-chart-surface="true"
         role="img"
-        aria-label="Split, watts and stroke rate over distance. Focus and press +/- to zoom, arrow keys to pan, Escape to reset."
+        aria-label={`Split, watts${nPanels > 3 ? ", heart rate" : ""} and stroke rate over distance. Focus and press +/- to zoom, arrow keys to pan, Escape to reset.`}
         tabIndex={0}
         onPointerDown={handlers.onPointerDown}
         onPointerMove={handlers.onPointerMove}
@@ -260,7 +275,7 @@ export function ErgChart({
       {hovered && (
         <ChartTooltip
           xPct={(x(hovered.distance_cum as number) / width) * 100}
-          title={formatDistance(hovered.distance_cum)}
+          title={hovered.t_cum != null ? `${formatDistance(hovered.distance_cum)} · ${formatDuration(hovered.t_cum)}` : formatDistance(hovered.distance_cum)}
           rows={[
             ...(hovered.pace_500m != null ? [{ label: "Split", value: `${formatSplit(hovered.pace_500m)}/500m`, color: METRIC_COLOR.pace }] : []),
             ...(hovered.watts != null ? [{ label: "Power", value: `${hovered.watts.toFixed(0)} W`, color: METRIC_COLOR.power }] : []),
@@ -271,7 +286,7 @@ export function ErgChart({
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <Legend items={PANELS.map((p) => ({ label: p.label, color: p.color }))} />
+        <Legend items={panelDefs.map((p) => ({ label: p.label, color: p.color }))} />
         <span className="text-xs text-text-tertiary">Strip beneath = heart-rate zone</span>
       </div>
     </div>

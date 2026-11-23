@@ -178,7 +178,7 @@ async def estimate_piece_photo(session: Session, image_bytes: bytes, media_type:
     # always saved as whatever type was chosen before the photo (2000m by default), so a 5k could land in the 2k PBs.
     detected_type = detect_test_type(distance_m, total_duration_s, result.get("avg_rate"))
     if detected_type == "30min_r20" and modality == "bike":
-        detected_type = None
+        detected_type = "30min"  # rate-capped tests are rowing; a bike's 30 minutes is the open-rate type
     return {
         "modality": modality,
         "detected_piece_type": detected_type,

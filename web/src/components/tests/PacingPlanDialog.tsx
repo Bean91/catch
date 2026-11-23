@@ -84,7 +84,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
               {needsDistance && (
                 <label className="flex flex-col gap-1.5">
                   <span className="text-sm font-medium text-text-primary">
-                    {testType === "30min_r20" || testType === "60min" ? "Target distance to cover (m)" : "Distance (m)"}
+                    {testType === "30min_r20" || testType === "30min" || testType === "60min" ? "Target distance to cover (m)" : "Distance (m)"}
                   </span>
                   <input
                     type="number"

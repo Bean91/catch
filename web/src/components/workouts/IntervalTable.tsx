@@ -1,16 +1,19 @@
-import type { IntervalSummary } from "../../lib/types";
-import { formatNumber, formatPercent, formatSplit } from "../../lib/format";
+import type { IntervalConsistency, IntervalSummary } from "../../lib/types";
+import { formatDuration, formatNumber, formatPercent, formatSplit } from "../../lib/format";
 
 export function IntervalTable({
   intervals,
+  consistency,
   hoveredInterval,
   onHoverInterval,
 }: {
   intervals: Record<string, IntervalSummary>;
+  consistency?: IntervalConsistency | null;
   hoveredInterval?: number | null;
   onHoverInterval?: (index: number | null) => void;
 }) {
   const sorted = Object.entries(intervals).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const anyRest = sorted.some(([, s]) => s.rest_s != null);
 
   return (
     <div className="overflow-x-auto">
@@ -23,6 +26,7 @@ export function IntervalTable({
             <th className="py-1 font-normal">Watts</th>
             <th className="py-1 font-normal">HR</th>
             <th className="py-1 font-normal">Drift vs rep 1</th>
+            {anyRest && <th className="py-1 font-normal">Rest after</th>}
           </tr>
         </thead>
         <tbody>
@@ -40,7 +44,7 @@ export function IntervalTable({
               <td className="py-1.5 font-mono-nums">{s.avg_hr != null ? formatNumber(s.avg_hr) : "—"}</td>
               <td className="py-1.5 font-mono-nums">
                 {s.drift_vs_rep1_pct != null ? (
-                  <span className={s.drift_vs_rep1_pct > 1 ? "text-band-red-text" : "text-text-secondary"}>
+                  <span className="text-text-secondary">
                     {s.drift_vs_rep1_pct > 0 ? "+" : ""}
                     {formatPercent(s.drift_vs_rep1_pct, 1)}
                   </span>
@@ -48,10 +52,23 @@ export function IntervalTable({
                   "—"
                 )}
               </td>
+              {anyRest && <td className="py-1.5 font-mono-nums italic text-text-tertiary">{s.rest_s != null ? formatDuration(s.rest_s) : "—"}</td>}
             </tr>
           ))}
         </tbody>
       </table>
+      {consistency && (consistency.split_cv_pct != null || consistency.watts_cv_pct != null) && (
+        <p className="mt-2 text-xs text-text-secondary" data-testid="interval-consistency">
+          Across {consistency.reps} reps:{" "}
+          {consistency.split_spread_s != null && <>fastest and slowest split {formatNumber(consistency.split_spread_s, 1)} s apart</>}
+          {consistency.split_cv_pct != null && <> · split varied {formatNumber(consistency.split_cv_pct, 1)}%</>}
+          {consistency.watts_cv_pct != null && <> · watts varied {formatNumber(consistency.watts_cv_pct, 1)}%</>}
+          {consistency.fade_pct != null && <> · last rep {formatNumber(Math.abs(consistency.fade_pct), 1)}% {consistency.fade_pct > 0 ? "slower" : "faster"} than the first</>}.
+        </p>
+      )}
+      <p className="mt-1 text-xs text-text-tertiary">
+        Split is worked out from each rep's time and distance; rate, watts and heart rate are averages of what the PM5 recorded stroke by stroke. Variation is the standard deviation as a share of the average.
+      </p>
     </div>
   );
 }

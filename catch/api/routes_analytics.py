@@ -507,9 +507,18 @@ def erg_strokes(
 
     # Drift vs rep 1, by avg split — positive means slower than the first rep.
     rep1_split = interval_summaries[min(interval_summaries)]["avg_split_500m"] if interval_summaries else None
-    for summary in interval_summaries.values():
+    # Session 36: each rep's rest (only when Concept2 reported it — never inferred) and how each figure was obtained: the split is
+    # worked out from the rep's time and distance, the rest are averages of what the PM5 recorded stroke by stroke.
+    from catch.sync.piece_intervals import _concept2_interval_defs
+    from catch.analytics.technique import rep_consistency
+
+    defs = _concept2_interval_defs(activity)
+    for idx, summary in interval_summaries.items():
         split = summary["avg_split_500m"]
         summary["drift_vs_rep1_pct"] = ((split - rep1_split) / rep1_split * 100) if (rep1_split and split) else None
+        rest = defs[idx].get("rest_time") if idx < len(defs) else None
+        summary["rest_s"] = rest / 10.0 if rest else None
+        summary["basis"] = {"avg_split_500m": "derived", "avg_watts": "measured", "avg_stroke_rate": "measured", "avg_hr": "measured"}
 
     # t/distance reset to 0 at each interval boundary (docs/concept2-endpoints.md); add the
     # running offset from prior intervals so a distance-based chart doesn't saw-tooth back to
@@ -560,6 +569,7 @@ def erg_strokes(
         "returned_stroke_count": len(returned_strokes),
         "technique_by_interval": technique_by_interval,
         "interval_summary": interval_summaries,
+        "interval_consistency": rep_consistency([interval_summaries[k] for k in sorted(interval_summaries)]) if len(interval_summaries) > 1 else None,
         "time_in_zone_by_interval": time_in_zone_by_interval,
     }
 
@@ -743,69 +753,23 @@ def trends_volume(weeks: int = Query(12, ge=1, le=104), db: Session = Depends(ge
     return [{"week_start": w, "zones": buckets[w], "estimated": w in estimated_weeks} for w in week_starts]
 
 
-_PB_DISTANCES_M = (500, 1000, 2000, 5000, 6000)
-_PB_DURATIONS_S = {1800: "30min", 3600: "60min"}
-
-
-def _pb_entry(candidate: dict | None) -> dict | None:
-    if candidate is None:
-        return None
-    pace = (candidate["duration"] / candidate["distance"]) * 500.0 if candidate["distance"] else None
-    return {
-        # The canonical id — /workouts/:id now always means a canonical, never a raw
-        # per-source Activity id (session 8/12, see PLAN.md).
-        "activity_id": candidate["canonical_id"],
-        # Session 17 (see PLAN.md Part A.1) — set only when this PB came from a piece rather
-        # than a standalone Concept2 result, so the frontend can link to the piece specifically.
-        "piece_id": candidate.get("piece_id"),
-        "date": candidate["date"],
-        "distance_m": candidate["distance"],
-        "duration_s": candidate["duration"],
-        "pace_s_per_500": pace,
-    }
-
-
-def _candidate_from_activity(db: Session, a: Activity) -> dict:
-    day = localtime.day_of(db, a)
-    return {
-        "distance": a.distance,
-        "duration": a.duration,
-        "date": day.isoformat() if day else None,
-        "canonical_id": a.canonical_id,
-        "piece_id": None,
-    }
-
-
 @router.get("/api/pbs")
 def personal_bests(db: Session = Depends(get_db)):
-    from catch.sync.piece import piece_pb_candidates
+    """The rowing records in their original flat shape (Today, the test center). Session 36: computed by catch/sync/records.py,
+    which also gained 10,000 m, the source label and the history (GET /api/records), and leaves out excluded workouts."""
+    from catch.sync.records import records
 
-    # type=="rower" only — a SkiErg/BikeErg 2k isn't the same PB, and only continuous
-    # workouts (same restriction _predict_2k uses) since interval/piece sets mix rest into
-    # duration.
-    stmt = select(Activity).options(defer(Activity.raw_json)).where(
-        Activity.source == "concept2",
-        Activity.type == "rower",
-        Activity.distance.is_not(None),
-        Activity.duration.is_not(None),
-    )
-    continuous = [_candidate_from_activity(db, a) for a in db.exec(stmt).all() if a.workout_type in _CONTINUOUS_WORKOUT_TYPES]
-    # Session 17 (see PLAN.md Part A.1) — confirmed pieces count toward PBs too, exactly like
-    # a standalone Concept2 result; piece_pb_candidates already excludes any piece absorbed
-    # into a real Concept2 result (that result is already in `continuous` above).
-    continuous += piece_pb_candidates(db)
-
-    result: dict[str, dict | None] = {}
-    for target in _PB_DISTANCES_M:
-        tolerance = max(25.0, target * 0.02)
-        candidates = [c for c in continuous if c["distance"] and abs(c["distance"] - target) <= tolerance]
-        best = min(candidates, key=lambda c: c["duration"]) if candidates else None
-        result[f"{target}m"] = _pb_entry(best)
-    for target, label in _PB_DURATIONS_S.items():
-        candidates = [c for c in continuous if c["duration"] and abs(c["duration"] - target) <= 30.0]
-        best = max(candidates, key=lambda c: c["distance"]) if candidates else None
-        result[label] = _pb_entry(best)
-    return result
+    rec = records(db, "rowing_erg")
+    out: dict[str, dict | None] = {}
+    for group in (rec["distance"], rec["duration"]):
+        for r in group:
+            b = r["best"]
+            out[r["key"]] = None if b is None else {
+                "activity_id": b["canonical_id"], "piece_id": b["piece_id"], "date": b["date"].isoformat() if b["date"] else None,
+                "distance_m": b["distance_m"], "duration_s": b["duration_s"], "pace_s_per_500": b["pace_s"],
+                "label": b["label"], "verified": b["verified"],
+            }
+    return out
 
 
 # -- Per-activity HR/power/cadence samples (task Part E.8) ------------------------------
@@ -860,6 +824,9 @@ def activity_samples(
     # Session 33: {recording id: seconds from this workout's start}. A piece window is stored relative to its own recording, so
     # the chart adds this offset to draw it (and removes it when a band is dragged). Zero for an ordinary workout's one recording.
     member_offsets: dict[int, int] = {}
+    # Session 36: which recording this timeline is. Another chart (the erg chart's strokes) can share its cursor only when it is
+    # the same recording — or, on a combined workout, one whose offset is known. Two devices' clocks are never assumed to agree.
+    recording_activity_id: int | None = None
     if canonical.merge_mode == "combined":
         from catch.sync.canonical import combined_parts, combined_samples
 
@@ -892,6 +859,7 @@ def activity_samples(
         cadence_full = unpack_series(samples_row.cadence_blob, n)
         laps = json.loads(hr_member.laps_json) if hr_member.laps_json else _concept2_laps(db, hr_member.id)
         member_offsets = {m.id: 0 for m in members if m.id is not None}
+        recording_activity_id = hr_member.id
     has_hr = any(v is not None for v in hr_full)
     has_power = any(v is not None for v in power_full)
     has_cadence = any(v is not None for v in cadence_full)
@@ -955,6 +923,8 @@ def activity_samples(
         "session_label": canonical.session_label,
         "laps": laps,
         "member_offsets": {str(k): v for k, v in member_offsets.items()},
+        "recording_activity_id": recording_activity_id,
+        "combined": canonical.merge_mode == "combined",
         "hr_recovery": recoveries,
         "points": [
             {

@@ -50,8 +50,9 @@ def store_samples_from_fit(session: Session, activity_id: int, fit_samples) -> N
 
 def store_samples_from_strokes(session: Session, activity_id: int, strokes: list[dict]) -> None:
     """`strokes` are the dicts catch/sync/concept2_client.py's `_extract_strokes` builds —
-    `t` resets to 0 at each interval boundary. Resampled onto a 1 Hz grid across the whole
-    recording (rest time included), forward-filling each stroke's reading until the next
+    `t` resets to 0 at each interval boundary. Resampled onto a 1 Hz grid of *work* time: each interval starts where the
+    previous one's last stroke ended (rest is not on this axis — the same cumulative time as the strokes endpoint's `t_cum`,
+    which is what lets the erg and heart-rate charts share a cursor), forward-filling each stroke's reading until the next
     one — the natural reading of "a stroke's state holds until the next stroke" for an
     event-based sample stream, rather than per-fixed-interval telemetry like a FIT record."""
     if not strokes:

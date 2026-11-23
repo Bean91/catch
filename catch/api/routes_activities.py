@@ -10,6 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
+from catch.analytics.piece import PIECE_TYPES
 from catch.analytics.zones import basis_from_dict, training_zones, zone_for_hr
 from catch.api.deps import as_utc, get_db, require_auth
 from catch.core.models import Activity, ActivitySamples, ActivityTrack, CanonicalActivity, DailyScore, Note
@@ -25,7 +26,8 @@ _OVERRIDE_FIELDS = {"title", "sport_family", "notes", "rpe", "exclude_from_total
 # the pacing-plan generator both key on — "test" in `tags` plus one of these in `test_type`
 # (an override field, same free-form overrides_json dict every other edit already uses — no
 # new table needed to mark a workout as a confirmed test).
-TEST_TYPES = ("500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom")
+# Session 36: one list, the piece types' (10000m and an open-rate 30min joined then).
+TEST_TYPES = PIECE_TYPES
 
 
 def _overrides(canonical: CanonicalActivity) -> dict:

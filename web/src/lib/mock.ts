@@ -856,6 +856,13 @@ export function mockActivitySamples(id: number): ActivitySamplesResponse {
     points,
     returned_count: points.length,
     raw_count: points.length,
+    // The mock's heart rate comes from the workout's own (only) recording, so a PM5 stroke list shares its timeline.
+    recording_activity_id: workout.sources[0]?.activity_id ?? null,
+    combined: false,
+    has_hr: true,
+    has_power: points.some((p) => p.power != null),
+    has_cadence: points.some((p) => p.cadence != null),
+    gaps: 0,
   };
 }
 

@@ -14,7 +14,10 @@ def test_detect_test_type_matches_standard_distance():
 
 def test_detect_test_type_matches_30min_r20_only_under_the_rate_cap():
     assert detect_test_type(None, 1800.0, 19.5) == "30min_r20"
-    assert detect_test_type(None, 1800.0, 28.0) is None  # same duration, not a steady r20
+    # Session 36: the same duration above the cap is the open-rate 30-minute test, not "no match".
+    assert detect_test_type(None, 1800.0, 28.0) == "30min"
+    assert detect_test_type(None, 1800.0, None) == "30min"
+    assert detect_test_type(10000.0, 2400.0, 26.0) == "10000m"
 
 
 def test_detect_test_type_returns_none_for_nothing_standard():

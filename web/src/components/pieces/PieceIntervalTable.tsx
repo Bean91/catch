@@ -108,6 +108,10 @@ export function PieceIntervalTable({
           ))}
         </table>
       </div>
+      <p className="mt-2 text-xs text-text-tertiary" data-testid="interval-provenance">
+        {intervals.some((r) => r.source === "concept2") ? "From the Concept2 result's own intervals" : "As entered"}
+        {modality === "rowing_erg" ? "; watts are worked out from each interval's pace (the Concept2 formula), not measured separately." : "; a bike's watts are what was recorded or typed — never worked out from pace."}
+      </p>
     </div>
   );
 }

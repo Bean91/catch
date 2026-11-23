@@ -15,7 +15,10 @@ TEST_SPECS: dict[str, dict] = {
     "2000m": {"distance_m": 2000},
     "5000m": {"distance_m": 5000},
     "6000m": {"distance_m": 6000},
+    "10000m": {"distance_m": 10000},
     "30min_r20": {"duration_s": 1800, "max_avg_rate": 20.5},
+    # Session 36: an open-rate 30-minute test. Checked after the rate-capped one, so a 30-minute row at r20 stays a 30' r20.
+    "30min": {"duration_s": 1800},
     "60min": {"duration_s": 3600},
 }
 _DISTANCE_TOLERANCE_PCT = 0.02

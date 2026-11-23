@@ -21,6 +21,7 @@ from catch.api import (
     routes_connections,
     routes_body,
     routes_calendar,
+    routes_lab,
     routes_coaching,
     routes_leaderboards,
     routes_moderation,
@@ -208,6 +209,7 @@ app.include_router(routes_status.router)
 app.include_router(routes_training_intelligence.router)
 app.include_router(routes_gps.router)
 app.include_router(routes_calendar.router)
+app.include_router(routes_lab.router)
 app.include_router(routes_library.router)
 app.include_router(routes_coaching.router)
 app.include_router(routes_leaderboards.router)

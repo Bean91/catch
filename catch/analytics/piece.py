@@ -17,7 +17,7 @@ from catch.analytics.erg_math import watts_from_pace
 # attached differently (a piece lives inside an activity; a test *is* one). 30min_r20's
 # `max_avg_rate` gate is a test-detection heuristic that doesn't apply here: a piece's type is
 # always explicitly chosen by the athlete (photo/typed entry), never auto-detected.
-PIECE_TYPES = ("500m", "1000m", "2000m", "5000m", "6000m", "30min_r20", "60min", "custom")
+PIECE_TYPES = ("500m", "1000m", "2000m", "5000m", "6000m", "10000m", "30min_r20", "30min", "60min", "custom")
 
 # Session 33: a piece is on a rowing erg or a bike. The split basis is the machine's own display
 # unit (a PM5 on a RowErg shows pace per 500 m, on a BikeErg per 1000 m), so every pace below is
@@ -27,8 +27,8 @@ DEFAULT_MODALITY = "rowing_erg"
 SPLIT_M_BY_MODALITY = {"rowing_erg": 500.0, "bike": 1000.0}
 # "30min_r20" is a rowing rate-capped test; it has no bike meaning.
 PIECE_TYPES_BY_MODALITY = {"rowing_erg": PIECE_TYPES, "bike": tuple(t for t in PIECE_TYPES if t != "30min_r20")}
-_DISTANCE_BY_TYPE = {"500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000}
-_DURATION_BY_TYPE = {"30min_r20": 1800, "60min": 3600}
+_DISTANCE_BY_TYPE = {"500m": 500, "1000m": 1000, "2000m": 2000, "5000m": 5000, "6000m": 6000, "10000m": 10000}
+_DURATION_BY_TYPE = {"30min_r20": 1800, "30min": 1800, "60min": 3600}
 
 _MIN_PLAUSIBLE_RATE = 14.0
 _MAX_PLAUSIBLE_RATE = 50.0
