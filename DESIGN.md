@@ -783,6 +783,38 @@ Guarded by `web/tests/touch/text-wrap.spec.ts` (320px, both mobile engines, plus
 - Playwright: `onboarding.spec.ts`/`onboarding-desktop.spec.ts` (the privacy step), `pieces-power.spec.ts` (server watts, contradiction,
   bike, weight-adjusted line), `connections.spec.ts` (each outcome sentence).
 
+## Performance lab, goals, records and planned-vs-done (session 36)
+
+- **Navigation.** "Performance lab" (`/lab`) and "Goals" (`/goals`) are Training destinations in `lib/navigation.ts`: desktop sidebar
+  entries, tiles on the Train hub, and the More sheet. The tab bar is unchanged (five slots).
+- **Like-for-like comparisons are tables, not charts.** Heart rate at the same power and split at the same rate are an "Earlier / Recent
+  / Change" table per band, with each side's count in brackets. A side without enough data reads "—", never a small-sample number;
+  change is words ("4 bpm lower", "1.1 s faster", "about the same"), never a colour.
+- **Records say what they are.** Each best carries a word badge — *Test*, *Piece*, *Training result* — plus *✓ Concept2-verified* where
+  Concept2 says so, a date and an "Open" link; "History (n)" expands the improvements inline. Watts worked out from pace say so.
+- **Planned and done** (planned sheet, workout detail): one row per target that was set — measured value, the target in small text,
+  and the difference in words ("1.0 s slower", "✓ in range", "↑ above"). No red, no pass/fail. How a figure was obtained is a muted
+  "(worked out)" / "(typed)". When reps can't be paired, the reason is a sentence under the totals.
+- **Plan targets are edited under a per-block "Targets" disclosure** (split in m:ss.t per 500 m or 1000 m on a bike, power, rate or
+  cadence, HR). A blank target is not set. Blocks are two short rows (part / reps / time / distance, then rest / zone / remove), so
+  nothing scrolls sideways at 390 px.
+- **Goals.** Progress is a thin accent bar capped at 100 %; weekly goals list each week with its own bar and a ✓ when reached, and the
+  line "A weekly target is the week's total — there's nothing to make up on any one day" plus today's recovery band. No streaks.
+  Deleting is an inline confirm; "Set aside" exists so stopping a goal isn't framed as failure.
+- **Training blocks** have a free *block label* (suggestions Base, Build, Peak, Taper, Recovery plus the athlete's own); the Plan page
+  shows the chosen block week by week (PlanBar: filled = completed, outlined = planned, dashed = the block's weekly target; a week that
+  hasn't started has no completed bar, not an empty one) and the tests and pieces inside it.
+- **Linked charts.** Pointing at the erg chart shows the same moment on the heart-rate chart and vice versa, each with its own tooltip.
+  A line under the erg chart says whether the two are linked or, if the heart rate came from another device, that they are not.
+  A sensor dropout is a break in the line with a one-line note — never a bridge.
+- **"About this data"** is a collapsed `<details>` at the end of workout detail: which channels were recorded (✓ / —), heart-rate
+  completeness, which device measured each headline figure and which were worked out, and each source's last sync.
+- **Duplicates** opens a comparison table (each recording's figures, the merged value and "from <device>") before "Merge these".
+- **Coach links.** In-app paths the coach cites (`/workouts/123`, `/tests/12`, `/tests/piece/4`, `/calendar/events/9`, `/lab`, `/goals`,
+  `/trends`) become accent links; nothing else in model text is ever a link (`lib/coachRefs.ts`).
+- **Exports** sit under "Download your data" as one row per category with CSV and JSON buttons.
+- Playwright: `web/tests/touch/session36.spec.ts` (both mobile engines) and `session36-desktop.spec.ts`.
+
 ## Rowing character, restrained
 
 - Splits always `m:ss.t` (round to tenths *before* splitting, so `119.96` → `2:00.0`, never

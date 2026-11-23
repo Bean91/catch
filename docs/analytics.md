@@ -1425,3 +1425,76 @@ It is marked by `piece_power_model` in the settings row's hidden `_maintenance` 
 - Bike pieces keep their own watts.
 - Workouts whose pieces changed are re-resolved, because the piece power overlay feeds power zones.
 - A failure is logged and never blocks maintenance.
+
+## 35. Session 36: load history, records, goals, plan comparison, the Performance Lab
+
+All of this is computed when read, from the same readers the rest of the app uses; nothing new is stored except goal and event fields
+(migration 0013). Every figure counts a completed workout once (one canonical workout), on its own local day (`localtime.day_of`),
+leaves out workouts excluded from totals, and never counts a plan.
+
+### 35.1 Training monotony and strain (`analytics/load.py::weekly_monotony_strain`, `sync/load_history.py`)
+
+Foster et al. (1998). For a complete Monday–Sunday week with daily training loads `L1..L7` (rest days 0):
+`monotony = mean(L) / pstdev(L)`, `strain = sum(L) × monotony`. The daily load is the stored strain's TRIMP-unit `load` minus everyday
+movement (`daily_activity.load`), i.e. training only — the same quantity ATL/CTL read, without steps. When every day carried the same
+load the standard deviation is 0 and monotony is undefined: it is reported as missing with that reason, never as infinity. A week in
+progress has no monotony. **No band or threshold is shown as a warning**: Foster associated high monotony and strain with illness in
+his athletes, but that is a population observation, not a diagnosis.
+
+`GET /api/trends/load-history?weeks=5..104` also returns per week sessions, minutes, metres, days with no training logged and their
+weekdays, average recovery score; per month sessions/minutes/metres; and the last 4 complete weeks against the 12 before as a plain
+% change (shown only with ≥ 4 baseline weeks).
+
+### 35.2 Personal records (`sync/records.py`, `GET /api/records`)
+
+Candidates: continuous Concept2 results (`workout_type` JustRow / FixedDistanceSplits / FixedTimeSplits / unknown) and confirmed
+single-effort pieces (not interval pieces, not ones absorbed into a Concept2 result), per modality (rowing erg `rower`; bike `bike`).
+Distance records: within ±max(25 m, 2 %) of 500/1000/2000/5000/6000/10000 m (bike 1/5/10/20 km), fastest time. Timed: within ±30 s of
+30/60 min, furthest distance. Power: the highest **whole-effort** average watts among efforts lasting at least 1/5/20/30/60 min. One
+entry per workout per record. Labels: `test` (the athlete confirmed it), `piece`, `training`; `verified` = Concept2's own flag. Power
+basis: a result's watts are the PM5's (`measured`); a rowing piece's are from its average pace (`derived`, session 34's formula); a bike
+piece's are as entered. History = each improvement in date order. `/api/pbs` keeps its flat shape and is built from this.
+
+### 35.3 Goals (`analytics/goals.py`, `sync/goals.py`)
+
+| kind | progress |
+|---|---|
+| `distance_total` | metres of completed workouts in the window (optionally one sport), capped at 100 % |
+| `workout_count` | sessions in the window |
+| `weekly_volume` / `frequency` | per week (Monday-start) minutes or sessions against the target; "weeks reached" counts finished weeks only |
+| `target_split` | best pace over the named distance (record tolerance) in the window; reached on the first effort at or under it |
+| `target_power` | best whole-effort average watts over efforts of at least `min_duration_s`; reached on the first at or above it |
+
+No streaks, no carried-over shortfall, no prompt to train more; weekly goals show the day's recovery band as context only.
+
+### 35.4 Planned vs done (`analytics/plan_compare.py`, `sync/plan_compare.py`)
+
+Only targets that were set produce a row. Per-rep pairing happens only when the recorded reps equal the planned work reps (or every
+planned block including warm-up/cool-down); otherwise the whole session's totals are compared and the reason is given. Rep targets
+are compared with a whole-session average only for a single continuous block — never across warm-up and rest. Single values give a
+signed difference (a positive split delta is slower); ranges (rate, HR) give below / in range / above. Reps come from, in order: an
+interval piece; the Concept2 result's `workout.intervals`; device laps (with HR/power/cadence averaged from the recording's own
+samples), the first source that has any. Splits are worked out from time ÷ distance (`derived`); rowing interval watts are from pace.
+
+### 35.5 Performance Lab comparisons (`analytics/performance_lab.py`, `sync/performance_lab.py`)
+
+The chosen range (≤ 3 years) is split at its midpoint into an earlier and a recent half.
+- **Heart rate at comparable power**: continuous rowing-erg workouts ≥ 10 min with an average power and heart rate (a workout whose
+  Concept2 result is an interval session is left out), grouped into 20 W bands; median HR per half, shown only with ≥ 2 sessions.
+- **Split at comparable rate**: all Concept2 rower strokes (rate 14–50, split 1:00–5:00), grouped by round(rate) then 2-spm bands, in
+  one aggregate query; each half's figure is the stroke-weighted mean of per-stroke splits, shown only with ≥ 60 strokes from ≥ 2
+  sessions. Drag factor and session intent are not modelled.
+- **Progression**: every standard-distance/time effort in date order with its pace, power and whether it set a new best.
+
+### 35.6 Linked charts on workout detail
+
+The erg chart (distance axis) and the heart-rate chart (time axis) share a cursor only when the stroke list *is* the heart-rate chart's
+recording (or, on a combined workout, a part with a known offset). A Concept2 stroke's cumulative time `t_cum` is work time (rest is
+not on that axis), and so is the per-second stream built from strokes (`sync/samples.py`), so the mapping is exact. Two devices'
+clocks are never assumed to agree: a watch's HR beside a PM5's strokes is labelled "not linked". The heart-rate chart breaks its line
+at any gap longer than 8 s (`SAMPLE_GAP_S`) instead of bridging it, and a recording with power or cadence but no heart rate is drawn.
+
+### 35.7 Rep consistency (`analytics/technique.py::rep_consistency`)
+
+Across a Concept2 interval session's reps: coefficient of variation (pstdev/mean, %) of each rep's average split and of its average
+watts, the spread between fastest and slowest split, and the last rep's split against the first. Descriptive; no band.

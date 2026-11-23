@@ -274,6 +274,7 @@ export function ErgChart({
 
       {hovered && (
         <ChartTooltip
+          testId="erg-tooltip"
           xPct={(x(hovered.distance_cum as number) / width) * 100}
           title={hovered.t_cum != null ? `${formatDistance(hovered.distance_cum)} · ${formatDuration(hovered.t_cum)}` : formatDistance(hovered.distance_cum)}
           rows={[

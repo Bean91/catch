@@ -592,6 +592,17 @@ export function mockWorkoutDetail(id: number): WorkoutDetail {
     muscular_by_muscle: base.category === "strength" ? MOCK_STRENGTH_MUSCULAR_BY_MUSCLE : null,
     merge: mockMergeSummary(id),
     merge_mode: MOCK_MERGED.has(id) ? "combined" : null,
+    data_quality: {
+      channels: { heart_rate: base.category !== "strength", power: base.avg_power != null, cadence: base.avg_cadence != null, gps: base.category === "on_water", strokes: base.sources[0]?.source === "concept2" },
+      completeness: base.category !== "strength" ? { heart_rate_pct: 98.6, seconds: base.duration ?? 3600, source: base.sources[0]?.source ?? "garmin" } : null,
+      figures: [
+        ...(base.distance != null ? [{ field: "distance", source: base.sources[0]?.source ?? null, basis: "measured" as const }] : []),
+        { field: "duration", source: base.sources[0]?.source ?? null, basis: "measured" as const },
+        ...(base.avg_hr != null ? [{ field: "avg_hr", source: base.sources[0]?.source ?? null, basis: "measured" as const }] : []),
+        ...(base.distance != null ? [{ field: "avg_split", source: null, basis: "derived" as const, how: "time ÷ distance" }] : []),
+      ],
+      sources: [{ source: base.sources[0]?.source ?? "garmin", last_synced_at: new Date(Date.now() - 3600_000).toISOString(), problem: false }],
+    },
   };
 }
 
@@ -2165,13 +2176,14 @@ export async function* streamMockMessage(conversationId: number, text: string): 
   if (conv && conv.title === null) conv.title = text.slice(0, 60);
 
   await delayed(undefined, 350);
-  yield { type: "tool_call", id: "mock-1", name: "get_today", input: {}, label: "Read today's recovery and strain" };
-  messages.push({ id: nextId(), role: "assistant", blocks: [{ type: "tool_call", id: "mock-1", name: "get_today", input: {} }], provider: "anthropic", model: "claude-sonnet-5", usage: null, cost_usd: null, created_at: new Date().toISOString() });
+  const callId = `mock-call-${nextId()}`;
+  yield { type: "tool_call", id: callId, name: "get_today", input: {}, label: "Read today's recovery and strain" };
+  messages.push({ id: nextId(), role: "assistant", blocks: [{ type: "tool_call", id: callId, name: "get_today", input: {} }], provider: "anthropic", model: "claude-sonnet-5", usage: null, cost_usd: null, created_at: new Date().toISOString() });
 
   await delayed(undefined, 400);
   const toolOutput = { recovery: { value: 78.4, band: "green" }, strain_today: { value: 8.2, band: "light" } };
-  yield { type: "tool_result", id: "mock-1", output: toolOutput, is_error: false };
-  messages.push({ id: nextId(), role: "user", blocks: [{ type: "tool_result", id: "mock-1", output: toolOutput, is_error: false }], provider: null, model: null, usage: null, cost_usd: null, created_at: new Date().toISOString() });
+  yield { type: "tool_result", id: callId, output: toolOutput, is_error: false };
+  messages.push({ id: nextId(), role: "user", blocks: [{ type: "tool_result", id: callId, output: toolOutput, is_error: false }], provider: null, model: null, usage: null, cost_usd: null, created_at: new Date().toISOString() });
 
   const reply =
     "Recovery is 78% (green) and strain so far today is light — you're clear for a harder session. " +
