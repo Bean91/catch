@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import defer
 from sqlmodel import Session, select
 
@@ -129,6 +129,22 @@ def _canonical_payload(db: Session, canonical: CanonicalActivity, members: list[
     return data
 
 
+def _search_matches(c: CanonicalActivity, q: str | None, tag: str | None, has_notes: bool | None, note_dates: set) -> bool:
+    """The exact check behind the SQL pre-filter, which works on the overrides JSON as text and so can over-match (a key name, an
+    escaped character); a row it lets through that doesn't really match is dropped here and the page refilled."""
+    ov = _overrides(c)
+    if tag and tag not in (ov.get("tags") or []):
+        return False
+    if has_notes and not (ov.get("notes") or "").strip():
+        return False
+    if q:
+        needle = q.lower()
+        hay = " ".join(str(x) for x in (ov.get("title") or c.title, ov.get("notes"), ov.get("conditions"), ov.get("equipment"), " ".join(ov.get("tags") or [])) if x).lower()
+        if needle not in hay and c.local_date not in note_dates:
+            return False
+    return True
+
+
 @router.get("/api/activities")
 def list_activities(
     from_: datetime | None = Query(None, alias="from"),
@@ -136,9 +152,14 @@ def list_activities(
     category: str | None = Query(None, description="erg | on_water | strength | other"),
     limit: int = Query(_PAGE_SIZE_DEFAULT, ge=1, le=_PAGE_SIZE_MAX),
     cursor: str | None = Query(None, description="opaque, from the previous page's next_cursor"),
+    q: str | None = Query(None, max_length=100, description="search title, your notes, conditions, equipment, tags and that day's note"),
+    tag: str | None = Query(None, max_length=40),
+    has_notes: bool | None = Query(None),
     db: Session = Depends(get_db),
 ):
     from_, to = localtime.naive_to_utc(db, from_), localtime.naive_to_utc(db, to)
+    q = (q or "").strip() or None
+    tag = (tag or "").strip() or None
     # Session 17 (see PLAN.md Part D.4) — a canonical absorbed into a piece (its own,
     # otherwise-orphan Concept2 result that Part D.4 linked into a longer session's piece
     # rather than merging) never shows up as its own Workouts row — that effort is already
@@ -153,15 +174,43 @@ def list_activities(
         stmt = stmt.where(CanonicalActivity.start <= to)
     if category:
         stmt = stmt.where(_category_filter(category))
+    # Session 36: search and filters, applied in SQL so the cursor stays exact. The overrides are JSON stored as text, so these
+    # are a pre-filter; `_search_matches` makes the exact call below.
+    note_dates: set = set()
+    if q:
+        needle = q.lower()
+        note_dates = set(db.exec(select(Note.date).where(func.lower(Note.text).contains(needle, autoescape=True))).all())
+        conds = [func.lower(CanonicalActivity.title).contains(needle, autoescape=True), func.lower(CanonicalActivity.overrides_json).contains(needle, autoescape=True)]
+        if note_dates:
+            conds.append(CanonicalActivity.local_date.in_(note_dates))
+        stmt = stmt.where(or_(*conds))
+    if tag:
+        stmt = stmt.where(CanonicalActivity.overrides_json.contains(json.dumps(tag), autoescape=True))
+    if has_notes:
+        stmt = stmt.where(CanonicalActivity.overrides_json.contains('"notes"', autoescape=True))
+    filtering = bool(q or tag or has_notes)
 
     cursor_parsed = _parse_cursor(cursor)
-    if cursor_parsed:
-        cursor_start, cursor_id = cursor_parsed
-        stmt = stmt.where(
-            or_(CanonicalActivity.start < cursor_start, (CanonicalActivity.start == cursor_start) & (CanonicalActivity.id < cursor_id))
-        )
-    stmt = stmt.order_by(CanonicalActivity.start.desc(), CanonicalActivity.id.desc()).limit(limit)
-    rows = db.exec(stmt).all()
+    rows: list[CanonicalActivity] = []
+    last_seen: CanonicalActivity | None = None
+    exhausted = False
+    for _ in range(10):  # a bounded number of refills; each is one indexed page
+        page_stmt = stmt
+        cp = (last_seen.start, last_seen.id) if last_seen is not None else cursor_parsed
+        if cp:
+            page_stmt = page_stmt.where(or_(CanonicalActivity.start < cp[0], (CanonicalActivity.start == cp[0]) & (CanonicalActivity.id < cp[1])))
+        batch = db.exec(page_stmt.order_by(CanonicalActivity.start.desc(), CanonicalActivity.id.desc()).limit(limit)).all()
+        for r in batch:
+            last_seen = r
+            if not filtering or _search_matches(r, q, tag, has_notes, note_dates):
+                rows.append(r)
+                if len(rows) == limit:
+                    break
+        if len(batch) < limit:
+            exhausted = True
+            break
+        if len(rows) >= limit:
+            break
 
     all_members = db.exec(select(Activity).options(defer(Activity.raw_json)).where(Activity.canonical_id.in_([r.id for r in rows]))).all() if rows else []
     members_by_canonical: dict[int, list[Activity]] = {}
@@ -179,8 +228,8 @@ def list_activities(
         items.append(payload)
 
     next_cursor = None
-    if len(rows) == limit and rows[-1].start is not None:
-        next_cursor = f"{rows[-1].start.isoformat()}_{rows[-1].id}"
+    if not exhausted and last_seen is not None and last_seen.start is not None:
+        next_cursor = f"{last_seen.start.isoformat()}_{last_seen.id}"
     return {"items": items, "next_cursor": next_cursor}
 
 

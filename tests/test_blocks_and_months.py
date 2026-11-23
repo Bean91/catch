@@ -90,3 +90,42 @@ def test_phase_progress_week_by_week(client, session):
     assert "Speed block" in client.get("/api/phases").json()["categories"]
     assert client.patch(f"/api/phases/{phase['id']}", json={"category": "x" * 41}).status_code == 422
     assert client.get("/api/phases/99999/progress").status_code == 404
+
+
+def test_event_result_link_follows_merges_and_survives_piece_delete(client, session):
+    from catch.core.models import Event, Piece
+    from catch.sync import planning as sp2
+
+    _login(client)
+    day = localtime.today(session) - timedelta(days=2)
+    a = _row(session, "race", datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=9), 8, 2000)
+    ev = client.post("/api/events", json={"name": "Club 2k", "date": day.isoformat(), "type": "2k_test", "participation": "entered"}).json()
+    ov = client.get(f"/api/events/{ev['id']}").json()
+    assert [c["id"] for c in ov["result_candidates"]] == [a.canonical_id]
+    piece = Piece(canonical_id=a.canonical_id, piece_type="2000m", distance_m=2000.0, duration_s=420.0, splits_json="[]")
+    session.add(piece)
+    session.commit()
+    upd = client.patch(f"/api/events/{ev['id']}", json={"result_piece_id": piece.id, "participation": "completed"})
+    assert upd.status_code == 200 and upd.json()["result_canonical_id"] == a.canonical_id  # the workout follows the piece
+    res = client.get(f"/api/events/{ev['id']}").json()["result_link"]
+    assert res["ref"] == f"/tests/piece/{piece.id}" and res["split_s"] == pytest.approx(105.0)
+    assert client.patch(f"/api/events/{ev['id']}", json={"participation": "maybe"}).status_code == 422
+    assert client.patch(f"/api/events/{ev['id']}", json={"result_canonical_id": 999999}).status_code == 404
+
+    # Deleting the piece keeps the workout as the result.
+    from catch.sync import piece as piece_sync
+
+    piece_sync.delete_piece(session, piece.id)
+    session.expire_all()
+    row = session.get(Event, ev["id"])
+    assert row.result_piece_id is None and row.result_canonical_id == a.canonical_id
+
+    # A merge moves the result to the surviving workout.
+    from catch.sync.activity_merge import move_references
+
+    b = _row(session, "other", datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=15), 30, 7000)
+    move_references(session, b.canonical_id, a.canonical_id)
+    session.commit()
+    session.expire_all()
+    assert session.get(Event, ev["id"]).result_canonical_id == b.canonical_id
+    _ = sp2

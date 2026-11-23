@@ -8,9 +8,78 @@ import { eventTypeLabel, phaseKindLabel } from "../components/calendar/labels";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
-import { fetchEventOverview, fetchEventProjection } from "../lib/api";
+import { fetchEventOverview, fetchEventProjection, updateEvent } from "../lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatShortDate } from "../lib/format";
-import type { EventProjection } from "../lib/types";
+import type { EventOverview, EventProjection, Participation } from "../lib/types";
+import { buttonClass } from "../components/ui/Button";
+
+const PARTICIPATION_TEXT: Record<Participation, string> = {
+  planned: "Planning to go",
+  entered: "Entered",
+  completed: "Raced / done",
+  withdrawn: "Withdrew",
+  did_not_start: "Didn't start",
+};
+
+/** The event's result, linked to the workout (or the piece inside it) rather than copied, so it always shows what that record
+ * says now. Only workouts from the day before to the day after the event are offered. */
+function ResultCard({ eventId, overview }: { eventId: number; overview: EventOverview }) {
+  const qc = useQueryClient();
+  const link = useMutation({
+    mutationFn: (v: { canonical: number | null; piece: number | null }) => updateEvent(eventId, { result_canonical_id: v.canonical, result_piece_id: v.piece, ...(v.canonical != null ? { participation: "completed" as const } : {}) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event", eventId] }),
+  });
+  const r = overview.result_link;
+  return (
+    <Card title="Result" testId="event-result">
+      {r ? (
+        <div className="flex flex-col gap-2 text-sm">
+          <p className="text-text-primary">
+            <span className="font-mono-nums text-2xl">{fmtTime(r.duration_s)}</span>
+            {r.distance_m != null && <span className="ml-2 text-text-secondary">{Math.round(r.distance_m).toLocaleString()} m</span>}
+            {r.split_s != null && <span className="ml-2 font-mono-nums text-text-secondary">{fmtTime(r.split_s)} /{r.split_m === 1000 ? "1000m" : "500m"}</span>}
+          </p>
+          <p className="text-text-secondary">
+            From <Link to={r.ref} className="text-accent underline">{r.title ?? "the workout"}</Link>
+            {r.source === "piece" ? " (a piece inside it)" : ""}
+            {r.date ? ` · ${formatShortDate(r.date)}` : ""}
+          </p>
+          <button type="button" onClick={() => link.mutate({ canonical: null, piece: null })} disabled={link.isPending} className={buttonClass("subtle", "sm", "self-start")}>
+            Unlink result
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 text-sm">
+          <p className="text-text-secondary">Link the workout this was — the result then reads straight from it.</p>
+          <ul className="flex flex-col gap-1.5" data-testid="result-candidates">
+            {(overview.result_candidates ?? []).flatMap((c) => [
+              <li key={`c${c.id}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-md bg-surface-2 p-2">
+                <span className="min-w-0 flex-1 wrap-anywhere">
+                  {c.title ?? "Workout"} <span className="text-xs text-text-tertiary">{formatShortDate(c.local_date)}</span>
+                </span>
+                <button type="button" onClick={() => link.mutate({ canonical: c.id, piece: null })} disabled={link.isPending} className={buttonClass("primary", "sm")}>
+                  Link
+                </button>
+              </li>,
+              ...c.pieces.map((p) => (
+                <li key={`p${p.id}`} className="ml-4 flex min-w-0 flex-wrap items-center gap-2 rounded-md bg-surface-2 p-2">
+                  <span className="min-w-0 flex-1">
+                    Piece {p.piece_type} <span className="font-mono-nums text-xs text-text-tertiary">{fmtTime(p.duration_s)}</span>
+                  </span>
+                  <button type="button" onClick={() => link.mutate({ canonical: c.id, piece: p.id })} disabled={link.isPending} className={buttonClass("secondary", "sm")}>
+                    Link this piece
+                  </button>
+                </li>
+              )),
+            ])}
+          </ul>
+        </div>
+      )}
+      {link.isError && <p role="alert" className="mt-2 text-sm text-text-secondary">{(link.error as Error).message}</p>}
+    </Card>
+  );
+}
 
 function fmtTime(s: number | null | undefined): string {
   if (s == null) return "—";
@@ -138,12 +207,20 @@ export function EventDetailPage() {
               <dd className="font-mono-nums text-text-primary">{e.result}</dd>
             </>
           )}
+          {e.participation && (
+            <>
+              <dt className="text-text-tertiary">You</dt>
+              <dd className="text-text-primary">{PARTICIPATION_TEXT[e.participation]}</dd>
+            </>
+          )}
           <dt className="text-text-tertiary">Planned sessions before</dt>
           <dd className="text-text-primary">{o.planned_sessions_before_event}</dd>
         </dl>
         {e.goals && <p className="mt-3 text-sm text-text-secondary">Goals: {e.goals}</p>}
         {e.notes && <p className="mt-1 text-sm text-text-secondary">Notes: {e.notes}</p>}
       </Card>
+
+      {(o.result_link || (o.result_candidates?.length ?? 0) > 0) && <ResultCard eventId={e.id} overview={o} />}
 
       <Card title="Preparation">
         {o.phase ? (

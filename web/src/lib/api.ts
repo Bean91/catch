@@ -358,11 +358,18 @@ export async function logout(): Promise<void> {
 export async function fetchWorkouts(params: {
   category?: WorkoutCategory;
   cursor?: string | null;
+  /** Session 36: search title, your notes, conditions, equipment, tags and the day's note. */
+  q?: string;
+  tag?: string;
+  hasNotes?: boolean;
 }): Promise<WorkoutsPage> {
-  if (isMock) return delay(mockWorkoutsPage(params.category, params.cursor ?? null));
+  if (isMock) return delay(mockWorkoutsPage(params.category, params.cursor ?? null, params));
   const search = new URLSearchParams();
   if (params.category) search.set("category", params.category);
   if (params.cursor) search.set("cursor", params.cursor);
+  if (params.q) search.set("q", params.q);
+  if (params.tag) search.set("tag", params.tag);
+  if (params.hasNotes) search.set("has_notes", "true");
   return request<WorkoutsPage>(`/api/activities?${search.toString()}`);
 }
 

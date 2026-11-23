@@ -8,6 +8,7 @@ import { formatClock, parseClock } from "../../lib/duration";
 import { formatDuration } from "../../lib/format";
 import { PlanComparisonView } from "./PlanComparisonView";
 import { blockText } from "./BlockLine";
+import { EventSelect } from "./EventSelect";
 import { addDays, dayLabel } from "../../lib/dates";
 import type { IntervalBlock, PlannedInput, PlannedWorkout, SessionType, ZoneLabel } from "../../lib/types";
 import { SESSION_TYPES, ZONES } from "./labels";
@@ -57,6 +58,7 @@ export function PlannedWorkoutSheet({
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState("");
   const [blocks, setBlocks] = useState<IntervalBlock[]>([]);
+  const [eventChoice, setEventChoice] = useState<number | null>(null);
   const [repeat, setRepeat] = useState(false);
   const [weekdays, setWeekdays] = useState<number[]>([]);
   const [until, setUntil] = useState("");
@@ -86,7 +88,9 @@ export function PlannedWorkoutSheet({
       setNotes(existing.notes ?? "");
       setFeedback(existing.coach_feedback ?? "");
       setBlocks(existing.structure);
+      setEventChoice(existing.event_id);
     } else {
+      setEventChoice(eventId ?? null);
       setDate(defaultDate);
       setType("erg");
       setTitle("");
@@ -100,7 +104,7 @@ export function PlannedWorkoutSheet({
       setFeedback("");
       setBlocks([]);
     }
-  }, [open, existing, defaultDate]);
+  }, [open, existing, defaultDate, eventId]);
 
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
   const body = (): PlannedInput => ({
@@ -116,7 +120,7 @@ export function PlannedWorkoutSheet({
     structure: blocks.length ? blocks : null,
     notes: notes.trim() || null,
     coach_feedback: feedback.trim() || null,
-    event_id: existing?.event_id ?? eventId ?? null,
+    event_id: eventChoice,
   });
 
   const { toast } = useToast();
@@ -233,6 +237,13 @@ export function PlannedWorkoutSheet({
                   </Field>
                 </div>
               </>
+            )}
+            {!isRest && (
+              <div className="col-span-2">
+                <Field label="Towards an event (optional)">
+                  <EventSelect value={eventChoice} onChange={setEventChoice} className={inputCls} enabled={open} />
+                </Field>
+              </div>
             )}
             <div className="col-span-2">
               <Field label="Description">

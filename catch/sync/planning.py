@@ -395,7 +395,11 @@ def list_planned(session: Session, owner_id: str, start: date, end: date) -> lis
 
 # --- Events ---------------------------------------------------------------------------------
 
-_EVENT_FIELDS = ("name", "date", "type", "distance", "distance_m", "boat_class", "priority", "goal_time", "result", "location", "goals", "notes")
+_EVENT_FIELDS = (
+    "name", "date", "type", "distance", "distance_m", "boat_class", "priority", "goal_time", "result", "location", "goals", "notes",
+    "participation", "sport", "result_canonical_id", "result_piece_id",
+)
+PARTICIPATION = ("planned", "entered", "completed", "withdrawn", "did_not_start")
 
 
 def _event_visible(event: Event, owner_id: str) -> bool:
@@ -439,6 +443,28 @@ def _validate_event(fields: dict) -> None:
             parse_goal_time(gt)
         except ValueError as exc:
             raise PlanningError(str(exc)) from exc
+    if fields.get("participation") is not None and fields["participation"] not in PARTICIPATION:
+        raise PlanningError(f"participation must be one of {list(PARTICIPATION)}")
+    if fields.get("sport") is not None and (not isinstance(fields["sport"], str) or len(fields["sport"]) > 40):
+        raise PlanningError("sport must be a short label")
+
+
+def _check_result(session: Session, event: Event | None, fields: dict) -> None:
+    """A result points at the owner's own workout, and a result piece sits inside that workout. Not found reads as not found."""
+    from catch.core.models import Piece
+
+    cid = fields.get("result_canonical_id", event.result_canonical_id if event is not None else None)
+    pid = fields.get("result_piece_id", event.result_piece_id if event is not None else None)
+    if cid is not None and session.get(CanonicalActivity, cid) is None:
+        raise NotFound(f"No workout with id {cid}")
+    if pid is not None:
+        piece = session.get(Piece, pid)
+        if piece is None:
+            raise NotFound(f"No piece with id {pid}")
+        if cid is None:
+            fields["result_canonical_id"] = piece.canonical_id
+        elif piece.canonical_id != cid:
+            raise PlanningError("That piece belongs to a different workout")
 
 
 def create_event(session: Session, owner_id: str, fields: dict) -> Event:
@@ -449,6 +475,7 @@ def create_event(session: Session, owner_id: str, fields: dict) -> Event:
     if not fields.get("name") or fields.get("date") is None or not fields.get("type"):
         raise PlanningError("name, date and type are required")
     _validate_event(fields)
+    _check_result(session, None, fields)
     event = Event(owner_id=owner_id, **{k: v for k, v in fields.items() if v is not None})
     session.add(event)
     session.commit()
@@ -463,6 +490,9 @@ def update_event(session: Session, owner_id: str, event_id: int, fields: dict) -
         raise PlanningError(f"Unknown event field(s): {sorted(unknown)}")
     fields = _coerce_dates(fields, "date")
     _validate_event(fields)
+    if "result_canonical_id" in fields and fields["result_canonical_id"] is None:
+        fields.setdefault("result_piece_id", None)  # clearing the workout clears the piece inside it
+    _check_result(session, event, fields)
     for key, value in fields.items():
         # name/date/type are required columns; every other field may be cleared with None.
         if value is None and key in ("name", "date", "type"):
@@ -523,6 +553,10 @@ def event_dict(event: Event, today_: date | None = None) -> dict:
         "goals": event.goals,
         "notes": event.notes,
         "has_pacing_plan": event.plan_json is not None,
+        "participation": event.participation,
+        "sport": event.sport,
+        "result_canonical_id": event.result_canonical_id,
+        "result_piece_id": event.result_piece_id,
         "days_to_go": pl.days_to_go(event.date, today_),
         "taper": event.priority in ("A", "B") and 0 <= pl.days_to_go(event.date, today_) <= 14,
     }
@@ -1162,7 +1196,47 @@ def event_overview(session: Session, owner_id: str, event_id: int) -> dict:
         ],
         "pacing_plan": json.loads(event.plan_json) if event.plan_json else None,
         "linked_phases": [phase_dict(p, session) for p in session.exec(select(TrainingPhase).where(TrainingPhase.event_id == event.id)).all()],
+        "result_link": event_result(session, event),
+        "result_candidates": result_candidates(session, event) if event.date <= today_ else [],
     }
+
+
+def event_result(session: Session, event: Event) -> dict | None:
+    """The linked result, read from the workout (and piece) itself — never a copy that could go stale."""
+    from catch.core.models import Piece
+
+    if event.result_canonical_id is None:
+        return None
+    c = session.get(CanonicalActivity, event.result_canonical_id)
+    if c is None:
+        return None
+    piece = session.get(Piece, event.result_piece_id) if event.result_piece_id is not None else None
+    dist = piece.distance_m if piece is not None else c.distance
+    dur = piece.duration_s if piece is not None else c.duration
+    split_m = 1000.0 if (piece is not None and piece.modality == "bike") or (piece is None and c.sport_family == "cycling") else 500.0
+    return {
+        "canonical_id": c.id, "piece_id": piece.id if piece is not None else None,
+        "ref": f"/tests/piece/{piece.id}" if piece is not None else f"/workouts/{c.id}",
+        "title": (_overrides(c).get("title") or c.title), "date": localtime.day_of(session, c) if c.start else None,
+        "distance_m": dist, "duration_s": dur, "split_s": (dur / dist * split_m) if dist and dur else None, "split_m": split_m,
+        "avg_hr": c.avg_hr, "source": "piece" if piece is not None else "workout",
+    }
+
+
+def result_candidates(session: Session, event: Event) -> list[dict]:
+    """Workouts the day before, of and after the event — the ones a result can be linked to — with any pieces inside them."""
+    from catch.core.models import Piece
+
+    rows = [c for c in _completed_in_range(session, event.date - timedelta(days=1), event.date + timedelta(days=1)) if c.start is not None]
+    pieces: dict[int, list[Piece]] = {}
+    if rows:
+        for p in session.exec(select(Piece).where(Piece.canonical_id.in_([c.id for c in rows]))).all():
+            pieces.setdefault(p.canonical_id, []).append(p)
+    return [
+        {**_completed_dict(c, None), "local_date": localtime.day_of(session, c),
+         "pieces": [{"id": p.id, "piece_type": p.piece_type, "distance_m": p.distance_m, "duration_s": p.duration_s} for p in pieces.get(c.id, [])]}
+        for c in sorted(rows, key=lambda c: c.start)
+    ]
 
 
 # --- Previews (coach/MCP write tools show these before anything is saved) -------------------

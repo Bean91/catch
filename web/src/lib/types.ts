@@ -675,9 +675,12 @@ export interface ActivityOverrides {
   test_type?: ErgTestType;
   /** Session 32 "Change day": the calendar day this workout counts on (the recorded day ± 1). */
   local_date?: string;
+  /** Session 36: the athlete's own context — never provider data. */
+  conditions?: string;
+  equipment?: string;
 }
 
-export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date"] as const;
+export const EDITABLE_ACTIVITY_FIELDS = ["title", "sport_family", "notes", "rpe", "exclude_from_totals", "tags", "test_type", "local_date", "conditions", "equipment"] as const;
 export type EditableActivityField = (typeof EDITABLE_ACTIVITY_FIELDS)[number];
 
 export interface WorkoutListItem {
@@ -706,6 +709,9 @@ export interface WorkoutListItem {
   exclude_from_totals: boolean;
   tags: string[];
   test_type: ErgTestType | null;
+  /** Session 36: the athlete's own context (null when not written). */
+  conditions?: string | null;
+  equipment?: string | null;
   overrides: ActivityOverrides;
   sources: ActivitySourceSummary[];
   editable_fields: EditableActivityField[];
@@ -2069,6 +2075,10 @@ export interface UpcomingEvent {
   has_pacing_plan: boolean;
   days_to_go: number;
   taper: boolean;
+  participation?: Participation | null;
+  sport?: string | null;
+  result_canonical_id?: number | null;
+  result_piece_id?: number | null;
 }
 
 export type PhaseKind = "general_prep" | "specific_prep" | "pre_competition" | "competition" | "recovery";
@@ -2216,6 +2226,8 @@ export interface EventOverview {
   tests: { kind: string; canonical_id: number | null; piece_id: number | null; test_type: string | null; title: string | null; date: string | null; distance_m: number | null; duration_s: number | null }[];
   pacing_plan: { goal_time_s?: number; style?: string; distance_m?: number; splits?: { split_index: number; target_split_s: number }[] } | null;
   linked_phases: PlanPhase[];
+  result_link?: EventResultLink | null;
+  result_candidates?: (CalendarCompleted & { local_date: string; pieces: { id: number; piece_type: string; distance_m: number | null; duration_s: number | null }[] })[];
 }
 
 export interface PlannedInput {
@@ -2247,6 +2259,28 @@ export interface EventInput {
   goals?: string | null;
   notes?: string | null;
   boat_class?: string | null;
+  result?: string | null;
+  participation?: Participation | null;
+  sport?: string | null;
+  result_canonical_id?: number | null;
+  result_piece_id?: number | null;
+}
+
+/** Session 36: whether the athlete is going — plain words, no verdicts. */
+export type Participation = "planned" | "entered" | "completed" | "withdrawn" | "did_not_start";
+
+export interface EventResultLink {
+  canonical_id: number;
+  piece_id: number | null;
+  ref: string;
+  title: string | null;
+  date: string | null;
+  distance_m: number | null;
+  duration_s: number | null;
+  split_s: number | null;
+  split_m: number;
+  avg_hr: number | null;
+  source: "piece" | "workout";
 }
 
 export interface PhaseInput {

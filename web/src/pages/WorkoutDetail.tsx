@@ -552,7 +552,7 @@ export function WorkoutDetailPage() {
         </>
       )}
 
-      <Card title="Edit" eyebrow="Details">
+      <Card title="Your notes" eyebrow="Details">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium text-text-secondary" htmlFor="wd-sport">
@@ -615,6 +615,36 @@ export function WorkoutDetailPage() {
               className={`${controlClass} mt-1 resize-none py-2.5`}
             />
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label className="text-xs font-medium text-text-secondary" htmlFor="wd-conditions">
+                Conditions (your words)
+              </label>
+              <input
+                id="wd-conditions"
+                defaultValue={workout.conditions ?? ""}
+                onBlur={(e) => e.target.value !== (workout.conditions ?? "") && patch.mutate({ conditions: e.target.value })}
+                placeholder="e.g. headwind, hot gym, choppy"
+                maxLength={300}
+                className={`${controlClass} mt-1 min-w-0`}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="text-xs font-medium text-text-secondary" htmlFor="wd-equipment">
+                Equipment
+              </label>
+              <input
+                id="wd-equipment"
+                defaultValue={workout.equipment ?? ""}
+                onBlur={(e) => e.target.value !== (workout.equipment ?? "") && patch.mutate({ equipment: e.target.value })}
+                placeholder="e.g. club 1x, drag 125, own blades"
+                maxLength={300}
+                className={`${controlClass} mt-1 min-w-0`}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-text-tertiary">Notes, conditions, equipment, tags and RPE are yours — kept apart from what the devices measured, and searchable from Workouts.</p>
 
           <div className="flex items-center gap-3">
             <label className="text-xs font-medium text-text-secondary" htmlFor="wd-rpe">

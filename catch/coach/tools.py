@@ -717,7 +717,7 @@ _PLANNED_FIELDS = (
     "date", "start_time", "session_type", "title", "duration_min", "distance_m", "target_zone",
     "intensity_note", "description", "structure", "event_id", "notes", "coach_feedback", "status",
 )
-_EVENT_WRITE_FIELDS = ("name", "date", "type", "distance", "distance_m", "boat_class", "priority", "goal_time", "result", "location", "goals", "notes")
+_EVENT_WRITE_FIELDS = ("name", "date", "type", "distance", "distance_m", "boat_class", "priority", "goal_time", "result", "location", "goals", "notes", "participation")
 
 
 def _gate(args: dict, preview: dict, what: str) -> dict | None:
@@ -1539,6 +1539,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "distance": {"type": "string", "description": "Free-text label, e.g. '2000m' or 'Head race 6km'."},
                 "distance_m": {"type": "number"},
                 "boat_class": {"type": "string"},
+                "participation": {"type": "string", "enum": ["planned", "entered", "completed", "withdrawn", "did_not_start"]},
                 "priority": {"type": "string", "enum": ["A", "B", "C"]},
                 "goal_time": {"type": "string", "description": "m:ss or m:ss.t"},
                 "result": {"type": "string"},
@@ -1565,6 +1566,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "distance": {"type": "string", "description": "Free-text label, e.g. '2000m' or 'Head race 6km'."},
                 "distance_m": {"type": "number"},
                 "boat_class": {"type": "string"},
+                "participation": {"type": "string", "enum": ["planned", "entered", "completed", "withdrawn", "did_not_start"]},
                 "priority": {"type": "string", "enum": ["A", "B", "C"]},
                 "goal_time": {"type": "string", "description": "m:ss or m:ss.t"},
                 "result": {"type": "string"},

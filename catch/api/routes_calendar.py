@@ -187,6 +187,10 @@ class EventCreate(BaseModel):
     location: str | None = None
     goals: str | None = None
     notes: str | None = None
+    participation: str | None = None
+    sport: str | None = None
+    result_canonical_id: int | None = None
+    result_piece_id: int | None = None
 
 
 @router.get("/api/events")

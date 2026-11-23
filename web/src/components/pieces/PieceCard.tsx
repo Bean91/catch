@@ -13,6 +13,7 @@ import { PieceIntervalTable } from "./PieceIntervalTable";
 import { StackedBar } from "../charts/StackedBar";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 /** One piece's summary on workout detail — task Part A.2/B.4 ("keep the photo attached ...
  * so I can check it later; delete option"). Editing re-runs the same validation the create
@@ -333,6 +334,25 @@ export function PieceCard({ piece, canonicalId }: { piece: Piece; canonicalId: n
             </button>
           </div>
         </div>
+      )}
+      {!editing && (
+        <label className="mt-3 flex flex-col gap-1 text-xs text-text-secondary">
+          Note on this piece (yours)
+          <textarea
+            defaultValue={piece.notes ?? ""}
+            rows={1}
+            maxLength={1000}
+            onBlur={async (e) => {
+              const v = e.target.value.trim();
+              if (v === (piece.notes ?? "")) return;
+              await updatePiece(piece.id, { notes: v });
+              invalidate();
+            }}
+            placeholder="e.g. went out too hard, held 32 for the last 250"
+            className={`${controlSkin} min-h-9 resize-none py-1.5 text-sm`}
+            data-testid="piece-notes"
+          />
+        </label>
       )}
     </div>
   );

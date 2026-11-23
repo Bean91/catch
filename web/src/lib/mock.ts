@@ -528,8 +528,14 @@ const MOCK_DUPLICATE_PAIRS: DuplicatePair[] = [
   },
 ];
 
-export function mockWorkoutsPage(category: WorkoutCategory | undefined, cursor: string | null): WorkoutsPage {
-  const all = category ? MOCK_WORKOUTS.filter((w) => w.category === category) : MOCK_WORKOUTS;
+export function mockWorkoutsPage(category: WorkoutCategory | undefined, cursor: string | null, f: { q?: string; tag?: string; hasNotes?: boolean } = {}): WorkoutsPage {
+  const q = f.q?.trim().toLowerCase();
+  const all = (category ? MOCK_WORKOUTS.filter((w) => w.category === category) : MOCK_WORKOUTS).filter(
+    (w) =>
+      (!q || [w.title, w.notes, w.overrides.conditions, w.overrides.equipment, ...w.tags].some((x) => typeof x === "string" && x.toLowerCase().includes(q))) &&
+      (!f.tag || w.tags.includes(f.tag)) &&
+      (!f.hasNotes || !!w.notes),
+  );
   const startIndex = cursor ? Number(cursor) : 0;
   const items = all.slice(startIndex, startIndex + MOCK_PAGE_SIZE);
   const nextIndex = startIndex + MOCK_PAGE_SIZE;
@@ -607,6 +613,8 @@ export function patchMockActivity(id: number, patch: ActivityOverrides, opts?: {
   if (patch.exclude_from_totals !== undefined) workout.exclude_from_totals = patch.exclude_from_totals;
   if (patch.tags !== undefined) workout.tags = patch.tags;
   if (patch.test_type !== undefined) workout.test_type = patch.test_type;
+  if (patch.conditions !== undefined) workout.conditions = patch.conditions;
+  if (patch.equipment !== undefined) workout.equipment = patch.equipment;
   return mockWorkoutDetail(id);
 }
 

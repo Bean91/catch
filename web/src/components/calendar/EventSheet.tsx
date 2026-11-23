@@ -47,6 +47,7 @@ export function EventSheet({
         ? {
             name: existing.name, date: existing.date, type: existing.type, distance: existing.distance, priority: existing.priority,
             goal_time: existing.goal_time, location: existing.location, goals: existing.goals, notes: existing.notes, boat_class: existing.boat_class,
+            distance_m: existing.distance_m, result: existing.result, participation: existing.participation ?? null,
           }
         : { name: "", date: defaultDate, type: "race" },
     );
@@ -62,6 +63,10 @@ export function EventSheet({
     goals: f.goals?.trim() || null,
     notes: f.notes?.trim() || null,
     priority: f.priority || null,
+    boat_class: f.boat_class?.trim() || null,
+    result: f.result?.trim() || null,
+    participation: f.participation || null,
+    distance_m: f.distance_m != null && Number.isFinite(f.distance_m) && f.distance_m > 0 ? f.distance_m : null,
   });
 
   const save = useMutation({
@@ -122,9 +127,32 @@ export function EventSheet({
             <Field label="Goal time">
               <input value={f.goal_time ?? ""} onChange={(e) => set({ goal_time: e.target.value })} className={inputCls} placeholder="6:45.0" inputMode="text" />
             </Field>
+            <Field label="Distance in metres (for projections)">
+              <input value={f.distance_m ?? ""} onChange={(e) => set({ distance_m: e.target.value === "" ? null : Number(e.target.value) })} className={inputCls} inputMode="numeric" placeholder="2000" />
+            </Field>
+            <Field label="Boat class">
+              <input value={f.boat_class ?? ""} onChange={(e) => set({ boat_class: e.target.value })} className={inputCls} placeholder="1x, 2-, 8+" />
+            </Field>
             <Field label="Location">
               <input value={f.location ?? ""} onChange={(e) => set({ location: e.target.value })} className={inputCls} />
             </Field>
+            <Field label="Your participation">
+              <select value={f.participation ?? ""} onChange={(e) => set({ participation: (e.target.value || null) as EventInput["participation"] })} className={inputCls} data-testid="event-participation">
+                <option value="">Not set</option>
+                <option value="planned">Planning to go</option>
+                <option value="entered">Entered</option>
+                <option value="completed">Raced / done</option>
+                <option value="withdrawn">Withdrew</option>
+                <option value="did_not_start">Didn't start</option>
+              </select>
+            </Field>
+            {existing && (
+              <div className="col-span-2">
+                <Field label="Result (in your words — link the workout on the event page)">
+                  <input value={f.result ?? ""} onChange={(e) => set({ result: e.target.value })} className={inputCls} placeholder="6:41.2, 3rd in the final" />
+                </Field>
+              </div>
+            )}
             <div className="col-span-2">
               <Field label="Goals">
                 <textarea value={f.goals ?? ""} onChange={(e) => set({ goals: e.target.value })} rows={2} className={`${inputCls} py-2`} />

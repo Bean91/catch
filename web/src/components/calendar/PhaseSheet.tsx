@@ -5,6 +5,7 @@ import { approvePhase, createPhase, deletePhase, fetchPhases, unapprovePhase, up
 import type { PhaseInput, PhaseKind, PlanPhase } from "../../lib/types";
 import { PHASE_KINDS, ZONES } from "./labels";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
+import { EventSelect } from "./EventSelect";
 import { SheetContent } from "../ui/Sheet";
 import { buttonClass } from "../ui/Button";
 import { controlSkin } from "../ui/Field";
@@ -39,6 +40,7 @@ export function PhaseSheet({
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultStart);
   const [goals, setGoals] = useState("");
+  const [eventId, setEventId] = useState<number | null>(null);
   const [minutes, setMinutes] = useState("");
   const [sessions, setSessions] = useState("");
   const [strength, setStrength] = useState("");
@@ -60,6 +62,7 @@ export function PhaseSheet({
     setStart(existing?.start_date ?? defaultStart);
     setEnd(existing?.end_date ?? defaultStart);
     setGoals(existing?.goals ?? "");
+    setEventId(existing?.event_id ?? null);
     setMinutes(existing?.target_minutes_per_week != null ? String(existing.target_minutes_per_week) : "");
     setSessions(existing?.target_sessions_per_week != null ? String(existing.target_sessions_per_week) : "");
     setStrength(existing?.target_strength_sessions_per_week != null ? String(existing.target_strength_sessions_per_week) : "");
@@ -78,7 +81,7 @@ export function PhaseSheet({
       if (Object.keys(entry).length) target_zone_pct[z] = entry;
     }
     return {
-      kind, name: name.trim(), category: category.trim() || null, start_date: start, end_date: end, goals: goals.trim() || null,
+      kind, name: name.trim(), category: category.trim() || null, event_id: eventId, start_date: start, end_date: end, goals: goals.trim() || null,
       target_minutes_per_week: num(minutes), target_sessions_per_week: num(sessions), target_strength_sessions_per_week: num(strength),
       target_zone_pct: Object.keys(target_zone_pct).length ? target_zone_pct : null,
     };
@@ -123,6 +126,11 @@ export function PhaseSheet({
             <Field label="Name">
               <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
             </Field>
+            <div className="col-span-2">
+              <Field label="Building towards (optional)">
+                <EventSelect value={eventId} onChange={setEventId} className={inputCls} enabled={open} />
+              </Field>
+            </div>
             <div className="col-span-2">
               <Field label="Block label (your own — e.g. Base, Build, Peak, Taper, Recovery)">
                 <input value={category} onChange={(e) => setCategory(e.target.value)} list="phase-categories" maxLength={40} className={inputCls} data-testid="phase-category" />

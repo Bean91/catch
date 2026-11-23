@@ -22,6 +22,15 @@ const FILTERS: { value: WorkoutCategory | "all"; label: string }[] = [
 
 export function WorkoutsPage() {
   const [filter, setFilter] = useState<WorkoutCategory | "all">("all");
+  // Session 36: search your own words (title, notes, conditions, equipment, tags, the day's note) and filter by tag or by "has notes".
+  const [searchText, setSearchText] = useState("");
+  const [q, setQ] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [notesOnly, setNotesOnly] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setQ(searchText.trim()), 300);
+    return () => clearTimeout(id);
+  }, [searchText]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -32,8 +41,8 @@ export function WorkoutsPage() {
   const [mergeOpen, setMergeOpen] = useState(false);
 
   const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ["workouts", filter],
-    queryFn: ({ pageParam }) => fetchWorkouts({ category: filter === "all" ? undefined : filter, cursor: pageParam }),
+    queryKey: ["workouts", filter, q, tagFilter, notesOnly],
+    queryFn: ({ pageParam }) => fetchWorkouts({ category: filter === "all" ? undefined : filter, cursor: pageParam, q: q || undefined, tag: tagFilter.trim() || undefined, hasNotes: notesOnly || undefined }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.next_cursor,
   });
@@ -182,6 +191,28 @@ export function WorkoutsPage() {
       />
 
       <Segmented label="Filter by type" value={filter} onChange={setFilter} options={FILTERS} className="self-start" />
+      <div className="flex flex-wrap items-center gap-2" role="search" aria-label="Search your workouts">
+        <input
+          type="search"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder="Search notes, conditions, equipment, tags…"
+          aria-label="Search workouts"
+          className={`${controlBase} min-h-11 min-w-0 flex-1 basis-56 text-sm`}
+          data-testid="workout-search"
+        />
+        <input
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          placeholder="Tag"
+          aria-label="Filter by tag"
+          className={`${controlBase} min-h-11 w-28 min-w-0 text-sm`}
+        />
+        <label className="flex min-h-11 items-center gap-2 text-sm text-text-secondary">
+          <input type="checkbox" checked={notesOnly} onChange={(e) => setNotesOnly(e.target.checked)} className="h-5 w-5 accent-accent" />
+          Has notes
+        </label>
+      </div>
 
       {isLoading && (
         <div className="flex flex-col gap-3">
@@ -193,7 +224,7 @@ export function WorkoutsPage() {
 
       {isError && <ErrorState message="Couldn't load workouts." onRetry={() => refetch()} />}
 
-      {!isLoading && !isError && items.length === 0 && <EmptyState message="No workouts in this filter yet." />}
+      {!isLoading && !isError && items.length === 0 && <EmptyState message={q || tagFilter.trim() || notesOnly ? "Nothing matches that search." : "No workouts in this filter yet."} />}
 
       {!isLoading && !isError && items.length > 0 && (
         <div className="flex flex-col gap-2">

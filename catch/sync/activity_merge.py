@@ -164,7 +164,7 @@ def preview(session: Session, canonical_ids: list[int]) -> dict:
 
 
 def _refs(session: Session, canonical_id: int) -> dict:
-    from catch.core.models import CoachFeedback, PlannedWorkout, ResultPublication, TechniqueNote
+    from catch.core.models import CoachFeedback, Event, PlannedWorkout, ResultPublication, TechniqueNote
 
     def ids(model, column) -> list[int]:
         return list(session.exec(select(model.id).where(column == canonical_id)).all())
@@ -175,6 +175,7 @@ def _refs(session: Session, canonical_id: int) -> dict:
         "notes": ids(TechniqueNote, TechniqueNote.canonical_id),
         "feedback": ids(CoachFeedback, CoachFeedback.canonical_id),
         "publications": ids(ResultPublication, ResultPublication.canonical_id),
+        "event_results": ids(Event, Event.result_canonical_id),
     }
 
 
@@ -193,6 +194,12 @@ def move_references(session: Session, keep_id: int, drop_id: int) -> None:
     for pub in session.exec(select(ResultPublication).where(ResultPublication.canonical_id == drop_id)).all():
         pub.canonical_id = keep_id
         session.add(pub)
+    from catch.core.models import Event
+
+    # Session 36: an event's linked result follows the workout it was done in.
+    for ev in session.exec(select(Event).where(Event.result_canonical_id == drop_id)).all():
+        ev.result_canonical_id = keep_id
+        session.add(ev)
 
 
 def combine(session: Session, canonical_ids: list[int], preview_hash: str) -> CanonicalActivity:
@@ -272,8 +279,11 @@ def uncombine(session: Session, canonical_id: int) -> list[int]:
     current = {(m.source, m.external_id): m for m in _members(session, keep.id)}
     restored: list[int] = [keep.id]
     groups: list[list[Activity]] = [[current[k] for k in map(tuple, snapshot["keep"]["members"]) if k in current]]
+    from catch.core.models import Event
+
     moves = ((Piece, "canonical_id", "pieces"), (PlannedWorkout, "linked_canonical_id", "planned"), (TechniqueNote, "canonical_id", "notes"),
-             (CoachFeedback, "canonical_id", "feedback"), (ResultPublication, "canonical_id", "publications"))
+             (CoachFeedback, "canonical_id", "feedback"), (ResultPublication, "canonical_id", "publications"),
+             (Event, "result_canonical_id", "event_results"))
     try:
         for part in snapshot["dropped"]:
             mine = [current[k] for k in map(tuple, part["members"]) if k in current]

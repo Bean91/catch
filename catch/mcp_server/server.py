@@ -378,6 +378,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
         location: Optional[str] = None,
         goals: Optional[str] = None,
         notes: Optional[str] = None,
+        participation: Optional[Literal["planned", "entered", "completed", "withdrawn", "did_not_start"]] = None,
         confirm: Optional[bool] = None,
     ) -> dict:
         """Record a race, test, camp, or selection. Ask for a concrete date first if the athlete
@@ -385,7 +386,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call(
             "create_event", name=name, date=date, type=type, distance=distance, distance_m=distance_m,
             boat_class=boat_class, priority=priority, goal_time=goal_time, result=result, location=location,
-            goals=goals, notes=notes, confirm=confirm,
+            goals=goals, notes=notes, participation=participation, confirm=confirm,
         )
 
     @mcp.tool()
@@ -403,6 +404,7 @@ def build_server(backend: ToolBackend) -> MCPServer:
         location: Optional[str] = None,
         goals: Optional[str] = None,
         notes: Optional[str] = None,
+        participation: Optional[Literal["planned", "entered", "completed", "withdrawn", "did_not_start"]] = None,
         confirm: Optional[bool] = None,
     ) -> dict:
         """Update fields on an existing event. Previews the before/after unless confirm=true —
@@ -410,20 +412,31 @@ def build_server(backend: ToolBackend) -> MCPServer:
         return await _call(
             "update_event", id=id, name=name, date=date, type=type, distance=distance, distance_m=distance_m,
             boat_class=boat_class, priority=priority, goal_time=goal_time, result=result, location=location,
-            goals=goals, notes=notes, confirm=confirm,
+            goals=goals, notes=notes, participation=participation, confirm=confirm,
         )
 
     @mcp.tool()
     async def set_goal(
-        text: str,
+        text: Optional[str] = None,
         id: Optional[int] = None,
+        kind: Optional[Literal["text", "distance_total", "workout_count", "weekly_volume", "frequency", "target_split", "target_power"]] = None,
+        sport: Optional[Literal["rowing", "cycling", "running", "strength", "other"]] = None,
+        target_value: Optional[float] = None,
+        distance_m: Optional[float] = None,
+        min_duration_s: Optional[float] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         target_date: Optional[str] = None,
         status: Optional[Literal["active", "done", "abandoned"]] = None,
         confirm: Optional[bool] = None,
     ) -> dict:
-        """Create a new goal, or pass id to update an existing one's text/target_date/status.
-        Previews first; pass confirm=true only after the athlete agrees."""
-        return await _call("set_goal", text=text, id=id, target_date=target_date, status=status, confirm=confirm)
+        """Create a goal, or pass id to change only the fields given. Free text or measurable (kind + target_value + start_date and
+        end_date; target_split also needs distance_m, target_power min_duration_s). Previews first; pass confirm=true only after the
+        athlete agrees."""
+        return await _call(
+            "set_goal", text=text, id=id, kind=kind, sport=sport, target_value=target_value, distance_m=distance_m,
+            min_duration_s=min_duration_s, start_date=start_date, end_date=end_date, target_date=target_date, status=status, confirm=confirm,
+        )
 
     @mcp.tool()
     async def forget(ref: str, confirm: Optional[bool] = None) -> dict:

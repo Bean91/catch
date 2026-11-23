@@ -571,6 +571,12 @@ def detach_planned(session: Session, planned_ids: list[int]) -> None:
 
 
 def detach_piece(session: Session, piece_id: int) -> None:
+    from catch.core.models import Event
+
     for row in session.exec(select(TechniqueNote).where(TechniqueNote.piece_id == piece_id)).all():
         row.piece_id = None
         session.add(row)
+    # Session 36: an event whose result was this piece keeps the workout it was in.
+    for ev in session.exec(select(Event).where(Event.result_piece_id == piece_id)).all():
+        ev.result_piece_id = None
+        session.add(ev)
