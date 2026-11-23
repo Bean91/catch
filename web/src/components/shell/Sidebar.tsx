@@ -1,81 +1,76 @@
-import { NavLink } from "react-router-dom";
-import { isMock } from "../../lib/api";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
-import { isPublic } from "../../lib/deployment";
+import { cn } from "../../lib/cn";
+import { activeSidebarPath, GROUP_LABEL, SETTINGS_ITEM, sidebarGroups, type NavItem } from "../../lib/navigation";
 import { useTheme } from "../../lib/theme";
-import { BodyIcon, CalendarIcon, ClubsIcon, CoachIcon, FeedbackIcon, GymIcon, LeaderboardsIcon, LibraryIcon, LogoutIcon, MoonIcon, NutritionIcon, RoutesIcon, SettingsIcon, SunIcon, TestsIcon, TodayIcon, TrendsIcon, WorkoutsIcon } from "./icons";
+import { Logomark, LogoutIcon, MoonIcon, SunIcon } from "./icons";
 
-const ITEMS = [
-  { to: "/", label: "Today", Icon: TodayIcon },
-  // Session 21: the same destination as the bottom nav's Calendar tab; Workouts keeps its own entry here.
-  { to: "/calendar", label: "Calendar", Icon: CalendarIcon },
-  { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon },
-  { to: "/library", label: "Library", Icon: LibraryIcon },
-  { to: "/feedback", label: "Feedback", Icon: FeedbackIcon },
-  { to: "/gym", label: "Gym", Icon: GymIcon },
-  // Session 15 Part C — the bottom nav is already tight at 8 items (DESIGN.md), so the Test
-  // Center's only nav entry point is here on desktop, plus a link from the Workouts page
-  // header on mobile (same pattern Duplicates/Muscle-readiness already use).
-  { to: "/tests", label: "Tests", Icon: TestsIcon },
-  // Session 20 — same no-bottom-nav-slot pattern as Tests: desktop sidebar plus a Workouts header link.
-  { to: "/routes", label: "Routes", Icon: RoutesIcon },
-  { to: "/trends", label: "Trends", Icon: TrendsIcon },
-  { to: "/body", label: "Body", Icon: BodyIcon },
-  { to: "/nutrition", label: "Nutrition", Icon: NutritionIcon },
-  { to: "/coach", label: "Coach", Icon: CoachIcon },
-  { to: "/settings", label: "Settings", Icon: SettingsIcon },
-];
+const groups = sidebarGroups();
+const sidebarItems = [...groups.flatMap((g) => g.items), SETTINGS_ITEM];
 
-// Session 26: leaderboards exist only on the public build (no bottom-nav slot, same pattern as Tests/Routes); the mock shows them too.
-const LEADERBOARDS_ITEM = { to: "/leaderboards", label: "Leaderboards", Icon: LeaderboardsIcon };
-// Session 27: clubs, same pattern (public build and the mock only; the bottom nav stays at eight).
-const CLUBS_ITEM = { to: "/clubs", label: "Clubs", Icon: ClubsIcon };
+function Item({ item, active }: { item: NavItem; active: boolean }) {
+  const { to, label, Icon } = item;
+  return (
+    <Link
+      to={to}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group relative flex min-h-9 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-colors duration-150",
+        active ? "bg-accent-soft text-text-primary" : "text-text-secondary hover:bg-surface-2/70 hover:text-text-primary",
+      )}
+    >
+      {active && <span aria-hidden className="absolute -left-3 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-accent" />}
+      <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent" : "text-text-tertiary group-hover:text-text-secondary")} />
+      {label}
+    </Link>
+  );
+}
 
+/** Desktop navigation (lg and up): grouped destinations, Settings and the account controls pinned to the foot. */
 export function Sidebar() {
-  const items = isPublic || isMock ? [...ITEMS.slice(0, -1), CLUBS_ITEM, LEADERBOARDS_ITEM, ITEMS[ITEMS.length - 1]] : ITEMS;
+  const { pathname } = useLocation();
   const { theme, toggle } = useTheme();
   const { logout, status } = useAuth();
+  const active = activeSidebarPath(pathname, sidebarItems);
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border px-4 py-5 lg:flex">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <span className="font-mono-nums block px-2 text-sm font-semibold tracking-wide text-text-primary">CATCH</span>
-        <ul className="mt-6 flex flex-col gap-1">
-          {items.map(({ to, label, Icon }) => (
-            <li key={to}>
-              <NavLink
-                to={to}
-                end={to === "/"}
-                className={({ isActive }) =>
-                  `flex min-h-11 items-center gap-3 rounded-md px-2.5 text-sm transition-colors ${
-                    isActive ? "bg-surface-2 text-accent" : "text-text-tertiary hover:text-text-secondary"
-                  }`
-                }
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                {label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </div>
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border/80 bg-surface/40 px-3 py-4 backdrop-blur-sm lg:flex">
+      <Link to="/" className="mb-5 flex items-center gap-2.5 px-2.5" aria-label="Catch — Today">
+        <Logomark className="h-7 w-7" />
+        <span className="text-[15px] font-semibold tracking-[0.14em] text-text-primary">CATCH</span>
+      </Link>
+      <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto pl-3 -ml-3">
+        {groups.map((g) => (
+          <div key={g.id} className="mb-3.5">
+            <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-text-tertiary">{GROUP_LABEL[g.id]}</p>
+            <ul className="flex flex-col gap-0.5">
+              {g.items.map((item) => (
+                <li key={item.to}>
+                  <Item item={item} active={active === item.to} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
 
-      <div className="flex shrink-0 flex-col gap-1 border-t border-border pt-2">
+      <div className="flex shrink-0 flex-col gap-0.5 border-t border-border/80 pt-3 pl-3 -ml-3">
+        <Item item={SETTINGS_ITEM} active={active === SETTINGS_ITEM.to} />
         <button
           type="button"
           onClick={toggle}
-          className="flex min-h-11 items-center gap-3 rounded-md px-2.5 text-sm text-text-tertiary transition-colors hover:text-text-secondary"
+          className="flex min-h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2/70 hover:text-text-primary"
         >
-          {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
+          {theme === "dark" ? <SunIcon className="h-[18px] w-[18px] text-text-tertiary" /> : <MoonIcon className="h-[18px] w-[18px] text-text-tertiary" />}
           {theme === "dark" ? "Light theme" : "Dark theme"}
         </button>
         {status === "authed" && (
           <button
             type="button"
             onClick={() => logout()}
-            className="flex min-h-11 items-center gap-3 rounded-md px-2.5 text-sm text-text-tertiary transition-colors hover:text-text-secondary"
+            className="flex min-h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2/70 hover:text-text-primary"
           >
-            <LogoutIcon className="h-5 w-5" />
+            <LogoutIcon className="h-[18px] w-[18px] text-text-tertiary" />
             Log out
           </button>
         )}

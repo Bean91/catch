@@ -10,6 +10,8 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = "catch:theme";
+// Must match --bg in styles/tokens.css.
+const THEME_COLOR: Record<Theme, string> = { dark: "#0B1120", light: "#F4F6FB" };
 
 function readInitialTheme(): Theme {
   const attr = document.documentElement.getAttribute("data-theme");
@@ -33,6 +35,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    // The browser chrome (address bar, PWA title bar) follows the app's theme, not just the system's.
+    for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", THEME_COLOR[theme]);
     if (!isNative()) return;
     // The status bar's text colour follows the app theme, and its background stays transparent (the web layer pads for it).
     void import("@capacitor/status-bar").then(({ StatusBar, Style }) => {

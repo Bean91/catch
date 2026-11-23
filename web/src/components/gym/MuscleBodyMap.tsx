@@ -57,7 +57,7 @@ const BACK_REGIONS: Region[] = [
 
 function Figure({ regions, byMuscle, max }: { regions: Region[]; byMuscle: Record<string, number>; max: number }) {
   return (
-    <svg viewBox="0 0 100 140" className="h-full w-full" role="img" aria-hidden>
+    <svg viewBox="0 0 100 140" className="h-full max-h-72 w-full" aria-hidden>
       <circle cx={50} cy={6} r={6} fill="var(--surface-2)" stroke="var(--border)" strokeWidth={0.6} />
       {regions.map((r, i) => {
         const value = byMuscle[r.muscle] ?? 0;
@@ -78,15 +78,25 @@ function Figure({ regions, byMuscle, max }: { regions: Region[]; byMuscle: Recor
 
 export function MuscleBodyMap({ byMuscle }: { byMuscle: Record<string, number> }) {
   const max = Math.max(1, ...Object.values(byMuscle));
+  // The figures are decorative (aria-hidden); the list beside them carries every value in words.
   return (
-    <div className="flex gap-4">
-      <div className="flex flex-1 flex-col items-center gap-1">
-        <Figure regions={FRONT_REGIONS} byMuscle={byMuscle} max={max} />
-        <span className="text-xs text-text-tertiary">Front</span>
+    <div>
+      <div className="flex gap-4">
+        <div className="flex flex-1 flex-col items-center gap-1">
+          <Figure regions={FRONT_REGIONS} byMuscle={byMuscle} max={max} />
+          <span className="text-xs text-text-tertiary">Front</span>
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-1">
+          <Figure regions={BACK_REGIONS} byMuscle={byMuscle} max={max} />
+          <span className="text-xs text-text-tertiary">Back</span>
+        </div>
       </div>
-      <div className="flex flex-1 flex-col items-center gap-1">
-        <Figure regions={BACK_REGIONS} byMuscle={byMuscle} max={max} />
-        <span className="text-xs text-text-tertiary">Back</span>
+      <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-text-tertiary" aria-hidden>
+        None
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <span key={f} className="h-2.5 w-5 rounded-[3px]" style={{ background: f === 0 ? "var(--surface-2)" : loadColor(f * max, max) }} />
+        ))}
+        Most load
       </div>
     </div>
   );

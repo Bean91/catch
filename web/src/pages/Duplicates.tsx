@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { BackLink } from "../components/ui/PageHeader";
 import { fetchDuplicates, markNotDuplicate, mergeActivities } from "../lib/api";
 import { formatDuration, formatShortDate } from "../lib/format";
 import type { DuplicatePairSide } from "../lib/types";
@@ -37,10 +37,8 @@ export function DuplicatesPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <Link to="/workouts" className="text-sm text-text-tertiary transition-colors hover:text-text-secondary">
-          ← Workouts
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">Possible duplicates</h1>
+        <BackLink to="/workouts">Workouts</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Possible duplicates</h1>
         <p className="text-sm text-text-tertiary">
           Flagged by the matching engine (same sport, overlapping time, similar duration) but below the auto-merge threshold — review and merge or dismiss.
         </p>

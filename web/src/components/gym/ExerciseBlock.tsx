@@ -162,7 +162,7 @@ export function ExerciseBlock({
         <select
           value={config.equipmentType}
           onChange={(e) => onConfigChange({ ...config, equipmentType: e.target.value as EquipmentType })}
-          className="min-h-11 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+          className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
         >
           {Object.entries(EQUIPMENT_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -179,7 +179,7 @@ export function ExerciseBlock({
               value={config.barWeightKg ?? ""}
               placeholder={config.equipmentType === "barbell" ? "20 (bar kg)" : "Bar kg — unknown"}
               onChange={(e) => onConfigChange({ ...config, barWeightKg: e.target.value === "" ? null : Number(e.target.value) })}
-              className="min-h-11 w-32 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+              className="min-h-11 w-32 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
             />
             <button type="button" onClick={() => setPlateCalcOpen(true)} className="min-h-11 rounded-md border border-border px-3 text-xs font-medium text-text-secondary">
               Plate calc
@@ -193,7 +193,7 @@ export function ExerciseBlock({
               <select
                 value={config.gymStationId ?? ""}
                 onChange={(e) => onConfigChange({ ...config, gymStationId: e.target.value ? Number(e.target.value) : null })}
-                className="min-h-11 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
               >
                 <option value="">No saved station</option>
                 {stationsForEquipment.map((s) => (
@@ -206,7 +206,7 @@ export function ExerciseBlock({
             <select
               value={config.pulleyMultiplier ?? 1}
               onChange={(e) => onConfigChange({ ...config, pulleyMultiplier: Number(e.target.value) })}
-              className="min-h-11 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+              className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
             >
               <option value={1}>1:1 pulley</option>
               <option value={0.5}>2:1 pulley</option>
@@ -219,7 +219,7 @@ export function ExerciseBlock({
           <select
             value={config.bandTag ?? "medium"}
             onChange={(e) => onConfigChange({ ...config, bandTag: e.target.value })}
-            className="min-h-11 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+            className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
           >
             {BAND_TAGS.map((t) => (
               <option key={t} value={t}>
@@ -264,7 +264,7 @@ export function ExerciseBlock({
         )}
         <label className="flex flex-col gap-1">
           <span className="text-xs text-text-tertiary">Set type</span>
-          <select value={setType} onChange={(e) => setSetType(e.target.value as SetType)} className="min-h-11 rounded-md border border-border bg-bg px-2 text-sm text-text-primary">
+          <select value={setType} onChange={(e) => setSetType(e.target.value as SetType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary">
             {SET_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -279,7 +279,7 @@ export function ExerciseBlock({
             inputMode="numeric"
             value={rir ?? ""}
             onChange={(e) => setRir(e.target.value === "" ? null : Number(e.target.value))}
-            className="min-h-11 rounded-md border border-border bg-bg px-2 text-center font-mono-nums text-sm text-text-primary"
+            className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-center font-mono-nums text-sm text-text-primary"
           />
         </label>
       </div>

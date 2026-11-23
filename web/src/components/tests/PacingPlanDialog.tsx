@@ -4,6 +4,7 @@ import { useState } from "react";
 import { makePacingPlan } from "../../lib/api";
 import { formatSplit } from "../../lib/format";
 import { ERG_TEST_TYPES, type ErgTestType, type PacingPlan, type PacingStyle } from "../../lib/types";
+import { ModalContent } from "../ui/Sheet";
 
 const STYLE_LABELS: { value: PacingStyle; label: string }[] = [
   { value: "even", label: "Even" },
@@ -62,16 +63,14 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
         }
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[88dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Build a pacing plan</Dialog.Title>
+      <ModalContent width="sm">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Build a pacing plan</Dialog.Title>
 
           {!plan ? (
             <div className="mt-4 flex flex-col gap-4">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-text-primary">Test type</span>
-                <select value={testType} onChange={(e) => setTestType(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary">
+                <select value={testType} onChange={(e) => setTestType(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
                   {ERG_TEST_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -90,7 +89,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                     inputMode="numeric"
                     value={distanceM}
                     onChange={(e) => setDistanceM(e.target.value)}
-                    className="min-h-11 rounded-md border border-border bg-bg px-3 font-mono-nums text-sm text-text-primary"
+                    className="min-h-11 rounded-md border border-border bg-surface-2 px-3 font-mono-nums text-sm text-text-primary"
                   />
                 </label>
               )}
@@ -101,14 +100,14 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                   value={goalTimeText}
                   onChange={(e) => setGoalTimeText(e.target.value)}
                   placeholder="7:30"
-                  className="min-h-11 rounded-md border border-border bg-bg px-3 font-mono-nums text-sm text-text-primary"
+                  className="min-h-11 rounded-md border border-border bg-surface-2 px-3 font-mono-nums text-sm text-text-primary"
                 />
                 {goalTimeText && goalTimeS == null && <span className="text-xs text-[var(--band-red-text)]">Use m:ss, e.g. 7:30</span>}
               </label>
 
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-text-primary">Pacing style</span>
-                <select value={style} onChange={(e) => setStyle(e.target.value as PacingStyle)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary">
+                <select value={style} onChange={(e) => setStyle(e.target.value as PacingStyle)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
                   {STYLE_LABELS.map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
@@ -159,8 +158,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
               Close
             </button>
           </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

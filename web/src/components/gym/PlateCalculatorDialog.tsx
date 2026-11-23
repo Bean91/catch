@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMemo, useState } from "react";
 import { DEFAULT_PLATES_KG, platesPerSide } from "../../lib/equipment";
+import { ModalContent } from "../ui/Sheet";
 
 /** Barbell/smith only (task Part A.4) — `plateLoadKg` is the plates-only number the set is
  * already logging (not the bar), so the per-side breakdown matches exactly what the lifter
@@ -19,17 +20,15 @@ export function PlateCalculatorDialog({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Plate calculator</Dialog.Title>
+      <ModalContent width="sm">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Plate calculator</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">Plates only, both sides combined.</Dialog.Description>
           <input
             type="number"
             inputMode="decimal"
             value={total}
             onChange={(e) => setTotal(Number(e.target.value) || 0)}
-            className="mt-4 min-h-11 w-full rounded-md border border-border bg-bg px-3 text-center font-mono-nums text-lg text-text-primary"
+            className="mt-4 min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-center font-mono-nums text-lg text-text-primary"
           />
           <div className="mt-4 rounded-md bg-surface-2 p-4">
             <div className="text-xs text-text-tertiary">Per side</div>
@@ -55,8 +54,7 @@ export function PlateCalculatorDialog({
               Close
             </button>
           </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

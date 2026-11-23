@@ -179,13 +179,13 @@ function GoalRow({ goal, onUpdate, onDelete }: { goal: MemoryGoal; onUpdate: (pa
 
 export function MemoryPage() {
   const queryClient = useQueryClient();
-  const memoryQuery = useQuery({ queryKey: ["coach-memory"], queryFn: fetchMemory });
+  const memoryQuery = useQuery({ queryKey: ["memory"], queryFn: fetchMemory });
 
   const [newFact, setNewFact] = useState({ category: "preference", text: "" });
   const [newEvent, setNewEvent] = useState({ name: "", date: "", type: "race", priority: "" });
   const [newGoal, setNewGoal] = useState({ text: "", target_date: "" });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["coach-memory"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["memory"] });
 
   const addFact = useMutation({ mutationFn: () => addMemoryFact(newFact.category, newFact.text, null), onSuccess: () => { setNewFact({ category: "preference", text: "" }); invalidate(); } });
   const addEvent = useMutation({
@@ -218,7 +218,7 @@ export function MemoryPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Coach memory</h1>
+      <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Coach memory</h1>
       <p className="text-sm text-text-tertiary">
         Everything the coach remembers about you — it saves these on its own during a chat when you mention a race, goal,
         injury, schedule change, or preference. Edit or delete anything here.

@@ -1,6 +1,7 @@
 import type { SleepLastNight } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
+import { StackedBar } from "../charts/StackedBar";
 
 function hours(seconds: number | null): string {
   if (seconds == null) return "—";
@@ -12,9 +13,9 @@ function hours(seconds: number | null): string {
 // Deep/REM/Light form one accent-hue depth ramp; Awake is a separate neutral (it isn't
 // "lighter sleep," it's a different category) so it never gets mistaken for a 4th depth.
 const STAGES: { key: keyof SleepLastNight; label: string; color: string }[] = [
-  { key: "deep_seconds", label: "Deep", color: "var(--accent)" },
-  { key: "rem_seconds", label: "REM", color: "color-mix(in oklab, var(--accent) 68%, transparent)" },
-  { key: "light_seconds", label: "Light", color: "color-mix(in oklab, var(--accent) 32%, transparent)" },
+  { key: "deep_seconds", label: "Deep", color: "var(--metric-sleep)" },
+  { key: "rem_seconds", label: "REM", color: "color-mix(in oklab, var(--metric-sleep) 66%, var(--surface-2))" },
+  { key: "light_seconds", label: "Light", color: "color-mix(in oklab, var(--metric-sleep) 36%, var(--surface-2))" },
   { key: "awake_seconds", label: "Awake", color: "var(--text-tertiary)" },
 ];
 
@@ -27,7 +28,6 @@ export function SleepCard({ sleep }: { sleep: SleepLastNight | null }) {
     );
   }
 
-  const total = sleep.seconds;
   const stageTotal = STAGES.reduce((sum, s) => sum + ((sleep[s.key] as number | null) ?? 0), 0);
 
   return (
@@ -43,25 +43,12 @@ export function SleepCard({ sleep }: { sleep: SleepLastNight | null }) {
       </div>
       {stageTotal > 0 && (
         <div className="mt-4">
-          <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
-            {STAGES.map((s) => {
-              const v = (sleep[s.key] as number | null) ?? 0;
-              const pct = (v / total) * 100;
-              return pct > 0 ? <div key={s.key} style={{ width: `${pct}%`, background: s.color }} /> : null;
-            })}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-tertiary">
-            {STAGES.map((s) => {
-              const v = (sleep[s.key] as number | null) ?? 0;
-              if (v <= 0) return null;
-              return (
-                <span key={s.key} className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
-                  {s.label} {(v / 3600).toFixed(1)}h
-                </span>
-              );
-            })}
-          </div>
+          <StackedBar
+            height={10}
+            legend
+            segments={STAGES.map((st) => ({ key: st.key, label: st.label, value: (sleep[st.key] as number | null) ?? 0, color: st.color, detail: `${(((sleep[st.key] as number | null) ?? 0) / 3600).toFixed(1)}h` }))}
+            summary={`Sleep stages: ${STAGES.map((st) => `${st.label} ${(((sleep[st.key] as number | null) ?? 0) / 3600).toFixed(1)} hours`).join(", ")}`}
+          />
         </div>
       )}
     </Card>

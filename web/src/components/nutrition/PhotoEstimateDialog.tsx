@@ -5,6 +5,7 @@ import { resizeImage } from "../../lib/image";
 import { pickNativePhoto } from "../../lib/native/camera";
 import { isNative } from "../../lib/native/platform";
 import { MEALS, type Meal, type PhotoEstimateItem, type PhotoEstimateResult } from "../../lib/types";
+import { ModalContent } from "../ui/Sheet";
 
 const MEAL_LABELS: Record<Meal, string> = {
   breakfast: "Breakfast",
@@ -81,10 +82,8 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && close()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[85dvh] w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Photo estimate</Dialog.Title>
+      <ModalContent width="md">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Photo estimate</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-tertiary">
             A rough, editable macro estimate from a photo — always labelled as an estimate, and the photo itself is never stored.
           </Dialog.Description>
@@ -120,7 +119,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                 <select
                   value={meal}
                   onChange={(e) => setMeal(e.target.value as Meal)}
-                  className="mt-1 block min-h-11 w-full rounded-md border border-border bg-bg px-2 text-base text-text-primary"
+                  className="mt-1 block min-h-11 w-full rounded-md border border-border bg-surface-2 px-2 text-base text-text-primary"
                 >
                   {MEALS.map((m) => (
                     <option key={m} value={m}>
@@ -136,7 +135,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                       <input
                         value={item.name}
                         onChange={(e) => updateItem(i, { name: e.target.value })}
-                        className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-sm text-text-primary"
+                        className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
                       />
                       <button type="button" onClick={() => removeItem(i)} aria-label={`Remove ${item.name}`} className="flex min-h-9 min-w-9 items-center justify-center text-text-tertiary hover:text-band-red">
                         ×
@@ -151,7 +150,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
                             inputMode="decimal"
                             value={item[field]}
                             onChange={(e) => updateItem(i, { [field]: Number(e.target.value) } as Partial<PhotoEstimateItem>)}
-                            className="min-h-9 w-full rounded-md border border-border bg-bg px-1.5 text-sm text-text-primary"
+                            className="min-h-9 w-full rounded-md border border-border bg-surface-2 px-1.5 text-sm text-text-primary"
                           />
                         </label>
                       ))}
@@ -191,8 +190,7 @@ export function PhotoEstimateDialog({ open, onClose, defaultMeal, ts, onLogged }
               Close
             </button>
           </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

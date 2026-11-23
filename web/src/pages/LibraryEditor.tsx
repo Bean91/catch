@@ -10,7 +10,7 @@ import { CardSkeleton } from "../components/ui/Skeleton";
 import { createLibraryTemplate, fetchExercises, fetchLibraryTemplate, previewLibraryTemplate, updateLibraryTemplate } from "../lib/api";
 import type { Difficulty, SessionType, TemplateBlock, TemplateInput, TemplateStrengthItem, WorkoutType, ZoneLabel } from "../lib/types";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 const ZONES: ZoneLabel[] = ["UT2", "UT1", "AT", "TR", "AN"];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -74,7 +74,7 @@ export function LibraryEditorPage() {
     setLoaded(true);
   }, [editing, existing.data, loaded]);
 
-  const exercises = useQuery({ queryKey: ["exercises", ""], queryFn: () => fetchExercises(), enabled: type === "strength" });
+  const exercises = useQuery({ queryKey: ["gym-exercises"], queryFn: () => fetchExercises(), enabled: type === "strength" });
 
   const built = useMemo(() => {
     const problems: string[] = [];
@@ -154,7 +154,7 @@ export function LibraryEditorPage() {
         <Link to={editing ? `/library/${tid}` : "/library"} className="text-sm text-text-tertiary">
           ← {editing ? "Template" : "Library"}
         </Link>
-        <h1 className="text-lg font-semibold text-text-primary">{editing ? "Edit template" : "New template"}</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{editing ? "Edit template" : "New template"}</h1>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem] lg:gap-5">

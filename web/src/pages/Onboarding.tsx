@@ -1,3 +1,4 @@
+import { buttonClass } from "../components/ui/Button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -15,9 +16,9 @@ import type { ConnectionCard as Conn, Me, ProviderId } from "../lib/types";
 
 const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Your privacy", "Importing", "All set"];
 const LAST = STEP_TITLES.length - 1;
-const PRIMARY = "min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50";
-const SECONDARY = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent";
-const INPUT = "min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
+const PRIMARY = buttonClass("primary");
+const SECONDARY = buttonClass("secondary");
+const INPUT = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
 
 /** First-run setup (session 32, docs/onboarding.md). Six short steps, each skippable; progress is saved on the server so it resumes
  * on any device. Nothing here waits for history to import, and no step ever shows a key or token. Session 34 added the privacy step:
@@ -67,13 +68,13 @@ export function OnboardingPage() {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-4" data-testid="onboarding">
       <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-text-tertiary" aria-live="polite">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-accent" aria-live="polite">
           Step {step + 1} of {STEP_TITLES.length}
         </p>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">{STEP_TITLES[step]}</h1>
-        <div className="mt-2 flex gap-1" aria-hidden>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{STEP_TITLES[step]}</h1>
+        <div className="mt-3 flex gap-1.5" aria-hidden>
           {STEP_TITLES.map((_, i) => (
-            <span key={i} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-accent" : "bg-surface-2"}`} />
+            <span key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${i < step ? "bg-accent" : i === step ? "bg-[linear-gradient(90deg,var(--accent),var(--accent-strong))] shadow-[0_0_10px_var(--accent-soft)]" : "bg-surface-3"}`} />
           ))}
         </div>
       </div>

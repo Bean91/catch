@@ -23,7 +23,7 @@ export interface MapLine {
 const BUCKETS = 6;
 
 function accentColor(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#a79cff";
+  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#8c9cff";
 }
 
 /** Speed is shown by opacity *and* weight (never colour alone — DESIGN.md), all in the one
@@ -136,7 +136,7 @@ export default function RouteMap({
     group.clearLayers();
     hoverRef.current = null;
     const color = accentColor();
-    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#0d0f11";
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#0b1120";
     const all: L.LatLngTuple[] = [];
 
     for (const line of lines) {

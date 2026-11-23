@@ -22,7 +22,7 @@
     "native:sync": "node scripts/native-config.mjs && npm run build:native -- --mode native-${CATCH_NATIVE_ENV:-production} && cap sync",
     "native:ios": "npm run native:sync && cap open ios",
     "native:android": "npm run native:sync && cap open android",
-    "native:assets": "npx capacitor-assets generate --iconBackgroundColor '#0D0F11' --splashBackgroundColor '#0D0F11'",
+    "native:assets": "npx capacitor-assets generate --iconBackgroundColor '#0B1120' --splashBackgroundColor '#0B1120'",
     "check:native-secrets": "node scripts/check-build-secrets.mjs dist-native ios/App/App/public android/app/src/main/assets/public",
     "cap": "node scripts/native-config.mjs && cap"
   },

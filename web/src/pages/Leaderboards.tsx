@@ -38,7 +38,7 @@ export function LeaderboardsPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-text-primary">Leaderboards</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Leaderboards</h1>
         <p className="mt-1 text-sm text-text-secondary">
           Visible to signed-in Catch users. Only verified results are ranked, each athlete appears once, and equal results share a rank. Results are public only
           when their athlete chose to publish them.

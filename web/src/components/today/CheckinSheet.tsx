@@ -1,8 +1,10 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../ui/Toast";
 import { useEffect, useState } from "react";
 import { postCheckin } from "../../lib/api";
 import type { CheckIn } from "../../lib/types";
+import { SheetContent } from "../ui/Sheet";
 
 const NIGGLE_AREAS = ["Left knee", "Right knee", "Lower back", "Left shoulder", "Right shoulder", "Hamstring", "Rib", "Other"];
 
@@ -60,6 +62,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
     setNote(existing?.note ?? "");
   }, [open, existing]);
 
+  const { toast } = useToast();
   const save = useMutation({
     mutationFn: () =>
       postCheckin({
@@ -75,21 +78,19 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
       queryClient.invalidateQueries({ queryKey: ["today"] });
       queryClient.invalidateQueries({ queryKey: ["today-checkin"] });
       onOpenChange(false);
+      toast("Check-in saved");
     },
   });
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        {/* z-30, matching AddFoodDialog/PhotoEstimateDialog's convention — without it this
+      {/* z-30, matching AddFoodDialog/PhotoEstimateDialog's convention — without it this
             sheet's bottom edge (where Save/Skip live) rendered *under* BottomNav's z-20 at
             390px, since a bottom-anchored sheet is the first dialog in this app to actually
             reach that zone (every prior Dialog.Content was centered and never got close).
             Caught by screenshot, not by the touch suite (Radix traps focus/clicks correctly
-            regardless of paint order — this was purely visual). */}
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-30 max-h-[88dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl focus:outline-none sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[min(92vw,420px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Morning check-in</Dialog.Title>
+            regardless of paint order — this was purely visual). */}<SheetContent width="sm">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Morning check-in</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">Ten seconds — this feeds your recovery number and nothing else.</Dialog.Description>
 
           <div className="mt-5 flex flex-col gap-5">
@@ -106,7 +107,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
                   setNiggleArea(e.target.value);
                   if (e.target.value && niggleSeverity == null) setNiggleSeverity(1);
                 }}
-                className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+                className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
               >
                 <option value="">No training issue today</option>
                 {NIGGLE_AREAS.map((a) => (
@@ -159,8 +160,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
               {save.isPending ? "Saving…" : "Save"}
             </button>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </SheetContent>
     </Dialog.Root>
   );
 }

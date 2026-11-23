@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { EXAMPLE_NOTICE, WORKOUT_TYPES, workoutTypeLabel } from "../components/library/labels";
@@ -58,10 +59,8 @@ export function LibraryPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Link to="/calendar" className="text-sm text-text-tertiary">
-            ← Calendar
-          </Link>
-          <h1 className="text-lg font-semibold text-text-primary">Workout library</h1>
+          <BackLink to="/calendar">Calendar</BackLink>
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Workout library</h1>
         </div>
         <Link to="/library/new" data-testid="new-template" className="flex min-h-11 items-center rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast">
           New template
@@ -89,7 +88,7 @@ export function LibraryPage() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search templates"
           aria-label="Search templates"
-          className="min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary"
+          className="min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
         />
         <div role="tablist" aria-label="Workout type" className="flex gap-2 overflow-x-auto pb-1">
           {[{ value: "", label: "All types" }, ...WORKOUT_TYPES].map((t) => (

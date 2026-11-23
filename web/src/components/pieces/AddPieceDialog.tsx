@@ -12,6 +12,7 @@ import { formatDuration, formatShortDate, formatSplit } from "../../lib/format";
 import { IntervalEditor } from "./IntervalEditor";
 import { SplitsReviewTable } from "./SplitsReviewTable";
 import { TimeInput } from "./TimeInput";
+import { ModalContent } from "../ui/Sheet";
 
 type Step = "pick-activity" | "choose-method" | "typed" | "photo" | "review" | "intervals" | "saving" | "saved";
 
@@ -266,10 +267,8 @@ export function AddPieceDialog({
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && close()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[88dvh] w-[min(94vw,560px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Add piece</Dialog.Title>
+      <ModalContent width="lg">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Add piece</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-tertiary">A segment of this activity — a 2k inside a longer row, a 30r20, or a custom piece.</Dialog.Description>
 
           {step === "pick-activity" && (
@@ -343,7 +342,7 @@ export function AddPieceDialog({
                   onChange={(e) => setPasteText(e.target.value)}
                   placeholder="1:36.8 32 / 1:38.9 30 / 1:39.0 31 / 1:37.7 32"
                   rows={2}
-                  className="rounded-md border border-border bg-bg p-2 text-base text-text-primary"
+                  className="rounded-md border border-border bg-surface-2 p-2 text-base text-text-primary"
                 />
                 {pasteError && <span className="text-xs text-band-red-text">{pasteError}</span>}
                 <button type="button" onClick={applyPaste} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary">
@@ -356,7 +355,7 @@ export function AddPieceDialog({
               <div className="flex gap-3 text-sm">
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total distance (m), if different</span>
-                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 w-full min-w-0 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary" />
+                  <input type="number" inputMode="decimal" value={distanceM ?? ""} onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))} className="min-h-9 w-full min-w-0 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary" />
                 </label>
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="text-xs text-text-tertiary">Total time, if different</span>
@@ -389,7 +388,7 @@ export function AddPieceDialog({
                     aria-label="Total distance (m)"
                     value={distanceM ?? ""}
                     onChange={(e) => setDistanceM(e.target.value === "" ? null : Number(e.target.value))}
-                    className="min-h-9 rounded-md border border-border bg-bg px-2 text-base font-mono-nums text-text-primary"
+                    className="min-h-9 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary"
                   />
                 </label>
                 <label className="flex min-w-0 flex-1 flex-col gap-1">
@@ -461,8 +460,7 @@ export function AddPieceDialog({
               </button>
             </Dialog.Close>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }
@@ -494,7 +492,7 @@ function PieceTypeSelect({ modality, value, onChange }: { modality: PieceModalit
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-sm font-medium text-text-primary">Piece type</span>
-      <select value={value} onChange={(e) => onChange(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-sm text-text-primary">
+      <select value={value} onChange={(e) => onChange(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
         {PIECE_TYPES_BY_MODALITY[modality].map((t) => (
           <option key={t} value={t}>
             {t}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Card } from "../components/ui/Card";
@@ -36,14 +37,14 @@ export function ClubJoinPage() {
   if (!token) {
     return (
       <div className="flex flex-col gap-4" data-testid="club-join-page">
-        <h1 className="text-xl font-semibold text-text-primary">Join with an invite</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Join with an invite</h1>
         <Card title="Paste your invite link">
           <div className="flex flex-col gap-2 sm:flex-row">
             <input value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="Invite link or code" className={inputCls} aria-label="Invite link" data-testid="join-paste" />
             <button type="button" className={btnPrimary} disabled={!pasted.trim()} onClick={() => setToken(pasted.includes("#") ? decodeURIComponent(pasted.split("#").pop() ?? "") : pasted.trim())} data-testid="join-paste-go">Continue</button>
           </div>
         </Card>
-        <Link to="/clubs" className="text-sm text-accent hover:underline">← Clubs</Link>
+        <BackLink to="/clubs">Clubs</BackLink>
       </div>
     );
   }
@@ -52,7 +53,7 @@ export function ClubJoinPage() {
     return (
       <div className="flex flex-col gap-3" data-testid="club-join-page">
         <ErrorState message="This invite link isn't valid any more. Ask for a new one." />
-        <Link to="/clubs" className="text-sm text-accent hover:underline">← Clubs</Link>
+        <BackLink to="/clubs">Clubs</BackLink>
       </div>
     );
   }
@@ -62,7 +63,7 @@ export function ClubJoinPage() {
   return (
     <div className="flex flex-col gap-4" data-testid="club-join-page">
       <header className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">You're invited to {p.name}</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">You're invited to {p.name}</h1>
         <ClubScope club={p} />
       </header>
       {p.description && <Card title="About"><p className="text-sm text-text-primary">{p.description}</p></Card>}

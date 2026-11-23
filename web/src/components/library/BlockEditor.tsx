@@ -2,7 +2,7 @@ import { formatClock, parseClock } from "../../lib/duration";
 import type { TemplateBlock, ZoneLabel } from "../../lib/types";
 
 const ZONE_CHOICES: ZoneLabel[] = ["UT2", "UT1", "AT", "TR", "AN"];
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-bg px-3 text-sm text-text-primary";
+const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
 
 // One editor row holds the raw text the athlete typed; `rowToBlock` turns it into the API shape
 // (text -> seconds/metres only — no totals are computed in the browser).

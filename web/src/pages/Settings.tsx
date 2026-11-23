@@ -7,6 +7,10 @@ import { formatRelativeTime } from "../lib/format";
 import { useTheme } from "../lib/theme";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
+import { buttonClass } from "../components/ui/Button";
+import { useToast } from "../components/ui/Toast";
+import { controlBase, controlClass } from "../components/ui/Field";
+import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 import { MoonIcon, SunIcon } from "../components/shell/icons";
@@ -22,6 +26,14 @@ import { HrZonesCard } from "../components/settings/HrZonesCard";
 
 const ZONE_ORDER = ["UT2", "UT1", "AT", "TR", "AN"] as const;
 const SOURCES = ["garmin", "withings", "concept2", "whoop"] as const;
+const SECTIONS: [string, string][] = [
+  ["sources", "Sources and data"],
+  ["privacy", "Sharing and visibility"],
+  ["training", "Training and zones"],
+  ["health", "Health and notifications"],
+  ["coach", "Coach and AI"],
+  ["general", "General"],
+];
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -42,10 +54,12 @@ export function SettingsPage() {
     if (settingsQuery.data && !dirty) setForm(settingsQuery.data);
   }, [settingsQuery.data, dirty]);
 
+  const { toast } = useToast();
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => saveSettings(patch),
     onSuccess: (updated) => {
       setDirty(false);
+      toast("Settings saved");
       queryClient.setQueryData(["settings"], updated);
       // Zone boundaries and every workout's cached zones follow the saved values (recalculated server-side).
       queryClient.invalidateQueries({ queryKey: ["zones"] });
@@ -65,9 +79,23 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
-
+    <div className="flex flex-col gap-6">
+      <PageHeader eyebrow="Account" title="Settings" />
+      <div className="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-8">
+        <nav aria-label="Settings sections" className="hidden lg:block">
+          <ul className="sticky top-8 flex flex-col gap-0.5 text-sm">
+            {SECTIONS.map(([id, label]) => (
+              <li key={id}>
+                <a href={`#${id}`} className="flex min-h-9 items-center rounded-md px-2.5 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary">
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div className="flex min-w-0 flex-col gap-8">
+      <section id="sources" aria-labelledby="sources-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="sources-h" title="Sources and data" description="Where your data comes from and how it syncs." />
       <Card
         title="Connected sources"
         action={
@@ -108,6 +136,22 @@ export function SettingsPage() {
         </div>
       </Card>
 
+      </section>
+      <section id="privacy" aria-labelledby="privacy-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="privacy-h" title="Sharing and visibility" description="Who and what can see your data." />
+<div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+      <Card
+        title="Privacy"
+        action={
+          <Link to="/settings/privacy" data-testid="settings-privacy" className="text-sm font-medium text-accent hover:underline">
+            Open
+          </Link>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          What the AI may see, what's public, apps connected to your data, download everything, delete selected data or your account.
+        </p>
+      </Card>
       {(isPublic || isMock) && (
         <Card
           title="Clubs"
@@ -122,20 +166,6 @@ export function SettingsPage() {
           </p>
         </Card>
       )}
-
-      <Card
-        title="Privacy"
-        action={
-          <Link to="/settings/privacy" data-testid="settings-privacy" className="text-sm font-medium text-accent hover:underline">
-            Open
-          </Link>
-        }
-      >
-        <p className="text-sm text-text-secondary">
-          What the AI may see, what's public, apps connected to your data, download everything, delete selected data or your account.
-        </p>
-      </Card>
-
       {(isPublic || isMock) && (
         <Card
           title="Leaderboards"
@@ -150,7 +180,10 @@ export function SettingsPage() {
           </p>
         </Card>
       )}
-
+</div>
+      </section>
+      <section id="training" aria-labelledby="training-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="training-h" title="Training and zones" description="How recovery, zones and strain are calculated." />
       {!form ? formPending : (
         <>
       <RecoveryInputsCard settings={form} />
@@ -158,16 +191,19 @@ export function SettingsPage() {
       <HrZonesCard form={form} update={update} />
 
       <Card title="Power zones">
-        <div className="mb-3 flex gap-2">
+        <div className="mb-3 flex gap-2" role="radiogroup" aria-label="Workout screens open on">
           {(["hr", "power"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
+              role="radio"
+              aria-checked={form.zone_mode === mode}
               onClick={() => update("zone_mode", mode)}
               className={`min-h-11 rounded-md border px-4 text-sm font-medium transition-colors ${
-                form.zone_mode === mode ? "border-accent text-accent" : "border-border text-text-tertiary"
+                form.zone_mode === mode ? "border-accent bg-accent-soft text-text-primary" : "border-border text-text-tertiary hover:text-text-primary"
               }`}
             >
+              {form.zone_mode === mode ? "● " : "○ "}
               {mode === "hr" ? "Heart rate" : "Power"}
             </button>
           ))}
@@ -191,7 +227,7 @@ export function SettingsPage() {
                       onChange={(e) =>
                         update("zones", { ...form.zones, power_pct: { ...form.zones.power_pct, [zone]: Number(e.target.value) } })
                       }
-                      className="font-mono-nums w-20 rounded-md border border-border bg-surface-2 px-2 py-1.5 text-text-primary"
+                      className={`${controlBase} min-h-10 w-24 font-mono-nums`}
                     />
                   </td>
                 </tr>
@@ -216,7 +252,7 @@ export function SettingsPage() {
                 onBlur={(e) =>
                   update("field_priority", { ...form.field_priority, [field]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
                 }
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+                className={controlClass}
               />
             </label>
           ))}
@@ -228,7 +264,7 @@ export function SettingsPage() {
             value={form.ftp_watts ?? ""}
             onChange={(e) => update("ftp_watts", e.target.value ? Number(e.target.value) : null)}
             placeholder="auto"
-            className="font-mono-nums w-24 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+            className={`${controlBase} w-24 font-mono-nums`}
           />
           <span className="text-xs text-text-tertiary">Estimated from the best 20-minute power x 0.95 per ride if left blank.</span>
         </label>
@@ -245,7 +281,7 @@ export function SettingsPage() {
                 onBlur={(e) =>
                   update("body_comp_priority", { ...form.body_comp_priority, [field]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })
                 }
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+                className={controlClass}
               />
             </label>
           ))}
@@ -260,7 +296,7 @@ export function SettingsPage() {
               type="number"
               value={form.min_zone_minutes}
               onChange={(e) => update("min_zone_minutes", Number(e.target.value))}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              className={`${controlBase} w-24 font-mono-nums`}
             />
           </label>
           <label className="flex items-center gap-3 text-sm text-text-secondary">
@@ -270,7 +306,7 @@ export function SettingsPage() {
               step="0.01"
               value={form.min_zone_pct}
               onChange={(e) => update("min_zone_pct", Number(e.target.value))}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              className={`${controlBase} w-24 font-mono-nums`}
             />
           </label>
         </div>
@@ -290,7 +326,7 @@ export function SettingsPage() {
               type="number"
               value={form.auto_trim_min_idle_s}
               onChange={(e) => update("auto_trim_min_idle_s", Number(e.target.value))}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              className={`${controlBase} w-24 font-mono-nums`}
             />
           </label>
         )}
@@ -310,7 +346,7 @@ export function SettingsPage() {
               min="0"
               value={form.daily_activity_strain_cap}
               onChange={(e) => update("daily_activity_strain_cap", Number(e.target.value))}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              className={`${controlBase} w-24 font-mono-nums`}
             />
           </label>
           <label className="flex items-center gap-3 text-sm text-text-secondary">
@@ -321,67 +357,64 @@ export function SettingsPage() {
               min="0"
               value={form.daily_activity_strain_weight}
               onChange={(e) => update("daily_activity_strain_weight", Number(e.target.value))}
-              className="font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary"
+              className={`${controlBase} w-24 font-mono-nums`}
             />
           </label>
         </div>
       </Card>
         </>
       )}
-
-      {/* Session 31 (launch audit L-22): a metric/imperial toggle sat here, but nothing read it — every figure stays metric — so it
-          is gone until units are actually implemented. The stored `units` setting is untouched. */}
-      <TimeZoneCard />
-
-      <Card title="First-run setup">
-        <p className="text-sm text-text-secondary">Walk through connecting sources, your time zone and training basics again. Nothing you already set is lost.</p>
-        <Link to="/welcome?restart=1" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-border px-4 text-sm font-medium text-text-primary hover:border-accent">
-          Run setup again
-        </Link>
-      </Card>
-
-
-      <Card title="Appearance">
-        <button
-          type="button"
-          onClick={toggle}
-          className="flex min-h-11 items-center gap-3 rounded-md border border-border px-4 text-sm text-text-primary transition-colors hover:border-accent"
-        >
-          {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
-          Switch to {theme === "dark" ? "light" : "dark"} theme
-        </button>
-      </Card>
-
-      <NotificationsCard />
-
-      <NutritionTargetsCard />
-
-      <IllnessBacktestCard />
-
-      <CoachSettingsCard />
-
-      {/* Plain in-flow button, not floating. Both `fixed` and `sticky` versions of this bar
-          ended up visibly overlapping mid-page content (the Zones/AI-coach cards) on this
-          page's particular content-to-viewport ratio at 390px — `fixed` because it's glued
-          to the viewport for the page's entire height regardless of scroll, and `sticky`
-          because it engages far earlier than "near the true end" once this page has more
-          than roughly a screen of content left below it, then stays engaged for the rest of
-          the scroll. Rendering it as normal content guarantees it can never overlap anything,
-          at the cost of needing to scroll to it rather than it always being visible — a
-          standard, unsurprising tradeoff for a settings form. Only mounted once there's
-          something to save. */}
       {dirty && form && (
         <div className="flex justify-end">
           <button
             type="button"
             onClick={() => save.mutate(form)}
             disabled={save.isPending}
-            className="min-h-11 rounded-md bg-accent px-6 text-sm font-medium text-accent-contrast shadow-lg transition-opacity hover:opacity-90 disabled:opacity-50 disabled:shadow-none"
+            className={buttonClass("primary", "md", "px-6")}
           >
             {save.isPending ? "Saving…" : "Save settings"}
           </button>
         </div>
       )}
+
+      </section>
+      <section id="health" aria-labelledby="health-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="health-h" title="Health and notifications" description="Fuelling targets, reminders and the illness flag." />
+      <NotificationsCard />
+      <NutritionTargetsCard />
+      <IllnessBacktestCard />
+
+      </section>
+      <section id="coach" aria-labelledby="coach-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="coach-h" title="Coach and AI" description="The AI coach's settings and spending." />
+      <CoachSettingsCard />
+
+      </section>
+      <section id="general" aria-labelledby="general-h" className="flex scroll-mt-24 flex-col gap-4 lg:gap-5">
+        <SectionHeader id="general-h" title="General" description="Time, appearance and setup." />
+      <TimeZoneCard />
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+      <Card title="Appearance">
+        <button
+          type="button"
+          onClick={toggle}
+          className={buttonClass("secondary")}
+        >
+          {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
+          Switch to {theme === "dark" ? "light" : "dark"} theme
+        </button>
+      </Card>
+      <Card title="First-run setup">
+        <p className="text-sm text-text-secondary">Walk through connecting sources, your time zone and training basics again. Nothing you already set is lost.</p>
+        <Link to="/welcome?restart=1" className={buttonClass("secondary", "md", "mt-3")}>
+          Run setup again
+        </Link>
+      </Card>
+      </div>
+
+      </section>
+        </div>
+      </div>
 
       {/* Lets a real device checklist confirm which build it's actually running (matches
           sw.js's own VERSION and version.json) — the one way to tell "the fix didn't work"

@@ -104,7 +104,7 @@ test("create, duplicate, archive: the whole library lifecycle", async ({ page })
   await expect(page.getByTestId("template-title")).toHaveText("My 4 x 500 (copy)");
   await page.getByTestId("archive").tap();
   await expect(page.getByTestId("archive")).toHaveText("Unarchive");
-  await page.getByRole("link", { name: "← Library" }).tap();
+  await page.getByRole("link", { name: "Library", exact: true }).tap();
   await expect(page.getByTestId("template-card").filter({ hasText: "(copy)" })).toHaveCount(0);
   await page.getByRole("tab", { name: "Archived" }).tap();
   await expect(page.getByTestId("template-card").filter({ hasText: "(copy)" })).toHaveCount(1);

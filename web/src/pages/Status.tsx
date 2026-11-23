@@ -7,6 +7,7 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 import { isPublic } from "../lib/deployment";
+import { PageHeader } from "../components/ui/PageHeader";
 
 /** Task Part B.1 — a read-only operational dashboard, not a settings form: per-source sync
  * health, the Garmin key expiry reminder, backup status, disk/DB size, uptime, build. Its own
@@ -14,27 +15,38 @@ import { isPublic } from "../lib/deployment";
 export function StatusPage() {
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["status"], queryFn: fetchStatus, refetchInterval: 60_000 });
 
+  const header = <PageHeader back={{ to: "/settings", label: "Settings" }} eyebrow="Settings" title="Status" subtitle="Sync health and what this server is running." />;
+  // Error first: a failed request has no data, and checking `!data` first left the skeleton up forever.
+  if (isError)
+    return (
+      <div className="flex flex-col gap-4">
+        {header}
+        <ErrorState message="Couldn't load status" onRetry={refetch} />
+      </div>
+    );
   if (isLoading || !data) {
     return (
       <div className="flex flex-col gap-4">
+        {header}
         <CardSkeleton lines={3} />
         <CardSkeleton lines={3} />
       </div>
     );
   }
-  if (isError) return <ErrorState message="Couldn't load status" onRetry={refetch} />;
 
   const diskUsedPct = data.disk_total_bytes > 0 ? (1 - data.disk_free_bytes / data.disk_total_bytes) * 100 : 0;
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Status</h1>
+      {header}
 
       <Card title="Sources">
         <div className="flex flex-col gap-3">
           {data.sources.map((s) => (
             <div key={s.source} className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3 last:border-0 last:pb-0">
-              <div>
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: s.connected === false ? "var(--text-tertiary)" : s.last_error ? "var(--band-red)" : "var(--band-green)" }} />
+                <div className="min-w-0">
                 <div className="text-sm font-medium capitalize text-text-primary">{s.source}</div>
                 <div className="text-xs text-text-tertiary">
                   {s.connected === false ? (
@@ -47,6 +59,7 @@ export function StatusPage() {
                     <>last success {formatRelativeTime(s.last_success_at)}</>
                   )}
                   {s.token_expires_at && <> · token valid until {formatInstantDateTime(s.token_expires_at)}</>}
+                </div>
                 </div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { formatNumber } from "../../lib/format";
 import { ZONE_NAMES, zoneColor } from "../../lib/zoneColors";
 import { EmptyState } from "../ui/EmptyState";
+import { StackedBar } from "../charts/StackedBar";
 import type { TrainingDistributionWeek } from "../../lib/types";
 
 /** A static, non-zoomable stacked-bar summary — deliberately not WeeklyVolumeBars.tsx
@@ -20,21 +21,12 @@ export function TrainingDistributionCard({ weeks }: { weeks: TrainingDistributio
 
   return (
     <div>
-      <div className="flex h-6 w-full overflow-hidden rounded-md">
-        {zoneTotals.map(({ zone, seconds }) =>
-          seconds > 0 ? (
-            <div key={zone} style={{ width: `${(seconds / totalSeconds) * 100}%`, background: zoneColor(zone) }} title={`${zone}: ${formatNumber((seconds / totalSeconds) * 100)}%`} />
-          ) : null
-        )}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-3">
-        {zoneTotals.map(({ zone, seconds }) => (
-          <div key={zone} className="flex items-center gap-1.5 text-xs text-text-secondary">
-            <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: zoneColor(zone) }} />
-            {zone} {formatNumber((seconds / totalSeconds) * 100)}%
-          </div>
-        ))}
-      </div>
+      <StackedBar
+        height={14}
+        legend
+        segments={zoneTotals.map(({ zone, seconds }) => ({ key: zone, label: zone, value: seconds, color: zoneColor(zone), detail: `${formatNumber((seconds / totalSeconds) * 100)}%` }))}
+        summary={`Training distribution: ${zoneTotals.map(({ zone, seconds }) => `${zone} ${formatNumber((seconds / totalSeconds) * 100)}%`).join(", ")}`}
+      />
       {totalStrengthMinutes > 0 && <p className="mt-3 text-xs text-text-tertiary">Plus {formatNumber(totalStrengthMinutes)} minutes of strength work.</p>}
     </div>
   );

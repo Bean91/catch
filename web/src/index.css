@@ -11,21 +11,34 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
 
-@theme {
+/* `inline`: utilities reference the token variables directly (var(--surface)), so nothing here re-declares a variable in
+   terms of itself, and the light/dark swap in tokens.css reaches every utility. */
+@theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-overlay: var(--overlay);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
   --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
   --color-accent-contrast: var(--accent-contrast);
   --color-band-green: var(--band-green);
   --color-band-yellow: var(--band-yellow);
   --color-band-red: var(--band-red);
   --color-band-red-text: var(--band-red-text);
   --color-band-calibrating: var(--band-calibrating);
+  --color-metric-hr: var(--metric-hr);
+  --color-metric-power: var(--metric-power);
+  --color-metric-pace: var(--metric-pace);
+  --color-metric-rate: var(--metric-rate);
+  --color-metric-load: var(--metric-load);
+  --color-metric-sleep: var(--metric-sleep);
 
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
@@ -33,6 +46,37 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  --shadow-subtle: var(--shadow-1);
+  --shadow-raised: var(--shadow-2);
+  --shadow-float: var(--shadow-3);
+
+  --ease-out-expo: var(--ease-out);
+
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-enter: enter 260ms var(--ease-out) both;
+  --animate-fade: fade 200ms ease-out both;
+  --animate-sheet-up: sheet-up 320ms var(--ease-out) both;
+  --animate-spin: spin 0.8s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@keyframes enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
 }
 
 * {
@@ -118,7 +162,71 @@ textarea {
 :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
+}
+
+/* Session 35: a quiet navy glow at the top of the page — the one decorative gradient behind content. */
+body {
+  background:
+    radial-gradient(900px 520px at 12% -8%, var(--accent-soft), transparent 70%),
+    radial-gradient(700px 420px at 100% 0%, color-mix(in oklab, var(--metric-pace) 7%, transparent), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.011em;
+  }
+
+  /* One look for every native form control, whatever local class string a page still carries: utilities (a later layer)
+     still win for size and spacing, but no control is left without a focus state. */
+  input,
+  select,
+  textarea {
+    accent-color: var(--accent);
+    transition:
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
+  }
+  :where(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea):focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  ::placeholder {
+    color: var(--text-tertiary);
+    opacity: 1;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/* The phone/tablet shell's fixed bars (AppShell header, BottomNav). Coach and the toast stack size themselves from these. */
+:root {
+  --shell-top: 60px;
+  --shell-bottom: 52px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --shell-top: 0px;
+    --shell-bottom: 0px;
+  }
+}
+
+/* Route change: a short fade-up on the page container (AppShell keys it on the pathname). */
+.page-enter {
+  animation: enter 260ms var(--ease-out) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

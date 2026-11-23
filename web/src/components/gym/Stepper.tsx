@@ -35,7 +35,7 @@ export function Stepper({
           aria-label={label}
           value={value}
           onChange={(e) => onChange(round(Math.max(min, Number(e.target.value) || 0)))}
-          className="h-11 min-w-0 flex-1 rounded-md border border-border bg-bg text-center font-mono-nums text-lg text-text-primary"
+          className="h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-2 text-center font-mono-nums text-lg text-text-primary"
         />
         {suffix && <span className="text-sm text-text-tertiary">{suffix}</span>}
         <button

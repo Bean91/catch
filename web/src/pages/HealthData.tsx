@@ -1,4 +1,5 @@
 import { formatInstantDate } from "../lib/localTime";
+import { BackLink } from "../components/ui/PageHeader";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -87,8 +88,8 @@ export function HealthDataPage() {
   if (!isNative() || !platform) {
     return (
       <div className="flex flex-col gap-4">
-        <Link to="/settings" className="text-sm font-medium text-accent hover:underline">← Settings</Link>
-        <h1 className="text-lg font-semibold text-text-primary">Health data</h1>
+        <BackLink to="/settings">Settings</BackLink>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Health data</h1>
         <Card>
           <p className="text-sm text-text-secondary">Importing from Apple Health or Health Connect is available in the Catch app on your phone. It isn't available in a web browser.</p>
         </Card>
@@ -101,8 +102,8 @@ export function HealthDataPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/settings/connections" className="text-sm font-medium text-accent hover:underline">← Connections</Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">{name}</h1>
+        <BackLink to="/settings/connections">Connections</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{name}</h1>
         <p className="mt-1 text-sm text-text-secondary">Bring workouts, sleep and heart data from your phone into Catch. Off until you turn it on, and you choose each type.</p>
       </div>
 

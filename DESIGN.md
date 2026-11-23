@@ -1,5 +1,165 @@
 # Catch — design system
 
+## Design system (session 35) — current
+
+Session 35 replaced the original "Boathouse Mono" palette and several layout rules. **Where an older section below disagrees with this
+one, this one wins.** The older sections stay for their reasoning and for the rules that still hold; the ones that no longer hold are marked
+*superseded*.
+
+### Direction
+
+- **Look:** dark first, deep navy surfaces layered by brightness, one refined periwinkle accent, and a small muted palette with one colour
+  per measurement.
+- **What colour is for:** status, or the identity of a measurement. It never decorates.
+- **Type:** the PM5-style mono figures (IBM Plex Mono, tabular) and Inter for UI stay.
+- **Gradients:** at most one decorative gradient per screen, the soft navy glow behind the page (`body` in `index.css`). Cards are flat
+  surfaces.
+
+### Tokens
+
+Defined in `web/src/styles/tokens.css` and mapped into Tailwind by `@theme inline` in `index.css`. Utilities reference the variables directly,
+so the light/dark swap reaches everything.
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `--bg` | `#0B1120` | `#F4F6FB` | Page |
+| `--surface` / `-2` / `-3` | `#111A2E` / `#18233A` / `#1F2B45` | `#FFFFFF` / `#EEF1F7` / `#E5E9F2` | Card / inset and controls / raised and hover |
+| `--border` / `-strong` | `#243049` / `#34425F` | `#DCE1EB` / `#C5CCDA` | Hairlines |
+| `--text-primary` / `-secondary` / `-tertiary` | `#EDF1F8` / `#A9B3C8` / `#8893AB` | `#111827` / `#4A5468` / `#5B667C` | Text |
+| `--accent` / `-strong` / `-soft` | `#8C9CFF` / `#AAB6FF` / 14 % tint | `#4D58D0` / `#3B45B8` / 10 % tint | Chrome, focus, selection, the load/volume series |
+| `--band-green` / `-yellow` / `-red` | `#4CC38A` / `#E5B84B` / `#EF7565` | `#1A7A50` / `#8A6A14` / `#C7402C` | **Status only**, always with a glyph and a word |
+| `--metric-hr` / `-power` / `-pace` / `-rate` | `#D9677F` / `#BB8B2F` / `#3B9FD1` / `#9380E8` | `#C4456A` / `#966810` / `#1F7FAE` / `#7655D0` | One colour per measurement, everywhere |
+| `--metric-sleep` | `#7F8FE0` | `#5866C8` | Sleep stages, weight |
+
+**Contrast.** Every text/background pair was checked with a contrast script. All text is at least 4.5:1, with one exception: tertiary text on
+`--surface-3` in light mode is 4.47, and that pairing is used only for hover.
+
+**Radii.** Values only; the class names didn't change: `sm` 6, `md` 10, `lg` 14, `xl` 18, `2xl` 22 (px).
+
+**Shadows.** `--shadow-1` to `--shadow-3` are navy-tinted. Cards also get `--highlight`, a 1px lit top edge in dark mode.
+
+**Motion.**
+- Easing: `--ease-out`.
+- Animations: `animate-enter` (route change), `animate-sheet-up`, `animate-shimmer` (skeletons).
+- `prefers-reduced-motion` stops all of them, through the global rule in `index.css`.
+
+### Metric palette: validated, not eyeballed
+
+The palette was checked with the dataviz skill's `validate_palette.js` against the real surfaces. Every pair that shares a plot passes all the
+hard gates in both modes:
+
+| Pair | Dark: colour-blind ΔE (deutan) | Dark: normal-vision ΔE | Light: colour-blind ΔE (deutan) |
+|---|---|---|---|
+| HR + power | 8.7 | 15.5 | 8.2 |
+| HR + rate | 16.0 | 18.7 | 17.2 |
+| Power + rate | 26.2 | 26.2 | — |
+| Pace + power | 21.3 | 23.2 | — |
+
+Accepted deviations, all deliberate:
+- **Lightness.** The dark steps sit at OKLCH L 0.66–0.72, while the validator's band ends at 0.67. The softer, pastel-leaning colour was asked
+  for.
+- **Pace vs rate.** Sky and lavender are close under deuteranopia (ΔE 3.8). They never share a plot: the erg chart shows them as separate
+  panels.
+- **Accent vs rate.** For the same reason, the accent is never a series colour beside rate (ΔE 2.4).
+- **HR vs status red.** Rose against `--band-red` is ΔE 6.1. They never share a plot, and status always has a word.
+
+**Zones** stay a one-hue sequential ramp, now solid steps mixed into `--surface-2` (`zoneColors.ts`).
+
+### Navigation
+
+**One source.** `web/src/lib/navigation.ts` is the single list of destinations: each one's group, icon, blurb, public-only flag and owning tab.
+The sidebar, tab bar, More sheet and Train hub all read it.
+
+**Desktop (lg and up).** A grouped sidebar: Overview, Training, Health, Coaching, Community. Settings, the theme switch and log out are pinned at
+the foot. The active item is a soft pill plus an accent bar.
+
+**Phone and tablet (below lg).** A fixed five-slot tab bar: **Today · Plan · Train · Coach · More**.
+- More opens a grouped sheet of every other destination.
+- Exactly one tab is active for any route (`tabFor`).
+- `/train` is a hub: training tiles plus recent sessions.
+
+This supersedes the "bottom nav at 8 items" notes further down.
+
+**Shell heights.**
+- `--shell-top` is 60px.
+- `--shell-bottom` is 52px. It must not be taller than the old bar, because charts.spec's Trends geometry depends on it.
+
+### Primitives
+
+In `web/src/components/ui/`, with no new dependencies.
+
+- **Buttons:** `Button`, `IconButton`, `ButtonLink` and `buttonClass`.
+  - Variants: primary, secondary, subtle, ghost, danger.
+  - Sizes: md (44px) and sm (36px). `loading` shows a spinner and disables.
+- **Form controls:** `Field`, `Input`, `Select`, `Textarea`, `controlClass` (full width) and `controlBase` (sized by its row).
+- **Dialogs:**
+  - `SheetContent`: a bottom sheet that becomes centred from `sm:` up, at z-30, with no autofocus.
+  - `ModalContent`: always centred.
+  - `Sheet`: the whole thing in one component.
+- **Navigation:** `Segmented` (a real tablist with arrow keys), `PillNav`, `PageHeader`, `SectionHeader`, `BackLink`.
+- **Data display:** `StatTile`, `DefinitionList`, `DataTable`, `Badge`, `BandBadge`.
+- **Feedback:**
+  - `Notice`.
+  - `Toast` via `useToast`. It confirms actions that have no visible result in place. Its live region has no `role="status"`, so it never
+    collides with a page's own status line.
+  - `InfoTip`: tap to explain an unfamiliar metric. It is fixed-positioned and clamped to the viewport, so it can never widen a phone page.
+- **Inputs:** `Switch`, which shows On/Off as a word beside the track.
+- **Card:**
+  - `tone`: default, raised, inset or accent.
+  - `eyebrow`: a small label above the title.
+  - The title stays an `h3`, and the root keeps the `rounded-lg` class.
+- **Loading:** `Skeleton`, `CardSkeleton`, `ChartSkeleton`, all with a shimmer.
+- **Empty and error:** `EmptyState` takes an optional title and action. `ErrorState` has `role="alert"`, and the message's parent element
+  holds Retry.
+
+### Chart kit
+
+The pieces in `web/src/components/charts/core.tsx`:
+- **`useChartWidth`:** measures synchronously on mount. A late ResizeObserver once let a chart draw at a 600px guess and widen a 320px page.
+- **Axes:** `niceTicks` and `secondsTicks` give rounded axis values. A non-zero baseline is always labelled.
+- **Paths:** `linePath` and `areaPath` use monotone cubic smoothing, so a smoothed line never overshoots the data. A null value breaks the
+  line.
+- **Lookup:** `nearestIndex` and `lowerBound` binary-search pre-parsed x values.
+- **Drawing:** `AreaGradient` with `useSvgId`, and `YGrid`.
+- **Tooltip:** `ChartTooltip` slides along itself, so it never leaves the chart.
+- **Labels:** `Legend`, and `summarize`, which writes the spoken summary.
+
+Charts built on the kit:
+- **Rebuilt:** `TrendLineChart`, `HrChart`, `ErgChart`, `WeeklyVolumeBars`, `TrackChart`, and `Sparkline` (now spaced by date).
+- **`ValueBars`:** static bars with a labelled axis. `invert` is for paces; it also takes optional target ticks and a reference line.
+- **`StackedBar`:** every 100 % breakdown.
+- **`PlanBar`:** planned against completed.
+- **`MiniLineChart`:** static progression, with measured results drawn as rings over an estimated line.
+- **New chart types:** `CalendarHeatmap`, `ScatterPlot`, `Histogram`.
+
+Chart rules:
+- **One y-axis per plot.** The HR power/cadence overlay and the erg chart's split, power and rate are separate panels sharing an x-axis,
+  never a second y-axis.
+- **Legends:** a legend whenever a plot has two or more series.
+- **Text colour:** text uses the text colours, never the series colour.
+- **Animation:** the draw-in runs once.
+- **Interaction:** `useChartInteraction` and every interactive surface's attributes are unchanged.
+
+`lib/chartFetch.ts` holds the one copy of `quantizePoints` and `padDomain`. `lib/metricColors.ts` maps each measurement to its colour.
+
+### Pages
+
+**Shared structure.**
+- Every page title uses the same `h1` style, through PageHeader or the same classes.
+- Every back link is `BackLink`.
+- Sections under a title use `SectionHeader` (`h2`), so headings no longer jump straight from h1 to h3.
+
+**Today.**
+- A readiness hero: the recovery ring with a gradient arc in its band colour, strain, and sleep.
+- Today's guidance, then metric-coloured vitals.
+- A lazily loaded Training section after that.
+
+**Calendar.** Gained an Agenda view and month shading by time trained.
+
+**Settings.** Grouped into six sections, with a jump list on desktop.
+
+## History
+
 ## Two directions considered
 
 **A. Boathouse Mono** — warm near-black slate background, one bold indigo-violet accent,
@@ -30,7 +190,7 @@ sits too close to the yellow band to read as a separate signal).
   dates in sparklines. `font-variant-numeric: tabular-nums` plus the mono face means columns
   of numbers always align, and splits always render as `m:ss.t`.
 
-## Palette
+## Palette (*superseded by session 35's tokens above*)
 
 Defined as CSS variables in `web/src/styles/tokens.css`, swapped under `[data-theme="light"]`
 / `[data-theme="dark"]` (dark is the default / first-class theme per the brief). Every
@@ -54,7 +214,8 @@ locked in — see the ratios recorded in this session; nothing here was eyeballe
 | `--band-calibrating` | `= text-tertiary` | `= text-tertiary` |
 
 Recovery/strain bands are the *only* other strong colours in the UI besides the accent — no
-other component introduces a new hue. Every band is always paired with a text label
+other component introduces a new hue (*superseded, session 35: a validated per-metric palette now colours data series; bands are still
+status-only*). Every band is always paired with a text label
 ("Green" / "Yellow" / "Red" / "Calibrating"), never colour alone.
 
 ## Motion
@@ -143,7 +304,7 @@ the data.
 
 ## Gym logger (session 14)
 
-**Bottom nav at 8 items.** Adding Gym pushed the bottom nav past what session 13's "Fuel"
+**Bottom nav at 8 items** (*superseded, session 35: five slots plus More*). Adding Gym pushed the bottom nav past what session 13's "Fuel"
 abbreviation note already flagged as tight at 7. At 390px, "Workouts" and "Settings" both
 overflowed their equal-width flex item and got clipped against the screen edge (not just
 visually cramped — actually unreadable). Fixed two ways together, not either alone: `min-w-0`
@@ -626,5 +787,5 @@ Guarded by `web/tests/touch/text-wrap.spec.ts` (320px, both mobile engines, plus
   `1:60.0`).
 - A rowing rate is always labelled `spm`, never "cadence" or "rpm". (Session 33: a *bike* piece's rate is pedal cadence and is
   labelled "Cadence (rpm)" — the one place `rpm` appears, and only beside a "Bike" label.)
-- One hairline "waterline" gradient, used once per screen max (under the recovery ring).
-  No oars, no boat silhouettes, no rowing-stroke clip-art anywhere.
+- *(Superseded, session 35)* The "waterline" hairline is gone; the recovery ring's gradient arc replaced it.
+  Still true: no oars, no boat silhouettes, no rowing-stroke clip-art anywhere (the logomark is an abstract mark).

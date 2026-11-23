@@ -1,10 +1,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
+import { padDomain, quantizePoints } from "../lib/chartFetch";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { alignPiece, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
-import type { EditableActivityField, SportFamily } from "../lib/types";
+import type { EditableActivityField, SportFamily, Stroke } from "../lib/types";
 import { ErgChart } from "../components/charts/ErgChart";
 import { HrChart, type PieceBand } from "../components/charts/HrChart";
 import { GpsSection } from "../components/gps/GpsSection";
@@ -17,30 +19,23 @@ import { NotesBox } from "../components/workouts/NotesBox";
 import { TechniqueGrid } from "../components/workouts/TechniqueGrid";
 import { ZoneBar } from "../components/workouts/ZoneBar";
 import { ZoneTable } from "../components/workouts/ZoneTable";
-import { BandBadge } from "../components/ui/Badge";
+import { Badge, BandBadge } from "../components/ui/Badge";
+import { Button } from "../components/ui/Button";
+import { controlClass } from "../components/ui/Field";
+import { InfoTip } from "../components/ui/InfoTip";
+import { Segmented } from "../components/ui/Segmented";
+import { StatTile } from "../components/ui/StatTile";
+import { Histogram } from "../components/charts/Histogram";
+import { ScatterPlot } from "../components/charts/ScatterPlot";
+import { METRIC_COLOR } from "../lib/metricColors";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
 import { addDays } from "../lib/dates";
 import { formatInstantTime } from "../lib/localTime";
 
-function quantizePoints(plotWidthPx: number): number {
-  return Math.min(2000, Math.max(200, Math.ceil((plotWidthPx * 2) / 100) * 100));
-}
 
-function padDomain(domain: Domain, full: Domain): { min: number; max: number } {
-  const span = domain.max - domain.min;
-  return { min: Math.max(full.min, domain.min - span), max: Math.min(full.max, domain.max + span) };
-}
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-text-tertiary">{label}</div>
-      <div className="font-mono-nums text-base font-medium text-text-primary">{value}</div>
-    </div>
-  );
-}
 
 const SPORT_FAMILIES: SportFamily[] = ["rowing", "cycling", "running", "strength", "other"];
 const PROVENANCE_LABELS: Record<string, string> = { garmin: "Garmin watch", peloton: "Peloton", concept2: "Concept2 PM5", apple_health: "Apple Health", health_connect: "Health Connect" };
@@ -70,7 +65,8 @@ export function WorkoutDetailPage() {
   });
 
   const fullDomain: Domain | null = useMemo(
-    () => (fullStrokesData ? { min: 0, max: Math.max(...fullStrokesData.strokes.map((s) => s.distance_cum ?? 0), 1) } : null),
+    // A loop, not Math.max(...spread): a long session's stroke array can exceed the engine's argument limit.
+    () => (fullStrokesData ? { min: 0, max: fullStrokesData.strokes.reduce((m, s) => Math.max(m, s.distance_cum ?? 0), 1) } : null),
     [fullStrokesData],
   );
   const [domain, setDomain] = useState<Domain | null>(null);
@@ -106,7 +102,11 @@ export function WorkoutDetailPage() {
     queryFn: () => fetchActivitySamples(canonicalId, { points: 800 }),
     enabled: !!workout && workout.has_samples,
   });
-  const hrFullDomain: Domain | null = samples?.has_data ? { min: 0, max: Math.max(samples.n_samples, 1) } : null;
+  // The chart's x is elapsed seconds; n_samples equals that for 1 Hz recordings, and the last point's elapsed time covers any that
+  // aren't, so the full range never cuts a recording short.
+  const hrFullDomain: Domain | null = samples?.has_data
+    ? { min: 0, max: Math.max(samples.n_samples, samples.points[samples.points.length - 1]?.elapsed_s ?? 0, 1) }
+    : null;
   const [hrDomain, setHrDomain] = useState<Domain | null>(null);
   const [hrQueryDomain, setHrQueryDomain] = useState<Domain | null>(null);
   const effectiveHrDomain = hrDomain ?? hrFullDomain ?? { min: 0, max: 1 };
@@ -219,9 +219,7 @@ export function WorkoutDetailPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/workouts" className="text-sm text-text-tertiary transition-colors hover:text-text-secondary">
-          ← Workouts
-        </Link>
+        <BackLink to="/workouts">Workouts</BackLink>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {editingTitle ? (
             <input
@@ -236,11 +234,11 @@ export function WorkoutDetailPage() {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 if (e.key === "Escape") setEditingTitle(false);
               }}
-              className="min-h-9 rounded-md border border-accent bg-surface px-2 text-lg font-semibold text-text-primary"
+              className="min-h-11 min-w-0 rounded-md border border-accent bg-surface-2 px-3 text-xl font-semibold text-text-primary"
             />
           ) : (
             <h1
-              className="min-w-0 wrap-anywhere cursor-text text-lg font-semibold text-text-primary"
+              className="min-w-0 wrap-anywhere cursor-text text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]"
               onClick={() => {
                 setTitleDraft(workout.title ?? "");
                 setEditingTitle(true);
@@ -250,7 +248,7 @@ export function WorkoutDetailPage() {
               {workout.title ?? "Workout"}
             </h1>
           )}
-          <span className="text-sm text-text-tertiary">{categoryLabel(workout.category)}</span>
+          <Badge tone="outline">{categoryLabel(workout.category)}</Badge>
           {workout.overrides.title && (
             <button type="button" onClick={() => revert.mutate("title")} className="text-xs text-text-tertiary underline hover:text-text-secondary">
               revert to source
@@ -274,14 +272,14 @@ export function WorkoutDetailPage() {
         )}
       </div>
 
-      <Card>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-          <Stat label="Distance" value={formatDistance(workout.distance)} />
-          <Stat label="Time" value={formatDuration(workout.duration)} />
-          {avgSplit && <Stat label="Avg split" value={`${formatSplit(avgSplit)}/500m`} />}
-          {workout.avg_power != null && <Stat label="Watts" value={workout.avg_power.toFixed(0)} />}
-          {workout.avg_hr != null && <Stat label="Avg HR" value={workout.avg_hr.toFixed(0)} />}
-          {workout.avg_cadence != null && <Stat label="Cadence" value={`${workout.avg_cadence.toFixed(0)} spm`} />}
+      <Card tone="raised">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-6">
+          <StatTile size="lg" label="Distance" value={formatDistance(workout.distance)} />
+          <StatTile size="lg" label="Time" value={formatDuration(workout.duration)} />
+          {avgSplit && <StatTile size="lg" label="Avg split" value={formatSplit(avgSplit)} unit="/500m" accent={METRIC_COLOR.pace} />}
+          {workout.avg_power != null && <StatTile size="lg" label="Power" value={workout.avg_power.toFixed(0)} unit="W" accent={METRIC_COLOR.power} />}
+          {workout.avg_hr != null && <StatTile size="lg" label="Avg HR" value={workout.avg_hr.toFixed(0)} unit="bpm" accent={METRIC_COLOR.hr} />}
+          {workout.avg_cadence != null && <StatTile size="lg" label={workout.sport_family === "cycling" ? "Cadence" : "Rate"} value={workout.avg_cadence.toFixed(0)} unit={workout.sport_family === "cycling" ? "rpm" : "spm"} accent={METRIC_COLOR.rate} />}
         </div>
         {workout.strain && (
           <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
@@ -314,43 +312,39 @@ export function WorkoutDetailPage() {
 
       {samples?.has_data && (
         <Card title="Heart rate">
-          <div className="mb-2 flex flex-wrap items-center gap-4 text-xs text-text-tertiary">
-            <span>
-              avg <span className="font-mono-nums text-text-primary">{Math.round(samples.avg_hr ?? 0)}</span>
-            </span>
-            <span>
-              max <span className="font-mono-nums text-text-primary">{samples.max_hr_observed}</span>
-            </span>
-            <span>
-              min <span className="font-mono-nums text-text-primary">{samples.min_hr_observed}</span>
-            </span>
+          <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile size="sm" label="Average" value={Math.round(samples.avg_hr ?? 0)} unit="bpm" accent={METRIC_COLOR.hr} />
+            <StatTile size="sm" label="Max" value={samples.max_hr_observed ?? "—"} unit="bpm" />
+            <StatTile size="sm" label="Min" value={samples.min_hr_observed ?? "—"} unit="bpm" />
             {samples.hr_recovery.session_end != null && (
-              <span>
-                recovery (60s) <span className="font-mono-nums text-text-primary">{samples.hr_recovery.session_end.toFixed(0)}</span> bpm
-              </span>
+              <StatTile
+                size="sm"
+                label="Recovery (60s)"
+                value={samples.hr_recovery.session_end.toFixed(0)}
+                unit="bpm"
+                info={<InfoTip label="heart-rate recovery">How far your heart rate fell in the 60 seconds after the session ended. A bigger drop usually means fitter, fresher, or both.</InfoTip>}
+              />
             )}
-            {samples.trimmed_tail_s > 0 && <span>watch left running {Math.round(samples.trimmed_tail_s)}s — greyed out, excluded above</span>}
           </div>
+          {samples.trimmed_tail_s > 0 && <p className="mb-2 text-xs text-text-tertiary">Watch left running {Math.round(samples.trimmed_tail_s)}s — greyed out, excluded above.</p>}
           {samples.zones?.hr && (
             <div className="mb-3">
               <ZoneBar zones={samples.zones.hr} height={8} showLegend />
             </div>
           )}
           {(samples.points.some((p) => p.power != null) || samples.points.some((p) => p.cadence != null)) && (
-            <div className="mb-2 flex gap-2" role="tablist" aria-label="Overlay">
-              {(["none", "power", "cadence"] as const).map((o) => (
-                <button
-                  key={o}
-                  type="button"
-                  role="tab"
-                  aria-selected={overlay === o}
-                  onClick={() => setOverlay(o)}
-                  className={`min-h-9 rounded-md border px-3 text-xs ${overlay === o ? "border-accent text-accent" : "border-border text-text-tertiary"}`}
-                >
-                  {o === "none" ? "HR only" : o === "power" ? "+ Power" : "+ Cadence"}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              label="Overlay"
+              size="sm"
+              className="mb-3"
+              value={overlay}
+              onChange={setOverlay}
+              options={[
+                { value: "none", label: "HR only" },
+                { value: "power", label: "+ Power" },
+                { value: "cadence", label: "+ Cadence" },
+              ]}
+            />
           )}
           <HrChart
             points={chartPoints}
@@ -383,9 +377,9 @@ export function WorkoutDetailPage() {
       <Card
         title="Pieces"
         action={
-          <button type="button" onClick={() => setAddPieceOpen(true)} className="min-h-9 rounded-md border border-accent px-3 text-xs font-medium text-accent">
+          <Button size="sm" variant="subtle" onClick={() => setAddPieceOpen(true)}>
             Add piece
-          </button>
+          </Button>
         }
       >
         {workout?.concept2_interval_activity_id != null && !pieces?.some((p) => p.has_intervals && p.concept2_activity_id === workout.concept2_interval_activity_id) && (
@@ -437,6 +431,7 @@ export function WorkoutDetailPage() {
               onHoverInterval={setHoveredInterval}
             />
           </Card>
+          <StrokeAnalysis strokes={fullStrokesData.strokes} />
           <Card title="Intervals">
             <IntervalTable intervals={fullStrokesData.interval_summary} hoveredInterval={hoveredInterval} onHoverInterval={setHoveredInterval} />
           </Card>
@@ -494,7 +489,7 @@ export function WorkoutDetailPage() {
                     </span>
                     <span className="flex items-center gap-2 font-mono-nums text-text-primary">
                       {s.effective_load_kg != null ? `${Math.round(s.effective_load_kg * 10) / 10}kg` : "—"}
-                      {s.is_rep_pr && <span className="rounded-full bg-accent/20 px-2 py-0.5 text-xs font-semibold text-accent">PR</span>}
+                      {s.is_rep_pr && <Badge tone="accent">PR</Badge>}
                     </span>
                   </li>
                 ))}
@@ -504,17 +499,17 @@ export function WorkoutDetailPage() {
         </>
       )}
 
-      <Card title="Edit">
+      <Card title="Edit" eyebrow="Details">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs text-text-tertiary" htmlFor="wd-sport">
+            <label className="text-xs font-medium text-text-secondary" htmlFor="wd-sport">
               Sport
             </label>
             <select
               id="wd-sport"
               value={workout.sport_family}
               onChange={(e) => patch.mutate({ sport_family: e.target.value as SportFamily })}
-              className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+              className={`${controlClass} w-auto`}
             >
               {SPORT_FAMILIES.map((s) => (
                 <option key={s} value={s}>
@@ -540,7 +535,7 @@ export function WorkoutDetailPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-text-tertiary" htmlFor="wd-tags">
+            <label className="text-xs font-medium text-text-secondary" htmlFor="wd-tags">
               Tags (comma-separated)
             </label>
             <input
@@ -550,12 +545,12 @@ export function WorkoutDetailPage() {
                 patch.mutate({ tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })
               }
               placeholder="race, test, technique, cross-training"
-              className="min-h-9 min-w-0 flex-1 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+              className={`${controlClass} flex-1`}
             />
           </div>
 
           <div>
-            <label className="text-xs text-text-tertiary" htmlFor="wd-notes">
+            <label className="text-xs font-medium text-text-secondary" htmlFor="wd-notes">
               Notes (this workout)
             </label>
             <textarea
@@ -564,12 +559,12 @@ export function WorkoutDetailPage() {
               onBlur={(e) => patch.mutate({ notes: e.target.value })}
               placeholder="How did it feel?"
               rows={2}
-              className="mt-1 w-full resize-none rounded-md border border-border bg-surface-2 p-2 text-sm text-text-primary placeholder:text-text-tertiary"
+              className={`${controlClass} mt-1 resize-none py-2.5`}
             />
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="text-xs text-text-tertiary" htmlFor="wd-rpe">
+            <label className="text-xs font-medium text-text-secondary" htmlFor="wd-rpe">
               RPE (this workout)
             </label>
             <input
@@ -592,7 +587,7 @@ export function WorkoutDetailPage() {
 
           <div>
             {workout.merge && (
-              <div className="mb-3 rounded-md bg-surface-2 p-3 text-sm" data-testid="merged-workout">
+              <div className="mb-3 rounded-md border border-accent/30 bg-accent-soft p-3 text-sm" data-testid="merged-workout">
                 <p className="text-text-primary">
                   Merged from {workout.merge.merged_workouts ?? "several"} workouts ({workout.merge.recordings} recording{workout.merge.recordings === 1 ? "" : "s"}). Times and
                   distances are added; anything recorded twice counts once.
@@ -675,7 +670,7 @@ function ChangeDay({ recorded, current, overridden, onChange, busy }: { recorded
         value={current}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-11 rounded-md border border-border bg-bg px-2 text-xs text-text-primary"
+        className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary"
       >
         {options.map((d) => (
           <option key={d} value={d}>
@@ -686,5 +681,47 @@ function ChangeDay({ recorded, current, overridden, onChange, busy }: { recorded
       </select>
       {overridden && <span>changed by you</span>}
     </label>
+  );
+}
+
+
+/** How the session's strokes were spread: share of strokes at each split, and split against stroke rate. Uses the full stroke list
+ * (not the chart's downsampled window), so every stroke counts once. */
+function StrokeAnalysis({ strokes }: { strokes: Stroke[] }) {
+  const { splits, pairs } = useMemo(() => {
+    const splits: number[] = [];
+    const pairs: { x: number; y: number }[] = [];
+    for (const s of strokes) {
+      if (s.pace_500m != null && s.pace_500m > 60 && s.pace_500m < 300) {
+        splits.push(s.pace_500m);
+        if (s.stroke_rate != null && s.stroke_rate > 10) pairs.push({ x: s.stroke_rate, y: s.pace_500m });
+      }
+    }
+    return { splits, pairs };
+  }, [strokes]);
+  if (splits.length < 20) return null;
+  return (
+    <Card title="Stroke analysis" eyebrow={`${splits.length} strokes`}>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <p className="mb-1 text-xs font-medium text-text-secondary">Share of strokes at each split</p>
+          <Histogram values={splits} format={formatSplit} color={METRIC_COLOR.pace} ariaLabel="Distribution of split per stroke" />
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium text-text-secondary">Split against stroke rate</p>
+          <ScatterPlot
+            points={pairs}
+            xLabel="Stroke rate (spm)"
+            yLabel="Split /500m (faster is higher)"
+            formatX={(v) => `${Math.round(v)}`}
+            formatY={formatSplit}
+            yAxis="seconds"
+            invertY
+            color={METRIC_COLOR.rate}
+            ariaLabel={`Split against stroke rate for ${pairs.length} strokes`}
+          />
+        </div>
+      </div>
+    </Card>
   );
 }

@@ -128,17 +128,21 @@ test("switching the active provider changes which card says Active", async ({ pa
 
 test("with no active provider the page says AI is off, and photo entry points disappear", async ({ page }) => {
   await page.goto("/settings/ai?mock=1");
-  const nav = page.getByRole("navigation").last();
-  await nav.getByRole("link", { name: /Fuel/ }).tap();
+  // Session 35: Nutrition and Settings are in the bottom nav's More sheet.
+  const go = async (name: RegExp) => {
+    await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "More" }).tap();
+    await page.getByTestId("more-sheet").getByRole("link", { name }).tap();
+  };
+  await go(/^Nutrition/);
   await expect(page.getByText("Estimate a meal from a photo")).toBeVisible();
 
-  await nav.getByRole("link", { name: /Settings/ }).tap();
+  await go(/^Settings/);
   await page.getByRole("link", { name: /AI providers/ }).tap();
   const a = card(page, "anthropic");
   await a.getByRole("button", { name: "Remove key" }).tap();
   await a.getByRole("group", { name: "Confirm removing the key" }).getByRole("button", { name: "Remove key" }).tap();
   await expect(page.getByTestId("no-active-provider")).toContainText("coach and the photo features are off");
-  await nav.getByRole("link", { name: /Fuel/ }).tap();
+  await go(/^Nutrition/);
   await expect(page.getByRole("heading", { name: "Nutrition" })).toBeVisible();
   await expect(page.getByText("Estimate a meal from a photo")).toHaveCount(0);
 });

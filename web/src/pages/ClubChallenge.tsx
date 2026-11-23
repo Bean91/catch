@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -26,14 +27,14 @@ export function ClubChallengePage() {
   const approve = useMutation({ mutationFn: () => decideClubPost(id, "challenge", challengeId, "approve"), onSuccess: done, onError: fail });
 
   if (ch.isLoading) return <div className="flex flex-col gap-4"><Skeleton className="h-16" /><Skeleton className="h-40" /></div>;
-  if (ch.isError || !ch.data) return <div className="flex flex-col gap-3"><Link to={`/clubs/${id}?tab=challenges`} className="text-sm text-accent hover:underline">← Challenges</Link><ErrorState message="That challenge isn't available." /></div>;
+  if (ch.isError || !ch.data) return <div className="flex flex-col gap-3"><BackLink to={`/clubs/${id}?tab=challenges`}>Challenges</BackLink><ErrorState message="That challenge isn't available." /></div>;
   const c = ch.data;
   const closed = c.phase === "closed";
   return (
     <div className="flex flex-col gap-4" data-testid="challenge-page">
-      <Link to={`/clubs/${id}?tab=challenges`} className="text-sm text-accent hover:underline">← {club.data?.name ?? "Club"} · Challenges</Link>
+      <BackLink to={`/clubs/${id}?tab=challenges`}>{club.data?.name ?? "Club"} · Challenges</BackLink>
       <header className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">{c.title}</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{c.title}</h1>
         <p className="text-sm text-text-secondary">{metricLabel(c.metric)} · {c.start} → {c.end} · <span data-testid="challenge-phase">{phaseLabel(c.phase)}</span>{!closed && c.status === "active" ? ` · settles ${c.settles_on}` : ""}</p>
         {c.description && <p className="text-sm text-text-primary">{c.description}</p>}
       </header>

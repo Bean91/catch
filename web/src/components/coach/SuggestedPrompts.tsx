@@ -8,7 +8,7 @@ export function SuggestedPrompts({ onPick }: { onPick: (text: string) => void })
           key={prompt}
           type="button"
           onClick={() => onPick(prompt)}
-          className="min-h-11 rounded-full border border-border px-4 text-sm text-text-secondary transition-colors hover:border-accent hover:text-text-primary"
+          className="min-h-11 rounded-full border border-border bg-surface-2/60 px-4 text-sm text-text-secondary transition-colors hover:border-accent/50 hover:bg-accent-soft hover:text-text-primary"
         >
           {prompt}
         </button>

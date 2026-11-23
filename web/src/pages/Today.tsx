@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { fetchToday, fetchTodayCheckin, isMock } from "../lib/api";
 import { formatRelativeTime, formatShortDate } from "../lib/format";
 import { useOnlineStatus } from "../lib/useOnlineStatus";
@@ -15,6 +15,12 @@ import { StrainGauge } from "../components/today/StrainGauge";
 import { VitalsCard } from "../components/today/VitalsCard";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ErrorState } from "../components/ui/EmptyState";
+import { Button } from "../components/ui/Button";
+import { Notice } from "../components/ui/Notice";
+import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
+
+// The dashboard's lower half is its own chunk: Today is the one eagerly loaded page, and the initial bundle has a budget.
+const TodayMore = lazy(() => import("../components/today/TodayMore"));
 
 // `forceCheckin`: the /checkin deep link (a notification tap, a link) opens the sheet even if it was skipped earlier today,
 // and for an already-completed check-in it opens in edit mode.
@@ -45,7 +51,10 @@ export function TodayPage({ forceCheckin = false }: { forceCheckin?: boolean } =
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4">
-        <CardSkeleton lines={1} />
+        <div className="flex flex-col gap-2" aria-hidden>
+          <div className="h-3 w-32 animate-shimmer rounded bg-[linear-gradient(90deg,var(--surface-2)_25%,var(--surface-3)_50%,var(--surface-2)_75%)] bg-[length:200%_100%]" />
+          <div className="h-7 w-24 animate-shimmer rounded bg-[linear-gradient(90deg,var(--surface-2)_25%,var(--surface-3)_50%,var(--surface-2)_75%)] bg-[length:200%_100%]" />
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <CardSkeleton />
           <CardSkeleton />
@@ -60,6 +69,8 @@ export function TodayPage({ forceCheckin = false }: { forceCheckin?: boolean } =
     return <ErrorState message="Couldn't load today's data." onRetry={() => refetch()} />;
   }
 
+  const longDate = new Date(`${data.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
+
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       {/* Gated on an actual failed /api/health probe (useOnlineStatus), never on a date-string
@@ -68,57 +79,66 @@ export function TodayPage({ forceCheckin = false }: { forceCheckin?: boolean } =
           connectivity. A single source failing to sync (e.g. Concept2) is a per-card notice in
           RecommendationAndSync, never this global banner. */}
       {!isOnline && (
-        <div className="rounded-md border border-border bg-surface-2 px-4 py-2.5 text-sm text-text-secondary">
+        <Notice tone="warn" role="status">
           You're offline — showing data from {formatRelativeTime(data.generated_at)} ({formatShortDate(data.generated_at)}).
           Reconnect to refresh.
-        </div>
+        </Notice>
+      )}
+
+      <PageHeader
+        eyebrow={longDate}
+        title="Today"
+        actions={
+          <Button variant={checkinStatus?.completed ? "secondary" : "primary"} size="sm" onClick={() => setSheetOpen(true)}>
+            {checkinStatus?.completed ? "Edit check-in" : "Morning check-in"}
+          </Button>
+        }
+      />
+
+      {data.checkin.niggle_flag && (
+        // Never colour-only (DESIGN.md) — the band dot is paired with this text either way.
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-band-yellow/35 bg-band-yellow/10 px-3 py-1 text-xs font-medium text-text-primary">
+          <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: "var(--band-yellow)" }} />
+          Training issue: {data.checkin.niggle_area} — {data.checkin.niggle_streak_days} days running
+        </span>
       )}
 
       {data.illness && data.illness.level !== "none" && <IllnessCard date={data.date} illness={data.illness} />}
 
-      <div className="flex items-center justify-between gap-3 text-sm">
-        {data.checkin.niggle_flag ? (
-          // Never colour-only (DESIGN.md) — the band dot is paired with this text either way.
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-text-primary">
-            <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: "var(--band-yellow)" }} />
-            Training issue: {data.checkin.niggle_area} — {data.checkin.niggle_streak_days} days running
-          </span>
-        ) : (
-          <span />
-        )}
-        <button type="button" onClick={() => setSheetOpen(true)} className="min-h-11 rounded-md border border-border px-3 text-xs font-medium text-text-secondary">
-          {checkinStatus?.completed ? "Edit check-in" : "Morning check-in"}
-        </button>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-[220px_1fr] lg:grid-cols-[260px_1fr] lg:gap-5">
+      <section aria-label="Readiness" className="grid gap-4 sm:grid-cols-[minmax(0,240px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,1fr)] lg:gap-5">
         <RecoveryRing recovery={data.recovery} />
-        <div className="flex flex-col gap-4 lg:gap-5">
-          <StrainGauge strain={data.strain_today} targetRange={data.strain_target_range} dailyActivity={data.daily_activity} />
-          <div className="hidden lg:block">
-            <SleepCard sleep={data.sleep_last_night} />
-          </div>
+        <StrainGauge strain={data.strain_today} targetRange={data.strain_target_range} dailyActivity={data.daily_activity} />
+        <div className="sm:col-span-2 lg:col-span-1">
+          <SleepCard sleep={data.sleep_last_night} />
         </div>
-      </div>
+      </section>
 
-      <div className="lg:hidden">
-        <SleepCard sleep={data.sleep_last_night} />
-      </div>
+      <RecommendationAndSync recommendation={data.recommendation} nextARace={data.next_a_race} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
+      <section aria-label="Vitals and load" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
         <VitalsCard title="HRV" unit="ms" decimals={0} trend={data.hrv} metric="hrv_rmssd" />
         <VitalsCard title="Resting HR" unit="bpm" decimals={0} trend={data.resting_hr} metric="resting_hr" />
         <div className="sm:col-span-2 lg:col-span-1">
           <LoadCard load={data.load} rowingLoad={data.rowing_load} />
         </div>
-      </div>
+      </section>
+
+      <SectionHeader title="Training" description="Your week, your consistency and your latest work." />
+      <Suspense
+        fallback={
+          <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+            <CardSkeleton lines={4} />
+            <CardSkeleton lines={4} />
+          </div>
+        }
+      >
+        <TodayMore />
+      </Suspense>
 
       <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr] lg:gap-5">
         <ErgCard erg={data.latest_erg} predicted2k={data.predicted_2k} />
-        <RecommendationAndSync recommendation={data.recommendation} nextARace={data.next_a_race} />
+        <UpcomingEventsCard />
       </div>
-
-      <UpcomingEventsCard />
 
       <CheckinSheet
         open={sheetOpen}

@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { buttonClass } from "../components/ui/Button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -16,6 +17,7 @@ import { buildTimeline, type TimelineEntry } from "../lib/timeline";
 import type { CoachConversation, CoachProviderName } from "../lib/types";
 import { SuggestedPrompts } from "../components/coach/SuggestedPrompts";
 import { Timeline } from "../components/coach/Timeline";
+import { ModalContent } from "../components/ui/Sheet";
 
 const MORNING_BRIEF_PROMPT =
   "Give me my morning brief — how's recovery and strain looking today, and what should today's training look like?";
@@ -176,9 +178,9 @@ export function CoachPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-9.5rem)] flex-col gap-3 lg:h-[calc(100dvh-7rem)]">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-text-primary">Coach</h1>
+    <div className="flex h-[calc(100dvh-var(--shell-top)-var(--shell-bottom)-2.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 lg:h-[calc(100dvh-7rem)]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold tracking-tight text-text-primary">Coach</h1>
         <div className="flex items-center gap-2">
           {usageQuery.data && (
             <span className="font-mono-nums text-xs text-text-tertiary">
@@ -189,29 +191,35 @@ export function CoachPage() {
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
-            className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-secondary transition-colors hover:border-accent"
+            className={buttonClass("ghost", "sm")}
           >
             History
           </button>
           <button
             type="button"
             onClick={() => setConversationId(null)}
-            className="min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-secondary transition-colors hover:border-accent"
+            className={buttonClass("secondary", "sm")}
           >
             New
           </button>
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto rounded-lg border border-border bg-surface p-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
         {!hasMessages ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <p className="max-w-xs text-sm text-text-tertiary">Ask about today's training, or pick a starting point.</p>
+            <span aria-hidden className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--accent-strong),var(--metric-pace))] text-lg font-bold text-accent-contrast shadow-raised">
+              C
+            </span>
+            <div>
+              <p className="text-base font-semibold text-text-primary">Your training, explained</p>
+              <p className="mt-1 max-w-xs text-sm text-text-tertiary">Ask about today's training, or pick a starting point.</p>
+            </div>
             <SuggestedPrompts onPick={send} />
             <button
               type="button"
               onClick={() => send(MORNING_BRIEF_PROMPT)}
-              className="min-h-11 rounded-md bg-accent px-5 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90"
+              className={buttonClass("primary")}
             >
               Morning brief
             </button>
@@ -253,7 +261,7 @@ export function CoachPage() {
           e.preventDefault();
           send(input);
         }}
-        className="flex items-end gap-2"
+        className="flex items-end gap-2 rounded-lg border border-border bg-surface p-1.5 shadow-[var(--highlight),var(--shadow-1)] focus-within:border-accent/60"
       >
         <textarea
           value={input}
@@ -267,22 +275,20 @@ export function CoachPage() {
           placeholder="Ask your coach…"
           rows={1}
           disabled={sending}
-          className="flex-1 resize-none rounded-md border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus-visible:outline-none disabled:opacity-60"
+          className="min-h-11 flex-1 resize-none border-0 bg-transparent px-2.5 py-2.5 text-text-primary placeholder:text-text-tertiary focus-visible:shadow-none focus-visible:outline-none disabled:opacity-60"
         />
         <button
           type="submit"
           disabled={sending || !input.trim()}
-          className="min-h-11 shrink-0 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+          className={buttonClass("primary")}
         >
           {sending ? "…" : "Send"}
         </button>
       </form>
 
       <Dialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[80dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-            <Dialog.Title className="text-base font-semibold text-text-primary">Conversations</Dialog.Title>
+        <ModalContent width="sm">
+            <Dialog.Title className="text-lg font-semibold text-text-primary">Conversations</Dialog.Title>
             <div className="mt-3 flex flex-col gap-1">
               {conversationsQuery.data?.length ? (
                 conversationsQuery.data.map((c) => (
@@ -308,13 +314,12 @@ export function CoachPage() {
             <Dialog.Close asChild>
               <button
                 type="button"
-                className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent"
+                className={buttonClass("secondary", "md", "mt-4 w-full")}
               >
                 Close
               </button>
             </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
+          </ModalContent>
       </Dialog.Root>
     </div>
   );

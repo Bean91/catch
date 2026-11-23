@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { PerformanceTrendsCard } from "../components/intelligence/PerformanceTrendsCard";
 import { ConsistencyCard } from "../components/intelligence/ConsistencyCard";
 import { InsightsList } from "../components/intelligence/InsightCard";
@@ -9,7 +8,9 @@ import { TrainingDistributionCard } from "../components/intelligence/TrainingDis
 import { TrainingProfileCard } from "../components/intelligence/TrainingProfileCard";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
-import { CardSkeleton } from "../components/ui/Skeleton";
+import { CardSkeleton, Skeleton } from "../components/ui/Skeleton";
+import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
+import { ProgressionCard } from "../components/intelligence/ProgressionCard";
 import { IntervalComparisonCard } from "../components/intelligence/IntervalComparisonCard";
 import {
   fetchIntervalComparisons,
@@ -42,58 +43,68 @@ export function TrainingIntelligencePage() {
   const savedQuery = useQuery({ queryKey: ["recommendations", "saved"], queryFn: () => fetchRecommendations("all") });
   const savedRecommendations = (savedQuery.data ?? []).filter((r) => r.saved);
 
+  const loading = <Skeleton className="h-24 w-full" />;
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Training intelligence</h1>
-        <Link to="/trends" className="text-sm font-medium text-accent">
-          Back to Trends
-        </Link>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        back={{ to: "/trends", label: "Trends" }}
+        eyebrow="Analysis"
+        title="Training intelligence"
+        subtitle="What your data says about your training — each claim with the confidence behind it."
+      />
 
       {profileQuery.isLoading && <CardSkeleton lines={3} />}
       {profileQuery.isError && <ErrorState message="Couldn't load the training profile." onRetry={() => profileQuery.refetch()} />}
       {profileQuery.data && <TrainingProfileCard profile={profileQuery.data} />}
 
-      <Card title="Performance trajectory">
-        {trendsQuery.isLoading && <CardSkeleton lines={2} />}
-        {trendsQuery.isError && <ErrorState message="Couldn't load performance trends." onRetry={() => trendsQuery.refetch()} />}
-        {trendsQuery.data && <PerformanceTrendsCard buckets={trendsQuery.data.buckets} />}
-      </Card>
+      <SectionHeader title="Performance" description="Like-for-like pieces over time, and how intervals compare." />
+      <ProgressionCard />
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+        <Card title="Performance trajectory">
+          {trendsQuery.isLoading && loading}
+          {trendsQuery.isError && <ErrorState message="Couldn't load performance trends." onRetry={() => trendsQuery.refetch()} />}
+          {trendsQuery.data && <PerformanceTrendsCard buckets={trendsQuery.data.buckets} />}
+        </Card>
+        <Card title="Interval sessions">
+          {intervalsQuery.isLoading && loading}
+          {intervalsQuery.isError && <ErrorState message="Couldn't load interval comparisons." onRetry={() => intervalsQuery.refetch()} />}
+          {intervalsQuery.data && <IntervalComparisonCard buckets={intervalsQuery.data.buckets} />}
+        </Card>
+      </div>
 
-      <Card title="Interval sessions">
-        {intervalsQuery.isLoading && <CardSkeleton lines={2} />}
-        {intervalsQuery.isError && <ErrorState message="Couldn't load interval comparisons." onRetry={() => intervalsQuery.refetch()} />}
-        {intervalsQuery.data && <IntervalComparisonCard buckets={intervalsQuery.data.buckets} />}
-      </Card>
-
-      <Card title="Training distribution (last 12 weeks)">
-        {distributionQuery.isLoading && <CardSkeleton lines={2} />}
-        {distributionQuery.isError && <ErrorState message="Couldn't load training distribution." onRetry={() => distributionQuery.refetch()} />}
-        {distributionQuery.data && <TrainingDistributionCard weeks={distributionQuery.data.weeks} />}
-      </Card>
-
-      <Card title="Consistency">
-        {consistencyQuery.isLoading && <CardSkeleton lines={2} />}
-        {consistencyQuery.isError && <ErrorState message="Couldn't load consistency." onRetry={() => consistencyQuery.refetch()} />}
-        {consistencyQuery.data && <ConsistencyCard consistency={consistencyQuery.data} />}
-      </Card>
+      <SectionHeader title="Training" description="How your time is spread across intensities, and how regularly you train." />
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+        <Card title="Training distribution (last 12 weeks)">
+          {distributionQuery.isLoading && loading}
+          {distributionQuery.isError && <ErrorState message="Couldn't load training distribution." onRetry={() => distributionQuery.refetch()} />}
+          {distributionQuery.data && <TrainingDistributionCard weeks={distributionQuery.data.weeks} />}
+        </Card>
+        <Card title="Consistency">
+          {consistencyQuery.isLoading && loading}
+          {consistencyQuery.isError && <ErrorState message="Couldn't load consistency." onRetry={() => consistencyQuery.refetch()} />}
+          {consistencyQuery.data && <ConsistencyCard consistency={consistencyQuery.data} />}
+        </Card>
+      </div>
 
       <Card title="Strengths & areas to investigate">
+        {profileQuery.isLoading && loading}
         {profileQuery.data && <StrengthsWeaknessesCard strengths={profileQuery.data.strengths} weaknesses={profileQuery.data.weaknesses} />}
       </Card>
 
-      <Card title="Recent insights">
-        {insightsQuery.isLoading && <CardSkeleton lines={2} />}
-        {insightsQuery.isError && <ErrorState message="Couldn't load insights." onRetry={() => insightsQuery.refetch()} />}
-        {insightsQuery.data && <InsightsList insights={insightsQuery.data} />}
-      </Card>
-
-      <Card title="Recommendations">
-        {recommendationsQuery.isLoading && <CardSkeleton lines={2} />}
-        {recommendationsQuery.isError && <ErrorState message="Couldn't load recommendations." onRetry={() => recommendationsQuery.refetch()} />}
-        {recommendationsQuery.data && <RecommendationsCard recommendations={recommendationsQuery.data} />}
-      </Card>
+      <SectionHeader title="Insights and recommendations" />
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+        <Card title="Recent insights">
+          {insightsQuery.isLoading && loading}
+          {insightsQuery.isError && <ErrorState message="Couldn't load insights." onRetry={() => insightsQuery.refetch()} />}
+          {insightsQuery.data && <InsightsList insights={insightsQuery.data} />}
+        </Card>
+        <Card title="Recommendations">
+          {recommendationsQuery.isLoading && loading}
+          {recommendationsQuery.isError && <ErrorState message="Couldn't load recommendations." onRetry={() => recommendationsQuery.refetch()} />}
+          {recommendationsQuery.data && <RecommendationsCard recommendations={recommendationsQuery.data} />}
+        </Card>
+      </div>
 
       {savedRecommendations.length > 0 && (
         <Card title="Saved">

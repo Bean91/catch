@@ -1,12 +1,16 @@
-import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { formatShortDate } from "../../lib/format";
 import type { VolumeWeek } from "../../lib/types";
 import { ZONE_NAMES } from "../../lib/types";
 import type { Domain } from "../../lib/useChartInteraction";
 import { useChartInteraction } from "../../lib/useChartInteraction";
-import { useReducedMotion } from "../../lib/useReducedMotion";
 import { zoneColor } from "../../lib/zoneColors";
+import { ChartTooltip, YGrid, nearestIndex, niceTicks } from "./core";
+
+function roundedTop(x: number, y: number, w: number, h: number, r: number): string {
+  const rr = Math.min(r, h);
+  return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
+}
 
 const HEIGHT = 220;
 const PAD_X = 12;
@@ -40,13 +44,13 @@ export function WeeklyVolumeBars({
   onDomainSettled?: (domain: Domain) => void;
   onResetDomain: () => void;
 }) {
-  const reduced = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const [plotWidthPx, setPlotWidthPx] = useState(600);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    setPlotWidthPx(Math.max((el.clientWidth || 624) - PAD_X * 2, 50));
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setPlotWidthPx(Math.max(w - PAD_X * 2, 50));
@@ -68,26 +72,29 @@ export function WeeklyVolumeBars({
   });
 
   const width = plotWidthPx + PAD_X * 2;
-  const visible = weeks.filter((w) => weekMs(w.week_start) + WEEK_MS >= domain.min && weekMs(w.week_start) <= domain.max);
-  const totals = visible.map((w) => ZONE_NAMES.reduce((sum, z) => sum + w.zones[z], 0));
-  const max = Math.max(...totals, 1);
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const starts = useMemo(() => weeks.map((w) => weekMs(w.week_start)), [weeks]);
+  const totalsAll = useMemo(() => weeks.map((w) => ZONE_NAMES.reduce((sum, z) => sum + w.zones[z], 0)), [weeks]);
+  const visibleIdx: number[] = [];
+  for (let i = 0; i < weeks.length; i++) if (starts[i] + WEEK_MS >= domain.min && starts[i] <= domain.max) visibleIdx.push(i);
+  const visible = visibleIdx.map((i) => weeks[i]);
+  const totals = visibleIdx.map((i) => totalsAll[i]);
+  const maxSecs = Math.max(...totals, 1);
+  // The y-axis is in hours, on rounded ticks, so a bar's height reads as an amount, not just a comparison.
+  const nice = niceTicks(0, maxSecs / 3600, 3);
+  const max = nice.max * 3600 || 1;
   const anyEstimated = visible.some((w) => w.estimated);
 
   const x = (ms: number) => PAD_X + ((ms - domain.min) / Math.max(domain.max - domain.min, 1)) * plotWidthPx;
+  const yOfHours = (h: number) => PAD_TOP + plotHeight - (h / nice.max) * plotHeight;
   const spanWeeks = Math.max((domain.max - domain.min) / WEEK_MS, 1);
-  const barWidth = Math.max((plotWidthPx / spanWeeks) * 0.6, 2);
+  const barWidth = Math.max((plotWidthPx / spanWeeks) * 0.62, 2);
+  const radius = Math.min(4, barWidth / 2);
 
-  const hovered =
-    hoverX != null
-      ? visible.reduce<VolumeWeek | null>((best, w) => {
-          if (!best) return w;
-          return Math.abs(weekMs(w.week_start) - hoverX) < Math.abs(weekMs(best.week_start) - hoverX) ? w : best;
-        }, null)
-      : null;
+  const hovered = hoverX != null && visibleIdx.length ? weeks[nearestIndex(starts, hoverX - WEEK_MS / 2)] : null;
 
   if (totals.every((t) => t === 0)) {
-    return <div className="flex h-40 items-center justify-center text-sm text-text-tertiary">No training volume in range yet.</div>;
+    return <div className="flex h-40 items-center justify-center rounded-md border border-dashed border-border-strong/60 text-sm text-text-tertiary">No training volume in range yet.</div>;
   }
 
   return (
@@ -110,32 +117,28 @@ export function WeeklyVolumeBars({
         onDoubleClick={handlers.onDoubleClick}
       >
       <svg width="100%" height={HEIGHT} viewBox={`0 0 ${width} ${HEIGHT}`} aria-hidden="true" className="pointer-events-none block">
-        {visible.map((w) => {
-          const total = ZONE_NAMES.reduce((sum, z) => sum + w.zones[z], 0);
-          const barX = x(weekMs(w.week_start) + WEEK_MS / 2) - barWidth / 2;
+        <YGrid ticks={nice.ticks} y={yOfHours} x0={PAD_X} x1={PAD_X + plotWidthPx} format={(h) => (h === 0 ? "0" : `${h}h`)} />
+        {visible.map((w, vi) => {
+          const total = totals[vi];
+          const barX = x(starts[visibleIdx[vi]] + WEEK_MS / 2) - barWidth / 2;
           let yCursor = PAD_TOP + plotHeight;
+          const segs = ZONE_NAMES.filter((z) => w.zones[z] > 0);
           return (
-            <g key={w.week_start} opacity={hovered && hovered !== w ? 0.55 : 1}>
-              {ZONE_NAMES.map((z) => {
-                const secs = w.zones[z];
-                const h = total > 0 ? (secs / max) * plotHeight : 0;
+            <g key={w.week_start} opacity={hovered && hovered !== w ? 0.5 : 1}>
+              {segs.map((z, si) => {
+                const h = (w.zones[z] / max) * plotHeight;
                 yCursor -= h;
-                return h > 0 ? (
-                  <motion.rect
-                    key={z}
-                    x={barX}
-                    width={barWidth}
-                    y={yCursor}
-                    height={h}
-                    fill={zoneColor(z)}
-                    initial={reduced ? { opacity: 1 } : { opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: reduced ? 0 : 0.4 }}
-                  />
-                ) : null;
+                const top = si === segs.length - 1;
+                // A 1.5px surface gap between segments; only the top segment gets rounded corners.
+                const hh = Math.max(h - (top ? 0 : 1.5), 0.5);
+                return top ? (
+                  <path key={z} d={roundedTop(barX, yCursor, barWidth, hh, radius)} fill={zoneColor(z)} />
+                ) : (
+                  <rect key={z} x={barX} width={barWidth} y={yCursor + (h - hh)} height={hh} fill={zoneColor(z)} />
+                );
               })}
               {w.estimated && total > 0 && (
-                <text x={barX + barWidth / 2} y={PAD_TOP + plotHeight - (total / max) * plotHeight - 4} fontSize={9} fill="var(--text-tertiary)" textAnchor="middle">
+                <text x={barX + barWidth / 2} y={PAD_TOP + plotHeight - (total / max) * plotHeight - 4} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
                   ~
                 </text>
               )}
@@ -145,7 +148,7 @@ export function WeeklyVolumeBars({
         {visible
           .filter((_, i) => i % Math.max(1, Math.ceil(visible.length / 8)) === 0)
           .map((w) => (
-            <text key={w.week_start} x={x(weekMs(w.week_start) + WEEK_MS / 2)} y={HEIGHT - 6} fontSize={9} fill="var(--text-tertiary)" textAnchor="middle">
+            <text key={w.week_start} x={x(weekMs(w.week_start) + WEEK_MS / 2)} y={HEIGHT - 6} fontSize={10} fill="var(--text-tertiary)" textAnchor="middle">
               {formatShortDate(w.week_start)}
             </text>
           ))}
@@ -153,21 +156,17 @@ export function WeeklyVolumeBars({
       </div>
 
       {hovered && (
-        <div className="pointer-events-none absolute top-1 left-1 rounded-md border border-border bg-surface px-2 py-1 text-xs shadow-sm">
-          <div className="text-text-tertiary">Week of {formatShortDate(hovered.week_start)}</div>
-          {ZONE_NAMES.filter((z) => hovered.zones[z] > 0).map((z) => (
-            <div key={z} className="flex items-center gap-1.5 font-mono-nums text-text-primary">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: zoneColor(z) }} />
-              {z}: {Math.round(hovered.zones[z] / 60)}m
-            </div>
-          ))}
-        </div>
+        <ChartTooltip
+          xPct={((x(weekMs(hovered.week_start) + WEEK_MS / 2)) / width) * 100}
+          title={`Week of ${formatShortDate(hovered.week_start)}`}
+          rows={ZONE_NAMES.filter((z) => hovered.zones[z] > 0).map((z) => ({ label: z, value: `${Math.round(hovered.zones[z] / 60)}m`, color: zoneColor(z) }))}
+        />
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
         {ZONE_NAMES.map((z) => (
           <span key={z} className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full" style={{ background: zoneColor(z) }} />
+            <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: zoneColor(z) }} />
             {z}
           </span>
         ))}

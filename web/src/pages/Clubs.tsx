@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { PageHeader } from "../components/ui/PageHeader";
 import { Card } from "../components/ui/Card";
 import { EmptyState, ErrorState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -33,10 +34,12 @@ export function ClubsPage() {
   };
   return (
     <div className="flex flex-col gap-4" data-testid="clubs-page">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">Clubs</h1>
-        {profile.exists && <button type="button" className={btnPrimary} onClick={() => setCreating(true)} data-testid="clubs-start">Start a club</button>}
-      </header>
+      <PageHeader
+        eyebrow="Community"
+        title="Clubs"
+        subtitle="Team calendars, challenges and announcements — with a handle, never your real name, and never your training or health data."
+        actions={profile.exists ? <button type="button" className={btnPrimary} onClick={() => setCreating(true)} data-testid="clubs-start">Start a club</button> : undefined}
+      />
 
       <Card title="Your club profile">
         {profile.exists ? (

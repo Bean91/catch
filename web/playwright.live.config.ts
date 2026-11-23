@@ -26,7 +26,7 @@ export default defineConfig({
           SUPABASE_URL: env.CATCH_TEST_SUPABASE_URL,
           SUPABASE_PUBLISHABLE_KEY: env.CATCH_TEST_SUPABASE_PUBLISHABLE_KEY ?? "",
           SUPABASE_SECRET_KEY: env.CATCH_TEST_SUPABASE_SECRET_KEY ?? "",
-          CATCH_TICK_SECRET: "live-tick-secret",
+          CATCH_TICK_SECRET: "live-tick-secret-for-the-local-test-stack-only",
           CATCH_SESSION_CHECK_TTL: "0",
           CATCH_OLLAMA_ENABLED: "0",
           CATCH_BASE_URL: "http://127.0.0.1:8799",

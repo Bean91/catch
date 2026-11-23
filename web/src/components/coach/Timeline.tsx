@@ -28,23 +28,26 @@ function TextBlock({
   if (role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg bg-surface-2 px-3.5 py-2.5 text-sm text-text-primary sm:max-w-[75%]">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2.5 text-sm text-accent-contrast shadow-subtle sm:max-w-[75%]">
           <p className="whitespace-pre-wrap">{text}</p>
         </div>
       </div>
     );
   }
   return (
-    <div className="max-w-full text-sm text-text-primary">
-      <p className="whitespace-pre-wrap">{text}</p>
-      <Attribution provider={provider} model={model} />
+    <div className="flex max-w-full gap-2.5">
+      <CoachAvatar />
+      <div className="min-w-0 max-w-[92%] rounded-2xl rounded-tl-md border border-border bg-surface-2/70 px-3.5 py-2.5 text-sm leading-relaxed text-text-primary">
+        <p className="whitespace-pre-wrap">{text}</p>
+        <Attribution provider={provider} model={model} />
+      </div>
     </div>
   );
 }
 
 export function Timeline({ entries, streamingText }: { entries: TimelineEntry[]; streamingText?: string }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3.5">
       {entries.map((entry) =>
         entry.kind === "text" ? (
           <TextBlock key={entry.key} role={entry.role} text={entry.text} provider={entry.provider} model={entry.model} />
@@ -53,13 +56,22 @@ export function Timeline({ entries, streamingText }: { entries: TimelineEntry[];
         ),
       )}
       {streamingText != null && (
-        <div className="max-w-full text-sm text-text-primary">
-          <p className="whitespace-pre-wrap">
+        <div className="flex max-w-full gap-2.5">
+          <CoachAvatar />
+          <p className="min-w-0 max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-tl-md border border-border bg-surface-2/70 px-3.5 py-2.5 text-sm leading-relaxed text-text-primary">
             {streamingText}
             <span aria-hidden className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-text-tertiary align-middle" />
           </p>
         </div>
       )}
     </div>
+  );
+}
+
+function CoachAvatar() {
+  return (
+    <span aria-hidden className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--accent-strong),var(--metric-pace))] text-[11px] font-bold text-accent-contrast">
+      C
+    </span>
   );
 }

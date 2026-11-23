@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createManualFood, fetchMyFoods, fetchSavedMeals, logFood, logSavedMeal, searchFoods, starFood } from "../../lib/api";
 import type { Food, Meal, MyFoodRow, SavedMealRow } from "../../lib/types";
+import { ModalContent } from "../ui/Sheet";
 
 const BarcodeScanner = lazy(() => import("./BarcodeScanner").then((m) => ({ default: m.BarcodeScanner })));
 
@@ -166,12 +167,10 @@ export function AddFoodDialog({
 
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-30 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-30 max-h-[85dvh] w-[min(92vw,440px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
+      <ModalContent width="md">
           {step === "search" && (
             <>
-              <Dialog.Title className="text-base font-semibold text-text-primary">Add food</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold text-text-primary">Add food</Dialog.Title>
               <div className="mt-3 flex gap-2">
                 <input
                   autoFocus
@@ -179,7 +178,7 @@ export function AddFoodDialog({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search foods…"
-                  className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-bg px-3 text-base text-text-primary"
+                  className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
                 />
                 <button
                   type="button"
@@ -283,7 +282,7 @@ export function AddFoodDialog({
 
           {step === "quantity" && selected && (
             <>
-              <Dialog.Title className="text-base font-semibold text-text-primary">{selected.name}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold text-text-primary">{selected.name}</Dialog.Title>
               {selected.brand && <Dialog.Description className="text-sm text-text-tertiary">{selected.brand}</Dialog.Description>}
               <div className="mt-4 flex items-end gap-2">
                 <div className="flex-1">
@@ -297,7 +296,7 @@ export function AddFoodDialog({
                     step="any"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
-                    className="min-h-11 w-full rounded-md border border-border bg-bg px-3 text-base text-text-primary"
+                    className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
                   />
                 </div>
                 <div>
@@ -308,7 +307,7 @@ export function AddFoodDialog({
                     id="add-food-unit"
                     value={unit}
                     onChange={(e) => setUnit(e.target.value as "g" | "serving")}
-                    className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary"
+                    className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
                   >
                     <option value="g">grams</option>
                     <option value="serving" disabled={!selected.serving_size}>
@@ -356,8 +355,7 @@ export function AddFoodDialog({
               </button>
             </Dialog.Close>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }
@@ -397,19 +395,19 @@ function ManualFoodForm({ initial, onCancel, onSaved }: { initial: Food; onCance
 
   return (
     <>
-      <Dialog.Title className="text-base font-semibold text-text-primary">Add food manually</Dialog.Title>
+      <Dialog.Title className="text-lg font-semibold text-text-primary">Add food manually</Dialog.Title>
       {initial.barcode && <Dialog.Description className="text-xs text-text-tertiary">Barcode {initial.barcode} — not found in any database yet.</Dialog.Description>}
       <div className="mt-3 flex flex-col gap-2.5">
-        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
-        <input placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
+        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+        <input placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
         <p className="text-xs text-text-tertiary">Per 100g:</p>
         <div className="grid grid-cols-2 gap-2">
-          <input placeholder="kcal" type="number" inputMode="decimal" value={kcal} onChange={(e) => setKcal(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
-          <input placeholder="protein g" type="number" inputMode="decimal" value={protein} onChange={(e) => setProtein(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
-          <input placeholder="carbs g" type="number" inputMode="decimal" value={carbs} onChange={(e) => setCarbs(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
-          <input placeholder="fat g" type="number" inputMode="decimal" value={fat} onChange={(e) => setFat(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
+          <input placeholder="kcal" type="number" inputMode="decimal" value={kcal} onChange={(e) => setKcal(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+          <input placeholder="protein g" type="number" inputMode="decimal" value={protein} onChange={(e) => setProtein(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+          <input placeholder="carbs g" type="number" inputMode="decimal" value={carbs} onChange={(e) => setCarbs(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+          <input placeholder="fat g" type="number" inputMode="decimal" value={fat} onChange={(e) => setFat(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
         </div>
-        <input placeholder="Serving size, g (optional)" type="number" inputMode="decimal" value={servingSize} onChange={(e) => setServingSize(e.target.value)} className="min-h-11 rounded-md border border-border bg-bg px-3 text-base text-text-primary" />
+        <input placeholder="Serving size, g (optional)" type="number" inputMode="decimal" value={servingSize} onChange={(e) => setServingSize(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
       </div>
       <div className="mt-4 flex gap-2">
         <button type="button" onClick={onCancel} className="min-h-11 flex-1 rounded-md border border-border text-sm text-text-primary transition-colors hover:border-accent">

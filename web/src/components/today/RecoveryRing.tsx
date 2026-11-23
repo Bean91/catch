@@ -7,7 +7,8 @@ import { useReducedMotion } from "../../lib/useReducedMotion";
 import { BandBadge } from "../ui/Badge";
 import { CountUp } from "../ui/CountUp";
 import { EmptyState } from "../ui/EmptyState";
-import { Waterline } from "../ui/Waterline";
+import { useSvgId } from "../charts/core";
+import { ModalContent } from "../ui/Sheet";
 
 const BAND_COLOR: Record<string, string> = {
   green: "var(--band-green)",
@@ -27,8 +28,8 @@ const METRIC_LABEL: Record<string, string> = {
 
 const SOURCE_LABEL: Record<string, string> = { garmin: "Garmin", whoop: "Whoop", apple_health: "Apple Health", health_connect: "Health Connect", catch: "Catch", you: "You" };
 
-const SIZE = 180;
-const STROKE = 14;
+const SIZE = 184;
+const STROKE = 12;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
@@ -40,58 +41,59 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
   const value = recovery?.value ?? 0;
   const hasValue = recovery != null && recovery.value != null;
   const offset = CIRCUMFERENCE * (1 - value / 100);
+  const gradId = useSvgId("recovery-arc");
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
         <button
           type="button"
-          className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-surface p-5 transition-colors hover:border-accent/40"
+          className="group relative flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-[var(--highlight),var(--shadow-1)] transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.995]"
           aria-label="Recovery details"
         >
+          {/* A soft wash of the band's colour behind the ring — the one place a status colour tints a surface. */}
+          <span aria-hidden className="pointer-events-none absolute inset-0 opacity-70" style={{ background: `radial-gradient(70% 55% at 50% 42%, color-mix(in oklab, ${color} 16%, transparent), transparent 72%)` }} />
+          <span className="relative self-start text-[0.9375rem] font-semibold text-text-primary">Recovery</span>
           <div className="relative" style={{ width: SIZE, height: SIZE }}>
             <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="-rotate-90">
-              <circle
-                cx={SIZE / 2}
-                cy={SIZE / 2}
-                r={RADIUS}
-                fill="none"
-                stroke="var(--surface-2)"
-                strokeWidth={STROKE}
-              />
+              <defs>
+                <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor={`color-mix(in oklab, ${color} 55%, white)`} />
+                  <stop offset="100%" stopColor={color} />
+                </linearGradient>
+              </defs>
+              <circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke="var(--surface-2)" strokeWidth={STROKE} />
               <motion.circle
                 cx={SIZE / 2}
                 cy={SIZE / 2}
                 r={RADIUS}
                 fill="none"
-                stroke={color}
+                stroke={`url(#${gradId})`}
                 strokeWidth={STROKE}
                 strokeLinecap="round"
                 strokeDasharray={CIRCUMFERENCE}
                 initial={{ strokeDashoffset: reduced ? offset : CIRCUMFERENCE }}
                 animate={{ strokeDashoffset: offset }}
                 transition={{ duration: reduced ? 0 : 1.1, ease: [0.16, 1, 0.3, 1] }}
+                style={{ filter: `drop-shadow(0 0 6px color-mix(in oklab, ${color} 45%, transparent))` }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               {hasValue ? (
-                <>
-                  <CountUp value={value} decimals={0} suffix="%" className="text-4xl font-semibold text-text-primary" />
-                </>
+                <CountUp value={value} decimals={0} suffix="%" className="text-[2.75rem] font-semibold leading-none tracking-tight text-text-primary" />
               ) : (
                 <span className="font-mono-nums text-lg font-medium text-text-tertiary">—</span>
               )}
-              <span className="mt-1 text-xs uppercase tracking-wide text-text-tertiary">Recovery</span>
+              <span className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">score</span>
             </div>
           </div>
-          <BandBadge band={band} label={band === "calibrating" ? "Calibrating" : bandLabel(band)} />
-          <Waterline />
+          <span className="relative">
+            <BandBadge band={band} label={band === "calibrating" ? "Calibrating" : bandLabel(band)} />
+          </span>
         </button>
       </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[85dvh] w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-surface p-5 shadow-xl focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
+      <ModalContent width="sm">
+          <Dialog.Title className="text-lg font-semibold text-text-primary">Recovery breakdown</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-text-secondary">
             {recovery?.explanation ?? "Need at least 7 nights of HRV history before a baseline exists."}
           </Dialog.Description>
@@ -153,8 +155,7 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
               Close
             </button>
           </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
+        </ModalContent>
     </Dialog.Root>
   );
 }

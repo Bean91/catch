@@ -1,6 +1,10 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, buttonClass } from "../components/ui/Button";
+import { controlBase } from "../components/ui/Field";
+import { PageHeader } from "../components/ui/PageHeader";
+import { PillNav } from "../components/ui/PillNav";
+import { Segmented } from "../components/ui/Segmented";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { bulkEditActivities, fetchWorkouts } from "../lib/api";
 import type { WorkoutCategory } from "../lib/types";
 import { WorkoutRow } from "../components/workouts/WorkoutRow";
@@ -72,41 +76,36 @@ export function WorkoutsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-text-primary">Workouts</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to="/library" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
-            Library
-          </Link>
-          <Link to="/feedback" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
-            Feedback
-          </Link>
-          <Link to="/tests" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
-            Tests
-          </Link>
-          <Link to="/routes" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
-            Routes
-          </Link>
-          <Link to="/workouts/duplicates" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
-            Duplicates
-          </Link>
-          <button
-            type="button"
+      <PageHeader
+        eyebrow="Training"
+        title="Workouts"
+        subtitle="Every session from every source, merged into one record each."
+        actions={
+          <Button
+            size="sm"
+            variant={bulkMode ? "primary" : "secondary"}
             onClick={() => {
               setBulkMode((v) => !v);
               setSelected(new Set());
             }}
-            className={`min-h-11 rounded-full border px-4 text-sm font-medium transition-colors ${
-              bulkMode ? "border-accent bg-accent text-accent-contrast" : "border-border bg-surface text-text-secondary hover:border-accent/40"
-            }`}
           >
             {bulkMode ? "Done" : "Select"}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
+      <PillNav
+        label="Related"
+        items={[
+          { to: "/library", label: "Library" },
+          { to: "/feedback", label: "Feedback" },
+          { to: "/tests", label: "Tests" },
+          { to: "/routes", label: "Routes" },
+          { to: "/workouts/duplicates", label: "Duplicates" },
+        ]}
+      />
 
       {bulkMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-3">
+        <div className="sticky top-[calc(var(--shell-top)+env(safe-area-inset-top)+8px)] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-surface-3/95 px-4 py-3 shadow-raised backdrop-blur lg:top-4">
           <span className="font-mono-nums text-sm text-text-secondary">{selected.size} selected</span>
           <select
             defaultValue=""
@@ -115,7 +114,7 @@ export function WorkoutsPage() {
               if (e.target.value) runBulk({ sport_family: e.target.value as "cycling" | "rowing" | "running" | "strength" | "other" });
               e.target.value = "";
             }}
-            className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary disabled:opacity-40"
+            className={`${controlBase} min-h-9 text-sm`}
           >
             <option value="" disabled>
               Retype as…
@@ -130,13 +129,13 @@ export function WorkoutsPage() {
             value={bulkTag}
             onChange={(e) => setBulkTag(e.target.value)}
             placeholder="tag, e.g. race"
-            className="min-h-9 w-32 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+            className={`${controlBase} min-h-9 w-32 text-sm`}
           />
           <button
             type="button"
             disabled={bulkBusy || selected.size === 0 || !bulkTag}
             onClick={() => runBulk({ tags: [bulkTag] })}
-            className="min-h-9 rounded-md border border-border px-3 text-sm text-text-secondary disabled:opacity-40"
+            className={buttonClass("secondary", "sm")}
           >
             Tag
           </button>
@@ -144,7 +143,7 @@ export function WorkoutsPage() {
             type="button"
             disabled={bulkBusy || selected.size === 0}
             onClick={() => runBulk({ exclude_from_totals: true })}
-            className="min-h-9 rounded-md border border-border px-3 text-sm text-text-secondary disabled:opacity-40"
+            className={buttonClass("secondary", "sm")}
           >
             Exclude from totals
           </button>
@@ -152,7 +151,7 @@ export function WorkoutsPage() {
             type="button"
             disabled={bulkBusy || selected.size === 0}
             onClick={() => runBulk({ exclude_from_totals: false })}
-            className="min-h-9 rounded-md border border-border px-3 text-sm text-text-secondary disabled:opacity-40"
+            className={buttonClass("secondary", "sm")}
           >
             Include in totals
           </button>
@@ -161,7 +160,7 @@ export function WorkoutsPage() {
               type="button"
               disabled={bulkBusy}
               onClick={() => setMergeOpen(true)}
-              className="min-h-9 rounded-md border border-accent px-3 text-sm font-medium text-accent"
+              className={buttonClass("primary", "sm")}
               data-testid="merge-selected"
             >
               Merge…
@@ -182,24 +181,7 @@ export function WorkoutsPage() {
         }}
       />
 
-      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Filter by type">
-        {FILTERS.map((f) => (
-          <button
-            key={f.value}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.value}
-            onClick={() => setFilter(f.value)}
-            className={`min-h-11 shrink-0 rounded-full border px-4 text-sm font-medium transition-colors ${
-              filter === f.value
-                ? "border-accent bg-accent text-accent-contrast"
-                : "border-border bg-surface text-text-secondary hover:border-accent/40"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <Segmented label="Filter by type" value={filter} onChange={setFilter} options={FILTERS} className="self-start" />
 
       {isLoading && (
         <div className="flex flex-col gap-3">

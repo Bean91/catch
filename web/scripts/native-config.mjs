@@ -31,15 +31,15 @@ export function nativeConfig(env = process.env.CATCH_NATIVE_ENV ?? "production")
       // The web layer owns the safe-area insets (env(safe-area-inset-*) in AppShell/BottomNav), exactly as in the PWA.
       contentInset: "never",
       scrollEnabled: true,
-      backgroundColor: "#0D0F11",
+      backgroundColor: "#0B1120",
     },
     android: {
-      backgroundColor: "#0D0F11",
+      backgroundColor: "#0B1120",
       allowMixedContent: false,
       webContentsDebuggingEnabled: env !== "production",
     },
     plugins: {
-      SplashScreen: { launchAutoHide: false, backgroundColor: "#0D0F11", showSpinner: false },
+      SplashScreen: { launchAutoHide: false, backgroundColor: "#0B1120", showSpinner: false },
       Keyboard: { resize: "native", resizeOnFullScreen: true },
       StatusBar: { overlaysWebView: true },
       PushNotifications: { presentationOptions: ["badge", "sound", "alert"] },

@@ -1,4 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { buttonClass } from "../components/ui/Button";
+import { ErrorState } from "../components/ui/EmptyState";
+import { PageHeader } from "../components/ui/PageHeader";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ExerciseBlock, type EquipmentConfig } from "../components/gym/ExerciseBlock";
@@ -185,16 +188,14 @@ export function GymPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Gym</h1>
-        <SyncStatusBadge status={syncStatus} />
-      </div>
+      <PageHeader eyebrow="Training" title="Gym" subtitle={inSession ? "Logging — every set saves on this device first, then syncs." : "Log sets as you go. Works offline."} actions={<SyncStatusBadge status={syncStatus} />} />
+      {exercisesQuery.isError && !inSession && <ErrorState message="Couldn't load the exercise library. You can still repeat a template once you're back online." onRetry={() => exercisesQuery.refetch()} />}
 
       {!inSession ? (
         <>
-          <Card title="Start a workout">
-            <div className="flex flex-col gap-2">
-              <button type="button" onClick={startSession} className="min-h-11 rounded-md bg-accent text-sm font-semibold text-bg">
+          <Card tone="accent" title="Start a workout">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={startSession} className={buttonClass("primary")}>
                 Start blank workout
               </button>
               <button
@@ -203,7 +204,7 @@ export function GymPage() {
                   const plan = await fetchRepeatLastWorkout();
                   if (plan.length > 0) await startFromPlan(plan);
                 }}
-                className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary"
+                className={buttonClass("secondary")}
               >
                 Repeat last workout
               </button>
@@ -235,12 +236,16 @@ export function GymPage() {
               </ul>
             </Card>
           )}
-          <Card title="Muscle readiness">
-            <p className="text-sm text-text-secondary">See which muscle groups are still loaded from recent sessions.</p>
-            <Link to="/gym/readiness" className="mt-2 inline-block text-sm font-medium text-accent">
-              View readiness →
-            </Link>
-          </Card>
+          <Link
+            to="/gym/readiness"
+            className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-colors hover:border-accent/40 sm:p-5"
+          >
+            <span className="min-w-0">
+              <span className="block text-[0.9375rem] font-semibold text-text-primary">Muscle readiness</span>
+              <span className="mt-0.5 block text-sm text-text-secondary">See which muscle groups are still loaded from recent sessions.</span>
+            </span>
+            <span aria-hidden className="text-lg text-accent transition-transform group-hover:translate-x-0.5">→</span>
+          </Link>
         </>
       ) : (
         <>
@@ -269,7 +274,7 @@ export function GymPage() {
             + Add exercise
           </button>
 
-          <button type="button" onClick={() => setSessionId(null)} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary">
+          <button type="button" onClick={() => setSessionId(null)} className={buttonClass("secondary")}>
             Done for now
           </button>
 

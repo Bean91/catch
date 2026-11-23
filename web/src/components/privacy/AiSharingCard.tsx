@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ErrorState } from "../ui/EmptyState";
+import { Skeleton } from "../ui/Skeleton";
 import { useState } from "react";
 import { fetchSharing, updateSharing, withdrawSharing, YOUTH_BANDS } from "../../lib/privacy";
 import { Card } from "../ui/Card";
@@ -22,7 +24,23 @@ export function AiSharingCard() {
   const save = useMutation({ mutationFn: updateSharing, onSuccess: done, onError: (e: Error) => setError(e.message) });
   const withdraw = useMutation({ mutationFn: withdrawSharing, onSuccess: (d) => { done(d); setAgree(false); } });
 
-  if (state.isLoading || !state.data) return <Card title="AI sharing"><p className="text-sm text-text-secondary">Loading…</p></Card>;
+  // An error used to leave "Loading…" up for good (`!state.data` stays true); it now says so and offers Retry.
+  if (state.isError)
+    return (
+      <Card title="AI sharing">
+        <ErrorState message="Couldn't load your sharing choices." onRetry={() => state.refetch()} />
+      </Card>
+    );
+  if (state.isLoading || !state.data)
+    return (
+      <Card title="AI sharing">
+        <div className="flex flex-col gap-2" aria-busy="true">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </Card>
+    );
   const s = state.data;
   const band = pickedBand === undefined ? s.age_band : pickedBand;
   const young = band !== null && YOUTH_BANDS.includes(band);
@@ -47,7 +65,7 @@ export function AiSharingCard() {
           <label htmlFor="age-band" className="text-sm font-medium text-text-primary">Age (optional)</label>
           <select
             id="age-band"
-            className="min-h-11 rounded-md border border-border bg-bg px-3 text-text-primary"
+            className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-text-primary"
             value={band ?? ""}
             onChange={(e) => {
               setPickedBand(e.target.value || null);
