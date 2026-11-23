@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { PlanBar } from "../components/charts/PlanBar";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { PhaseSheet } from "../components/calendar/PhaseSheet";
 import { formatMinutes, phaseKindLabel } from "../components/calendar/labels";
 import { Card } from "../components/ui/Card";
@@ -24,11 +24,9 @@ export function PlanPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Link to="/calendar" className="inline-flex min-h-11 items-center text-sm text-text-secondary">
-        ← Calendar
-      </Link>
+      <BackLink to="/calendar">Calendar</BackLink>
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-text-primary">Training plan</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Training plan</h1>
         <button type="button" onClick={() => setSheet({ open: true, existing: null })} className="min-h-11 rounded-full bg-accent px-4 text-sm font-medium text-accent-contrast">
           + Phase
         </button>

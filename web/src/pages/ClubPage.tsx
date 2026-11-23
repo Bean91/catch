@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -80,7 +81,7 @@ export function ClubPage() {
   if (club.isError || !club.data) {
     return (
       <div className="flex flex-col gap-3">
-        <Link to="/clubs" className="text-sm text-accent hover:underline">← Clubs</Link>
+        <BackLink to="/clubs">Clubs</BackLink>
         <ErrorState message="That club isn't available. It may be private, or you may have left it." />
       </div>
     );
@@ -93,11 +94,11 @@ export function ClubPage() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="club-page">
-      <Link to="/clubs" className="text-sm text-accent hover:underline">← Clubs</Link>
+      <BackLink to="/clubs">Clubs</BackLink>
       <header data-testid="club-header" className="flex items-start gap-3">
         <Logo club={c} />
         <div className="flex min-w-0 flex-col gap-2">
-          <h1 className="truncate text-xl font-semibold text-text-primary">{c.name}</h1>
+          <h1 className="truncate text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{c.name}</h1>
           <ClubScope club={c} />
           <p className="text-xs text-text-tertiary">{c.member_count ?? 0} member{c.member_count === 1 ? "" : "s"}{c.my_role ? " · you are " : ""}{c.my_role && <RoleBadge role={c.my_role} />}</p>
         </div>

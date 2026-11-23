@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { Link, useParams } from "react-router-dom";
 import { fetchPieceTestDetail } from "../lib/api";
 import { formatDistance, formatDuration, formatShortDate, formatSplit, splitUnitLabel } from "../lib/format";
@@ -35,11 +36,9 @@ export function PieceTestDetailPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <Link to="/tests" className="text-sm text-text-tertiary transition-colors hover:text-text-secondary">
-          ← Test center
-        </Link>
+        <BackLink to="/tests">Test center</BackLink>
         <div className="mt-1 flex items-center justify-between gap-2">
-          <h1 className="text-lg font-semibold text-text-primary">
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">
             {piece.modality === "bike" ? "Bike " : ""}
             {test_type} piece — {activity.local_date ? formatShortDate(activity.local_date) : "—"}
           </h1>

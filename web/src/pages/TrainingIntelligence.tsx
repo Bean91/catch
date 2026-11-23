@@ -45,7 +45,7 @@ export function TrainingIntelligencePage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Training intelligence</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Training intelligence</h1>
         <Link to="/trends" className="text-sm font-medium text-accent">
           Back to Trends
         </Link>

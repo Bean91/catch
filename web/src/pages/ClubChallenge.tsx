@@ -33,7 +33,7 @@ export function ClubChallengePage() {
     <div className="flex flex-col gap-4" data-testid="challenge-page">
       <Link to={`/clubs/${id}?tab=challenges`} className="text-sm text-accent hover:underline">← {club.data?.name ?? "Club"} · Challenges</Link>
       <header className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">{c.title}</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{c.title}</h1>
         <p className="text-sm text-text-secondary">{metricLabel(c.metric)} · {c.start} → {c.end} · <span data-testid="challenge-phase">{phaseLabel(c.phase)}</span>{!closed && c.status === "active" ? ` · settles ${c.settles_on}` : ""}</p>
         {c.description && <p className="text-sm text-text-primary">{c.description}</p>}
       </header>

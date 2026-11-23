@@ -70,7 +70,7 @@ export function OnboardingPage() {
         <p className="text-xs font-medium uppercase tracking-wide text-text-tertiary" aria-live="polite">
           Step {step + 1} of {STEP_TITLES.length}
         </p>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">{STEP_TITLES[step]}</h1>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{STEP_TITLES[step]}</h1>
         <div className="mt-2 flex gap-1" aria-hidden>
           {STEP_TITLES.map((_, i) => (
             <span key={i} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-accent" : "bg-surface-2"}`} />

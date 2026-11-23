@@ -66,7 +66,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
+      <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Settings</h1>
 
       <Card
         title="Connected sources"

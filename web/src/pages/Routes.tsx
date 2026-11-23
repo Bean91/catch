@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { Link } from "react-router-dom";
 import { fetchRoutes } from "../lib/api";
 import { formatKm } from "../lib/gpsFormat";
@@ -14,10 +15,8 @@ export function RoutesPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <Link to="/workouts" className="text-sm text-text-tertiary transition-colors hover:text-text-secondary">
-          ← Workouts
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">Routes</h1>
+        <BackLink to="/workouts">Workouts</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Routes</h1>
         <p className="text-sm text-text-tertiary">Courses you've rowed more than once, grouped only when the GPS tracks genuinely line up.</p>
       </div>
       {isLoading && <CardSkeleton lines={3} />}

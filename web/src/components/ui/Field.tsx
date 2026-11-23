@@ -2,8 +2,10 @@ import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type Selec
 import { cn } from "../../lib/cn";
 
 /** Every text box, select and textarea shares this surface, border and focus ring (the ring itself is in index.css). */
-export const controlClass =
-  "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary transition-colors placeholder:text-text-tertiary hover:border-border-strong disabled:opacity-50";
+/** Without a width — for a control sized by its row (a date, a unit select, a short number). */
+export const controlBase =
+  "min-h-11 min-w-0 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary transition-colors placeholder:text-text-tertiary hover:border-border-strong disabled:opacity-50";
+export const controlClass = `${controlBase} w-full`;
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
   return <input ref={ref} className={cn(controlClass, className)} {...rest} />;

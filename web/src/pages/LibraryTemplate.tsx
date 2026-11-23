@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ScheduleSheet } from "../components/library/ScheduleSheet";
@@ -42,10 +43,8 @@ export function LibraryTemplatePage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/library" className="text-sm text-text-tertiary">
-          ← Library
-        </Link>
-        <h1 className="text-lg font-semibold text-text-primary" data-testid="template-title">
+        <BackLink to="/library">Library</BackLink>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]" data-testid="template-title">
           {t.name}
         </h1>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-secondary">

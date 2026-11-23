@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { FeedbackEntryCard } from "../components/coaching/FeedbackEntryCard";
 import { FeedbackSheet } from "../components/coaching/FeedbackSheet";
 import { FOCUS_AREAS, NOT_MEASURED, TECHNIQUE_CATEGORIES } from "../components/coaching/labels";
@@ -35,10 +35,8 @@ export function FeedbackPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Link to="/calendar" className="text-sm text-text-tertiary">
-            ← Calendar
-          </Link>
-          <h1 className="text-lg font-semibold text-text-primary">Coaching feedback</h1>
+          <BackLink to="/calendar">Calendar</BackLink>
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Coaching feedback</h1>
         </div>
         <button type="button" data-testid="log-feedback" onClick={() => setSheet({ open: true, existing: null })} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast">
           Log feedback

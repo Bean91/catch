@@ -34,7 +34,7 @@ export function ClubsPage() {
   return (
     <div className="flex flex-col gap-4" data-testid="clubs-page">
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-text-primary">Clubs</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Clubs</h1>
         {profile.exists && <button type="button" className={btnPrimary} onClick={() => setCreating(true)} data-testid="clubs-start">Start a club</button>}
       </header>
 

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { BackLink } from "../components/ui/PageHeader";
 import { fetchAiProviders, fetchAiUsage, fetchCoachSettings } from "../lib/api";
 import { formatTokens } from "../lib/aiProviders";
 import { Card } from "../components/ui/Card";
@@ -14,10 +14,8 @@ export function AiProvidersPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/settings" className="text-sm font-medium text-accent hover:underline">
-          ← Settings
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">AI providers</h1>
+        <BackLink to="/settings">Settings</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">AI providers</h1>
         <p className="mt-1 text-sm text-text-secondary">
           Catch never pays for AI. Each provider uses your own key, stored encrypted on the server and never shown again. With no provider set up,
           AI features stay off.

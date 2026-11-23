@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { BackLink } from "../components/ui/PageHeader";
+import { useParams } from "react-router-dom";
 import { fetchLbProfile } from "../lib/api";
 import { EntryRow } from "../components/leaderboards/EntryRow";
 import { Card } from "../components/ui/Card";
@@ -11,10 +12,8 @@ export function LeaderboardAthletePage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/leaderboards" className="text-sm font-medium text-accent hover:underline">
-          ← Leaderboards
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary" data-testid="lb-athlete-name">
+        <BackLink to="/leaderboards">Leaderboards</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]" data-testid="lb-athlete-name">
           {q.data?.name ?? "Athlete"}
         </h1>
         <p className="mt-1 text-sm text-text-secondary">Only results this athlete chose to publish. Nothing about their recovery, sleep, weight or training is ever shown here.</p>

@@ -73,7 +73,7 @@ export function WorkoutsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold text-text-primary">Workouts</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Workouts</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link to="/library" className="min-h-11 rounded-full border border-border bg-surface px-4 text-sm font-medium text-text-secondary transition-colors hover:border-accent/40 flex items-center">
             Library

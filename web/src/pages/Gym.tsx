@@ -186,7 +186,7 @@ export function GymPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Gym</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Gym</h1>
         <SyncStatusBadge status={syncStatus} />
       </div>
 

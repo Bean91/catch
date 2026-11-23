@@ -154,7 +154,7 @@ export function LibraryEditorPage() {
         <Link to={editing ? `/library/${tid}` : "/library"} className="text-sm text-text-tertiary">
           ← {editing ? "Template" : "Library"}
         </Link>
-        <h1 className="text-lg font-semibold text-text-primary">{editing ? "Edit template" : "New template"}</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{editing ? "Edit template" : "New template"}</h1>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_20rem] lg:gap-5">

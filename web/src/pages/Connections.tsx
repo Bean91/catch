@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchConnections } from "../lib/api";
 import { CONNECT_RESULT_TEXT } from "../lib/connections";
@@ -18,10 +19,8 @@ export function ConnectionsPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/settings" className="text-sm font-medium text-accent hover:underline">
-          ← Settings
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">Connections</h1>
+        <BackLink to="/settings">Settings</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Connections</h1>
         <p className="mt-1 text-sm text-text-secondary">
           Each source uses your own account. Passwords are never asked for or stored; keys and tokens are stored encrypted on the server and never
           shown again. Disconnecting never deletes what Catch already imported.

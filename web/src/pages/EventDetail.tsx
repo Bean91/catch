@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EventSheet } from "../components/calendar/EventSheet";
@@ -90,12 +91,10 @@ export function EventDetailPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Link to="/calendar" className="inline-flex min-h-11 items-center text-sm text-text-secondary">
-        ← Calendar
-      </Link>
+      <BackLink to="/calendar">Calendar</BackLink>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="min-w-0 wrap-anywhere text-lg font-semibold text-text-primary">{e.name}</h1>
+          <h1 className="min-w-0 wrap-anywhere text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{e.name}</h1>
           <p className="text-sm text-text-secondary">
             {eventTypeLabel(e.type)}
             {e.priority ? ` · ${e.priority} race` : ""} · {formatShortDate(e.date)}

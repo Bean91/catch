@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchRoute, fetchRouteHistory, fetchTrack, patchRoute } from "../lib/api";
@@ -78,9 +79,7 @@ export function RouteDetailPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/routes" className="text-sm text-text-tertiary transition-colors hover:text-text-secondary">
-          ← Routes
-        </Link>
+        <BackLink to="/routes">Routes</BackLink>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {editingName ? (
             <input

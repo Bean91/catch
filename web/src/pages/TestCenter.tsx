@@ -40,7 +40,7 @@ export function TestCenterPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1 basis-60">
-          <h1 className="text-lg font-semibold text-text-primary">Test center</h1>
+          <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Test center</h1>
           <p className="text-sm text-text-tertiary">500m/1k/2k/5k/6k, 30min r20, 60min, and custom erg tests.</p>
           {(isPublic || isMock) && (
             <Link to="/settings/leaderboards" data-testid="tests-leaderboards-link" className="text-sm font-medium text-accent hover:underline">

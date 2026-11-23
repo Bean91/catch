@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { fetchModQueue, moderateLbEntry, resolveLbAppeal } from "../lib/api";
 import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
@@ -22,10 +22,8 @@ export function ModerationPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div>
-        <Link to="/settings/leaderboards" className="text-sm font-medium text-accent hover:underline">
-          ← Leaderboards settings
-        </Link>
-        <h1 className="mt-1 text-lg font-semibold text-text-primary">Moderation</h1>
+        <BackLink to="/settings/leaderboards">Leaderboards settings</BackLink>
+        <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Moderation</h1>
         <p className="mt-1 text-sm text-text-secondary">Every action needs a written reason, is recorded in an append-only log, and is shown to the athlete.</p>
       </div>
       {q.isLoading && <CardSkeleton lines={4} />}

@@ -72,7 +72,7 @@ export function NutritionPage() {
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Nutrition</h1>
+        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Nutrition</h1>
         <div className="flex gap-1 rounded-md border border-border p-0.5" role="tablist" aria-label="View">
           {(["day", "week"] as const).map((v) => (
             <button
