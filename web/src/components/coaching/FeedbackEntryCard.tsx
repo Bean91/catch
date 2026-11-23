@@ -7,6 +7,8 @@ import type { FeedbackEntry } from "../../lib/types";
 import { invalidateFeedback } from "./FeedbackSheet";
 import { focusLabel } from "./labels";
 import { PrivacyBadge } from "./PrivacyBadge";
+import { buttonClass } from "../ui/Button";
+import { controlBase } from "../ui/Field";
 
 function authorLine(e: FeedbackEntry): string {
   if (e.author.role === "coach") return e.author.name;
@@ -97,13 +99,13 @@ export function FeedbackEntryCard({ entry, onEdit }: { entry: FeedbackEntry; onE
       )}
       {editingResponse && (
         <div className="flex flex-col gap-2">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} aria-label="Your response" className="w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary" />
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} aria-label="Your response" className={controlBase + " w-full min-w-0 py-2"} />
           {error && <p role="alert" className="text-sm text-text-secondary">{error}</p>}
           <div className="flex gap-2">
-            <button type="button" onClick={() => respond.mutate()} disabled={respond.isPending} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+            <button type="button" onClick={() => respond.mutate()} disabled={respond.isPending} className={buttonClass("primary", "md")}>
               Save response
             </button>
-            <button type="button" onClick={() => setEditingResponse(false)} className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">
+            <button type="button" onClick={() => setEditingResponse(false)} className={buttonClass("secondary", "md")}>
               Cancel
             </button>
           </div>

@@ -17,7 +17,7 @@ export function RoutesPage() {
       <div>
         <BackLink to="/workouts">Workouts</BackLink>
         <h1 className="mt-1 text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Routes</h1>
-        <p className="text-sm text-text-tertiary">Courses you've rowed more than once, grouped only when the GPS tracks genuinely line up.</p>
+        <p className="mt-1 text-sm text-text-secondary">Courses you've rowed more than once, grouped only when the GPS tracks genuinely line up.</p>
       </div>
       {isLoading && <CardSkeleton lines={3} />}
       {isError && <ErrorState message="Couldn't load routes." onRetry={() => refetch()} />}
@@ -29,10 +29,10 @@ export function RoutesPage() {
       )}
       <div className="flex flex-col gap-3">
         {data?.map((r) => (
-          <Link key={r.id} to={`/routes/${r.id}`} className="block rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40 sm:p-5">
+          <Link key={r.id} to={`/routes/${r.id}`} className="group block rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-colors hover:border-accent/40 sm:p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="min-w-0 wrap-anywhere text-base font-medium text-text-primary">{r.display_name}</span>
-              <span className="font-mono-nums text-sm text-text-secondary">
+              <span className="flex min-w-0 items-center gap-2.5 text-base font-semibold text-text-primary"><span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: "var(--metric-pace)" }} /><span className="min-w-0 wrap-anywhere">{r.display_name}</span></span>
+              <span className="font-mono-nums text-sm font-semibold text-text-primary">
                 {formatKm(r.length_m, 1)} <GpsBadge source={r.length_source} />
               </span>
             </div>

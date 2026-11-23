@@ -1,8 +1,10 @@
 import { formatClock, parseClock } from "../../lib/duration";
 import type { TemplateBlock, ZoneLabel } from "../../lib/types";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const ZONE_CHOICES: ZoneLabel[] = ["UT2", "UT1", "AT", "TR", "AN"];
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 
 // One editor row holds the raw text the athlete typed; `rowToBlock` turns it into the API shape
 // (text -> seconds/metres only — no totals are computed in the browser).
@@ -127,19 +129,19 @@ export function BlockEditor({ rows, onChange, ladder }: { rows: BlockRow[]; onCh
           </div>
           <input value={r.note} onChange={(e) => set(i, { note: e.target.value })} placeholder="Note (optional)" aria-label={`Block ${i + 1} note`} className={inputCls} />
           <div className="flex gap-2">
-            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move block ${i + 1} up`} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary disabled:opacity-40">
+            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move block ${i + 1} up`} className={buttonClass("secondary", "md", "min-w-11")}>
               ↑
             </button>
-            <button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label={`Move block ${i + 1} down`} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary disabled:opacity-40">
+            <button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label={`Move block ${i + 1} down`} className={buttonClass("secondary", "md", "min-w-11")}>
               ↓
             </button>
-            <button type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))} aria-label={`Remove block ${i + 1}`} className="ml-auto min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+            <button type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))} aria-label={`Remove block ${i + 1}`} className={buttonClass("secondary", "md", "ml-auto")}>
               Remove
             </button>
           </div>
         </fieldset>
       ))}
-      <button type="button" data-testid="add-block" onClick={() => onChange([...rows, blankRow()])} className="min-h-11 self-start rounded-md border border-border px-3 text-sm text-text-secondary">
+      <button type="button" data-testid="add-block" onClick={() => onChange([...rows, blankRow()])} className={buttonClass("secondary", "md", "self-start")}>
         + Add {ladder ? "step" : "block"}
       </button>
     </div>

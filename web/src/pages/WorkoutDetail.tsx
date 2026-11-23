@@ -20,8 +20,8 @@ import { TechniqueGrid } from "../components/workouts/TechniqueGrid";
 import { ZoneBar } from "../components/workouts/ZoneBar";
 import { ZoneTable } from "../components/workouts/ZoneTable";
 import { Badge, BandBadge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
-import { controlClass } from "../components/ui/Field";
+import { Button, buttonClass } from "../components/ui/Button";
+import { controlClass, controlSkin } from "../components/ui/Field";
 import { InfoTip } from "../components/ui/InfoTip";
 import { Segmented } from "../components/ui/Segmented";
 import { StatTile } from "../components/ui/StatTile";
@@ -234,7 +234,7 @@ export function WorkoutDetailPage() {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 if (e.key === "Escape") setEditingTitle(false);
               }}
-              className="min-h-11 min-w-0 rounded-md border border-accent bg-surface-2 px-3 text-xl font-semibold text-text-primary"
+              className={controlSkin + " w-auto min-h-11 min-w-0"}
             />
           ) : (
             <h1
@@ -387,7 +387,7 @@ export function WorkoutDetailPage() {
             type="button"
             disabled={importIntervals.isPending}
             onClick={() => importIntervals.mutate(workout.concept2_interval_activity_id!)}
-            className="mb-2 min-h-9 rounded-md border border-border px-3 text-xs font-medium text-text-primary disabled:opacity-50"
+            className={buttonClass("secondary", "sm", "mb-2")}
           >
             {importIntervals.isPending ? "Importing…" : "Import intervals from Concept2"}
           </button>
@@ -593,7 +593,7 @@ export function WorkoutDetailPage() {
                   distances are added; anything recorded twice counts once.
                 </p>
                 {workout.merge.can_undo && !confirmUndoMerge && (
-                  <button type="button" onClick={() => setConfirmUndoMerge(true)} className="mt-2 min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:border-accent">
+                  <button type="button" onClick={() => setConfirmUndoMerge(true)} className={buttonClass("secondary", "md", "mt-2")}>
                     Undo merge
                   </button>
                 )}
@@ -604,14 +604,14 @@ export function WorkoutDetailPage() {
                       earliest one.
                     </p>
                     <div className="mt-2 flex gap-2">
-                      <button type="button" onClick={() => setConfirmUndoMerge(false)} className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary">
+                      <button type="button" onClick={() => setConfirmUndoMerge(false)} className={buttonClass("secondary", "md", "flex-1")}>
                         Keep merged
                       </button>
                       <button
                         type="button"
                         disabled={undoMergeMutation.isPending}
                         onClick={() => undoMergeMutation.mutate()}
-                        className="min-h-11 flex-1 rounded-md bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                        className={buttonClass("primary", "md", "flex-1")}
                       >
                         {undoMergeMutation.isPending ? "Undoing…" : "Undo merge"}
                       </button>
@@ -670,7 +670,7 @@ function ChangeDay({ recorded, current, overridden, onChange, busy }: { recorded
         value={current}
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
-        className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary"
+        className={controlSkin + " w-auto min-h-11"}
       >
         {options.map((d) => (
           <option key={d} value={d}>

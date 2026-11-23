@@ -7,8 +7,10 @@ import { addDays, todayISO } from "../../lib/dates";
 import type { PlannedWorkout, WorkoutTemplate } from "../../lib/types";
 import { invalidateCalendar } from "../calendar/PlannedWorkoutSheet";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean; onOpenChange: (open: boolean) => void; template: WorkoutTemplate }) {
@@ -106,7 +108,7 @@ export function ScheduleSheet({ open, onOpenChange, template }: { open: boolean;
                 </p>
               )}
               <div className="mt-5 flex gap-2">
-                <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !date} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+                <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !date} className={buttonClass("primary", "md", "flex-1")}>
                   {save.isPending ? "Adding…" : "Add to calendar"}
                 </button>
                 <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>

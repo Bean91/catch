@@ -10,6 +10,7 @@ import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { duplicateLibraryTemplate, fetchExercises, fetchLibraryTemplate, setLibraryTemplateArchived } from "../lib/api";
+import { buttonClass } from "../components/ui/Button";
 
 export function LibraryTemplatePage() {
   const { id } = useParams();
@@ -63,7 +64,7 @@ export function LibraryTemplatePage() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        <button type="button" data-testid="add-to-calendar" disabled={t.archived} onClick={() => setSchedule(true)} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+        <button type="button" data-testid="add-to-calendar" disabled={t.archived} onClick={() => setSchedule(true)} className={buttonClass("primary", "md")}>
           Add to calendar
         </button>
         {!t.is_example && (

@@ -1,4 +1,5 @@
 import { formatInstantDate } from "../lib/localTime";
+import { Notice } from "../components/ui/Notice";
 import { BackLink } from "../components/ui/PageHeader";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -11,6 +12,7 @@ import {
   saveConsent, sendPreview, sinceCursor, type HealthCategory, type HealthPreview,
 } from "../lib/native/health";
 import { isNative } from "../lib/native/platform";
+import { buttonClass } from "../components/ui/Button";
 
 const PLATFORM_NAME = { apple_health: "Apple Health", health_connect: "Health Connect" } as const;
 
@@ -90,9 +92,7 @@ export function HealthDataPage() {
       <div className="flex flex-col gap-4">
         <BackLink to="/settings">Settings</BackLink>
         <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Health data</h1>
-        <Card>
-          <p className="text-sm text-text-secondary">Importing from Apple Health or Health Connect is available in the Catch app on your phone. It isn't available in a web browser.</p>
-        </Card>
+        <Notice tone="info">Importing from Apple Health or Health Connect is available in the Catch app on your phone. It isn't available in a web browser.</Notice>
       </div>
     );
   }
@@ -111,7 +111,7 @@ export function HealthDataPage() {
         <div role="status" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
           {notice}
           {needsSettings && platform === "health_connect" && (
-            <button type="button" onClick={() => void openHealthConnectSettings()} className="mt-2 block min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary">
+            <button type="button" onClick={() => void openHealthConnectSettings()} className={buttonClass("secondary", "md", "mt-2 block")}>
               Open Health Connect
             </button>
           )}
@@ -153,7 +153,7 @@ export function HealthDataPage() {
           type="button"
           disabled={!categories.length || start.isPending || send.isPending}
           onClick={() => { setNotice(null); start.mutate(); }}
-          className="mt-4 min-h-11 w-full rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+          className={buttonClass("primary", "md", "mt-4 w-full")}
         >
           {start.isPending ? "Reading…" : active ? "Review what's new" : `Continue — ${name} will ask for permission`}
         </button>
@@ -172,10 +172,10 @@ export function HealthDataPage() {
           </ul>
           {preview.counts.skipped_duplicate > 0 && <p className="mt-2 text-xs text-text-tertiary">{preview.counts.skipped_duplicate} record(s) came from apps whose data Catch already syncs, and are left out.</p>}
           <div className="mt-4 flex gap-2">
-            <button type="button" disabled={send.isPending || (!preview.payload.workouts.length && !preview.payload.readings.length)} onClick={() => send.mutate()} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-50">
+            <button type="button" disabled={send.isPending || (!preview.payload.workouts.length && !preview.payload.readings.length)} onClick={() => send.mutate()} className={buttonClass("primary", "md", "flex-1")}>
               {send.isPending ? "Sending…" : "Send to Catch"}
             </button>
-            <button type="button" disabled={send.isPending} onClick={() => setPreview(null)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary">Cancel</button>
+            <button type="button" disabled={send.isPending} onClick={() => setPreview(null)} className={buttonClass("secondary", "md")}>Cancel</button>
           </div>
         </Card>
       )}
@@ -188,15 +188,15 @@ export function HealthDataPage() {
           </p>
           {counts && <p className="mt-1 text-xs text-text-tertiary">Held now: {counts.workouts} workouts, {counts.readings} daily readings from {name}.</p>}
           <div className="mt-3 flex flex-wrap gap-2">
-            {active && <button type="button" disabled={stop.isPending} onClick={() => stop.mutate(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary">Stop sharing</button>}
+            {active && <button type="button" disabled={stop.isPending} onClick={() => stop.mutate(false)} className={buttonClass("secondary", "md")}>Stop sharing</button>}
             {!confirmDelete ? (
-              <button type="button" onClick={() => setConfirmDelete(true)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-band-red-text">Delete imported data…</button>
+              <button type="button" onClick={() => setConfirmDelete(true)} className={buttonClass("danger", "md")}>Delete imported data…</button>
             ) : (
               <div role="alertdialog" aria-label="Delete imported health data" className="w-full rounded-md border border-band-red/40 p-3 text-sm text-text-secondary">
                 This turns sharing off and permanently deletes the workouts and readings imported from {name}. Data from Garmin, Withings and your other sources stays.
                 <div className="mt-3 flex gap-2">
                   <button type="button" disabled={stop.isPending} onClick={() => stop.mutate(true)} className="min-h-11 rounded-md bg-band-red px-4 text-sm font-medium text-white disabled:opacity-50">Delete</button>
-                  <button type="button" onClick={() => setConfirmDelete(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary">Keep</button>
+                  <button type="button" onClick={() => setConfirmDelete(false)} className={buttonClass("secondary", "md")}>Keep</button>
                 </div>
               </div>
             )}

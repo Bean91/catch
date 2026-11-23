@@ -3,6 +3,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createManualFood, fetchMyFoods, fetchSavedMeals, logFood, logSavedMeal, searchFoods, starFood } from "../../lib/api";
 import type { Food, Meal, MyFoodRow, SavedMealRow } from "../../lib/types";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const BarcodeScanner = lazy(() => import("./BarcodeScanner").then((m) => ({ default: m.BarcodeScanner })));
 
@@ -178,12 +180,12 @@ export function AddFoodDialog({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search foods…"
-                  className="min-h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
+                  className={controlSkin + " min-h-11 min-w-0 flex-1"}
                 />
                 <button
                   type="button"
                   onClick={() => setStep("scan")}
-                  className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary transition-colors hover:border-accent"
+                  className={buttonClass("secondary", "md")}
                 >
                   Scan
                 </button>
@@ -228,7 +230,7 @@ export function AddFoodDialog({
                         key={f.my_food_id}
                         type="button"
                         onClick={() => pickFood(f)}
-                        className="min-h-9 rounded-full border border-border px-3 text-xs text-text-primary transition-colors hover:border-accent"
+                        className={buttonClass("secondary", "sm")}
                       >
                         {f.label ?? f.name}
                       </button>
@@ -247,7 +249,7 @@ export function AddFoodDialog({
                         type="button"
                         disabled={saving}
                         onClick={() => logEntireSavedMeal(m.id)}
-                        className="min-h-9 rounded-full border border-border px-3 text-xs text-text-primary transition-colors hover:border-accent disabled:opacity-40"
+                        className={buttonClass("secondary", "sm")}
                       >
                         {m.name}
                       </button>
@@ -296,7 +298,7 @@ export function AddFoodDialog({
                     step="any"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
-                    className="min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
+                    className={controlSkin + " min-h-11 w-full"}
                   />
                 </div>
                 <div>
@@ -307,7 +309,7 @@ export function AddFoodDialog({
                     id="add-food-unit"
                     value={unit}
                     onChange={(e) => setUnit(e.target.value as "g" | "serving")}
-                    className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary"
+                    className={controlSkin + " w-auto min-h-11"}
                   >
                     <option value="g">grams</option>
                     <option value="serving" disabled={!selected.serving_size}>
@@ -318,13 +320,13 @@ export function AddFoodDialog({
               </div>
               {error && <p className="mt-2 text-sm text-text-secondary">{error}</p>}
               <div className="mt-4 flex gap-2">
-                <button type="button" onClick={() => setStep("search")} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary transition-colors hover:border-accent">
+                <button type="button" onClick={() => setStep("search")} className={buttonClass("secondary", "md")}>
                   Back
                 </button>
                 <button
                   type="button"
                   onClick={() => starFood(selected.id).catch(() => undefined)}
-                  className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary transition-colors hover:border-accent"
+                  className={buttonClass("secondary", "md")}
                 >
                   ★ Save to My Foods
                 </button>
@@ -332,7 +334,7 @@ export function AddFoodDialog({
                   type="button"
                   onClick={submitQuantity}
                   disabled={saving}
-                  className="min-h-11 flex-1 rounded-md border border-accent bg-accent px-3 text-sm font-medium text-accent-contrast disabled:opacity-40"
+                  className={buttonClass("primary", "md", "flex-1")}
                 >
                   {saving ? "Logging…" : "Log it"}
                 </button>
@@ -350,7 +352,7 @@ export function AddFoodDialog({
 
           {step === "search" && (
             <Dialog.Close asChild>
-              <button type="button" onClick={onClose} className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent">
+              <button type="button" onClick={onClose} className={buttonClass("secondary", "md", "mt-4 w-full")}>
                 Cancel
               </button>
             </Dialog.Close>
@@ -398,26 +400,26 @@ function ManualFoodForm({ initial, onCancel, onSaved }: { initial: Food; onCance
       <Dialog.Title className="text-lg font-semibold text-text-primary">Add food manually</Dialog.Title>
       {initial.barcode && <Dialog.Description className="text-xs text-text-tertiary">Barcode {initial.barcode} — not found in any database yet.</Dialog.Description>}
       <div className="mt-3 flex flex-col gap-2.5">
-        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
-        <input placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
+        <input placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
         <p className="text-xs text-text-tertiary">Per 100g:</p>
         <div className="grid grid-cols-2 gap-2">
-          <input placeholder="kcal" type="number" inputMode="decimal" value={kcal} onChange={(e) => setKcal(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
-          <input placeholder="protein g" type="number" inputMode="decimal" value={protein} onChange={(e) => setProtein(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
-          <input placeholder="carbs g" type="number" inputMode="decimal" value={carbs} onChange={(e) => setCarbs(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
-          <input placeholder="fat g" type="number" inputMode="decimal" value={fat} onChange={(e) => setFat(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+          <input placeholder="kcal" type="number" inputMode="decimal" value={kcal} onChange={(e) => setKcal(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
+          <input placeholder="protein g" type="number" inputMode="decimal" value={protein} onChange={(e) => setProtein(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
+          <input placeholder="carbs g" type="number" inputMode="decimal" value={carbs} onChange={(e) => setCarbs(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
+          <input placeholder="fat g" type="number" inputMode="decimal" value={fat} onChange={(e) => setFat(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
         </div>
-        <input placeholder="Serving size, g (optional)" type="number" inputMode="decimal" value={servingSize} onChange={(e) => setServingSize(e.target.value)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary" />
+        <input placeholder="Serving size, g (optional)" type="number" inputMode="decimal" value={servingSize} onChange={(e) => setServingSize(e.target.value)} className={controlSkin + " w-auto min-h-11"} />
       </div>
       <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onCancel} className="min-h-11 flex-1 rounded-md border border-border text-sm text-text-primary transition-colors hover:border-accent">
+        <button type="button" onClick={onCancel} className={buttonClass("secondary", "md", "flex-1")}>
           Back
         </button>
         <button
           type="button"
           onClick={submit}
           disabled={saving || !name.trim() || kcal.trim() === ""}
-          className="min-h-11 flex-1 rounded-md border border-accent bg-accent text-sm font-medium text-accent-contrast disabled:opacity-40"
+          className={buttonClass("primary", "md", "flex-1")}
         >
           {saving ? "Saving…" : "Save & continue"}
         </button>

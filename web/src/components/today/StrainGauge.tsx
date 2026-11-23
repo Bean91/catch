@@ -1,5 +1,4 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { motion } from "framer-motion";
 import { useState } from "react";
 import type { Strain } from "../../lib/types";
 import { bandLabel } from "../../lib/format";
@@ -9,6 +8,7 @@ import { Card } from "../ui/Card";
 import { CountUp } from "../ui/CountUp";
 import { EmptyState } from "../ui/EmptyState";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
 
 const MAX = 21;
 
@@ -61,23 +61,13 @@ export function StrainGauge({
                 {/* The target range as a quiet track segment, under the fill. */}
                 <div aria-hidden className="absolute inset-y-0 bg-text-primary/[0.06]" style={{ left: `${(lo / MAX) * 100}%`, width: `${((hi - lo) / MAX) * 100}%` }} />
                 {hasSplit ? (
-                  <motion.div
-                    className="absolute inset-y-0 left-0 flex overflow-hidden rounded-full"
-                    initial={{ width: reduced ? `${pct}%` : "0%" }}
-                    animate={{ width: `${pct}%` }}
-                    transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
-                  >
+                  <div className={`absolute inset-y-0 left-0 flex overflow-hidden rounded-full ${reduced ? "" : "grow-x"}`} style={{ width: `${pct}%` }}>
                     <div className="h-full bg-accent shadow-[0_0_12px_var(--accent-soft)]" style={{ width: `${(cardioValue / Math.max(value, 0.01)) * 100}%` }} />
                     <div className="h-full bg-accent/60" style={{ width: `${(muscularValue / Math.max(value, 0.01)) * 100}%` }} />
                     <div className="h-full bg-accent/30" style={{ width: `${(dailyValue / Math.max(value, 0.01)) * 100}%` }} />
-                  </motion.div>
+                  </div>
                 ) : (
-                  <motion.div
-                    className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,color-mix(in_oklab,var(--accent)_60%,transparent),var(--accent))]"
-                    initial={{ width: reduced ? `${pct}%` : "0%" }}
-                    animate={{ width: `${pct}%` }}
-                    transition={{ duration: reduced ? 0 : 1, ease: [0.16, 1, 0.3, 1] }}
-                  />
+                  <div className={`absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,color-mix(in_oklab,var(--accent)_60%,transparent),var(--accent))] ${reduced ? "" : "grow-x"}`} style={{ width: `${pct}%` }} />
                 )}
               </div>
               {/* Target-range boundary ticks sit above the fill (not a translucent band under
@@ -172,7 +162,7 @@ export function StrainGauge({
           <Dialog.Close asChild>
             <button
               type="button"
-              className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary transition-colors hover:border-accent"
+              className={buttonClass("secondary", "md", "mt-4 w-full")}
             >
               Close
             </button>

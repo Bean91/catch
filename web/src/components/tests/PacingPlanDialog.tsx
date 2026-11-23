@@ -5,6 +5,8 @@ import { makePacingPlan } from "../../lib/api";
 import { formatSplit } from "../../lib/format";
 import { ERG_TEST_TYPES, type ErgTestType, type PacingPlan, type PacingStyle } from "../../lib/types";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const STYLE_LABELS: { value: PacingStyle; label: string }[] = [
   { value: "even", label: "Even" },
@@ -70,7 +72,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
             <div className="mt-4 flex flex-col gap-4">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-text-primary">Test type</span>
-                <select value={testType} onChange={(e) => setTestType(e.target.value as ErgTestType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
+                <select value={testType} onChange={(e) => setTestType(e.target.value as ErgTestType)} className={controlSkin + " w-auto min-h-11"}>
                   {ERG_TEST_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {t}
@@ -89,7 +91,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                     inputMode="numeric"
                     value={distanceM}
                     onChange={(e) => setDistanceM(e.target.value)}
-                    className="min-h-11 rounded-md border border-border bg-surface-2 px-3 font-mono-nums text-sm text-text-primary"
+                    className={controlSkin + " w-auto min-h-11 font-mono-nums"}
                   />
                 </label>
               )}
@@ -100,14 +102,14 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                   value={goalTimeText}
                   onChange={(e) => setGoalTimeText(e.target.value)}
                   placeholder="7:30"
-                  className="min-h-11 rounded-md border border-border bg-surface-2 px-3 font-mono-nums text-sm text-text-primary"
+                  className={controlSkin + " w-auto min-h-11 font-mono-nums"}
                 />
                 {goalTimeText && goalTimeS == null && <span className="text-xs text-[var(--band-red-text)]">Use m:ss, e.g. 7:30</span>}
               </label>
 
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-text-primary">Pacing style</span>
-                <select value={style} onChange={(e) => setStyle(e.target.value as PacingStyle)} className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary">
+                <select value={style} onChange={(e) => setStyle(e.target.value as PacingStyle)} className={controlSkin + " w-auto min-h-11"}>
                   {STYLE_LABELS.map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
@@ -120,7 +122,7 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                 type="button"
                 disabled={goalTimeS == null || build.isPending}
                 onClick={() => build.mutate()}
-                className="min-h-11 rounded-md bg-accent text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+                className={buttonClass("primary", "md")}
               >
                 {build.isPending ? "Building…" : "Build plan"}
               </button>
@@ -147,14 +149,14 @@ export function PacingPlanDialog({ open, onOpenChange }: { open: boolean; onOpen
                   ))}
                 </tbody>
               </table>
-              <button type="button" onClick={() => setPlan(null)} className="min-h-11 rounded-md border border-border text-sm font-medium text-text-primary">
+              <button type="button" onClick={() => setPlan(null)} className={buttonClass("secondary", "md")}>
                 Build another
               </button>
             </div>
           )}
 
           <Dialog.Close asChild>
-            <button type="button" className="mt-4 min-h-11 w-full rounded-md border border-border text-sm font-medium text-text-primary">
+            <button type="button" className={buttonClass("secondary", "md", "mt-4 w-full")}>
               Close
             </button>
           </Dialog.Close>

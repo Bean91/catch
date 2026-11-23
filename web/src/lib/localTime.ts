@@ -29,7 +29,18 @@ export function isValidZone(zone: string | null | undefined): zone is string {
 /** Set by the app when /api/me (or /api/today) arrives. Offsets like "+09:00" are accepted (Intl understands them in modern engines;
  * when one doesn't, it falls back to the device zone). */
 export function setActiveZone(zone: string | null | undefined): void {
-  activeZone = isValidZone(zone) ? zone : null;
+  const next = isValidZone(zone) ? zone : null;
+  if (next === activeZone) return;
+  activeZone = next;
+  for (const fn of zoneListeners) fn();
+}
+
+const zoneListeners = new Set<() => void>();
+
+/** For `useSyncExternalStore`: a component that shows "today" re-renders when the account's zone arrives or changes. */
+export function subscribeActiveZone(fn: () => void): () => void {
+  zoneListeners.add(fn);
+  return () => zoneListeners.delete(fn);
 }
 
 export function activeTimeZone(): string | undefined {

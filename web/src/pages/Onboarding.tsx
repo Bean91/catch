@@ -13,12 +13,13 @@ import { CONNECT_RESULT_TEXT, PROVIDES, statusLabel } from "../lib/connections";
 import { isPublic } from "../lib/deployment";
 import { deviceZone, setActiveZone, zoneLabel } from "../lib/localTime";
 import type { ConnectionCard as Conn, Me, ProviderId } from "../lib/types";
+import { controlSkin } from "../components/ui/Field";
 
 const STEP_TITLES = ["Welcome", "Connect your sources", "Training basics", "Your privacy", "Importing", "All set"];
 const LAST = STEP_TITLES.length - 1;
 const PRIMARY = buttonClass("primary");
 const SECONDARY = buttonClass("secondary");
-const INPUT = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
+const INPUT = `${controlSkin} min-h-11 w-full`;
 
 /** First-run setup (session 32, docs/onboarding.md). Six short steps, each skippable; progress is saved on the server so it resumes
  * on any device. Nothing here waits for history to import, and no step ever shows a key or token. Session 34 added the privacy step:

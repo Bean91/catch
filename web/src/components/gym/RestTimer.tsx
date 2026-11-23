@@ -1,5 +1,6 @@
 import { haptic } from "../../lib/native/haptics";
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "../ui/Button";
 
 const DEFAULT_REST_S = 90;
 
@@ -78,7 +79,7 @@ export function RestTimer({ endAt, onDismiss, onExtend }: { endAt: number | null
           <button
             type="button"
             onClick={() => onExtend(30)}
-            className="min-h-11 min-w-11 rounded-md border border-border px-3 text-xs font-medium text-text-secondary"
+            className={buttonClass("secondary", "md", "min-w-11")}
           >
             +30s
           </button>
@@ -86,7 +87,7 @@ export function RestTimer({ endAt, onDismiss, onExtend }: { endAt: number | null
         <button
           type="button"
           onClick={onDismiss}
-          className="min-h-11 min-w-11 rounded-md border border-border px-3 text-xs font-medium text-text-secondary"
+          className={buttonClass("secondary", "md", "min-w-11")}
         >
           Skip
         </button>

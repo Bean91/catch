@@ -12,8 +12,10 @@ import { EmptyState, ErrorState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
 import { fetchFeedback, fetchTechniqueNotes } from "../lib/api";
 import type { FeedbackEntry, FocusArea, TechniqueNote } from "../lib/types";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
-const selectCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const selectCls = `${controlSkin} min-h-11 w-full min-w-0`;
 
 export function FeedbackPage() {
   const [coach, setCoach] = useState("");
@@ -38,7 +40,7 @@ export function FeedbackPage() {
           <BackLink to="/calendar">Calendar</BackLink>
           <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Coaching feedback</h1>
         </div>
-        <button type="button" data-testid="log-feedback" onClick={() => setSheet({ open: true, existing: null })} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast">
+        <button type="button" data-testid="log-feedback" onClick={() => setSheet({ open: true, existing: null })} className={buttonClass("primary", "md")}>
           Log feedback
         </button>
       </div>

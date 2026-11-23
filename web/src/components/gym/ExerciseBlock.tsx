@@ -5,6 +5,8 @@ import type { EquipmentType, Exercise, GymStation, SetType } from "../../lib/typ
 import { Card } from "../ui/Card";
 import { PlateCalculatorDialog } from "./PlateCalculatorDialog";
 import { Stepper } from "./Stepper";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 export interface EquipmentConfig {
   equipmentType: EquipmentType;
@@ -162,7 +164,7 @@ export function ExerciseBlock({
         <select
           value={config.equipmentType}
           onChange={(e) => onConfigChange({ ...config, equipmentType: e.target.value as EquipmentType })}
-          className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+          className={controlSkin + " w-auto min-h-11"}
         >
           {Object.entries(EQUIPMENT_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -179,9 +181,9 @@ export function ExerciseBlock({
               value={config.barWeightKg ?? ""}
               placeholder={config.equipmentType === "barbell" ? "20 (bar kg)" : "Bar kg — unknown"}
               onChange={(e) => onConfigChange({ ...config, barWeightKg: e.target.value === "" ? null : Number(e.target.value) })}
-              className="min-h-11 w-32 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+              className={controlSkin + " min-h-11 w-32"}
             />
-            <button type="button" onClick={() => setPlateCalcOpen(true)} className="min-h-11 rounded-md border border-border px-3 text-xs font-medium text-text-secondary">
+            <button type="button" onClick={() => setPlateCalcOpen(true)} className={buttonClass("secondary", "md")}>
               Plate calc
             </button>
           </>
@@ -193,7 +195,7 @@ export function ExerciseBlock({
               <select
                 value={config.gymStationId ?? ""}
                 onChange={(e) => onConfigChange({ ...config, gymStationId: e.target.value ? Number(e.target.value) : null })}
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+                className={controlSkin + " w-auto min-h-11"}
               >
                 <option value="">No saved station</option>
                 {stationsForEquipment.map((s) => (
@@ -206,7 +208,7 @@ export function ExerciseBlock({
             <select
               value={config.pulleyMultiplier ?? 1}
               onChange={(e) => onConfigChange({ ...config, pulleyMultiplier: Number(e.target.value) })}
-              className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+              className={controlSkin + " w-auto min-h-11"}
             >
               <option value={1}>1:1 pulley</option>
               <option value={0.5}>2:1 pulley</option>
@@ -219,7 +221,7 @@ export function ExerciseBlock({
           <select
             value={config.bandTag ?? "medium"}
             onChange={(e) => onConfigChange({ ...config, bandTag: e.target.value })}
-            className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary"
+            className={controlSkin + " w-auto min-h-11"}
           >
             {BAND_TAGS.map((t) => (
               <option key={t} value={t}>
@@ -264,7 +266,7 @@ export function ExerciseBlock({
         )}
         <label className="flex flex-col gap-1">
           <span className="text-xs text-text-tertiary">Set type</span>
-          <select value={setType} onChange={(e) => setSetType(e.target.value as SetType)} className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-sm text-text-primary">
+          <select value={setType} onChange={(e) => setSetType(e.target.value as SetType)} className={controlSkin + " w-auto min-h-11"}>
             {SET_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -279,7 +281,7 @@ export function ExerciseBlock({
             inputMode="numeric"
             value={rir ?? ""}
             onChange={(e) => setRir(e.target.value === "" ? null : Number(e.target.value))}
-            className="min-h-11 rounded-md border border-border bg-surface-2 px-2 text-center font-mono-nums text-sm text-text-primary"
+            className={controlSkin + " w-auto min-h-11 text-center font-mono-nums"}
           />
         </label>
       </div>
@@ -289,11 +291,11 @@ export function ExerciseBlock({
           type="button"
           onClick={sameAsLast}
           disabled={!lastLoggedThisSession && lastSession.length === 0}
-          className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-secondary disabled:opacity-40"
+          className={buttonClass("secondary", "md", "flex-1")}
         >
           Same as last set
         </button>
-        <button type="button" onClick={submit} className="min-h-11 flex-[2] rounded-md bg-accent text-sm font-semibold text-bg">
+        <button type="button" onClick={submit} className={buttonClass("primary", "md")}>
           Log set
         </button>
       </div>

@@ -6,6 +6,7 @@ import { categoryLabel, formatDistance, formatDuration, formatNumber, formatSpli
 import { formatInstantDate, formatInstantTime } from "../../lib/localTime";
 import type { MergePreviewItem } from "../../lib/types";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
 
 const SOURCE_LABEL: Record<string, string> = {
   garmin: "Garmin",
@@ -106,7 +107,7 @@ export function MergeSheet({ open, ids, onClose, onMerged }: { open: boolean; id
               )}
 
               <div className="flex gap-2">
-                <button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary">
+                <button type="button" onClick={onClose} className={buttonClass("secondary", "md", "flex-1")}>
                   {p.compatible ? "Cancel" : "Close"}
                 </button>
                 {p.compatible && (
@@ -114,7 +115,7 @@ export function MergeSheet({ open, ids, onClose, onMerged }: { open: boolean; id
                     type="button"
                     disabled={merge.isPending}
                     onClick={() => merge.mutate()}
-                    className="min-h-11 flex-1 rounded-md bg-accent text-sm font-medium text-accent-contrast disabled:opacity-50"
+                    className={buttonClass("primary", "md", "flex-1")}
                   >
                     {merge.isPending ? "Merging…" : "Merge these workouts"}
                   </button>

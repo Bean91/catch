@@ -5,9 +5,11 @@ import { maskedKey, STATUS_GLYPH, STATUS_LABEL, statusDetailText, statusTone } f
 import type { AiProviderCard, AiTestResult, CoachSettings, ModelPrice } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { ProviderKeySheet } from "./ProviderKeySheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary placeholder:text-text-tertiary";
-const btn = "min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:border-accent disabled:opacity-50";
+const inputCls = `${controlSkin} min-h-11 min-w-0`;
+const btn = buttonClass("secondary", "md");
 
 const TONE: Record<string, string> = {
   good: "border-band-green/40 text-band-green",
@@ -110,7 +112,7 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
                 <span className="text-text-secondary" data-testid={`saved-model-${card.id}`}>
                   Model: <span className="text-text-primary">{card.model ?? "none chosen yet"}</span>
                 </span>
-                <button type="button" onClick={() => setPickModel(true)} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary hover:border-accent" data-testid={`change-model-${card.id}`}>
+                <button type="button" onClick={() => setPickModel(true)} className={buttonClass("secondary", "md")} data-testid={`change-model-${card.id}`}>
                   {card.model ? "Change model" : "Choose a model"}
                 </button>
               </div>
@@ -186,7 +188,7 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
             </button>
           )}
           {card.needs_key && card.configured && !confirmRemove && (
-            <button type="button" onClick={() => setConfirmRemove(true)} className="min-h-11 px-2 text-sm font-medium text-band-red-text hover:underline">
+            <button type="button" onClick={() => setConfirmRemove(true)} className={buttonClass("danger", "md")}>
               Remove key
             </button>
           )}
@@ -198,7 +200,7 @@ export function ProviderCard({ card, settings }: { card: AiProviderCard; setting
               Remove your {card.label} key? Your conversations and coach memory stay. {card.active ? "The coach will stop answering until you pick another provider." : ""}
             </p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="min-h-11 rounded-md border border-band-red/40 px-4 text-sm font-medium text-band-red-text">
+              <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className={buttonClass("danger", "md")}>
                 {remove.isPending ? "Removing…" : "Remove key"}
               </button>
               <button type="button" onClick={() => setConfirmRemove(false)} className={btn}>

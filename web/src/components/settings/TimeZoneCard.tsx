@@ -3,8 +3,10 @@ import { useMemo, useState } from "react";
 import { fetchTimeZone, putTimeZone } from "../../lib/api";
 import { allZones, deviceZone, setActiveZone, zoneLabel } from "../../lib/localTime";
 import { Card } from "../ui/Card";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const INPUT = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary focus:border-accent focus:outline-none";
+const INPUT = `${controlSkin} min-h-11 w-full`;
 
 /** The IANA zone list from the browser itself (no data shipped), with the device's own zone suggested first. */
 export function TimeZoneSelect({ value, onChange, id = "tz-select" }: { value: string; onChange: (zone: string) => void; id?: string }) {
@@ -68,7 +70,7 @@ export function TimeZoneCard() {
               role="switch"
               aria-checked={data.follow_device_zone}
               onClick={() => save.mutate({ follow_device_zone: !data.follow_device_zone })}
-              className="min-h-11 min-w-16 rounded-md border border-border px-3 text-sm font-medium text-text-primary"
+              className={buttonClass("secondary", "md", "min-w-16")}
             >
               {data.follow_device_zone ? "On" : "Off"}
             </button>
@@ -78,7 +80,7 @@ export function TimeZoneCard() {
               type="button"
               disabled={draft == null || save.isPending}
               onClick={() => save.mutate({ timezone: home })}
-              className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-50"
+              className={buttonClass("primary", "md")}
             >
               Save time zone
             </button>

@@ -4,6 +4,7 @@ import { dismissIllness } from "../../lib/api";
 import { BandBadge } from "../ui/Badge";
 import { Card } from "../ui/Card";
 import type { DismissReason, IllnessState } from "../../lib/types";
+import { buttonClass } from "../ui/Button";
 
 const SIGNAL_LABELS: Record<string, string> = {
   resting_hr: "Resting HR",
@@ -58,7 +59,7 @@ export function IllnessCard({ date, illness }: { date: string; illness: IllnessS
         <button
           type="button"
           onClick={() => setShowDismiss(true)}
-          className="mt-3 min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-primary"
+          className={buttonClass("secondary", "md", "mt-3")}
         >
           This has an explanation…
         </button>
@@ -70,7 +71,7 @@ export function IllnessCard({ date, illness }: { date: string; illness: IllnessS
               type="button"
               disabled={dismiss.isPending}
               onClick={() => dismiss.mutate(r.value)}
-              className="min-h-11 rounded-md border border-border px-3 text-sm text-text-primary disabled:opacity-50"
+              className={buttonClass("secondary", "md")}
             >
               {r.label}
             </button>

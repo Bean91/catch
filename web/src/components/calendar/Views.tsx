@@ -6,6 +6,7 @@ import { CompletedChip, EventChip, PlannedSessionChip } from "./Chips";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
 import { PillNav } from "../ui/PillNav";
 import { EmptyState } from "../ui/EmptyState";
+import { buttonClass } from "../ui/Button";
 
 function linkedCompletedIds(day: CalendarDay): Set<number> {
   return new Set(day.planned.map((p) => p.linked_canonical_id).filter((v): v is number => v != null));
@@ -91,10 +92,10 @@ function SuggestionRow({ s, planned, day }: { s: MatchSuggestion; planned: Plann
       </p>
       <p className="text-xs text-text-tertiary">Both records stay as they are — linking only connects them.</p>
       <div className="flex gap-2">
-        <button type="button" onClick={() => link.mutate()} disabled={link.isPending} className="min-h-11 flex-1 rounded-md bg-accent px-3 text-accent-contrast">
+        <button type="button" onClick={() => link.mutate()} disabled={link.isPending} className={buttonClass("primary", "md", "flex-1")}>
           Link them
         </button>
-        <button type="button" onClick={() => decline.mutate()} disabled={decline.isPending} className="min-h-11 flex-1 rounded-md border border-border px-3 text-text-secondary">
+        <button type="button" onClick={() => decline.mutate()} disabled={decline.isPending} className={buttonClass("secondary", "md", "flex-1")}>
           Not this one
         </button>
       </div>
@@ -123,7 +124,7 @@ export function DayView({
     <div className="flex flex-col gap-3" data-testid="day-view">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-medium text-text-primary">{dayLabel(day.date)}</h2>
-        <button type="button" onClick={() => onAdd(day.date)} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+        <button type="button" onClick={() => onAdd(day.date)} className={buttonClass("secondary", "md")}>
           + Plan a session
         </button>
       </div>
@@ -154,12 +155,12 @@ export function DayView({
             {s && <SuggestionRow s={s} planned={p} day={day} />}
             <div className="flex flex-wrap gap-2 px-1">
               {p.linked_canonical_id != null && (
-                <button type="button" onClick={() => unlink.mutate(p.id)} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+                <button type="button" onClick={() => unlink.mutate(p.id)} className={buttonClass("secondary", "md")}>
                   Unlink workout
                 </button>
               )}
               {p.session_type !== "rest" && p.linked_canonical_id == null && (
-                <button type="button" onClick={() => skip.mutate({ id: p.id, skipped: p.status !== "skipped" })} className="min-h-11 rounded-md border border-border px-3 text-sm text-text-secondary">
+                <button type="button" onClick={() => skip.mutate({ id: p.id, skipped: p.status !== "skipped" })} className={buttonClass("secondary", "md")}>
                   {p.status === "skipped" ? "Put back in plan" : "Mark skipped"}
                 </button>
               )}

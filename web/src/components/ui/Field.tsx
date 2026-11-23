@@ -3,8 +3,10 @@ import { cn } from "../../lib/cn";
 
 /** Every text box, select and textarea shares this surface, border and focus ring (the ring itself is in index.css). */
 /** Without a width — for a control sized by its row (a date, a unit select, a short number). */
-export const controlBase =
-  "min-h-11 min-w-0 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary transition-colors placeholder:text-text-tertiary hover:border-border-strong disabled:opacity-50";
+/** The look alone — no height or width — for a control that sets its own (a compact 36px stepper field). */
+export const controlSkin =
+  "min-w-0 rounded-md border border-border bg-surface-2 px-3 text-base text-text-primary transition-colors placeholder:text-text-tertiary hover:border-border-strong disabled:opacity-50";
+export const controlBase = `${controlSkin} min-h-11`;
 export const controlClass = `${controlBase} w-full`;
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {

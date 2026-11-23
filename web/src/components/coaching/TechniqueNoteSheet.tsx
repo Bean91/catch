@@ -5,8 +5,10 @@ import { createTechniqueNote, deleteTechniqueNote, updateTechniqueNote } from ".
 import type { MediaRef, NoteVisibility, TechniqueCategory, TechniqueNote } from "../../lib/types";
 import { NOT_MEASURED, TECHNIQUE_CATEGORIES } from "./labels";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -151,14 +153,14 @@ export function TechniqueNoteSheet({
               {media.map((m, i) => (
                 <div key={i} className="grid grid-cols-[1fr_auto] gap-2">
                   <input value={m.url} onChange={(e) => setMedia(media.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} placeholder="https://…" aria-label={`Link ${i + 1} address`} className={inputCls} inputMode="url" />
-                  <button type="button" aria-label={`Remove link ${i + 1}`} onClick={() => setMedia(media.filter((_, j) => j !== i))} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary">
+                  <button type="button" aria-label={`Remove link ${i + 1}`} onClick={() => setMedia(media.filter((_, j) => j !== i))} className={buttonClass("secondary", "md", "min-w-11")}>
                     ×
                   </button>
                   <input value={m.label} onChange={(e) => setMedia(media.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} placeholder="Label" aria-label={`Link ${i + 1} label`} className={`${inputCls} col-span-2`} />
                 </div>
               ))}
               {media.length < 5 && (
-                <button type="button" onClick={() => setMedia([...media, { url: "", label: "" }])} className="min-h-11 self-start rounded-md border border-border px-3 text-sm text-text-secondary">
+                <button type="button" onClick={() => setMedia([...media, { url: "", label: "" }])} className={buttonClass("secondary", "md", "self-start")}>
                   + Add a link
                 </button>
               )}
@@ -170,7 +172,7 @@ export function TechniqueNoteSheet({
             </p>
           )}
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !text.trim()} className="min-h-11 flex-1 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending || !text.trim()} className={buttonClass("primary", "md", "flex-1")}>
               {save.isPending ? "Saving…" : existing ? "Save changes" : "Save note"}
             </button>
             <Dialog.Close className="min-h-11 rounded-md border border-border px-4 text-sm text-text-secondary">Cancel</Dialog.Close>
@@ -182,7 +184,7 @@ export function TechniqueNoteSheet({
             {existing && confirmDelete && (
               <div className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-sm">
                 <span className="flex-1 text-text-secondary">Delete this note?</span>
-                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className="min-h-11 rounded-md border border-border px-3 text-text-primary">
+                <button type="button" onClick={() => remove.mutate()} disabled={remove.isPending} className={buttonClass("secondary", "md")}>
                   Delete
                 </button>
               </div>

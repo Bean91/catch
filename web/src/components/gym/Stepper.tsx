@@ -1,3 +1,4 @@
+import { controlBase } from "../ui/Field";
 /** Big tap targets (task Part A.4) — a labeled number input flanked by +/- buttons, each at
  * least 44px. Direct typing still works (a stepper-only input would be slower for a lifter
  * who already knows the exact number). */
@@ -35,7 +36,7 @@ export function Stepper({
           aria-label={label}
           value={value}
           onChange={(e) => onChange(round(Math.max(min, Number(e.target.value) || 0)))}
-          className="h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-2 text-center font-mono-nums text-lg text-text-primary"
+          className={controlBase + " h-11 min-w-0 flex-1 text-center font-mono-nums"}
         />
         {suffix && <span className="text-sm text-text-tertiary">{suffix}</span>}
         <button

@@ -7,8 +7,10 @@ import type { LbDatePrecision, LbPrefs, LbPreview, LbResult, LbState } from "../
 import { EntryRow } from "./EntryRow";
 import { VerificationBadge } from "./VerificationBadge";
 import { SheetContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full`;
 type Step = "meaning" | "choices" | "preview" | "done";
 
 /** Publishing is three steps and an explicit confirm: what verification means, what you choose to show, and a preview rendered by the
@@ -80,7 +82,7 @@ export function PublishSheet({ result, state, open, onOpenChange }: { result: Lb
               </p>
               <p className="text-xs text-text-tertiary">“Verified” means the source can be authenticated. It is not a guarantee of identity, equipment or physical condition.</p>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => close(false)} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+                <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md")}>
                   Cancel
                 </button>
                 <button type="button" onClick={() => setStep("choices")} data-testid="publish-next" className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-white">
@@ -128,7 +130,7 @@ export function PublishSheet({ result, state, open, onOpenChange }: { result: Lb
                 </p>
               )}
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setStep("meaning")} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+                <button type="button" onClick={() => setStep("meaning")} className={buttonClass("secondary", "md")}>
                   Back
                 </button>
                 <button type="submit" disabled={makePreview.isPending} data-testid="publish-preview" className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50">
@@ -154,7 +156,7 @@ export function PublishSheet({ result, state, open, onOpenChange }: { result: Lb
                 </p>
               )}
               <div className="flex flex-wrap justify-end gap-2">
-                <button type="button" onClick={() => setStep("choices")} className="min-h-11 rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+                <button type="button" onClick={() => setStep("choices")} className={buttonClass("secondary", "md")}>
                   Change choices
                 </button>
                 <button type="button" onClick={() => publish.mutate()} disabled={publish.isPending} data-testid="publish-confirm" className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50">
@@ -169,7 +171,7 @@ export function PublishSheet({ result, state, open, onOpenChange }: { result: Lb
               <p role="status" data-testid="publish-done" className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
                 Your result is public. You can take it down any time in Settings → Leaderboards.
               </p>
-              <button type="button" onClick={() => close(false)} className="min-h-11 self-end rounded-md border border-border px-4 text-sm font-medium text-text-secondary">
+              <button type="button" onClick={() => close(false)} className={buttonClass("secondary", "md", "self-end")}>
                 Close
               </button>
             </div>

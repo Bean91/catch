@@ -9,8 +9,10 @@ import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { createLibraryTemplate, fetchExercises, fetchLibraryTemplate, previewLibraryTemplate, updateLibraryTemplate } from "../lib/api";
 import type { Difficulty, SessionType, TemplateBlock, TemplateInput, TemplateStrengthItem, WorkoutType, ZoneLabel } from "../lib/types";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
-const inputCls = "min-h-11 w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full min-w-0`;
 const ZONES: ZoneLabel[] = ["UT2", "UT1", "AT", "TR", "AN"];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -237,7 +239,7 @@ export function LibraryEditorPage() {
                     </select>
                     <input value={it.target_sets ?? ""} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, target_sets: e.target.value ? Number(e.target.value.replace(/\D/g, "")) : null } : x)))} inputMode="numeric" placeholder="Sets" aria-label={`Exercise ${i + 1} sets`} className={inputCls} />
                     <input value={it.target_reps ?? ""} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, target_reps: e.target.value ? Number(e.target.value.replace(/\D/g, "")) : null } : x)))} inputMode="numeric" placeholder="Reps" aria-label={`Exercise ${i + 1} reps`} className={inputCls} />
-                    <button type="button" onClick={() => setItems(items.filter((_, j) => j !== i))} aria-label={`Remove exercise ${i + 1}`} className="min-h-11 min-w-11 rounded-md border border-border text-text-secondary">
+                    <button type="button" onClick={() => setItems(items.filter((_, j) => j !== i))} aria-label={`Remove exercise ${i + 1}`} className={buttonClass("secondary", "md", "min-w-11")}>
                       ×
                     </button>
                   </div>
@@ -246,7 +248,7 @@ export function LibraryEditorPage() {
                   type="button"
                   disabled={!exercises.data?.length}
                   onClick={() => exercises.data?.[0] && setItems([...items, { exercise_id: exercises.data[0].id, target_sets: 3, target_reps: 8 }])}
-                  className="min-h-11 self-start rounded-md border border-border px-3 text-sm text-text-secondary disabled:opacity-60"
+                  className={buttonClass("secondary", "md", "self-start")}
                 >
                   + Add exercise
                 </button>
@@ -290,7 +292,7 @@ export function LibraryEditorPage() {
               {error}
             </p>
           )}
-          <button type="button" data-testid="save-template" onClick={() => save.mutate()} disabled={!canSave} className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-60">
+          <button type="button" data-testid="save-template" onClick={() => save.mutate()} disabled={!canSave} className={buttonClass("primary", "md")}>
             {save.isPending ? "Saving…" : editing ? "Save changes" : "Create template"}
           </button>
         </div>

@@ -8,8 +8,9 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { contextLine } from "../lib/leaderboards";
 import type { LbBoardFilters, LbEntry } from "../lib/types";
+import { controlSkin } from "../components/ui/Field";
 
-const selectCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const selectCls = `${controlSkin} min-h-11 w-full`;
 
 export function LeaderboardsPage() {
   const [params, setParams] = useSearchParams();

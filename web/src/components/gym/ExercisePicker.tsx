@@ -4,6 +4,8 @@ import { createExercise } from "../../lib/api";
 import type { EquipmentType, Exercise, MovementPattern } from "../../lib/types";
 import { EmptyState } from "../ui/EmptyState";
 import { ModalContent } from "../ui/Sheet";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
 const EQUIPMENT_OPTIONS: { value: EquipmentType; label: string }[] = [
   { value: "barbell", label: "Barbell" },
@@ -82,12 +84,12 @@ export function ExercisePicker({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Exercise name"
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+                className={controlSkin + " w-auto min-h-11"}
               />
               <select
                 value={newEquipment}
                 onChange={(e) => setNewEquipment(e.target.value as EquipmentType)}
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+                className={controlSkin + " w-auto min-h-11"}
               >
                 {EQUIPMENT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -98,7 +100,7 @@ export function ExercisePicker({
               <select
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value as MovementPattern)}
-                className="min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+                className={controlSkin + " w-auto min-h-11"}
               >
                 {MOVEMENT_OPTIONS.map((p) => (
                   <option key={p} value={p}>
@@ -110,7 +112,7 @@ export function ExercisePicker({
                 <button
                   type="button"
                   onClick={() => setCreating(false)}
-                  className="min-h-11 flex-1 rounded-md border border-border text-sm font-medium text-text-primary"
+                  className={buttonClass("secondary", "md", "flex-1")}
                 >
                   Back
                 </button>
@@ -118,7 +120,7 @@ export function ExercisePicker({
                   type="button"
                   disabled={!newName.trim() || saving}
                   onClick={handleCreate}
-                  className="min-h-11 flex-1 rounded-md bg-accent text-sm font-semibold text-bg disabled:opacity-50"
+                  className={buttonClass("primary", "md", "flex-1")}
                 >
                   {saving ? "Saving…" : "Add"}
                 </button>
@@ -131,7 +133,7 @@ export function ExercisePicker({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search exercises…"
-                className="mt-3 min-h-11 rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary"
+                className={controlSkin + " w-auto mt-3 min-h-11"}
               />
               <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
                 {filtered.length === 0 ? (

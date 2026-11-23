@@ -2,9 +2,11 @@ import { useState } from "react";
 import { fetchIntervalTemplate } from "../../lib/api";
 import type { IntervalTarget, IntervalValidationIssue, PieceInterval } from "../../lib/types";
 import { TimeInput } from "./TimeInput";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "min-h-9 w-full min-w-0 rounded-md border border-border bg-surface-2 px-2 text-base font-mono-nums text-text-primary";
-const btnCls = "min-h-9 min-w-9 rounded-md border border-border px-2 text-xs font-medium text-text-primary disabled:opacity-40";
+const inputCls = `${controlSkin} min-h-9 w-full min-w-0 px-2 font-mono-nums`;
+const btnCls = buttonClass("secondary", "sm", "min-w-9");
 
 export function blankInterval(target: IntervalTarget = "distance"): PieceInterval {
   return {
@@ -122,7 +124,7 @@ export function IntervalEditor({
             <span className="text-xs text-text-tertiary">Rest between</span>
             <TimeInput valueS={restS} onChange={setRestS} ariaLabel="Rest between" />
           </label>
-          <button type="button" disabled={busy || !target} onClick={generate} className="min-h-9 rounded-md border border-accent bg-accent px-4 text-xs font-medium text-accent-contrast disabled:opacity-50">
+          <button type="button" disabled={busy || !target} onClick={generate} className={buttonClass("primary", "sm")}>
             Add {count} ×
           </button>
         </div>
@@ -198,7 +200,7 @@ export function IntervalEditor({
                   <Num label="Max HR" value={r.max_hr} onChange={(v) => patch(i, { max_hr: v })} />
                   <label className="col-span-3 flex flex-col gap-1">
                     <span className="text-xs text-text-tertiary">Notes</span>
-                    <input type="text" aria-label={`Interval ${i + 1} notes`} value={r.notes ?? ""} onChange={(e) => patch(i, { notes: e.target.value || null })} className="min-h-9 w-full rounded-md border border-border bg-surface-2 px-2 text-base text-text-primary" />
+                    <input type="text" aria-label={`Interval ${i + 1} notes`} value={r.notes ?? ""} onChange={(e) => patch(i, { notes: e.target.value || null })} className={controlSkin + " min-h-9 w-full"} />
                   </label>
                 </div>
               )}
@@ -212,7 +214,7 @@ export function IntervalEditor({
         })}
       </ol>
 
-      <button type="button" onClick={() => onChange([...rows, blankInterval(rows[rows.length - 1]?.target_type ?? "distance")])} className="min-h-9 self-start rounded-md border border-border px-3 text-xs font-medium text-text-primary">
+      <button type="button" onClick={() => onChange([...rows, blankInterval(rows[rows.length - 1]?.target_type ?? "distance")])} className={buttonClass("secondary", "sm", "self-start")}>
         + Add custom interval
       </button>
       {issues.filter((x) => x.index === null).map((x, k) => (

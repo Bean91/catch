@@ -5,8 +5,10 @@ import type { NutritionTargetSettings } from "../../lib/types";
 import { Card } from "../ui/Card";
 import { CardSkeleton } from "../ui/Skeleton";
 import { ErrorState } from "../ui/EmptyState";
+import { buttonClass } from "../ui/Button";
+import { controlSkin } from "../ui/Field";
 
-const inputCls = "font-mono-nums w-20 min-h-11 rounded-md border border-border bg-surface-2 px-2 text-text-primary";
+const inputCls = `${controlSkin} min-h-11 font-mono-nums w-20 px-2`;
 
 export function NutritionTargetsCard() {
   const queryClient = useQueryClient();
@@ -108,7 +110,7 @@ export function NutritionTargetsCard() {
               type="button"
               onClick={() => save.mutate(form)}
               disabled={save.isPending}
-              className="min-h-11 rounded-md border border-accent bg-accent px-4 text-sm font-medium text-accent-contrast disabled:opacity-50"
+              className={buttonClass("primary", "md")}
             >
               {save.isPending ? "Saving…" : "Save targets"}
             </button>

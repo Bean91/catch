@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Notice } from "../components/ui/Notice";
 import { BackLink } from "../components/ui/PageHeader";
 import { useState } from "react";
 import { fetchModQueue, moderateLbEntry, resolveLbAppeal } from "../lib/api";
@@ -6,8 +7,10 @@ import { Card } from "../components/ui/Card";
 import { CardSkeleton } from "../components/ui/Skeleton";
 import { ClubModeration } from "../components/clubs/ClubModeration";
 import { AccountRestrictions } from "../components/clubs/AccountRestrictions";
+import { buttonClass } from "../components/ui/Button";
+import { controlSkin } from "../components/ui/Field";
 
-const inputCls = "min-h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-text-primary";
+const inputCls = `${controlSkin} min-h-11 w-full`;
 
 export function ModerationPage() {
   const queryClient = useQueryClient();
@@ -27,7 +30,7 @@ export function ModerationPage() {
         <p className="mt-1 text-sm text-text-secondary">Every action needs a written reason, is recorded in an append-only log, and is shown to the athlete.</p>
       </div>
       {q.isLoading && <CardSkeleton lines={4} />}
-      {q.isError && <p className="text-sm text-text-secondary">This page isn't available to your account.</p>}
+      {q.isError && <Notice tone="info">This page isn't available to your account.</Notice>}
       {error && (
         <p role="alert" data-testid="mod-error" className="rounded-md border border-band-red/30 bg-band-red/10 px-3 py-2 text-sm text-band-red-text">
           {error}
@@ -46,7 +49,7 @@ export function ModerationPage() {
                 <input value={reasons[r.entry_id] ?? ""} onChange={(e) => setReason(r.entry_id, e.target.value)} placeholder="Reason (required)" className={inputCls} data-testid={`mod-reason-${r.entry_id}`} />
                 <div className="flex flex-wrap gap-2">
                   {(["hide", "remove", "restore", "dismiss_reports"] as const).map((a) => (
-                    <button key={a} type="button" onClick={() => act.mutate({ id: r.entry_id, action: a })} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-secondary" data-testid={`mod-${a}-${r.entry_id}`}>
+                    <button key={a} type="button" onClick={() => act.mutate({ id: r.entry_id, action: a })} className={buttonClass("secondary", "md")} data-testid={`mod-${a}-${r.entry_id}`}>
                       {a === "dismiss_reports" ? "Dismiss reports" : a[0].toUpperCase() + a.slice(1)}
                     </button>
                   ))}
@@ -62,10 +65,10 @@ export function ModerationPage() {
                 <p className="text-sm text-text-secondary">“{a.text}”</p>
                 <input value={reasons[`a${a.id}`] ?? ""} onChange={(e) => setReason(`a${a.id}`, e.target.value)} placeholder="Decision reason (required)" className={inputCls} data-testid={`mod-appeal-reason-${a.id}`} />
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => resolve.mutate({ id: a.id, outcome: "overturned" })} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-secondary" data-testid={`mod-overturn-${a.id}`}>
+                  <button type="button" onClick={() => resolve.mutate({ id: a.id, outcome: "overturned" })} className={buttonClass("secondary", "md")} data-testid={`mod-overturn-${a.id}`}>
                     Overturn (restore)
                   </button>
-                  <button type="button" onClick={() => resolve.mutate({ id: a.id, outcome: "upheld" })} className="min-h-11 rounded-md border border-border px-3 text-sm font-medium text-text-secondary">
+                  <button type="button" onClick={() => resolve.mutate({ id: a.id, outcome: "upheld" })} className={buttonClass("secondary", "md")}>
                     Uphold
                   </button>
                 </div>
