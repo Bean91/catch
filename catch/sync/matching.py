@@ -349,3 +349,60 @@ def mark_not_duplicate(session: Session, activity_id_a: int, activity_id_b: int)
     else:
         session.add(MatchDecision(source_a=sa, external_id_a=ea, source_b=sb, external_id_b=eb, decision="not_duplicate"))
     session.commit()
+
+
+_COMPARE_FIELDS = ("start", "duration", "distance", "avg_hr", "max_hr", "avg_power", "avg_cadence", "calories")
+
+
+def merge_preview(session: Session, activity_id_a: int, activity_id_b: int) -> dict:
+    """Session 36: what merging two possible duplicates would give, before anything is written — each side's own figures, which
+    recording each merged figure would come from (the real field-priority resolver, run on an unsaved workout), how much the two
+    overlap, the matcher's reasons, and what moves with the merge. Both recordings are kept either way, and either can be split off
+    again later."""
+    from catch.sync.activity_merge import _merged_overrides, _refs
+    from catch.sync.canonical import compute_resolution
+
+    a = session.get(Activity, activity_id_a)
+    b = session.get(Activity, activity_id_b)
+    if a is None or b is None:
+        raise ValueError("activity not found")
+    ca, cb = session.get(CanonicalActivity, a.canonical_id), session.get(CanonicalActivity, b.canonical_id)
+    if ca is None or cb is None:
+        raise ValueError("activity not found")
+
+    def side(x: Activity) -> dict:
+        return {
+            "activity_id": x.id, "source": x.source, "external_id": x.external_id, "type": x.type, "sport_family": x.sport_family,
+            **{f: getattr(x, f) for f in _COMPARE_FIELDS},
+        }
+
+    result = match_pair(_to_match_input(a), _to_match_input(b))
+    overlap_s = None
+    if a.start and b.start and a.duration and b.duration:
+        lo = max(a.start, b.start)
+        hi = min(a.start + timedelta(seconds=a.duration), b.start + timedelta(seconds=b.duration))
+        overlap_s = max((hi - lo).total_seconds(), 0.0)
+    same = ca.id == cb.id
+    blocked = None
+    if "combined" in (ca.merge_mode, cb.merge_mode) and not same:
+        blocked = "One of these is a merged workout. Undo that merge first, then merge all the workouts together from Workouts → Select."
+    out = {
+        "a": side(a), "b": side(b), "score": result.score, "reasons": result.reasons, "hard_block": result.hard_block,
+        "overlap_s": overlap_s, "already_merged": same, "blocked_reason": blocked, "merged": None,
+    }
+    if same or blocked:
+        return out
+    keep, drop = _choose_surviving(session, ca, cb)
+    members = list(session.exec(select(Activity).where(Activity.canonical_id.in_([ca.id, cb.id]))).all())
+    trial = CanonicalActivity(overrides_json=json.dumps(_merged_overrides([keep, drop])), sport_family=keep.sport_family)
+    compute_resolution(session, trial, members)
+    sources = json.loads(trial.field_sources_json or "{}")
+    moves = _refs(session, drop.id)
+    out["merged"] = {
+        "values": {f: getattr(trial, f) for f in _COMPARE_FIELDS},
+        "from": {f: sources.get(f) for f in _COMPARE_FIELDS},
+        "recordings": len(members),
+        "kept_workout_id": keep.id,
+        "moves": {k: len(v) for k, v in moves.items() if v},
+    }
+    return out

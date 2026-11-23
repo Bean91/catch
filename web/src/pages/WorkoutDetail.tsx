@@ -7,7 +7,7 @@ import { useParams } from "react-router-dom";
 import { alignPiece, fetchWorkoutPlanComparison, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
-import type { EditableActivityField, SportFamily, Stroke } from "../lib/types";
+import type { DataQuality, EditableActivityField, SportFamily, Stroke } from "../lib/types";
 import { ErgChart } from "../components/charts/ErgChart";
 import { HrChart, type PieceBand } from "../components/charts/HrChart";
 import { GpsSection } from "../components/gps/GpsSection";
@@ -735,8 +735,56 @@ export function WorkoutDetailPage() {
         </div>
       </Card>
 
+      {workout.data_quality && <AboutThisData dq={workout.data_quality} />}
+
       {workout.local_date && <NotesBox date={workout.local_date} />}
     </div>
+  );
+}
+
+const FIGURE_LABEL: Record<string, string> = { distance: "Distance", duration: "Time", avg_hr: "Average heart rate", avg_power: "Average power", avg_cadence: "Rate / cadence", avg_split: "Average split", strain: "Strain" };
+const SOURCE_NAME: Record<string, string> = { garmin: "Garmin", concept2: "Concept2", whoop: "Whoop", peloton: "Peloton", catch_strength: "Catch gym log", apple_health: "Apple Health", health_connect: "Health Connect", manual: "you" };
+
+/** Session 36: collapsed by default — the advanced detail an ordinary look at a workout doesn't need. */
+function AboutThisData({ dq }: { dq: DataQuality }) {
+  const have = Object.entries({ "Heart rate": dq.channels.heart_rate, Power: dq.channels.power, "Rate / cadence": dq.channels.cadence, GPS: dq.channels.gps, "PM5 strokes": dq.channels.strokes });
+  return (
+    <details className="rounded-lg border border-border bg-surface p-4 text-sm" data-testid="about-this-data">
+      <summary className="flex min-h-11 cursor-pointer items-center font-medium text-text-primary">About this data</summary>
+      <div className="mt-2 flex flex-col gap-3 text-text-secondary">
+        <p>
+          Recorded:{" "}
+          {have.map(([k, v], i) => (
+            <span key={k}>
+              {i > 0 ? " · " : ""}
+              {v ? "✓" : "—"} {k}
+            </span>
+          ))}
+        </p>
+        {dq.completeness && (
+          <p>
+            Heart rate present for {Math.round(dq.completeness.heart_rate_pct)}% of the {formatDuration(dq.completeness.seconds)} recording ({SOURCE_NAME[dq.completeness.source] ?? dq.completeness.source}); gaps are left as gaps.
+          </p>
+        )}
+        <ul className="flex flex-col gap-1">
+          {dq.figures.map((f) => (
+            <li key={f.field}>
+              <span className="text-text-primary">{FIGURE_LABEL[f.field] ?? f.field}</span>:{" "}
+              {f.basis === "measured" ? `measured by ${SOURCE_NAME[f.source ?? ""] ?? f.source ?? "the device"}` : `worked out (${f.how})`}
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-text-tertiary">
+          {dq.sources.map((s, i) => (
+            <span key={`${s.source}${i}`}>
+              {i > 0 ? " · " : ""}
+              {SOURCE_NAME[s.source] ?? s.source}: {s.last_synced_at ? `last synced ${formatShortDate(s.last_synced_at)}` : "added directly"}
+              {s.problem ? " (its last sync had a problem — see Settings → Status)" : ""}
+            </span>
+          ))}
+        </p>
+      </div>
+    </details>
   );
 }
 

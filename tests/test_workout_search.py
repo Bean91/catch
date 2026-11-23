@@ -76,3 +76,20 @@ def test_conditions_and_equipment_are_editable_and_kept_apart(client, session):
     assert client.patch(f"/api/activities/{cid}", json={"conditions": "x" * 301}).status_code == 422
     reverted = client.post(f"/api/activities/{cid}/revert", json={"field": "conditions"}).json()
     assert reverted["conditions"] is None and reverted["equipment"] == "Club 8+"
+
+
+def test_data_quality_summary(client, session):
+    from catch.sync.samples import store_samples
+
+    a = Activity(source="garmin", external_id="dq", type="indoor_rowing", start=datetime(2026, 9, 9, tzinfo=timezone.utc), duration=100.0, distance=400.0, avg_hr=140.0)
+    session.add(a)
+    session.commit()
+    store_samples(session, a.id, start=a.start, hr=[140.0] * 75 + [None] * 25, power=[None] * 100, cadence=[20.0] * 100)
+    run_matching(session)
+    session.refresh(a)
+    _login(client)
+    dq = client.get(f"/api/activities/{a.canonical_id}").json()["data_quality"]
+    assert dq["channels"]["heart_rate"] and not dq["channels"]["power"] and dq["channels"]["cadence"]
+    assert dq["completeness"]["heart_rate_pct"] == 75.0
+    assert {f["field"]: f["basis"] for f in dq["figures"]}["avg_split"] == "derived"
+    assert dq["sources"][0]["source"] == "garmin"

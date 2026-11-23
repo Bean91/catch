@@ -1,7 +1,7 @@
 // ?mock=1 fixtures for records and the Performance Lab. Fixed figures: the browser holds none of the rules (tolerances, bands,
 // thresholds) — the mock only answers in the server's shape.
 import { addDays, todayISO } from "./dates";
-import type { HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
+import type { DuplicateMergePreview, HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
 
 const t = () => todayISO();
 
@@ -95,5 +95,26 @@ export function mockPredict2k(): Predicted2k {
     excluded_count: 1,
     explanation: "From 2 recent hard efforts, weighted by how recent and how certain the effort was. An estimate, not a result.",
     measured_2k: null,
+  };
+}
+
+export function mockDuplicateMergePreview(a: number, b: number): DuplicateMergePreview {
+  const start = new Date(Date.now() - 2 * 86400000).toISOString();
+  return {
+    a: { activity_id: a, source: "garmin", external_id: "mock-g", type: "indoor_rowing", sport_family: "rowing", start, duration: 1800, distance: 7600, avg_hr: 148, max_hr: 171, avg_power: null, avg_cadence: 22, calories: 410 },
+    b: { activity_id: b, source: "concept2", external_id: "mock-c", type: "rower", sport_family: "rowing", start, duration: 1740, distance: 7520, avg_hr: null, max_hr: null, avg_power: 205, avg_cadence: 22, calories: 395 },
+    score: 0.64,
+    reasons: ["overlap 97%", "duration ratio 0.97", "same sport"],
+    hard_block: false,
+    overlap_s: 1740,
+    already_merged: false,
+    blocked_reason: null,
+    merged: {
+      values: { start, duration: 1740, distance: 7520, avg_hr: 148, max_hr: 171, avg_power: 205, avg_cadence: 22, calories: 395 },
+      from: { start: "concept2:mock-c", duration: "concept2:mock-c", distance: "concept2:mock-c", avg_hr: "garmin:mock-g", max_hr: "garmin:mock-g", avg_power: "concept2:mock-c", avg_cadence: "concept2:mock-c", calories: "concept2:mock-c" },
+      recordings: 2,
+      kept_workout_id: 1,
+      moves: {},
+    },
   };
 }

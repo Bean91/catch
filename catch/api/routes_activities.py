@@ -295,6 +295,7 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
 
     data["merge"] = merge_summary(db, canonical)
     data["concept2_interval_activity_id"] = next((m.id for m in members if m.source == "concept2" and has_concept2_intervals(m)), None)
+    data["data_quality"] = _data_quality(db, canonical, members, data["has_track"])
     if canonical.sport_family == "strength":
         from catch.sync import gym
 
@@ -304,6 +305,63 @@ def get_activity(canonical_id: int, db: Session = Depends(get_db)):
         # Garmin-only session with no Catch session at all (task Part B.3).
         data["strength_sets"] = [s for m in members for s in gym.list_sets_for_activity(db, m.id)]
     return data
+
+
+def _data_quality(db: Session, canonical: CanonicalActivity, members: list[Activity], has_track: bool) -> dict:
+    """Session 36: what this workout's figures rest on, for the collapsed "About this data" section — which measurements exist, how
+    complete the per-second recording is, which recording each headline figure came from and whether it was measured or worked out,
+    and when each source last synced. Plain facts; nothing here changes a figure."""
+    from catch.analytics.samples_codec import unpack_series
+    from catch.core.models import SyncState, Stroke
+
+    channels = {"heart_rate": False, "power": False, "cadence": False, "gps": has_track, "strokes": False}
+    completeness = None
+    for m in members:
+        row = db.get(ActivitySamples, m.id)
+        if row is None or not row.n_samples:
+            continue
+        hr = unpack_series(row.hr_blob, row.n_samples)
+        power = unpack_series(row.power_blob, row.n_samples)
+        cad = unpack_series(row.cadence_blob, row.n_samples)
+        channels["heart_rate"] |= any(v is not None for v in hr)
+        channels["power"] |= any(v is not None for v in power)
+        channels["cadence"] |= any(v is not None for v in cad)
+        if any(v is not None for v in hr):
+            share = sum(1 for v in hr if v is not None) / row.n_samples * 100.0
+            if completeness is None or share > completeness["heart_rate_pct"]:
+                completeness = {"heart_rate_pct": share, "seconds": row.n_samples, "source": m.source}
+    c2 = [m.id for m in members if m.source == "concept2"]
+    if c2:
+        channels["strokes"] = db.exec(select(Stroke.id).where(Stroke.activity_id.in_(c2)).limit(1)).first() is not None
+    sources = json.loads(canonical.field_sources_json or "{}")
+    by_member = {f"{m.source}:{m.external_id}": m for m in members}
+
+    def figure(field: str, value) -> dict | None:
+        if value is None:
+            return None
+        src = sources.get(field)
+        member = by_member.get(src) if src else None
+        return {"field": field, "source": member.source if member else (src.split(":")[0] if src else None), "basis": "measured"}
+
+    figures = [f for f in (
+        figure("distance", canonical.distance), figure("duration", canonical.duration), figure("avg_hr", canonical.avg_hr),
+        figure("avg_power", canonical.avg_power), figure("avg_cadence", canonical.avg_cadence),
+    ) if f]
+    if canonical.distance and canonical.duration:
+        figures.append({"field": "avg_split", "source": None, "basis": "derived", "how": "time ÷ distance"})
+    if canonical.strain_method:
+        figures.append({"field": "strain", "source": None, "basis": "derived", "how": canonical.strain_method})
+    states = {s.source: s for s in db.exec(select(SyncState).where(SyncState.source.in_({m.source for m in members}))).all()}
+    return {
+        "channels": channels,
+        "completeness": completeness,
+        "figures": figures,
+        "sources": [
+            {"source": m.source, "last_synced_at": states[m.source].last_success_at if m.source in states else None,
+             "problem": bool(states[m.source].last_error) if m.source in states else False}
+            for m in members
+        ],
+    }
 
 
 class ActivityEditRequest(BaseModel):
@@ -442,6 +500,17 @@ def bulk_edit_activities(body: BulkEditRequest = Body(...), db: Session = Depend
 class ActivityPairRequest(BaseModel):
     activity_id_a: int
     activity_id_b: int
+
+
+@router.post("/api/activities/merge/preview")
+def merge_preview(body: ActivityPairRequest = Body(...), db: Session = Depends(get_db)):
+    """Session 36: the two possible duplicates side by side and what merging them would give — nothing is written."""
+    from catch.sync.matching import merge_preview as _preview
+
+    try:
+        return _preview(db, body.activity_id_a, body.activity_id_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Activity not found") from exc
 
 
 @router.post("/api/activities/merge")

@@ -249,6 +249,8 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
+import type { DuplicateMergePreview } from "./types";
+import { mockDuplicateMergePreview } from "./mockLab";
 import type { HrAtWorkload, LabProgression, LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse, Predicted2k, RecordsPayload, SplitByRate } from "./types";
 import * as mockLab from "./mockLab";
 import * as mockGoalsMod from "./mockGoals";
@@ -447,6 +449,11 @@ export async function fetchDuplicates(): Promise<DuplicatePair[]> {
   if (isMock) return delay(mockDuplicates());
   const { pairs } = await request<{ pairs: DuplicatePair[] }>("/api/activities/duplicates");
   return pairs;
+}
+
+export async function previewDuplicateMerge(activityIdA: number, activityIdB: number): Promise<DuplicateMergePreview> {
+  if (isMock) return delay(mockDuplicateMergePreview(activityIdA, activityIdB), 200);
+  return send("/api/activities/merge/preview", "POST", { activity_id_a: activityIdA, activity_id_b: activityIdB });
 }
 
 export async function mergeActivities(activityIdA: number, activityIdB: number): Promise<WorkoutDetail> {

@@ -742,6 +742,41 @@ export interface DuplicatePair {
   reasons: string[];
 }
 
+/** Session 36: a duplicate merge, previewed — nothing is written until the athlete confirms. */
+export interface DuplicateMergeSide {
+  activity_id: number;
+  source: string;
+  external_id: string;
+  type: string | null;
+  sport_family: string | null;
+  start: string | null;
+  duration: number | null;
+  distance: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_power: number | null;
+  avg_cadence: number | null;
+  calories: number | null;
+}
+
+export interface DuplicateMergePreview {
+  a: DuplicateMergeSide;
+  b: DuplicateMergeSide;
+  score: number;
+  reasons: string[];
+  hard_block: boolean;
+  overlap_s: number | null;
+  already_merged: boolean;
+  blocked_reason: string | null;
+  merged: {
+    values: Record<string, number | string | null>;
+    from: Record<string, string | null>;
+    recordings: number;
+    kept_workout_id: number;
+    moves: Record<string, number>;
+  } | null;
+}
+
 export interface ZoneRow {
   zone: string;
   /** % of heart-rate reserve when hr_basis.method is "hrr", % of max HR when "max_pct", null without a max HR. */
@@ -798,7 +833,16 @@ export interface Note {
   created_at: string;
 }
 
+/** Session 36: what a workout's figures rest on (the collapsed "About this data" section). */
+export interface DataQuality {
+  channels: { heart_rate: boolean; power: boolean; cadence: boolean; gps: boolean; strokes: boolean };
+  completeness: { heart_rate_pct: number; seconds: number; source: string } | null;
+  figures: { field: string; source: string | null; basis: "measured" | "derived"; how?: string }[];
+  sources: { source: string; last_synced_at: string | null; problem: boolean }[];
+}
+
 export interface WorkoutDetail extends WorkoutListItem {
+  data_quality?: DataQuality;
   local_date: string | null;
   /** The day by the workout's own records, before any "Change day". */
   recorded_local_date?: string | null;
