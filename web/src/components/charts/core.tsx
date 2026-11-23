@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode, type RefObject } from "react";
+import { useId, useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 import { cn } from "../../lib/cn";
 
 /**
@@ -11,9 +11,10 @@ import { cn } from "../../lib/cn";
 /** The element's content width, kept current by one ResizeObserver. */
 export function useChartWidth(ref: RefObject<HTMLElement | null>, initial = 600): number {
   const [width, setWidth] = useState(initial);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    if (el.clientWidth) setWidth(el.clientWidth);
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setWidth(Math.round(w));
@@ -255,22 +256,17 @@ export type TooltipRow = { label: string; value: string; color?: string };
 
 /**
  * The one tooltip: a title line (usually the date or position) and a row per series, each with its colour swatch. It follows
- * `xPct` (0–100) and flips to the left of the cursor past the middle so it never runs off the chart.
+ * `xPct` (0–100) and slides along itself by the same fraction — its left edge at the chart's left, its right edge at the chart's
+ * right — so it can never hang past the chart and widen a phone's page (text-wrap.spec at 320px).
  */
 export function ChartTooltip({ xPct, title, rows, testId, pinned = false }: { xPct?: number; title: ReactNode; rows: TooltipRow[]; testId?: string; pinned?: boolean }) {
-  const flip = (xPct ?? 0) > 55;
+  const pct = Math.min(Math.max(xPct ?? 0, 0), 100);
   return (
     <div
       data-testid={testId}
       role="presentation"
-      className="pointer-events-none absolute top-1 z-10 min-w-[7.5rem] rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
-      style={
-        pinned || xPct == null
-          ? { left: 4 }
-          : flip
-            ? { right: `calc(${100 - xPct}% + 10px)` }
-            : { left: `calc(${xPct}% + 10px)` }
-      }
+      className="pointer-events-none absolute top-1 z-10 min-w-[7.5rem] max-w-full rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
+      style={pinned || xPct == null ? { left: 4 } : { left: `${pct}%`, transform: `translateX(-${pct}%)` }}
     >
       <div className="mb-1 text-text-tertiary">{title}</div>
       {rows.map((r) => (

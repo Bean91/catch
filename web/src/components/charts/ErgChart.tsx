@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { zoneForBpm } from "../../lib/zoneColors";
 import { formatDistance, formatSplit } from "../../lib/format";
 import { METRIC_COLOR } from "../../lib/metricColors";
@@ -59,9 +59,10 @@ export function ErgChart({
   const hasAnimatedIn = useRef(false);
   const clipId = useSvgId("erg-clip");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    setPlotWidthPx(Math.max((el.clientWidth || WIDTH) - PAD_LEFT - PAD_RIGHT, 50));
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setPlotWidthPx(Math.max(w - PAD_LEFT - PAD_RIGHT, 50));

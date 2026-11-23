@@ -92,7 +92,13 @@ export function TestCenterPage() {
       )}
 
       <Card title="Personal bests">
-        {pbsQuery.isLoading ? <CardSkeleton lines={3} /> : pbsQuery.data ? <PbTable pbs={pbsQuery.data} /> : null}
+        {pbsQuery.isLoading ? (
+          <CardSkeleton lines={3} />
+        ) : pbsQuery.isError ? (
+          <ErrorState message="Couldn't load personal bests." onRetry={() => pbsQuery.refetch()} />
+        ) : pbsQuery.data ? (
+          <PbTable pbs={pbsQuery.data} />
+        ) : null}
       </Card>
 
       <Card title="Confirmed tests">

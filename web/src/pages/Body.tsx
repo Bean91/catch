@@ -1,16 +1,24 @@
 import { todayISO, toISODate } from "../lib/dates";
+import { Button } from "../components/ui/Button";
+import { controlClass } from "../components/ui/Field";
+import { EmptyState, ErrorState } from "../components/ui/EmptyState";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Segmented } from "../components/ui/Segmented";
+import { ChartSkeleton } from "../components/ui/Skeleton";
+import { StatTile } from "../components/ui/StatTile";
+import { useToast } from "../components/ui/Toast";
 import { dateRangeText, padDateRange, quantizePoints } from "../lib/chartFetch";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { Sparkline } from "../components/today/Sparkline";
 import { Card } from "../components/ui/Card";
-import { EmptyState } from "../components/ui/EmptyState";
+
 import { fetchBody, fetchSeries, postManualWeight } from "../lib/api";
 import { RANGE_PRESETS, parseChartUrlState, presetToDomain, writeChartUrlState, type RangePreset } from "../lib/chartRange";
-import { formatNumber } from "../lib/format";
+import { formatNumber, formatShortDate } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 
 const DAY_MS = 86_400_000;
@@ -139,59 +147,53 @@ export function BodyPage() {
   const [manualDate, setManualDate] = useState(todayISO());
   const [manualWeight, setManualWeight] = useState("");
   const [manualUnit, setManualUnit] = useState<"kg" | "lb">("kg");
-  const [manualError, setManualError] = useState<string | null>(null);
-  const [savingManual, setSavingManual] = useState(false);
-  const submitManualWeight = async (e: FormEvent) => {
-    e.preventDefault();
-    const value = Number(manualWeight);
-    if (!Number.isFinite(value) || value <= 0) return;
-    setSavingManual(true);
-    setManualError(null);
-    try {
-      // Session 34: sent as entered; the server converts pounds to kilograms (the one conversion, catch/analytics/units.py).
-      await postManualWeight(manualDate, value, manualUnit);
+  const { toast } = useToast();
+  // Session 35: a mutation (it was hand-rolled async + useState), so pending/error state comes from one place.
+  const manual = useMutation({
+    // Session 34: sent as entered; the server converts pounds to kilograms (the one conversion, catch/analytics/units.py).
+    mutationFn: () => postManualWeight(manualDate, Number(manualWeight), manualUnit),
+    onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["body"] }),
         queryClient.invalidateQueries({ queryKey: ["series"] }),
         queryClient.invalidateQueries({ queryKey: ["series-all"] }),
       ]);
       setManualWeight("");
-    } catch (err) {
-      setManualError(err instanceof Error ? err.message : "Couldn't save that weight.");
-    } finally {
-      setSavingManual(false);
-    }
+      toast("Weight added");
+    },
+  });
+  const submitManualWeight = (e: FormEvent) => {
+    e.preventDefault();
+    const value = Number(manualWeight);
+    if (!Number.isFinite(value) || value <= 0) return;
+    manual.mutate();
   };
-  const fatSpark = readings.map((r) => ({ date: r.date, value: r.fat_pct }));
-  const muscleSpark = readings.map((r) => ({ date: r.date, value: r.muscle_kg }));
+  const manualError = manual.isError ? (manual.error instanceof Error ? manual.error.message : "Couldn't save that weight.") : null;
+  const fatSpark = useMemo(() => readings.map((r) => ({ date: r.date, value: r.fat_pct })), [readings]);
+  const muscleSpark = useMemo(() => readings.map((r) => ({ date: r.date, value: r.muscle_kg })), [readings]);
+  const latestWeight = weightPoints.length ? weightPoints[weightPoints.length - 1] : null;
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <h1 className="text-lg font-semibold text-text-primary">Body</h1>
+      <PageHeader eyebrow="Health" title="Body" subtitle="Weight, composition and power for your size — one resolved reading per day." />
 
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Range">
-        {RANGE_PRESETS.map((r) => (
-          <button
-            key={r.value}
-            type="button"
-            role="tab"
-            aria-selected={urlState.preset === r.value}
-            onClick={() => selectPreset(r.value)}
-            className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
-              urlState.preset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
+      <div className="grid grid-cols-3 gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
+        <StatTile label="Weight" value={latestWeight ? latestWeight.value.toFixed(1) : "—"} unit="kg" sub={latestWeight ? formatShortDate(latestWeight.date) : "No reading"} />
+        <StatTile label="Body fat" value={latest?.fat_pct != null ? formatNumber(latest.fat_pct, 1) : "—"} unit="%" sub={latest?.fat_pct != null ? sourceLabel(latest.fat_pct_source) : "No reading"} />
+        <StatTile label="Muscle" value={latest?.muscle_kg != null ? formatNumber(latest.muscle_kg, 1) : "—"} unit="kg" sub={latest?.muscle_kg != null ? sourceLabel(latest.muscle_kg_source) : "No reading"} />
       </div>
 
+      <Segmented label="Range" size="sm" value={urlState.preset ?? ""} onChange={(v) => selectPreset(v as RangePreset)} options={RANGE_PRESETS.map((r) => ({ value: r.value, label: r.label }))} className="self-start" />
+
       <Card title="Weight">
-        {seriesQuery.isLoading && weightPoints.length === 0 ? (
-          <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />
+        {seriesQuery.isError && weightPoints.length === 0 ? (
+          <ErrorState message="Couldn't load your weight history." onRetry={() => seriesQuery.refetch()} />
+        ) : seriesQuery.isLoading && weightPoints.length === 0 ? (
+          <ChartSkeleton height={240} />
         ) : weightPoints.length > 0 ? (
           <>
             <TrendLineChart
+              color="var(--metric-sleep)"
               points={weightPoints}
               secondaryKey="smoothed"
               formatValue={(v) => `${v.toFixed(1)}kg`}
@@ -222,9 +224,9 @@ export function BodyPage() {
         ) : (
           <EmptyState message="No weight data yet — connect Withings or a Garmin scale, or add one below." />
         )}
-        <form onSubmit={submitManualWeight} className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <form onSubmit={submitManualWeight} className="mt-4 flex flex-wrap items-end gap-3 border-t border-border pt-4">
           <div>
-            <label htmlFor="manual-weight-date" className="block text-xs text-text-tertiary">
+            <label htmlFor="manual-weight-date" className="mb-1 block text-xs font-medium text-text-secondary">
               Date
             </label>
             <input
@@ -232,11 +234,11 @@ export function BodyPage() {
               type="date"
               value={manualDate}
               onChange={(e) => setManualDate(e.target.value)}
-              className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+              className={`${controlClass} w-auto`}
             />
           </div>
           <div>
-            <label htmlFor="manual-weight-kg" className="block text-xs text-text-tertiary">
+            <label htmlFor="manual-weight-kg" className="mb-1 block text-xs font-medium text-text-secondary">
               Weight
             </label>
             <div className="flex gap-1">
@@ -248,13 +250,13 @@ export function BodyPage() {
                 value={manualWeight}
                 onChange={(e) => setManualWeight(e.target.value)}
                 placeholder={manualUnit === "kg" ? "79.0" : "174.0"}
-                className="min-h-9 w-24 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+                className={`${controlClass} w-28 font-mono-nums`}
               />
               <select
                 aria-label="Weight unit"
                 value={manualUnit}
                 onChange={(e) => setManualUnit(e.target.value as "kg" | "lb")}
-                className="min-h-9 rounded-md border border-border bg-surface px-2 text-sm text-text-primary"
+                className={`${controlClass} w-auto`}
                 data-testid="manual-weight-unit"
               >
                 <option value="kg">kg</option>
@@ -262,14 +264,10 @@ export function BodyPage() {
               </select>
             </div>
           </div>
-          <button
-            type="submit"
-            disabled={savingManual || !manualWeight}
-            className="min-h-9 rounded-md border border-accent bg-accent px-3 text-sm font-medium text-accent-contrast disabled:opacity-40"
-          >
+          <Button type="submit" variant="primary" loading={manual.isPending} disabled={!manualWeight}>
             Add manual weight
-          </button>
-          <span className="text-xs text-text-tertiary">Always the last-resort source — a real scale reading wins if one exists that day. Pounds are stored as kilograms.</span>
+          </Button>
+          <span className="basis-full text-xs text-text-tertiary">Always the last-resort source — a real scale reading wins if one exists that day. Pounds are stored as kilograms.</span>
           {manualError && <p role="alert" className="w-full text-sm text-band-red-text">{manualError}</p>}
         </form>
       </Card>
@@ -278,10 +276,10 @@ export function BodyPage() {
         <Card title="Body fat %">
           {latest?.fat_pct != null ? (
             <>
-              <div className="font-mono-nums text-3xl font-semibold text-text-primary">{formatNumber(latest.fat_pct, 1)}%</div>
-              <div className="text-xs text-text-tertiary">from {sourceLabel(latest.fat_pct_source)}</div>
+              <div className="font-mono-nums text-[2rem] font-semibold leading-none tracking-tight text-text-primary">{formatNumber(latest.fat_pct, 1)}%</div>
+              <div className="mt-1 text-xs text-text-tertiary">from {sourceLabel(latest.fat_pct_source)}</div>
               <div className="mt-3">
-                <Sparkline points={fatSpark} baselineBand={null} />
+                <Sparkline points={fatSpark} baselineBand={null} color="var(--metric-sleep)" label="Body fat" format={(v) => `${v.toFixed(1)}%`} />
               </div>
             </>
           ) : (
@@ -291,10 +289,10 @@ export function BodyPage() {
         <Card title="Muscle mass">
           {latest?.muscle_kg != null ? (
             <>
-              <div className="font-mono-nums text-3xl font-semibold text-text-primary">{formatNumber(latest.muscle_kg, 1)}kg</div>
-              <div className="text-xs text-text-tertiary">from {sourceLabel(latest.muscle_kg_source)}</div>
+              <div className="font-mono-nums text-[2rem] font-semibold leading-none tracking-tight text-text-primary">{formatNumber(latest.muscle_kg, 1)}kg</div>
+              <div className="mt-1 text-xs text-text-tertiary">from {sourceLabel(latest.muscle_kg_source)}</div>
               <div className="mt-3">
-                <Sparkline points={muscleSpark} baselineBand={null} />
+                <Sparkline points={muscleSpark} baselineBand={null} color="var(--metric-rate)" label="Muscle mass" format={(v) => `${v.toFixed(1)} kg`} />
               </div>
             </>
           ) : (
@@ -305,9 +303,10 @@ export function BodyPage() {
 
       <Card title="W/kg over time">
         {seriesQuery.isLoading && wPerKgPoints.length === 0 ? (
-          <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />
+          <ChartSkeleton height={240} />
         ) : wPerKgPoints.length > 0 ? (
           <TrendLineChart
+            color="var(--metric-power)"
             points={wPerKgPoints}
             formatValue={(v) => v.toFixed(2)}
             domain={domain}

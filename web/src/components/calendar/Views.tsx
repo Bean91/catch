@@ -4,7 +4,6 @@ import { dayLabel, isSameMonth, monthGrid, parseISODate, weekdayShort } from "..
 import type { CalendarDay, CalendarPayload, MatchSuggestion, PlannedWorkout } from "../../lib/types";
 import { CompletedChip, EventChip, PlannedSessionChip } from "./Chips";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
-import { formatMinutes } from "./labels";
 import { PillNav } from "../ui/PillNav";
 import { EmptyState } from "../ui/EmptyState";
 
@@ -49,7 +48,7 @@ export function WeekView({
             >
               <span className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? "text-accent" : "text-text-tertiary"}`}>{weekdayShort(day.date)}</span>
               <span className={`font-mono-nums text-xl font-semibold leading-tight ${isToday ? "text-accent" : "text-text-primary"}`}>{parseISODate(day.date).getDate()}</span>
-              {isToday ? <span className="text-[10px] font-medium text-accent">Today</span> : dayMinutes(day) > 0 && <span className="font-mono-nums text-[10px] text-text-tertiary">{formatMinutes(dayMinutes(day))}</span>}
+              {isToday ? <span className="text-[10px] font-medium text-accent">Today</span> : dayMinutes(day) > 0 && <span className="whitespace-nowrap font-mono-nums text-[10px] text-text-tertiary">{compactMinutes(dayMinutes(day))}</span>}
             </button>
             <div className="flex min-w-0 flex-col gap-1.5">
               {day.events.map((e) => (
@@ -263,6 +262,12 @@ export function NavLinks() {
       ]}
     />
   );
+}
+
+/** "1:18" for a day column too narrow for "1 h 18 min". */
+function compactMinutes(min: number): string {
+  const m = Math.round(min);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
 }
 
 /** Minutes trained that day (excluded workouts don't count, as in every total). */

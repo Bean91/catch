@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { formatShortDate } from "../../lib/format";
 import type { VolumeWeek } from "../../lib/types";
 import { ZONE_NAMES } from "../../lib/types";
@@ -47,9 +47,10 @@ export function WeeklyVolumeBars({
   const containerRef = useRef<HTMLDivElement>(null);
   const [plotWidthPx, setPlotWidthPx] = useState(600);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    setPlotWidthPx(Math.max((el.clientWidth || 624) - PAD_X * 2, 50));
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setPlotWidthPx(Math.max(w - PAD_X * 2, 50));

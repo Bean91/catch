@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { formatDuration } from "../../lib/format";
 import { formatMmSs, formatPace } from "../../lib/gpsFormat";
 import { METRIC_COLOR } from "../../lib/metricColors";
@@ -56,9 +56,10 @@ export function TrackChart({
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const gradId = useSvgId("track-area");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    setWidth(el.clientWidth || 600);
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setWidth(w);
@@ -183,7 +184,7 @@ export function TrackChart({
         <div
           data-testid="track-chart-tooltip"
           className="pointer-events-none absolute top-1 rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
-          style={{ left: `clamp(4px, ${(x(xs[hoverIdx!]) / width) * 100}%, calc(100% - 110px))` }}
+          style={{ left: `${Math.min(Math.max((x(xs[hoverIdx!]) / width) * 100, 0), 100)}%`, transform: `translateX(-${Math.min(Math.max((x(xs[hoverIdx!]) / width) * 100, 0), 100)}%)` }}
         >
           <div className="text-text-tertiary">
             {formatDuration(hp.elapsed_s)} · {(hp.distance_m / 1000).toFixed(2)} km

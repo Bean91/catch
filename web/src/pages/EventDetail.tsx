@@ -164,7 +164,13 @@ export function EventDetailPage() {
         </div>
       </Card>
 
-      {projection.data ? <ProjectionCard p={projection.data} /> : <CardSkeleton lines={3} />}
+      {projection.data ? (
+        <ProjectionCard p={projection.data} />
+      ) : projection.isError ? (
+        <ErrorState message="Couldn't load the race projection." onRetry={() => projection.refetch()} />
+      ) : (
+        <CardSkeleton lines={3} />
+      )}
 
       {o.pacing_plan?.splits && (
         <Card title="Pacing plan">

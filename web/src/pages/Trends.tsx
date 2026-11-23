@@ -8,6 +8,11 @@ import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { WeeklyVolumeBars } from "../components/charts/WeeklyVolumeBars";
 import { PbTable } from "../components/workouts/PbTable";
 import { Card } from "../components/ui/Card";
+import { ErrorState } from "../components/ui/EmptyState";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Segmented } from "../components/ui/Segmented";
+import { ChartSkeleton } from "../components/ui/Skeleton";
+import { trendMetricColor } from "../lib/metricColors";
 import { eventsToMarkers } from "../lib/chartAnnotations";
 import { RANGE_PRESETS, parseChartUrlState, presetToDomain, writeChartUrlState, type RangePreset } from "../lib/chartRange";
 import { fetchMemory, fetchPbs, fetchSeries, fetchVolume } from "../lib/api";
@@ -205,21 +210,28 @@ export function TrendsPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Trends</h1>
-        <Link to="/trends/intelligence" className="text-sm font-medium text-accent">
-          Training intelligence
-        </Link>
-      </div>
+      {/* `compact`: the chart below must stay where charts.spec expects it on a 390×664 phone (above the tab bar). */}
+      <PageHeader
+        compact
+        title="Trends"
+        actions={
+          <Link to="/trends/intelligence" className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[13px] font-medium text-accent transition-colors hover:bg-accent/20">
+            Training intelligence →
+          </Link>
+        }
+      />
 
       <MetricPicker metric={metric} onSelect={setMetric} />
       <RangePicker activePreset={urlState.preset} onSelect={selectPreset} />
 
-      <Card title={activeMetric.label}>
-        {seriesQuery.isLoading && activePoints.length === 0 ? (
+      <Card title={activeMetric.label} action={<span aria-hidden className="h-2 w-2 rounded-full" style={{ background: trendMetricColor(metric), boxShadow: `0 0 0 4px color-mix(in oklab, ${trendMetricColor(metric)} 20%, transparent)` }} />}>
+        {seriesQuery.isError && activePoints.length === 0 ? (
+          <ErrorState message="Couldn't load this metric." onRetry={() => seriesQuery.refetch()} />
+        ) : seriesQuery.isLoading && activePoints.length === 0 ? (
           <Skeleton />
         ) : (
           <TrendLineChart
+            color={trendMetricColor(metric)}
             points={activePoints}
             secondaryKey={metric === "weight" ? "smoothed" : undefined}
             formatValue={activeMetric.format}
@@ -255,6 +267,8 @@ export function TrendsPage() {
       <Card title="Weekly volume by zone">
         {volumeQuery.isLoading ? (
           <Skeleton />
+        ) : volumeQuery.isError ? (
+          <ErrorState message="Couldn't load weekly volume." onRetry={() => volumeQuery.refetch()} />
         ) : (
           <WeeklyVolumeBars
             weeks={volumeQuery.data ?? []}
@@ -274,7 +288,7 @@ export function TrendsPage() {
 }
 
 function Skeleton() {
-  return <div className="h-40 animate-pulse rounded-md bg-surface-2" aria-hidden />;
+  return <ChartSkeleton height={240} />;
 }
 
 // Extracted and memoized so these don't re-render on every pan/zoom frame — TrendsPage's
@@ -294,31 +308,33 @@ const MetricPicker = memo(function MetricPicker({ metric, onSelect }: { metric: 
       role="tab"
       aria-selected={metric === m.value}
       onClick={() => onSelect(m.value)}
-      className={`min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors ${
+      className={`inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium transition-colors ${
         metric === m.value
-          ? "border-accent bg-accent text-accent-contrast"
-          : "border-border bg-surface text-text-secondary hover:border-accent/40"
+          ? "border-border-strong bg-surface-3 text-text-primary shadow-subtle"
+          : "border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text-primary"
       }`}
     >
+      <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: trendMetricColor(m.value), opacity: metric === m.value ? 1 : 0.55 }} />
       {m.label}
     </button>
   );
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Metric">
+      {/* One scrolling row on a phone (it used to wrap to four rows and push the chart down), wrapping from sm: up. */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0" role="tablist" aria-label="Metric">
         {METRICS.map(renderButton)}
         <button
           type="button"
           onClick={() => setShowCheckin((v) => !v)}
           aria-expanded={showCheckin}
-          className="min-h-11 rounded-full border border-border bg-surface px-3.5 text-sm font-medium text-text-tertiary transition-colors hover:border-accent/40"
+          className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-full border border-dashed border-border-strong px-3.5 text-sm font-medium text-text-tertiary transition-colors hover:text-text-primary"
         >
           {showCheckin ? "Fewer metrics" : "More metrics"}
         </button>
       </div>
       {showCheckin && (
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Check-in metric">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0" role="tablist" aria-label="Check-in metric">
           {CHECKIN_METRICS.map(renderButton)}
         </div>
       )}
@@ -328,26 +344,21 @@ const MetricPicker = memo(function MetricPicker({ metric, onSelect }: { metric: 
 
 const RangePicker = memo(function RangePicker({ activePreset, onSelect }: { activePreset: RangePreset | null; onSelect: (preset: RangePreset) => void }) {
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Range">
-      {RANGE_PRESETS.map((r) => (
-        <button
-          key={r.value}
-          type="button"
-          role="tab"
-          aria-selected={activePreset === r.value}
-          onClick={() => onSelect(r.value)}
-          className={`min-h-11 rounded-md border px-3.5 text-sm transition-colors ${
-            activePreset === r.value ? "border-accent text-accent" : "border-border text-text-tertiary hover:text-text-secondary"
-          }`}
-        >
-          {r.label}
-        </button>
-      ))}
-    </div>
+    <Segmented label="Range" size="sm" value={activePreset ?? ""} onChange={(v) => onSelect(v as RangePreset)} options={RANGE_PRESETS.map((r) => ({ value: r.value, label: r.label }))} className="self-start" />
   );
 });
 
 const PersonalBestsCard = memo(function PersonalBestsCard() {
   const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
-  return <Card title="Personal bests">{pbsQuery.isLoading ? <Skeleton /> : pbsQuery.data ? <PbTable pbs={pbsQuery.data} /> : null}</Card>;
+  return (
+    <Card title="Personal bests">
+      {pbsQuery.isLoading ? (
+        <Skeleton />
+      ) : pbsQuery.isError ? (
+        <ErrorState message="Couldn't load personal bests." onRetry={() => pbsQuery.refetch()} />
+      ) : pbsQuery.data ? (
+        <PbTable pbs={pbsQuery.data} />
+      ) : null}
+    </Card>
+  );
 });

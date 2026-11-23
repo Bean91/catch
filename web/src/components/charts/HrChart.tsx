@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import type { LapMarker, SamplePoint, TrainingZones } from "../../lib/types";
 import { formatDuration } from "../../lib/format";
 import type { Domain } from "../../lib/useChartInteraction";
@@ -75,9 +75,10 @@ export function HrChart({
   const gradId = useSvgId("hr-area");
   const clipId = useSvgId("hr-clip");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    setContainerWidthPx(el.clientWidth || 680);
     const observer = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;
       if (w) setContainerWidthPx(w);
@@ -326,6 +327,8 @@ export function HrChart({
           if (!band) return null;
           const isDraggingThis = dragRef.current?.pieceId === band.id && dragLiveStartS != null;
           const startS = isDraggingThis ? dragLiveStartS! : band.startS;
+          // Only while the piece's start is in view: outside it the handle would sit past the chart's edge and widen a phone's page.
+          if (!isDraggingThis && (startS < domain.min || startS > domain.max)) return null;
           const leftPx = x(startS);
           return (
             <div
