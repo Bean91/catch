@@ -30,8 +30,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
+      {/* A live region without role="status": it is always mounted (so announcements are heard), and an empty status role
+          everywhere would collide with pages that look up their own status line. */}
       <div
-        role="status"
         aria-live="polite"
         className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-4 lg:inset-x-auto lg:right-6 lg:items-end"
         style={{ bottom: "calc(var(--shell-bottom) + 12px + env(safe-area-inset-bottom))" }}
