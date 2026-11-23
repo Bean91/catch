@@ -254,7 +254,7 @@ import { mockDuplicateMergePreview } from "./mockLab";
 import type { HrAtWorkload, LabProgression, LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse, Predicted2k, RecordsPayload, SplitByRate } from "./types";
 import * as mockLab from "./mockLab";
 import * as mockGoalsMod from "./mockGoals";
-import type { Goal, GoalInput } from "./types";
+import type { Goal, GoalInput, LoadHistory } from "./types";
 import type {
   FeedbackEntry,
   FeedbackFilters,
@@ -2433,4 +2433,9 @@ export async function updateGoal(id: number, patch: GoalInput): Promise<Goal> {
 export async function deleteGoal(id: number): Promise<{ deleted: number }> {
   if (isMock) return mocked(() => (mockGoalsMod.deleteMockGoal(id), { deleted: id }));
   return send(`/api/goals/${id}`, "DELETE");
+}
+
+export async function fetchLoadHistory(weeks = 26): Promise<LoadHistory> {
+  if (isMock) return delay(mockLab.mockLoadHistory(weeks), 120);
+  return request<LoadHistory>(`/api/trends/load-history?weeks=${weeks}`);
 }

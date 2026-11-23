@@ -1,7 +1,7 @@
 // ?mock=1 fixtures for records and the Performance Lab. Fixed figures: the browser holds none of the rules (tolerances, bands,
 // thresholds) — the mock only answers in the server's shape.
-import { addDays, todayISO } from "./dates";
-import type { DuplicateMergePreview, HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
+import { addDays, todayISO, weekStart } from "./dates";
+import type { LoadHistory, DuplicateMergePreview, HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
 
 const t = () => todayISO();
 
@@ -116,5 +116,31 @@ export function mockDuplicateMergePreview(a: number, b: number): DuplicateMergeP
       kept_workout_id: 1,
       moves: {},
     },
+  };
+}
+
+export function mockLoadHistory(weeks: number): LoadHistory {
+  const mon = weekStart(t());
+  const rows = Array.from({ length: weeks }, (_, i) => {
+    const ws = addDays(mon, -7 * (weeks - 1 - i));
+    const complete = i < weeks - 1;
+    const minutes = 240 + ((i * 37) % 160);
+    return {
+      week_start: ws, complete, load: minutes * 1.6, monotony: complete ? 1.1 + ((i * 13) % 9) / 10 : null, strain: complete ? minutes * 1.6 * 1.4 : null,
+      monotony_reason: complete ? null : "week in progress", days_scored: 7, sessions: 4 + (i % 3), minutes, distance_m: minutes * 220,
+      training_days: 4 + (i % 3), days_without_training: 3 - (i % 3), rest_weekdays: [0, 4, 6].slice(0, 3 - (i % 3)), avg_recovery: 55 + (i % 5) * 4,
+    };
+  });
+  return {
+    from: rows[0].week_start, to: t(), weeks: rows,
+    months: [{ month: t().slice(0, 7), sessions: 14, minutes: 980, distance_m: 212000 }],
+    comparison: { recent_weeks: 4, baseline_weeks: 12, rows: [
+      { metric: "minutes", recent: 330, baseline: 295, change_pct: 11.9 },
+      { metric: "sessions", recent: 5.25, baseline: 4.9, change_pct: 7.1 },
+      { metric: "distance_m", recent: 72500, baseline: 64000, change_pct: 13.3 },
+      { metric: "load", recent: 528, baseline: 470, change_pct: 12.3 },
+    ] },
+    rest_by_weekday: [9, 1, 2, 1, 7, 2, 6],
+    complete_weeks: weeks - 1,
   };
 }

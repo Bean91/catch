@@ -40,3 +40,10 @@ def get_hr_at_workload(from_: date | None = Query(None, alias="from"), to: date 
 @router.get("/api/lab/split-by-rate")
 def get_split_by_rate(from_: date | None = Query(None, alias="from"), to: date | None = Query(None), db: Session = Depends(get_db)):
     return lab.split_by_rate(db, from_, to)
+
+
+@router.get("/api/trends/load-history")
+def get_load_history(weeks: int = Query(26, ge=5, le=104), db: Session = Depends(get_db)):
+    from catch.sync.load_history import load_history
+
+    return load_history(db, weeks)

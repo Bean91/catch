@@ -3,7 +3,7 @@ import { DataTable } from "../ui/DataList";
 import type { PersonalBests } from "../../lib/types";
 import { formatDistance, formatDuration, formatShortDate, formatSplit } from "../../lib/format";
 
-const ORDER = ["500m", "1000m", "2000m", "5000m", "6000m", "30min", "60min"];
+const ORDER = ["500m", "1000m", "2000m", "5000m", "6000m", "10000m", "30min", "60min"];
 
 export function PbTable({ pbs }: { pbs: PersonalBests }) {
   const navigate = useNavigate();

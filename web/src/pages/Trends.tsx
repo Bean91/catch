@@ -6,6 +6,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ChartNavigator } from "../components/charts/ChartNavigator";
 import { TrendLineChart } from "../components/charts/TrendLineChart";
 import { WeeklyVolumeBars } from "../components/charts/WeeklyVolumeBars";
+import { LoadHistoryCard } from "../components/charts/LoadHistoryCard";
 import { PbTable } from "../components/workouts/PbTable";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
@@ -283,6 +284,7 @@ export function TrendsPage() {
       </Card>
 
       <PersonalBestsCard />
+      <LoadHistoryCard />
     </div>
   );
 }

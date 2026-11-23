@@ -1860,6 +1860,7 @@ export function mockPbs(): PersonalBests {
     "2000m": { activity_id: PIECE_HOST_CANONICAL_ID, piece_id: MOCK_PIECES[0].id, date: MOCK_PIECES[0].created_at.slice(0, 10), distance_m: 2000, duration_s: 392.4, pace_s_per_500: 98.1 },
     "5000m": entry(5000, 104.2, 60),
     "6000m": null,
+    "10000m": null,
     "30min": { activity_id: 1, piece_id: null, date: shiftDate(TODAY, -200), distance_m: 8300, duration_s: 1800, pace_s_per_500: null },
     "60min": null,
   };

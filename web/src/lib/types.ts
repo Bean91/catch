@@ -3223,3 +3223,32 @@ export interface GoalInput {
   status?: "active" | "done" | "abandoned";
   params?: { distance_m?: number; min_duration_s?: number } | null;
 }
+
+// --- Session 36: load and volume over time --------------------------------------------------------------------------------
+
+export interface LoadHistoryWeek {
+  week_start: string;
+  complete: boolean;
+  load: number;
+  monotony: number | null;
+  strain: number | null;
+  monotony_reason: string | null;
+  days_scored: number;
+  sessions: number;
+  minutes: number;
+  distance_m: number;
+  training_days: number;
+  days_without_training: number;
+  rest_weekdays: number[];
+  avg_recovery: number | null;
+}
+
+export interface LoadHistory {
+  from: string;
+  to: string;
+  weeks: LoadHistoryWeek[];
+  months: { month: string; sessions: number; minutes: number; distance_m: number }[];
+  comparison: { recent_weeks: number; baseline_weeks: number; rows: { metric: "minutes" | "sessions" | "distance_m" | "load"; recent: number | null; baseline: number | null; change_pct: number | null }[] } | null;
+  rest_by_weekday: number[];
+  complete_weeks: number;
+}

@@ -49,3 +49,25 @@ def training_load(daily_totals: list[float], settings: dict | None = None) -> di
             f"form=chronic-acute={form:.1f}, acute:chronic={'n/a' if acr is None else f'{acr:.2f}'}."
         ),
     }
+
+
+def weekly_monotony_strain(daily_loads: list[float]) -> dict:
+    """Session 36: Foster's (1998) weekly training monotony and strain from seven daily training loads (rest days = 0).
+
+    monotony = mean daily load / standard deviation of daily load; strain = weekly load x monotony. A week where every day carried
+    the same load (SD 0) has no defined monotony, so both are None with the reason. Descriptive only: Foster associated high
+    monotony with illness in his athletes, but no threshold here is presented as a warning (docs/analytics.md §35)."""
+    import statistics
+
+    loads = [max(float(x or 0.0), 0.0) for x in daily_loads]
+    total = sum(loads)
+    if len(loads) < 2:
+        return {"load": total, "monotony": None, "strain": None, "reason": "fewer than two days"}
+    mean = statistics.mean(loads)
+    sd = statistics.pstdev(loads)
+    if total <= 0:
+        return {"load": 0.0, "monotony": None, "strain": None, "reason": "no training load this week"}
+    if sd == 0:
+        return {"load": total, "monotony": None, "strain": None, "reason": "every day carried the same load, so the ratio is undefined"}
+    monotony = mean / sd
+    return {"load": total, "monotony": monotony, "strain": total * monotony, "reason": None}
