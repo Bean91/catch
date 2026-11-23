@@ -75,10 +75,16 @@ def _list_workouts(session: Session, args: dict, ctx: dict) -> dict:
         from_=_parse_datetime(args.get("from")),
         to=_parse_datetime(args.get("to")),
         category=args.get("type"),
-        limit=50,
+        limit=max(1, min(int(args.get("limit") or 50), 100)),
         cursor=None,
+        q=args.get("q"),
+        tag=args.get("tag"),
+        has_notes=None,
         db=session,
     )
+    # Session 36: every row carries its in-app path, which the coach cites and the app turns into a link.
+    for item in page.get("items", []):
+        item["ref"] = f"/workouts/{item['id']}"
     return page
 
 
@@ -854,16 +860,6 @@ def _set_goal(session: Session, args: dict, ctx: dict) -> dict:
     return goals.goal_dict(session, row, localtime.today(session))
 
 
-def _get_goals(session: Session, args: dict, ctx: dict) -> dict:
-    from catch.sync import goals
-
-    view = args.get("view") or "active"
-    if view not in ("active", "history", "all"):
-        raise ValueError("view must be active, history or all")
-    items = goals.list_goals(session, None if view == "all" else view)
-    return {"view": view, "goals": items, "note": "Progress is computed from completed workouts and records; nothing here is stored or estimated."}
-
-
 def _forget(session: Session, args: dict, ctx: dict) -> dict:
     ref = str(args["ref"])
     if ref.startswith("event:") and ref[6:].isdigit():
@@ -909,12 +905,15 @@ TOOLS: dict[str, dict[str, Any]] = {
     "list_workouts": {
         "fn": _list_workouts,
         "write": False,
-        "description": "Recent canonical workouts (Garmin/Concept2/Peloton sources matched and merged), newest first, up to 50. Optionally filter by date range and category.",
+        "description": "Recent canonical workouts (sources matched and merged), newest first (default 50, up to 100). Filter by date range, category, a search of the athlete's own words, or a tag. Each row has a ref path to cite.",
         "input_schema": {
             "type": "object",
             "properties": {
                 **_DATE_RANGE_PROPS,
                 "type": {"type": "string", "enum": ["erg", "on_water", "strength", "other"], "description": "Workout category filter."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many (default 50)."},
+                "q": {"type": "string", "description": "Search the athlete's own words: title, notes, conditions, equipment, tags."},
+                "tag": {"type": "string"},
             },
             "additionalProperties": False,
         },
@@ -1649,6 +1648,10 @@ TOOLS.update(_leaderboard_tools.TOOLS)
 from catch.coach import club_tools as _club_tools  # noqa: E402
 
 TOOLS.update(_club_tools.TOOLS)
+
+from catch.coach import lab_tools as _lab_tools  # noqa: E402
+
+TOOLS.update(_lab_tools.TOOLS)
 
 
 def anthropic_tool_schemas() -> list[dict]:

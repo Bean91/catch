@@ -80,10 +80,16 @@ def build_server(backend: ToolBackend) -> MCPServer:
 
     @mcp.tool()
     async def list_workouts(
-        from_: Optional[str] = None, to: Optional[str] = None, type: Optional[Literal["erg", "on_water", "strength", "other"]] = None
+        from_: Optional[str] = None,
+        to: Optional[str] = None,
+        type: Optional[Literal["erg", "on_water", "strength", "other"]] = None,
+        limit: Optional[int] = None,
+        q: Optional[str] = None,
+        tag: Optional[str] = None,
     ) -> dict:
-        """Recent workouts (Garmin + Concept2, deduped), newest first, up to 50."""
-        return await _call("list_workouts", **{"from": from_, "to": to, "type": type})
+        """Recent workouts (sources matched and merged), newest first (default 50, up to 100). Optional search of the athlete's own
+        words (title, notes, conditions, equipment, tags) and a tag filter. Each row has a ref path."""
+        return await _call("list_workouts", limit=limit, q=q, tag=tag, **{"from": from_, "to": to, "type": type})
 
     @mcp.tool()
     async def get_workout(id: int) -> dict:
@@ -464,6 +470,57 @@ def build_server(backend: ToolBackend) -> MCPServer:
         trend projection, and whether an apparent improvement might just be a pacing/rate
         change."""
         return await _call("get_performance_trends", piece_type=piece_type)
+
+    # --- Session 36: analysis reads (records, Performance Lab, period summaries) ------------------------------------------------
+
+    @mcp.tool()
+    async def summarize_period(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+        """Totals for a period (default the last 30 days) with the period before it and % change, the longest sessions and the best
+        efforts at standard distances. Rows carry a ref path to cite."""
+        return await _call("summarize_period", **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def compare_tests(test_type: Optional[PieceType] = None, count: Optional[int] = None) -> dict:
+        """The last N confirmed rowing tests or saved pieces of one type (default the last three 2000m), oldest first, with the change
+        from each to the next."""
+        return await _call("compare_tests", test_type=test_type, count=count)
+
+    @mcp.tool()
+    async def rank_workouts(
+        metric: Optional[Literal["avg_power", "distance", "duration", "avg_hr", "split"]] = None,
+        from_: Optional[str] = None,
+        to: Optional[str] = None,
+        limit: Optional[int] = None,
+        sport: Optional[Literal["rowing", "cycling", "running", "strength", "other"]] = None,
+    ) -> dict:
+        """Workouts in a period (default 90 days) ranked by a whole-workout figure (split ranks fastest first)."""
+        return await _call("rank_workouts", metric=metric, limit=limit, sport=sport, **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def get_split_by_rate(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+        """Average split at comparable stroke rates, the earlier half of the period beside the recent half (default: the last year)."""
+        return await _call("get_split_by_rate", **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def get_hr_at_workload(from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+        """Median heart rate at comparable power in continuous erg sessions, earlier half of the period beside the recent half."""
+        return await _call("get_hr_at_workload", **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def get_records(modality: Optional[Literal["rowing_erg", "bike"]] = None, from_: Optional[str] = None, to: Optional[str] = None) -> dict:
+        """Personal records by distance, time and power, each labelled test / piece / ordinary result, with a ref path."""
+        return await _call("get_records", modality=modality, **{"from": from_, "to": to})
+
+    @mcp.tool()
+    async def get_goals(view: Optional[Literal["active", "history", "all"]] = None) -> dict:
+        """The athlete's goals with progress computed from their training."""
+        return await _call("get_goals", view=view)
+
+    @mcp.tool()
+    async def get_load_history(weeks: Optional[int] = None) -> dict:
+        """Week-by-week load, Foster monotony and strain, volume and recovery (default 12 weeks), monthly volume, and the last 4 weeks
+        against the 12 before. Descriptive only."""
+        return await _call("get_load_history", weeks=weeks)
 
     @mcp.tool()
     async def get_interval_comparisons() -> dict:

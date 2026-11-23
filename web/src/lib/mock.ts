@@ -2176,7 +2176,7 @@ export async function* streamMockMessage(conversationId: number, text: string): 
   const reply =
     "Recovery is 78% (green) and strain so far today is light — you're clear for a harder session. " +
     "Given you've got Head of the Charles in 9 days, I'd keep today purposeful but not maximal: a TR-zone piece " +
-    "with full recovery between reps, then ease into the taper from here.";
+    "with full recovery between reps, then ease into the taper from here. Your last hard erg (/workouts/1) is the one to beat.";
   const words = reply.split(" ");
   for (const word of words) {
     await delayed(undefined, 18);

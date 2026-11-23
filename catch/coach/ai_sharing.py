@@ -51,12 +51,15 @@ TOOL_CATEGORY: dict[str, str | None] = {
     "get_interval_comparisons": "workouts", "get_training_profile": "workouts", "get_performance_trends": "workouts",
     "get_training_distribution": "workouts", "get_training_consistency": "workouts", "get_training_insights": "workouts",
     "get_verified_results": "workouts",
+    # session 36: analysis reads (records, Performance Lab, period summaries, test comparisons)
+    "summarize_period": "workouts", "compare_tests": "workouts", "rank_workouts": "workouts", "get_split_by_rate": "workouts",
+    "get_hr_at_workload": "workouts", "get_records": "workouts", "get_load_history": "workouts",
     # nutrition
     "get_nutrition": "nutrition", "log_food": "nutrition",
     # notes
     "add_note": "notes_checkins",
     # memory
-    "remember": "memory", "recall": "memory", "forget": "memory", "set_goal": "memory",
+    "remember": "memory", "recall": "memory", "forget": "memory", "set_goal": "memory", "get_goals": "memory",
     # calendar, plans, library, coaching
     "get_calendar": "calendar_library", "get_upcoming_events": "calendar_library", "get_event": "calendar_library",
     "get_training_phase": "calendar_library", "create_event": "calendar_library", "update_event": "calendar_library",
@@ -114,7 +117,7 @@ def tool_decision(session: Session, name: str) -> dict | None:
 
 
 # Tools whose payload mixes categories: the part that belongs to another category is removed when that one is off.
-_NOTE_KEYS = {"notes", "rpe", "day_note"}
+_NOTE_KEYS = {"notes", "rpe", "day_note", "conditions", "equipment"}
 # Session 33: heart-rate zones carry the resting heart rate they were built from — a wellness figure inside a workouts tool.
 _RESTING_HR_KEYS = {"resting_hr", "rhr_source", "rhr_window", "rhr_readings"}
 _MIXED = {
@@ -122,6 +125,8 @@ _MIXED = {
     "list_workouts": {"notes_checkins": _NOTE_KEYS},
     "get_workout": {"notes_checkins": _NOTE_KEYS, "wellness": _RESTING_HR_KEYS},
     "get_zones": {"wellness": _RESTING_HR_KEYS},
+    # Session 36: load history carries recovery; a period summary only training figures.
+    "get_load_history": {"wellness": {"avg_recovery"}},
 }
 
 

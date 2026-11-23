@@ -13,6 +13,9 @@ const STATIC_LABELS: Record<string, string> = {
   get_zones: "Read training zones",
   set_goal: "Save goal",
   recall: "Search memory",
+  get_records: "Read personal records",
+  get_goals: "Read goals",
+  get_load_history: "Read training load history",
 };
 
 export function toolLabel(name: string, input: Record<string, unknown>): string {
@@ -106,6 +109,16 @@ export function toolLabel(name: string, input: Record<string, unknown>): string 
       return input.athlete_id ? "Read a public athlete profile" : "Read your public profile";
     case "get_verified_results":
       return "Read your leaderboard-eligible results";
+    case "summarize_period":
+      return `Summarize training${rangePhrase(input)}`;
+    case "compare_tests":
+      return `Compare ${input.test_type ?? "2000m"} tests`;
+    case "rank_workouts":
+      return `Rank workouts by ${String(input.metric ?? "avg_power").replace("_", " ")}${rangePhrase(input)}`;
+    case "get_split_by_rate":
+      return `Read split by stroke rate${rangePhrase(input)}`;
+    case "get_hr_at_workload":
+      return `Read heart rate at comparable power${rangePhrase(input)}`;
     case "get_my_clubs":
       return "Read your clubs";
     case "get_club":

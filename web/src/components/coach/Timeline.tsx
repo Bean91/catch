@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { splitRefs } from "../../lib/coachRefs";
 import type { TimelineEntry } from "../../lib/timeline";
 import { ToolCallChip } from "./ToolCallChip";
 
@@ -38,7 +40,9 @@ function TextBlock({
     <div className="flex max-w-full gap-2.5">
       <CoachAvatar />
       <div className="min-w-0 max-w-[92%] rounded-2xl rounded-tl-md border border-border bg-surface-2/70 px-3.5 py-2.5 text-sm leading-relaxed text-text-primary">
-        <p className="whitespace-pre-wrap">{text}</p>
+        <p className="whitespace-pre-wrap">
+          <LinkedText text={text} />
+        </p>
         <Attribution provider={provider} model={model} />
       </div>
     </div>
@@ -73,5 +77,22 @@ function CoachAvatar() {
     <span aria-hidden className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,var(--accent-strong),var(--metric-pace))] text-[11px] font-bold text-accent-contrast">
       C
     </span>
+  );
+}
+
+/** Session 36: the in-app paths the coach cites ("/workouts/123") become links — only the allow-listed shapes in lib/coachRefs. */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {splitRefs(text).map((p, i) =>
+        p.to ? (
+          <Link key={i} to={p.to} className="text-accent underline" data-testid="coach-ref">
+            {p.text}
+          </Link>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </>
   );
 }

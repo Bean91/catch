@@ -17,7 +17,7 @@ VIEWER = pr.VIEWER
 
 
 def test_the_five_tools_are_registered_read_only_with_closed_schemas():
-    assert CLUB_TOOLS <= set(tools.TOOLS) and len(tools.TOOLS) == 66
+    assert CLUB_TOOLS <= set(tools.TOOLS) and len(tools.TOOLS) == 74
     for name in CLUB_TOOLS:
         spec = tools.TOOLS[name]
         assert spec["write"] is False and spec["input_schema"]["additionalProperties"] is False
