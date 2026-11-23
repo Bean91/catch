@@ -20,12 +20,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* paddingTop here (not just on <header>) so whichever element renders first — the
           header, or the Garmin-key banner above it when that's showing — clears the status
           bar/notch on an iPhone (viewport-fit=cover in index.html draws edge-to-edge). */}
-      <div className="flex min-h-dvh min-w-0 flex-1 flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+        {/* The safe-area padding belongs to the sticky bar itself: with the status bar drawn over the web view (native, and an
+            installed iPhone PWA), a sticky bar without it scrolls content up behind the clock and battery. */}
+        <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-lg lg:static lg:bg-transparent lg:backdrop-blur-none" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <GarminKeyBanner />
 
         {/* Phone and tablet top bar. Its height (and the tab bar's) are --shell-top/--shell-bottom in index.css; Coach sizes its
             conversation from them, so change both together. */}
-        <header className="sticky top-0 z-10 flex h-[var(--shell-top)] items-center justify-between border-b border-border/70 bg-bg/80 px-4 backdrop-blur-lg sm:px-6 lg:hidden">
+        <header className="flex h-[var(--shell-top)] items-center justify-between border-b border-border/70 px-4 sm:px-6 lg:hidden">
           <Link to="/" className="flex min-h-11 items-center gap-2" aria-label="Catch — Today">
             <Logomark className="h-7 w-7" />
             <span className="text-sm font-semibold tracking-[0.14em] text-text-primary">CATCH</span>
@@ -38,6 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <SettingsIcon className="h-5 w-5" />
           </Link>
         </header>
+        </div>
 
         <main
           key={pathname}

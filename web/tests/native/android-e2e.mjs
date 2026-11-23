@@ -30,6 +30,8 @@ const check = (name, ok, detail = "") => {
 };
 
 function launch({ clear = false } = {}) {
+  // `adb reverse` doesn't survive an adbd restart or a reinstall; re-establish the host API/auth ports every launch.
+  for (const port of ["8000", "54321"]) adbSoft("reverse", `tcp:${port}`, `tcp:${port}`);
   if (clear) adb("shell", "pm", "clear", PKG);
   adb("shell", "am", "force-stop", PKG);
   adb("shell", "am", "start", "-n", `${PKG}/com.openoted.catchapp.MainActivity`);
@@ -55,7 +57,8 @@ async function signIn(page) {
   await page.getByLabel(/email/i).fill(EMAIL);
   await page.getByLabel(/password/i).first().fill(PASSWORD);
   await page.getByRole("button", { name: /sign in|log in/i }).click();
-  await page.getByText("CATCH").first().waitFor({ timeout: 20000 });
+  // The phone tab bar only exists once signed in (session 35: the first "CATCH" in the DOM is the desktop sidebar's, hidden on a phone).
+  await page.getByRole("navigation", { name: "Primary" }).waitFor({ timeout: 20000 });
 }
 
 async function sessionKeys(page) {
@@ -100,7 +103,7 @@ const scenarios = {
       await page.waitForLoadState("domcontentloaded");
       check("origin is the native shell", /^https:\/\/localhost/.test(page.url()), page.url());
       await signIn(page);
-      check("signed in through the shared Supabase project", await page.getByText("CATCH").first().isVisible());
+      check("signed in through the shared Supabase project", await page.getByRole("navigation", { name: "Primary" }).isVisible());
       const leaked = await sessionKeys(page);
       check("no session token in webview localStorage", leaked.length === 0, leaked.join(",") || "none");
       let raw = "";
@@ -222,6 +225,9 @@ const scenarios = {
       await page.getByText("3 sets to sync").waitFor({ timeout: 10000 });
       check("three sets logged with the API unreachable", true);
       await page.screenshot({ path: `${SHOTS}/android-offline-logged.png` });
+    } catch (e) {
+      goOnline(); // a failure here must not leave the API blocked for every later run
+      throw e;
     } finally {
       await browser.close();
     }
@@ -248,6 +254,16 @@ const scenarios = {
     check("the server gained exactly the three sets logged offline", after - before === 3, `${before} -> ${after}`);
   },
 };
+
+// Session 32 sends a brand-new account to first-run setup; this harness tests the shell (storage, links, offline), so the
+// disposable account is marked as set up before any scenario runs.
+{
+  const token = await serverToken();
+  const r = await fetch(`${API}/api/onboarding`, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ complete: true }) });
+  if (!r.ok) console.log(`could not mark setup complete (${r.status}); scenarios may land on /welcome`);
+}
+
+goOnline(); // a previous, interrupted run may have left the "offline" firewall rule in place
 
 const wanted = process.argv.slice(2);
 for (const [name, fn] of Object.entries(scenarios)) {

@@ -5126,3 +5126,71 @@ Branch `session-35-redesign`.
   "Jump to today" on the browser's today.
 - **Histogram:** its bins describe strokes, not time. The scatter and distribution use the full stroke list, so every stroke counts once.
 - **Not seen on real devices:** iOS PWA and native shells.
+
+## Follow-ups (2026-11-22/23): the "Not done" list above, fixed
+
+Branch `session-35-followups`, merged to `main` locally. Frontend only; no Python changed and no migration was added.
+
+- **Nutrition's day:** the page now follows the account's today (`lib/localTime.ts` gained `subscribeActiveZone`, `setActiveZone` notifies)
+  until a day is picked. Picking today again goes back to following it.
+- **Hand-rolled controls:** all of them moved onto the primitives' classes. Two mechanical passes did it: about 60 files to
+  `buttonClass(...)`/`controlBase`, and 33 local `inputCls`/`btn` constants rebuilt from them. `Field.tsx` gained `controlSkin`, the control
+  look without a height, for the dense rows that keep `min-h-9`. `Button` no longer sets `disabled:pointer-events-none`: a disabled button
+  still has to receive the hit test above the tab bar (library specs).
+- **Bundle:** framer-motion is gone. Draw-ins are CSS (`.draw-in` on `pathLength=1` paths, `.ring-draw` with `--from`, `.grow-x`;
+  `prefers-reduced-motion` turns them off) and `CountUp` is a small rAF tween. Initial JS **245.1 → 196.2 KB** gzip (budget 250).
+- **Lighter pages:** Routes, Duplicates (raw score → "Strong/Likely/Possible match"), Memory (back link to Coach), Moderation and Health data
+  (Notice), Library (buttons), RouteDetail (h1).
+- **Icons:** the PWA icons' field recoloured to the navy `#0B1120`; `web/assets/*` and every iOS/Android icon and splash regenerated.
+  `npm run native:assets` is now `--ios --android` only: without it, capacitor-assets also rewrote `manifest.webmanifest` and wrote a
+  broken PWA icon set into `web/icons`. The header logomark is now the same oar-blade artwork (`/icons/icon-192.png`) as the home-screen
+  icon. The settings icon is now a toothed gear; the old ring-and-rays mark looked like the theme switch's sun.
+- **Shell on notched screens:** the safe-area padding moved onto the sticky top bar itself, which is now ~opaque (`bg-bg/95`). Before this,
+  on a native app or an installed iPhone PWA, content scrolled up behind the clock and battery.
+- **Login:** the card is top-aligned on phones (a centred card jumped when the keyboard opened), with no entrance animation or backdrop
+  blur.
+- **Native reload loop (real bug, found on Android):** `vite:preloadError` fires for *any* rejection inside a preload-wrapped import,
+  including "TypeError: Failed to fetch" from an API call during sign-in. The app reloaded the page on it, and sign-in failed about half the
+  time. `useServiceWorkerUpdate.ts` now never reloads in a native build, which ships every chunk, and on the web reloads only for real
+  chunk-load messages.
+- **`test:live`:** passes end to end (sign-up → e-mail confirmation in mailpit → app under the real CSP → password reset → sign-in). The
+  throwaway stack (`~/supabase-catch-test/supabase/config.toml`, outside the repo) needed `[auth.email] enable_confirmations = true` and
+  `site_url`/`additional_redirect_urls` on `http://127.0.0.1:8799`.
+- **Android harness** (`web/tests/native/android-e2e.mjs`): **20/20** on the emulator against the local public API and Supabase stack.
+  Covers sign-in, Keystore session, cold start, resume, 8 deep links, a check-in link, a cold-start deep link, and offline gym logging
+  (3 sets survive a restart, then flush to the server). Harness fixes:
+  - it re-adds `adb reverse` on every launch;
+  - it waits for the Primary nav, not the old tab text;
+  - it marks onboarding complete for the test user;
+  - it removes a leftover "offline" iptables rule at start and on failure. An interrupted run had left the API blocked, so every later
+    launch said "Couldn't load today's data".
+  The local stack needs `catch db seed` (with `DATABASE_URL` *and* `DATABASE_ADMIN_URL`) after `tests/pg` runs, which wipes the exercise
+  library.
+- **iOS simulator (iPhone, iOS 26):**
+  - Mobile Safari rendered the production build (`?mock=1`) correctly on Today, Calendar, Train, a workout, Trends and Settings. Safe
+    areas, the tab bar and the charts were all right.
+  - The native shell built (`xcodebuild`, simulator, unsigned), installed and launched to the login screen, which follows the system dark
+    mode. The new icon shows on the home screen.
+  - iOS native sign-in was not run (no harness for it).
+
+**Verification:**
+
+| Check | Result |
+|---|---|
+| `tsc`, oxlint | Clean; the 12 remaining warnings were there before |
+| vitest | 119 passed |
+| `test:touch` (3 projects) | 335 passed, 8 skipped |
+| `test:public` | 24 passed |
+| `test:update` | 4 passed |
+| `test:gym` | 3 passed |
+| `test:live` | 1 passed |
+| Builds | Personal, public and native builds succeed; `check:build-secrets` clean |
+| Backend | static/CSP pytest: 18 passed |
+| `tests/pg` | 101 passed, 1 skipped |
+| Screenshot sweep | 35 routes × 4 widths × 2 themes: 0 overflow, 0 console errors |
+| Pan cost (4× CPU) | 16–18 ms per move, unchanged |
+
+**Still not verified:**
+- a physical phone;
+- iOS native sign-in;
+- APNs/FCM delivery, verified links and HealthKit/Health Connect, as in session 30.

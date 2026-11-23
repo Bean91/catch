@@ -78,7 +78,13 @@ export function useServiceWorkerUpdate(): { updateAvailable: boolean; reload: ()
     // the reload itself to avoid a loop if the chunk is 404ing for some other reason (e.g.
     // genuinely offline), at the cost of only auto-recovering once per tab session — a second
     // deploy in the same long-lived tab relies on the version.json poll above catching it first.
-    const onPreloadError = () => {
+    const onPreloadError = (e: Event) => {
+      // Session 35: only a chunk that genuinely failed to load is a reason to reload. Vite reports any rejection from inside a
+      // preload-wrapped import here — on the native app an unreachable API surfaced this way and reloaded the app mid sign-in —
+      // and a native build ships every chunk inside the app, so a stale deploy can't happen there at all.
+      if (isNativeBuild) return;
+      const message = String((e as Event & { payload?: unknown }).payload ?? "");
+      if (!/dynamically imported module|Importing a module script failed|Unable to preload CSS|error loading dynamically imported module/i.test(message)) return;
       try {
         if (sessionStorage.getItem(PRELOAD_RELOAD_KEY)) return;
         sessionStorage.setItem(PRELOAD_RELOAD_KEY, "1");

@@ -1,5 +1,3 @@
-import { useId } from "react";
-
 type IconProps = { className?: string };
 
 export function TodayIcon({ className }: IconProps) {
@@ -70,15 +68,16 @@ export function NutritionIcon({ className }: IconProps) {
 }
 
 export function SettingsIcon({ className }: IconProps) {
+  // A toothed gear (the old ring-and-rays mark read as a sun, next to the sun of the theme switch).
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
-      <circle cx="12" cy="12" r="2.7" stroke="currentColor" strokeWidth="1.8" />
       <path
-        d="M12 4v2.2M12 17.8V20M4 12h2.2M17.8 12H20M6.3 6.3l1.5 1.5M16.2 16.2l1.5 1.5M6.3 17.7l1.5-1.5M16.2 7.8l1.5-1.5"
+        d="M10.3 3.6h3.4l.5 2.3a6.6 6.6 0 0 1 1.6.9l2.2-.8 1.7 2.9-1.7 1.6a6.7 6.7 0 0 1 0 1.9l1.7 1.6-1.7 2.9-2.2-.8a6.6 6.6 0 0 1-1.6.9l-.5 2.3h-3.4l-.5-2.3a6.6 6.6 0 0 1-1.6-.9l-2.2.8-1.7-2.9 1.7-1.6a6.7 6.7 0 0 1 0-1.9L4.3 8.9 6 6l2.2.8a6.6 6.6 0 0 1 1.6-.9z"
         stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
       />
+      <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
@@ -282,21 +281,8 @@ export function ReadinessIcon({ className }: IconProps) {
   );
 }
 
-/** The wordmark's glyph: a blade's catch, drawn as two strokes meeting the water line. */
+/** The app's mark — the same oar-blade artwork as the home-screen and store icon (public/icons), so the brand is one picture
+ * everywhere. A plain image, decorative: the "CATCH" wordmark beside it carries the name. */
 export function Logomark({ className }: IconProps) {
-  // Unique per instance: the sidebar's copy is display:none on a phone, and a gradient referenced from a hidden SVG doesn't paint.
-  const id = `catch-logo-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="var(--accent-strong)" />
-          <stop offset="1" stopColor="var(--metric-pace)" />
-        </linearGradient>
-      </defs>
-      <rect x="1" y="1" width="30" height="30" rx="9" fill={`url(#${id})`} />
-      <path d="M8 20.5c3-1.4 5.3-1.4 8 0s5 1.4 8 0" stroke="var(--accent-contrast)" strokeWidth="2.2" strokeLinecap="round" fill="none" />
-      <path d="M11 9.5l5 8 5-8" stroke="var(--accent-contrast)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
+  return <img src="/icons/icon-192.png" alt="" aria-hidden width={192} height={192} className={`${className ?? ""} rounded-[24%] object-cover`} draggable={false} />;
 }

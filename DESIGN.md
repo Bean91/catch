@@ -220,8 +220,10 @@ status-only*). Every band is always paired with a text label
 
 ## Motion
 
-Framer Motion, once-only entrance animation on rings/gauges/counters (arc draw-in + number
-count-up), nothing loops. `prefers-reduced-motion: reduce` disables the draw-in and count-up
+Once-only entrance animation on rings/gauges/counters (arc draw-in + number count-up), nothing
+loops. *Session 35 follow-up: framer-motion was removed — draw-ins are CSS (`.draw-in` on a
+`pathLength=1` path, `.ring-draw` with a `--from` offset, `.grow-x`, all in `index.css`) and
+`CountUp` is a rAF tween; don't add an animation library back.* `prefers-reduced-motion: reduce` disables the draw-in and count-up
 and shows final values immediately — checked via `usePrefersReducedMotion`.
 
 ## Interaction patterns (session 8: interactive charts)

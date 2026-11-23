@@ -15,9 +15,11 @@ const LINK = "min-h-11 text-sm text-text-secondary underline-offset-4 hover:text
 function Frame({ children }: { children: ReactNode }) {
   return (
     // The one branded surface: a soft accent glow behind a raised card, the logomark, and the app's h1.
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-10 text-text-primary">
+    // Top-aligned on a phone: a centred card jumps whenever the on-screen keyboard opens or closes (the app resizes for it),
+    // and a tap on "Sign in" mid-jump lands where the button used to be. Centred from sm: up, where there is no such keyboard.
+    <div className="relative flex min-h-dvh items-start justify-center overflow-hidden px-4 pb-10 pt-[max(2.5rem,calc(env(safe-area-inset-top)+1.5rem))] text-text-primary sm:items-center sm:py-10">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_45%_at_50%_0%,var(--accent-soft),transparent_70%),radial-gradient(40%_35%_at_85%_100%,color-mix(in_oklab,var(--metric-pace)_10%,transparent),transparent_70%)]" />
-      <div className="relative w-full max-w-sm animate-enter rounded-xl border border-border bg-surface/95 p-6 shadow-float backdrop-blur sm:p-7">
+      <div className="relative w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-float sm:p-7">
         <div className="mb-6 flex flex-col items-center text-center">
           <Logomark className="h-11 w-11" />
           <h1 className="mt-3 text-lg font-semibold tracking-[0.16em]">CATCH</h1>
