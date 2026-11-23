@@ -37,6 +37,8 @@ EXTRA_REFS: tuple[tuple[str, str, str], ...] = (
     ("coach_feedback_revisions", "feedback_id", "coach_feedback"),
     ("workout_templates", "duplicated_from_id", "workout_templates"),
     ("planned_workouts", "template_id", "workout_templates"),
+    ("events", "result_canonical_id", "canonical_activities"),
+    ("events", "result_piece_id", "pieces"),
 )
 
 _installed = False

@@ -3,6 +3,8 @@
 // browser's *local* today, never a UTC slice.
 import { addDays, daysBetween, todayISO, weekStart } from "./dates";
 import type {
+  MonthSummary,
+  PhaseProgress,
   LinkCandidate,
   PlanComparisonResponse,
   CalendarCompleted,
@@ -77,7 +79,7 @@ function seed() {
     ] as UpcomingEvent[],
     phases: [
       {
-        id: 1, kind: "specific_prep", name: "Build to the 2k", start_date: addDays(m, -14), end_date: addDays(m, 27), goals: "Raise threshold power; two strength sessions a week.",
+        id: 1, kind: "specific_prep", name: "Build to the 2k", category: "Build", start_date: addDays(m, -14), end_date: addDays(m, 27), goals: "Raise threshold power; two strength sessions a week.",
         target_minutes_per_week: 420, target_sessions_per_week: 6, target_strength_sessions_per_week: 2, target_zone_pct: { UT2: { min: 70 }, AN: { max: 5 } }, event_id: 2,
         coach_approved: true, coach_approved_at: new Date(Date.now() - 6 * 86400000).toISOString(), coach_approved_by: "Coach Sam", coach_approved_note: "Looks right for this block.", edited_since_approval: false,
       },
@@ -404,7 +406,7 @@ export function createMockPhase(body: PhaseInput): PlanPhase {
     id: nextPhaseId++, kind: body.kind, name: body.name, start_date: body.start_date, end_date: body.end_date, goals: body.goals ?? null,
     target_minutes_per_week: body.target_minutes_per_week ?? null, target_sessions_per_week: body.target_sessions_per_week ?? null,
     target_strength_sessions_per_week: body.target_strength_sessions_per_week ?? null, target_zone_pct: body.target_zone_pct ?? null,
-    event_id: body.event_id ?? null, coach_approved: false, coach_approved_at: null, coach_approved_by: null, coach_approved_note: null, edited_since_approval: false,
+    event_id: body.event_id ?? null, category: body.category ?? null, coach_approved: false, coach_approved_at: null, coach_approved_by: null, coach_approved_note: null, edited_since_approval: false,
   };
   state.phases.push(row);
   return row;
@@ -506,4 +508,65 @@ export function mockLinkCandidates(plannedId: number): LinkCandidate[] {
     })
     .filter((c) => Math.abs(c.days_from_plan) <= 3)
     .sort((a, b) => Math.abs(a.days_from_plan) - Math.abs(b.days_from_plan));
+}
+
+export function mockPhaseCategories(): string[] {
+  const out = ["Base", "Build", "Peak", "Taper", "Recovery"];
+  for (const p of state.phases) if (p.category && !out.includes(p.category)) out.push(p.category);
+  return out;
+}
+
+/** Built from the mock's own plan and workout lists (sums only — the same bookkeeping the calendar mock already does). */
+export function mockPhaseProgress(id: number): PhaseProgress {
+  const phase = state.phases.find((p) => p.id === id);
+  if (!phase) throw new Error("not found");
+  const thisWeek = weekStart(today());
+  const weeks: PhaseProgress["weeks"] = [];
+  for (let w = weekStart(phase.start_date); w <= phase.end_date; w = addDays(w, 7)) {
+    const end = addDays(w, 6);
+    const planned = state.planned.filter((p) => p.date >= w && p.date <= end && p.session_type !== "rest" && p.status !== "skipped");
+    const done = state.completed.filter((c) => (c.start ?? "").slice(0, 10) >= w && (c.start ?? "").slice(0, 10) <= end);
+    const st = w > thisWeek ? "future" : w === thisWeek ? "current" : "past";
+    weeks.push({
+      week_start: w,
+      state: st,
+      planned: { minutes: planned.reduce((a, p) => a + (p.duration_min ?? 0), 0), sessions: planned.length, distance_m: planned.reduce((a, p) => a + (p.distance_m ?? 0), 0) },
+      completed: st === "future" ? null : { minutes: done.reduce((a, c) => a + (c.duration_min ?? 0), 0), sessions: done.length, strength_sessions: done.filter((c) => c.sport_family === "strength").length, distance_m: done.reduce((a, c) => a + (c.distance_m ?? 0), 0), zone_pct: done.length ? { UT2: 78, UT1: 12, AT: 7, TR: 2, AN: 1 } : null },
+    });
+  }
+  const past = weeks.flatMap((w) => (w.completed ? [w.completed] : []));
+  return {
+    phase,
+    weeks,
+    targets: { minutes: phase.target_minutes_per_week, sessions: phase.target_sessions_per_week, strength_sessions: phase.target_strength_sessions_per_week, source: "phase" },
+    totals: {
+      planned_minutes: weeks.reduce((a, w) => a + w.planned.minutes, 0),
+      completed_minutes: past.reduce((a, c) => a + c.minutes, 0),
+      completed_sessions: past.reduce((a, c) => a + c.sessions, 0),
+      completed_distance_m: past.reduce((a, c) => a + c.distance_m, 0),
+      weeks_elapsed: past.length,
+      weeks_total: weeks.length,
+    },
+    efforts: [{ kind: "test", test_type: "2000m", title: "2k test", date: addDays(today(), -12), distance_m: 2000, duration_s: 412.3, avg_power: 312, canonical_id: 1, piece_id: null, modality: "rowing_erg" }],
+  };
+}
+
+export function mockMonthSummary(month: string): MonthSummary {
+  const from = `${month}-01`;
+  const [y, m] = month.split("-").map(Number);
+  const to = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+  const done = state.completed.filter((c) => (c.start ?? "").slice(0, 10) >= from && (c.start ?? "").slice(0, 10) <= to);
+  const planned = state.planned.filter((p) => p.date >= from && p.date <= to && p.session_type !== "rest" && p.status !== "skipped");
+  const end = today() < to ? today() : to;
+  const elapsed = end >= from ? daysBetween(from, end) + 1 : 0;
+  const days = new Set(done.map((c) => (c.start ?? "").slice(0, 10)));
+  const bySport: Record<string, number> = {};
+  for (const c of done) bySport[c.sport_family ?? "other"] = (bySport[c.sport_family ?? "other"] ?? 0) + (c.duration_min ?? 0);
+  return {
+    month, from, to,
+    completed: { minutes: done.reduce((a, c) => a + (c.duration_min ?? 0), 0), sessions: done.length, distance_m: done.reduce((a, c) => a + (c.distance_m ?? 0), 0), training_days: days.size, minutes_by_sport: bySport },
+    planned: { minutes: planned.reduce((a, p) => a + (p.duration_min ?? 0), 0), sessions: planned.length, distance_m: planned.reduce((a, p) => a + (p.distance_m ?? 0), 0) },
+    days_elapsed: elapsed,
+    days_without_training: Math.max(elapsed - [...days].filter((d) => d <= end).length, 0),
+  };
 }

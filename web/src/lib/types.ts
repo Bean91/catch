@@ -2076,6 +2076,34 @@ export interface PlanPhase {
   coach_approved_by: string | null;
   coach_approved_note: string | null;
   edited_since_approval: boolean;
+  /** Session 36: the athlete's own label for the block (Base, Build, … or anything). */
+  category?: string | null;
+}
+
+export interface PhaseProgressWeek {
+  week_start: string;
+  state: "past" | "current" | "future";
+  planned: { minutes: number; sessions: number; distance_m: number };
+  /** null for a week that hasn't started: nothing is completed yet, which isn't the same as zero. */
+  completed: { minutes: number; sessions: number; strength_sessions: number; distance_m: number; zone_pct: Record<string, number> | null } | null;
+}
+
+export interface PhaseProgress {
+  phase: PlanPhase;
+  weeks: PhaseProgressWeek[];
+  targets: { minutes?: number | null; sessions?: number | null; strength_sessions?: number | null; source?: string };
+  totals: { planned_minutes: number; completed_minutes: number; completed_sessions: number; completed_distance_m: number; weeks_elapsed: number; weeks_total: number };
+  efforts: { kind: "test" | "piece"; test_type: string | null; title: string | null; date: string; distance_m: number | null; duration_s: number | null; avg_power: number | null; canonical_id: number | null; piece_id: number | null; modality: string | null }[];
+}
+
+export interface MonthSummary {
+  month: string;
+  from: string;
+  to: string;
+  completed: { minutes: number; sessions: number; distance_m: number; training_days: number; minutes_by_sport: Record<string, number> };
+  planned: { minutes: number; sessions: number; distance_m: number };
+  days_elapsed: number;
+  days_without_training: number;
 }
 
 export interface CalendarDay {
@@ -2218,6 +2246,7 @@ export interface PhaseInput {
   target_strength_sessions_per_week?: number | null;
   target_zone_pct?: Record<string, { min?: number; max?: number }> | null;
   event_id?: number | null;
+  category?: string | null;
 }
 
 

@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { approvePhase, createPhase, deletePhase, unapprovePhase, updatePhase } from "../../lib/api";
+import { approvePhase, createPhase, deletePhase, fetchPhases, unapprovePhase, updatePhase } from "../../lib/api";
 import type { PhaseInput, PhaseKind, PlanPhase } from "../../lib/types";
 import { PHASE_KINDS, ZONES } from "./labels";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
@@ -34,6 +34,8 @@ export function PhaseSheet({
   const qc = useQueryClient();
   const [kind, setKind] = useState<PhaseKind>("general_prep");
   const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const phasesQ = useQuery({ queryKey: ["phases"], queryFn: fetchPhases, enabled: open });
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultStart);
   const [goals, setGoals] = useState("");
@@ -54,6 +56,7 @@ export function PhaseSheet({
     setNote(existing?.coach_approved_note ?? "");
     setKind(existing?.kind ?? "general_prep");
     setName(existing?.name ?? "");
+    setCategory(existing?.category ?? "");
     setStart(existing?.start_date ?? defaultStart);
     setEnd(existing?.end_date ?? defaultStart);
     setGoals(existing?.goals ?? "");
@@ -75,7 +78,7 @@ export function PhaseSheet({
       if (Object.keys(entry).length) target_zone_pct[z] = entry;
     }
     return {
-      kind, name: name.trim(), start_date: start, end_date: end, goals: goals.trim() || null,
+      kind, name: name.trim(), category: category.trim() || null, start_date: start, end_date: end, goals: goals.trim() || null,
       target_minutes_per_week: num(minutes), target_sessions_per_week: num(sessions), target_strength_sessions_per_week: num(strength),
       target_zone_pct: Object.keys(target_zone_pct).length ? target_zone_pct : null,
     };
@@ -120,6 +123,16 @@ export function PhaseSheet({
             <Field label="Name">
               <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
             </Field>
+            <div className="col-span-2">
+              <Field label="Block label (your own — e.g. Base, Build, Peak, Taper, Recovery)">
+                <input value={category} onChange={(e) => setCategory(e.target.value)} list="phase-categories" maxLength={40} className={inputCls} data-testid="phase-category" />
+              </Field>
+              <datalist id="phase-categories">
+                {(phasesQ.data?.categories ?? ["Base", "Build", "Peak", "Taper", "Recovery"]).map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
             <Field label="Starts">
               <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={`${inputCls} overflow-hidden`} />
             </Field>

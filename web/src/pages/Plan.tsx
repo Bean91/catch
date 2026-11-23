@@ -4,6 +4,7 @@ import { Button } from "../components/ui/Button";
 import { PlanBar } from "../components/charts/PlanBar";
 import { useState } from "react";
 import { PhaseSheet } from "../components/calendar/PhaseSheet";
+import { BlockProgressCard } from "../components/calendar/BlockProgressCard";
 import { formatMinutes, phaseKindLabel } from "../components/calendar/labels";
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
@@ -17,8 +18,16 @@ export function PlanPage() {
   const today = todayISO();
   const [sheet, setSheet] = useState<{ open: boolean; existing: PlanPhase | null }>({ open: false, existing: null });
   const phases = useQuery({ queryKey: ["phases"], queryFn: fetchPhases });
+  const phaseList = phases.data?.phases ?? [];
+  // Session 36: with blocks defined, the page follows a block week by week (one request); the fixed seven-week window only remains
+  // as the view for someone who hasn't set up a block yet.
+  const defaultBlock = phaseList.find((p) => p.start_date <= today && today <= p.end_date) ?? phaseList.find((p) => p.start_date > today) ?? phaseList[phaseList.length - 1] ?? null;
+  const [blockId, setBlockId] = useState<number | null>(null);
+  const block = phaseList.find((p) => p.id === blockId) ?? defaultBlock;
+  const showWeeks = phases.isSuccess && phaseList.length === 0;
   const start = addDays(weekStart(today), -14);
-  const weeks = Array.from({ length: 7 }, (_, i) => addDays(start, i * 7));
+  // With blocks, two summaries still feed "Worth a look" (each one's review flags cover three weeks).
+  const weeks = showWeeks ? Array.from({ length: 7 }, (_, i) => addDays(start, i * 7)) : phases.isSuccess ? [weekStart(today), addDays(weekStart(today), 21)] : [];
   const summaries = useQueries({ queries: weeks.map((w) => ({ queryKey: ["plan-week", w], queryFn: () => fetchPlanWeekSummary(w) })) });
   const flags = summaries.flatMap((s) => s.data?.review_flags ?? []).filter((f, i, a) => a.findIndex((x) => x.week_start === f.week_start) === i);
   const maxMin = Math.max(1, ...summaries.map((s) => Math.max(s.data?.planned.minutes ?? 0, s.data?.completed.minutes ?? 0, s.data?.targets.minutes ?? 0)));
@@ -67,11 +76,17 @@ export function PlanPage() {
                       )}
                     </span>
                     <span className="text-xs text-text-tertiary">
+                      {p.category ? `${p.category} · ` : ""}
                       {phaseKindLabel(p.kind)} · {formatShortDate(p.start_date)} – {formatShortDate(p.end_date)}
                       {p.target_minutes_per_week ? ` · ${formatMinutes(p.target_minutes_per_week)}/week` : ""}
                     </span>
                     {p.goals && <span className="text-xs text-text-secondary">{p.goals}</span>}
                   </button>
+                  {block?.id !== p.id && (
+                    <button type="button" onClick={() => setBlockId(p.id)} className="mt-1 min-h-9 px-1 text-xs text-accent underline">
+                      Show this block's progress
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -79,6 +94,9 @@ export function PlanPage() {
         )}
       </Card>
 
+      {block && <BlockProgressCard key={block.id} phase={block} />}
+
+      {showWeeks && (
       <Card title="Weeks: planned and completed time">
         <ul className="flex flex-col gap-3" data-testid="plan-weeks">
           {weeks.map((w, i) => {
@@ -111,6 +129,7 @@ export function PlanPage() {
         </ul>
         <p className="mt-3 text-xs text-text-tertiary">Filled bar: completed. Outlined bar: planned. Dashed line: weekly target. Planned time is an intention, not training done.</p>
       </Card>
+      )}
 
       {flags.length > 0 && (
         <Card title="Worth a look">

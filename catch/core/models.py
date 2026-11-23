@@ -678,9 +678,20 @@ class Event(OwnedStrict, SQLModel, table=True):
     notes: Optional[str] = None
     distance_m: Optional[float] = None
     created_at: datetime = Field(default_factory=_utcnow)
+    # Session 36: whether the athlete is going, and the result once it exists — a link to the workout (and optionally the piece
+    # inside it) rather than a copy of its numbers. Plain ints: a composite tenant FK in migration 0013 (public) and
+    # tenant_hooks.EXTRA_REFS keep them to the owner's own rows; merges/deletes repoint or clear them (sync/planning.py).
+    participation: Optional[str] = None  # planned | entered | completed | withdrawn | did_not_start
+    sport: Optional[str] = None
+    result_canonical_id: Optional[int] = None
+    result_piece_id: Optional[int] = None
 
 
 class Goal(OwnedStrict, SQLModel, table=True):
+    """A goal. Free text (`kind` NULL or "text", the coach-memory goal since session 5) or, since session 36, measurable:
+    `kind` names the rule in catch/analytics/goals.py, `target_value`/`unit` the target, `start_date`..`end_date` the window.
+    Progress is always computed when read, from completed workouts and records — never stored."""
+
     __tablename__ = "goals"
 
     owner_id: str = owner_field()
@@ -689,6 +700,14 @@ class Goal(OwnedStrict, SQLModel, table=True):
     target_date: Optional[date_] = None
     status: str = "active"  # active | done | abandoned
     created_at: datetime = Field(default_factory=_utcnow)
+    kind: Optional[str] = None
+    sport: Optional[str] = None
+    target_value: Optional[float] = None
+    unit: Optional[str] = None
+    start_date: Optional[date_] = None
+    end_date: Optional[date_] = None
+    completed_at: Optional[datetime] = None
+    params_json: Optional[str] = None
 
 
 class AthleteFact(OwnedStrict, SQLModel, table=True):
@@ -1375,6 +1394,7 @@ class TrainingPhase(OwnedStrict, SQLModel, table=True):
     coach_approved_note: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+    category: Optional[str] = None  # session 36: the athlete's own label (Base, Build, Peak, Taper, Recovery, …)
 
 
 # --- Session 22 (see PLAN.md, docs/library.md): workout library, technique notes, feedback ---

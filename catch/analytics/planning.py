@@ -409,6 +409,9 @@ def overlapping_phase(phases: list[dict], start: date, end: date, ignore_id: int
 def validate_phase_fields(fields: dict) -> None:
     if "kind" in fields and fields["kind"] not in PHASE_KINDS:
         raise ValueError(f"kind must be one of {list(PHASE_KINDS)}")
+    cat = fields.get("category")
+    if cat is not None and (not isinstance(cat, str) or not cat.strip() or len(cat) > 40):
+        raise ValueError("category must be a short label (up to 40 characters)")
     start, end = fields.get("start_date"), fields.get("end_date")
     if start is not None and end is not None and end < start:
         raise ValueError("end_date can't be before start_date")

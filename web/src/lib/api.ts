@@ -249,7 +249,7 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
-import type { LinkCandidate, PlanComparisonResponse } from "./types";
+import type { LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse } from "./types";
 import type {
   FeedbackEntry,
   FeedbackFilters,
@@ -1797,9 +1797,20 @@ export async function deleteEvent(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/api/events/${id}`, { method: "DELETE" });
 }
 
-export async function fetchPhases(): Promise<{ phases: PlanPhase[] }> {
-  if (isMock) return delay({ phases: mockCal.mockPhases() }, 120);
-  return request<{ phases: PlanPhase[] }>("/api/phases");
+export async function fetchPhases(): Promise<{ phases: PlanPhase[]; categories?: string[] }> {
+  if (isMock) return delay({ phases: mockCal.mockPhases(), categories: mockCal.mockPhaseCategories() }, 120);
+  return request<{ phases: PlanPhase[]; categories?: string[] }>("/api/phases");
+}
+
+export async function fetchPhaseProgress(id: number): Promise<PhaseProgress> {
+  if (isMock) return delay(mockCal.mockPhaseProgress(id), 120);
+  return request<PhaseProgress>(`/api/phases/${id}/progress`);
+}
+
+/** `month` is "YYYY-MM". */
+export async function fetchMonthSummary(month: string): Promise<MonthSummary> {
+  if (isMock) return delay(mockCal.mockMonthSummary(month), 120);
+  return request<MonthSummary>(`/api/calendar/month-summary?month=${month}`);
 }
 
 export async function createPhase(body: PhaseInput): Promise<PlanPhase> {

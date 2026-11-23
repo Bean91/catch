@@ -37,6 +37,12 @@ def get_week_summary(week_start: date_ | None = Query(None), db: Session = Depen
     return _guard(lambda: sp.build_week_summary(db, current_owner(), week_start or sp.today(db)))
 
 
+@router.get("/api/calendar/month-summary")
+def get_month_summary(month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), db: Session = Depends(get_db)):
+    year, mon = (int(x) for x in month.split("-"))
+    return sp.month_summary(db, current_owner(), year, mon)
+
+
 @router.get("/api/calendar/phase")
 def get_phase_on(on: date_ | None = Query(None, alias="date"), db: Session = Depends(get_db)):
     day = on or sp.today(db)
@@ -238,6 +244,7 @@ class PhaseCreate(BaseModel):
     target_strength_sessions_per_week: float | None = None
     target_zone_pct: dict[str, dict[str, float]] | None = None
     event_id: int | None = None
+    category: str | None = None
 
 
 class ApproveRequest(BaseModel):
@@ -247,7 +254,12 @@ class ApproveRequest(BaseModel):
 
 @router.get("/api/phases")
 def list_phases(db: Session = Depends(get_db)):
-    return {"phases": [sp.phase_dict(p, db) for p in sp.list_phases(db, current_owner())]}
+    return {"phases": [sp.phase_dict(p, db) for p in sp.list_phases(db, current_owner())], "categories": sp.phase_categories(db, current_owner())}
+
+
+@router.get("/api/phases/{phase_id}/progress")
+def phase_progress(phase_id: int, db: Session = Depends(get_db)):
+    return _guard(lambda: sp.phase_progress(db, current_owner(), phase_id))
 
 
 @router.post("/api/phases")

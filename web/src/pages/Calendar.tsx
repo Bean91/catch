@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PhaseBanner, WeekSummaryCard } from "../components/calendar/WeekSummaryCard";
 import { AgendaView, DayView, MonthView, NavLinks, WeekView } from "../components/calendar/Views";
+import { MonthSummaryCard } from "../components/calendar/MonthSummaryCard";
 import { Button, IconButton } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
 import { Segmented } from "../components/ui/Segmented";
@@ -133,7 +134,7 @@ export function CalendarPage() {
         </p>
       )}
 
-      {summary.data && <WeekSummaryCard s={summary.data} />}
+      {view === "month" ? <MonthSummaryCard month={date.slice(0, 7)} /> : summary.data && <WeekSummaryCard s={summary.data} />}
 
       <PlannedWorkoutSheet open={sheet.open} onOpenChange={(o) => setSheet((s) => ({ ...s, open: o }))} existing={sheet.existing} defaultDate={sheet.date} />
       <EventSheet open={eventSheet} onOpenChange={setEventSheet} existing={null} defaultDate={date} />

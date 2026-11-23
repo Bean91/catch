@@ -165,6 +165,13 @@ _NEW_COLUMNS["canonical_activities"].update({"local_date": "DATE", "local_tz": "
 _NEW_COLUMNS["canonical_activities"]["merge_mode"] = "TEXT"
 _NEW_COLUMNS.setdefault("merge_log", {})["snapshot_json"] = "TEXT"
 _NEW_COLUMNS["pieces"]["modality"] = "TEXT NOT NULL DEFAULT 'rowing_erg'"
+# Session 36: measurable goals, event participation/results, block categories (migration 0013 on the public build).
+_NEW_COLUMNS.setdefault("goals", {}).update({
+    "kind": "TEXT", "sport": "TEXT", "target_value": "REAL", "unit": "TEXT", "start_date": "DATE", "end_date": "DATE",
+    "completed_at": "TEXT", "params_json": "TEXT",
+})
+_NEW_COLUMNS.setdefault("events", {}).update({"participation": "TEXT", "sport": "TEXT", "result_canonical_id": "INTEGER", "result_piece_id": "INTEGER"})
+_NEW_COLUMNS.setdefault("training_phases", {})["category"] = "TEXT"
 
 
 _SESSION32_INDEXES = (

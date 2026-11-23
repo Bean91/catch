@@ -560,6 +560,7 @@ def phase_dict(row: TrainingPhase, session: Session | None = None) -> dict:
         "target_strength_sessions_per_week": row.target_strength_sessions_per_week,
         "target_zone_pct": json.loads(row.target_zone_pct_json) if row.target_zone_pct_json else None,
         "event_id": row.event_id,
+        "category": row.category,
         "coach_approved": approved_at is not None,
         "coach_approved_at": approved_at,
         "coach_approved_by": row.coach_approved_by,
@@ -589,8 +590,20 @@ def _phase_inputs(session: Session, owner_id: str) -> list[dict]:
 
 _PHASE_FIELDS = (
     "kind", "name", "start_date", "end_date", "goals", "target_minutes_per_week", "target_sessions_per_week",
-    "target_strength_sessions_per_week", "target_zone_pct", "event_id",
+    "target_strength_sessions_per_week", "target_zone_pct", "event_id", "category",
 )
+# Suggested block labels (session 36). A suggestion only: `category` is the athlete's own free label.
+SUGGESTED_CATEGORIES = ("Base", "Build", "Peak", "Taper", "Recovery")
+
+
+def phase_categories(session: Session, owner_id: str) -> list[str]:
+    """The suggestions first, then every other label this athlete has used, in first-used order."""
+    used = [r.category for r in list_phases(session, owner_id) if r.category]
+    out = list(SUGGESTED_CATEGORIES)
+    for c in used:
+        if c.lower() not in {x.lower() for x in out}:
+            out.append(c)
+    return out
 
 
 def list_phases(session: Session, owner_id: str) -> list[TrainingPhase]:
@@ -826,12 +839,118 @@ def _completed_minutes_by_week(session: Session, first_week: date, last_week: da
         if a.start is None:
             continue
         wk = pl.week_start(localtime.day_of(session, a))
-        bucket = out.setdefault(wk, {"minutes": 0.0, "sessions": 0, "strength_sessions": 0})
+        bucket = out.setdefault(wk, {"minutes": 0.0, "sessions": 0, "strength_sessions": 0, "distance_m": 0.0})
         bucket["minutes"] += (a.duration or 0.0) / 60.0
         bucket["sessions"] += 1
+        bucket["distance_m"] += a.distance or 0.0
         if a.sport_family == "strength":
             bucket["strength_sessions"] += 1
     return out
+
+
+def _zone_minutes_by_week(session: Session, first_week: date, last_week: date) -> dict[date, dict[str, float]]:
+    """Completed zone minutes per week from the Trends reader in one call (it covers the last 104 weeks; older weeks are absent)."""
+    from catch.api.routes_analytics import trends_volume
+
+    this_week = pl.week_start(today(session))
+    if first_week > this_week:
+        return {}
+    back = min((this_week - first_week).days // 7 + 1, 104)
+    rows = trends_volume(weeks=back, db=session)
+    return {r["week_start"]: {z: secs / 60.0 for z, secs in r["zones"].items()} for r in rows if first_week <= r["week_start"] <= last_week}
+
+
+def phase_progress(session: Session, owner_id: str, phase_id: int) -> dict:
+    """One training block, week by week: planned and completed time, sessions and distance, the completed zone split, the
+    block's weekly targets, and the tests and pieces done inside it. Plans are only ever compared, never counted as done."""
+    phase = get_phase(session, owner_id, phase_id)
+    settings = get_settings(session)
+    first, last = pl.week_start(phase.start_date), pl.week_start(phase.end_date)
+    weeks = [first + timedelta(weeks=i) for i in range((last - first).days // 7 + 1)]
+    this_week = pl.week_start(today(session))
+    done = _completed_minutes_by_week(session, first, last)
+    zones = _zone_minutes_by_week(session, first, last)
+    planned_rows = list_planned(session, owner_id, first, last + timedelta(days=6))
+    by_week: dict[date, list[dict]] = {w: [] for w in weeks}
+    for p in planned_rows:
+        by_week.setdefault(pl.week_start(p.date), []).append(_planned_input(p))
+    targets = weekly_targets(session, phase, settings)
+    out_weeks = []
+    for w in weeks:
+        planned = pl.planned_totals(by_week.get(w, []))
+        c = done.get(w, {"minutes": 0.0, "sessions": 0, "strength_sessions": 0, "distance_m": 0.0})
+        zm = zones.get(w)
+        state = "future" if w > this_week else "current" if w == this_week else "past"
+        out_weeks.append({
+            "week_start": w,
+            "state": state,
+            "planned": {"minutes": planned["minutes"], "sessions": planned["sessions"], "distance_m": planned["distance_m"]},
+            # A future week has nothing completed yet: None, not zero.
+            "completed": None if state == "future" else {**c, "zone_pct": pl.zone_pct(zm) if zm else None},
+        })
+    since = datetime.combine(phase.start_date, datetime.min.time(), tzinfo=timezone.utc) - timedelta(days=1)
+    efforts = [
+        t for t in erg_test.list_tests(session, since=since)
+        if t.get("date") and phase.start_date.isoformat() <= t["date"] <= phase.end_date.isoformat()
+    ]
+    past = [w["completed"] for w in out_weeks if w["completed"] is not None]
+    return {
+        "phase": phase_dict(phase, session),
+        "weeks": out_weeks,
+        "targets": targets,
+        "totals": {
+            "planned_minutes": sum(w["planned"]["minutes"] for w in out_weeks),
+            "completed_minutes": sum(c["minutes"] for c in past),
+            "completed_sessions": sum(c["sessions"] for c in past),
+            "completed_distance_m": sum(c["distance_m"] for c in past),
+            "weeks_elapsed": len(past),
+            "weeks_total": len(out_weeks),
+        },
+        "efforts": [
+            {k: t.get(k) for k in ("kind", "test_type", "title", "date", "distance_m", "duration_s", "avg_power", "canonical_id", "piece_id", "modality")}
+            for t in sorted(efforts, key=lambda t: t["date"])
+        ],
+    }
+
+
+def month_summary(session: Session, owner_id: str, year: int, month: int) -> dict:
+    """A calendar month's totals: completed training (excluded workouts left out, as everywhere) beside what was planned, plus
+    how many days had no training logged. Days are the athlete's local days; the month never includes days that haven't
+    happened yet in the "no training logged" count."""
+    import calendar as _cal
+
+    first = date(year, month, 1)
+    last = date(year, month, _cal.monthrange(year, month)[1])
+    today_ = today(session)
+    done = _qualifying_activities(session, first, last + timedelta(days=1))
+    active_days: set[date] = set()
+    minutes = distance = 0.0
+    sessions = 0
+    by_family: dict[str, float] = {}
+    for a in done:
+        if a.start is None:
+            continue
+        active_days.add(localtime.day_of(session, a))
+        minutes += (a.duration or 0.0) / 60.0
+        distance += a.distance or 0.0
+        sessions += 1
+        fam = a.sport_family or "other"
+        by_family[fam] = by_family.get(fam, 0.0) + (a.duration or 0.0) / 60.0
+    planned = pl.planned_totals([_planned_input(p) for p in list_planned(session, owner_id, first, last)])
+    elapsed_end = min(last, today_)
+    elapsed_days = (elapsed_end - first).days + 1 if elapsed_end >= first else 0
+    return {
+        "month": f"{year:04d}-{month:02d}",
+        "from": first,
+        "to": last,
+        "completed": {
+            "minutes": minutes, "sessions": sessions, "distance_m": distance, "training_days": len(active_days),
+            "minutes_by_sport": by_family,
+        },
+        "planned": {"minutes": planned["minutes"], "sessions": planned["sessions"], "distance_m": planned["distance_m"]},
+        "days_elapsed": elapsed_days,
+        "days_without_training": max(elapsed_days - len([d for d in active_days if d <= elapsed_end]), 0),
+    }
 
 
 def _completed_zone_seconds(session: Session, week: date) -> dict[str, float] | None:
