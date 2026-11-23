@@ -591,7 +591,7 @@ def test_new_columns_use_portable_ddl_types():
     from catch.core.db import _NEW_COLUMNS
 
     for decl in _NEW_COLUMNS["events"].values():
-        assert decl in ("TEXT", "REAL")
+        assert decl in ("TEXT", "REAL", "INTEGER")  # session 36: the result links are integers
         assert "BOOLEAN" not in decl and "DEFAULT" not in decl
 
 
@@ -605,7 +605,7 @@ def test_add_column_statements_use_inspect_and_compile_for_postgresql(sqlite_eng
         conn.exec_driver_sql("DROP TABLE events")
         conn.exec_driver_sql("CREATE TABLE events (id INTEGER PRIMARY KEY, name TEXT, date DATE, type TEXT, plan_json TEXT)")
         stmts = db_module._add_column_statements(sa_inspect(conn), {"events": db_module._NEW_COLUMNS["events"], "no_such_table": {"x": "TEXT"}})
-    assert {s.split()[5] for s in stmts} == {"location", "goals", "notes", "distance_m", "owner_id"}
+    assert {s.split()[5] for s in stmts} == {"location", "goals", "notes", "distance_m", "owner_id", "participation", "sport", "result_canonical_id", "result_piece_id"}
     for s in stmts:
         str(text(s).compile(dialect=postgresql.dialect()))
         assert "PRAGMA" not in s
