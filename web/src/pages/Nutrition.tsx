@@ -1,4 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { buttonClass } from "../components/ui/Button";
+import { Notice } from "../components/ui/Notice";
+import { PageHeader } from "../components/ui/PageHeader";
+import { Segmented } from "../components/ui/Segmented";
+import { dayLabel } from "../lib/dates";
 import { lazy, Suspense, useState } from "react";
 import { AddFoodDialog } from "../components/nutrition/AddFoodDialog";
 import { MacroBar } from "../components/nutrition/MacroBar";
@@ -71,37 +76,36 @@ export function NutritionPage() {
 
   return (
     <div className="flex flex-col gap-4 lg:gap-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">Nutrition</h1>
-        <div className="flex gap-1 rounded-md border border-border p-0.5" role="tablist" aria-label="View">
-          {(["day", "week"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={view === v}
-              onClick={() => setView(v)}
-              className={`min-h-9 rounded-md px-3 text-sm capitalize transition-colors ${view === v ? "bg-surface-2 text-accent" : "text-text-tertiary"}`}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Health"
+        title="Nutrition"
+        actions={
+          <Segmented
+            label="View"
+            size="sm"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "day", label: "Day" },
+              { value: "week", label: "Week" },
+            ]}
+          />
+        }
+      />
 
       {view === "day" ? (
         <>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface/60 p-1">
             <button
               type="button"
               onClick={() => setDate((d) => shiftLocalDate(d, -1))}
               aria-label="Previous day"
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border text-text-secondary transition-colors hover:border-accent"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-xl text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
             >
               ‹
             </button>
             <div className="flex flex-col items-center">
-              <span className="text-sm font-medium text-text-primary">{date === today ? "Today" : date}</span>
+              <span className="text-sm font-semibold text-text-primary">{date === today ? "Today" : dayLabel(date)}</span>
               {date !== today && (
                 <button type="button" onClick={() => setDate(today)} className="text-xs text-accent">
                   Jump to today
@@ -113,16 +117,14 @@ export function NutritionPage() {
               onClick={() => setDate((d) => shiftLocalDate(d, 1))}
               aria-label="Next day"
               disabled={date >= today}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border text-text-secondary transition-colors hover:border-accent disabled:opacity-30"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-xl text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-30"
             >
               ›
             </button>
           </div>
 
           {weekSummary.data?.under_fuelling.flag && (
-            <Card className="border-accent/40">
-              <p className="text-sm text-text-primary">{weekSummary.data.under_fuelling.explanation}</p>
-            </Card>
+            <Notice tone="accent">{weekSummary.data.under_fuelling.explanation}</Notice>
           )}
 
           {daySummary.isLoading ? (
@@ -133,10 +135,10 @@ export function NutritionPage() {
             <>
               <Card title="Today's intake vs. targets">
                 <div className="flex flex-col gap-3">
-                  <MacroBar label="Calories" value={daySummary.data.intake.kcal} target={daySummary.data.targets.kcal_target} unit="kcal" />
-                  <MacroBar label="Protein" value={daySummary.data.intake.protein} target={daySummary.data.targets.protein_g} />
-                  <MacroBar label="Carbs" value={daySummary.data.intake.carbs} target={daySummary.data.targets.carb_g} />
-                  <MacroBar label="Fat" value={daySummary.data.intake.fat} target={daySummary.data.targets.fat_g} />
+                  <MacroBar label="Calories" value={daySummary.data.intake.kcal} target={daySummary.data.targets.kcal_target} unit="kcal" color="var(--accent)" />
+                  <MacroBar label="Protein" value={daySummary.data.intake.protein} target={daySummary.data.targets.protein_g} color="var(--metric-rate)" />
+                  <MacroBar label="Carbs" value={daySummary.data.intake.carbs} target={daySummary.data.targets.carb_g} color="var(--metric-power)" />
+                  <MacroBar label="Fat" value={daySummary.data.intake.fat} target={daySummary.data.targets.fat_g} color="var(--metric-pace)" />
                 </div>
                 <p className="mt-3 text-xs text-text-tertiary">
                   {daySummary.data.targets.protein_g == null
@@ -144,8 +146,12 @@ export function NutritionPage() {
                     : "Starting points, based on your training load — adjust with a coach or dietitian."}
                 </p>
                 {photoEstimateAvailable && (
-                  <button type="button" onClick={() => setPhotoOpen(true)} className="mt-3 min-h-9 rounded-md border border-dashed border-border px-3 text-xs text-text-tertiary transition-colors hover:border-accent hover:text-text-secondary">
-                    📷 Estimate a meal from a photo
+                  <button type="button" onClick={() => setPhotoOpen(true)} className={`mt-4 ${buttonClass("subtle", "sm")}`}>
+                    <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinejoin="round">
+                      <path d="M3 7.5A1.5 1.5 0 014.5 6h2l1.2-1.8h4.6L13.5 6h2A1.5 1.5 0 0117 7.5v7a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 013 14.5z" />
+                      <circle cx="10" cy="11" r="2.8" />
+                    </svg>
+                    Estimate a meal from a photo
                   </button>
                 )}
               </Card>
