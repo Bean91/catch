@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../ui/Toast";
 import { useEffect, useState } from "react";
 import { postCheckin } from "../../lib/api";
 import type { CheckIn } from "../../lib/types";
@@ -61,6 +62,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
     setNote(existing?.note ?? "");
   }, [open, existing]);
 
+  const { toast } = useToast();
   const save = useMutation({
     mutationFn: () =>
       postCheckin({
@@ -76,6 +78,7 @@ export function CheckinSheet({ open, onOpenChange, existing }: { open: boolean; 
       queryClient.invalidateQueries({ queryKey: ["today"] });
       queryClient.invalidateQueries({ queryKey: ["today-checkin"] });
       onOpenChange(false);
+      toast("Check-in saved");
     },
   });
 

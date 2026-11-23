@@ -8,6 +8,7 @@ import { useTheme } from "../lib/theme";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
 import { buttonClass } from "../components/ui/Button";
+import { useToast } from "../components/ui/Toast";
 import { controlBase, controlClass } from "../components/ui/Field";
 import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
 import { CardSkeleton } from "../components/ui/Skeleton";
@@ -53,10 +54,12 @@ export function SettingsPage() {
     if (settingsQuery.data && !dirty) setForm(settingsQuery.data);
   }, [settingsQuery.data, dirty]);
 
+  const { toast } = useToast();
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => saveSettings(patch),
     onSuccess: (updated) => {
       setDirty(false);
+      toast("Settings saved");
       queryClient.setQueryData(["settings"], updated);
       // Zone boundaries and every workout's cached zones follow the saved values (recalculated server-side).
       queryClient.invalidateQueries({ queryKey: ["zones"] });

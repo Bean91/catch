@@ -10,7 +10,12 @@ export function EntryRow({ entry, onReport }: { entry: LbEntry; onReport?: (entr
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2.5 ${entry.is_you ? "border-accent/50 bg-surface-2" : "border-border bg-surface"}`}
     >
       {entry.rank !== undefined && (
-        <span className="font-mono-nums w-7 shrink-0 text-right text-sm font-semibold text-text-primary" aria-label={`Rank ${entry.rank}`}>
+        <span
+          className={`font-mono-nums flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            entry.rank != null && entry.rank <= 3 ? "bg-accent-soft text-accent ring-1 ring-accent/40" : "text-text-secondary"
+          }`}
+          aria-label={`Rank ${entry.rank}`}
+        >
           {entry.rank}
         </span>
       )}

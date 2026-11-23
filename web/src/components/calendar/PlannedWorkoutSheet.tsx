@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { useToast } from "../ui/Toast";
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -112,6 +113,7 @@ export function PlannedWorkoutSheet({
     event_id: existing?.event_id ?? eventId ?? null,
   });
 
+  const { toast } = useToast();
   const save = useMutation({
     mutationFn: async () => {
       if (existing) {
@@ -128,6 +130,7 @@ export function PlannedWorkoutSheet({
     onSuccess: () => {
       invalidateCalendar(qc);
       onOpenChange(false);
+      toast(existing ? "Session updated" : "Session planned");
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -137,6 +140,7 @@ export function PlannedWorkoutSheet({
     onSuccess: () => {
       invalidateCalendar(qc);
       onOpenChange(false);
+      toast("Session removed");
     },
     onError: (e: Error) => setError(e.message),
   });
