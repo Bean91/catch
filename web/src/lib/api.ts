@@ -249,7 +249,10 @@ import type {
   PushSubscriptionRow,
   AppStatus,
 } from "./types";
-import type { LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse } from "./types";
+import type { HrAtWorkload, LabProgression, LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse, Predicted2k, RecordsPayload, SplitByRate } from "./types";
+import * as mockLab from "./mockLab";
+import * as mockGoalsMod from "./mockGoals";
+import type { Goal, GoalInput } from "./types";
 import type {
   FeedbackEntry,
   FeedbackFilters,
@@ -2359,4 +2362,61 @@ export async function putOnboarding(patch: { step?: number; skipped?: ProviderId
 export async function startOnboardingSync(): Promise<{ started: ProviderId[] }> {
   if (isMock) return delay(mockOnb.mockStartOnboardingSync());
   return request("/api/onboarding/start-sync", { method: "POST" });
+}
+
+// --- Session 36: records and the Performance Lab ---------------------------------------------------------------------
+
+function rangeQuery(from?: string, to?: string, extra: Record<string, string> = {}): string {
+  const q = new URLSearchParams(extra);
+  if (from) q.set("from", from);
+  if (to) q.set("to", to);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+export async function fetchRecords(modality: "rowing_erg" | "bike" = "rowing_erg", from?: string, to?: string): Promise<RecordsPayload> {
+  if (isMock) return delay(mockLab.mockRecords(modality), 120);
+  return request<RecordsPayload>(`/api/records${rangeQuery(from, to, { modality })}`);
+}
+
+export async function fetchLabProgression(modality: "rowing_erg" | "bike", from?: string, to?: string): Promise<LabProgression> {
+  if (isMock) return delay(mockLab.mockProgression(modality), 120);
+  return request<LabProgression>(`/api/lab/progression${rangeQuery(from, to, { modality })}`);
+}
+
+export async function fetchHrAtWorkload(from?: string, to?: string): Promise<HrAtWorkload> {
+  if (isMock) return delay(mockLab.mockHrAtWorkload(), 120);
+  return request<HrAtWorkload>(`/api/lab/hr-at-workload${rangeQuery(from, to)}`);
+}
+
+export async function fetchSplitByRate(from?: string, to?: string): Promise<SplitByRate> {
+  if (isMock) return delay(mockLab.mockSplitByRate(), 120);
+  return request<SplitByRate>(`/api/lab/split-by-rate${rangeQuery(from, to)}`);
+}
+
+export async function fetchPredict2k(): Promise<Predicted2k> {
+  if (isMock) return delay(mockLab.mockPredict2k(), 120);
+  return request<Predicted2k>("/api/predict/2k");
+}
+
+// --- Session 36: goals --------------------------------------------------------------------------------------------------
+
+export async function fetchGoals(view: "active" | "history" | "all" = "all"): Promise<{ goals: Goal[] }> {
+  if (isMock) return delay({ goals: mockGoalsMod.mockGoals(view) }, 120);
+  return request(`/api/goals?view=${view}`);
+}
+
+export async function createGoal(input: GoalInput): Promise<Goal> {
+  if (isMock) return mocked(() => mockGoalsMod.createMockGoal(input));
+  return send("/api/goals", "POST", input);
+}
+
+export async function updateGoal(id: number, patch: GoalInput): Promise<Goal> {
+  if (isMock) return mocked(() => mockGoalsMod.updateMockGoal(id, patch));
+  return send(`/api/goals/${id}`, "PATCH", patch);
+}
+
+export async function deleteGoal(id: number): Promise<{ deleted: number }> {
+  if (isMock) return mocked(() => (mockGoalsMod.deleteMockGoal(id), { deleted: id }));
+  return send(`/api/goals/${id}`, "DELETE");
 }

@@ -46,7 +46,8 @@ WITHHELD_COLUMNS = {
 # Deletion categories: key -> (label, what it removes, tables). Each is its own explicit, confirmed request.
 DELETE_CATEGORIES: dict[str, dict] = {
     "conversations": {"label": "Coach conversations", "tables": ["coach_messages", "coach_conversations"], "note": "Every chat with the coach, including the tool results saved in it."},
-    "memory": {"label": "Coach memory", "tables": ["athlete_facts", "goals"], "note": "The facts and goals the coach remembers about you."},
+    "memory": {"label": "Coach memory", "tables": ["athlete_facts"], "note": "The facts the coach remembers about you."},
+    "goals": {"label": "Goals", "tables": ["goals"], "note": "Every goal, active and finished. Workouts and records stay."},
     "gps": {"label": "GPS tracks, routes, weather and travel time zones", "tables": ["activity_tracks", "routes", "activity_weather", "user_zone_periods"], "note": "Location data attached to your workouts, and the record of which time zone you were in when. The workouts themselves stay, on the days they were already counted on."},
     "media": {"label": "Uploaded photos", "tables": ["piece_photos"], "note": "Photos of erg screens you attached to pieces, including any stored files."},
     "notes_checkins": {"label": "Notes and check-ins", "tables": ["notes", "checkins", "illness_acks"], "note": "Your workout notes, morning check-ins (including training issues) and illness-flag responses."},

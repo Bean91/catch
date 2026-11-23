@@ -286,3 +286,23 @@ export function ReadinessIcon({ className }: IconProps) {
 export function Logomark({ className }: IconProps) {
   return <img src="/icons/icon-192.png" alt="" aria-hidden width={192} height={192} className={`${className ?? ""} rounded-[24%] object-cover`} draggable={false} />;
 }
+
+export function LabIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path d="M4 19h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M5 15l4-5 3 3 3-6 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="15" cy="7" r="1.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function GoalsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}

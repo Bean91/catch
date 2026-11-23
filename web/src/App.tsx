@@ -25,6 +25,8 @@ const TestCenterPage = lazy(() => import("./pages/TestCenter").then((m) => ({ de
 const TestDetailPage = lazy(() => import("./pages/TestDetail").then((m) => ({ default: m.TestDetailPage })));
 const PieceTestDetailPage = lazy(() => import("./pages/PieceTestDetail").then((m) => ({ default: m.PieceTestDetailPage })));
 const TrendsPage = lazy(() => import("./pages/Trends").then((m) => ({ default: m.TrendsPage })));
+const PerformanceLabPage = lazy(() => import("./pages/PerformanceLab").then((m) => ({ default: m.PerformanceLabPage })));
+const GoalsPage = lazy(() => import("./pages/Goals").then((m) => ({ default: m.GoalsPage })));
 const TrainingIntelligencePage = lazy(() => import("./pages/TrainingIntelligence").then((m) => ({ default: m.TrainingIntelligencePage })));
 const BodyPage = lazy(() => import("./pages/Body").then((m) => ({ default: m.BodyPage })));
 const CoachPage = lazy(() => import("./pages/Coach").then((m) => ({ default: m.CoachPage })));
@@ -144,6 +146,8 @@ export function App() {
           <Route path="/routes/:id" element={<RouteDetailPage />} />
           <Route path="/trends" element={<TrendsPage />} />
           <Route path="/trends/intelligence" element={<TrainingIntelligencePage />} />
+          <Route path="/lab" element={<PerformanceLabPage />} />
+          <Route path="/goals" element={<GoalsPage />} />
           <Route path="/body" element={<BodyPage />} />
           <Route path="/nutrition" element={<NutritionPage />} />
           <Route path="/coach" element={<CoachPage />} />

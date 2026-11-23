@@ -2998,3 +2998,150 @@ export interface MergePreview {
     parts: { start: string | null; duration: number | null; distance: number | null; recordings: number }[];
   } | null;
 }
+
+// --- Session 36: personal records and the Performance Lab --------------------------------------------------------------
+
+export type RecordLabel = "test" | "piece" | "training";
+
+export interface RecordEntry {
+  distance_m: number;
+  duration_s: number;
+  /** Seconds per `split_m` (500 m rowed, 1000 m on a bike). */
+  pace_s: number | null;
+  split_m: number;
+  avg_watts: number | null;
+  watts_basis: ValueBasis | null;
+  date: string;
+  canonical_id: number | null;
+  piece_id: number | null;
+  ref: string | null;
+  label: RecordLabel;
+  verified: boolean;
+}
+
+export interface RecordRow {
+  key: string;
+  target_m?: number;
+  target_s?: number;
+  min_duration_s?: number;
+  count: number;
+  best: RecordEntry | null;
+  history: RecordEntry[];
+}
+
+export interface RecordsPayload {
+  modality: "rowing_erg" | "bike";
+  from: string | null;
+  to: string | null;
+  distance: RecordRow[];
+  duration: RecordRow[];
+  power: RecordRow[];
+}
+
+export interface ProgressionPoint {
+  date: string;
+  distance_m: number;
+  duration_s: number;
+  pace_s: number | null;
+  avg_watts: number | null;
+  watts_basis: ValueBasis | null;
+  label: RecordLabel;
+  new_best: boolean;
+  ref: string | null;
+}
+
+export interface LabProgression {
+  from: string;
+  to: string;
+  modality: "rowing_erg" | "bike";
+  split_m: number;
+  series: { key: string; points: ProgressionPoint[] }[];
+}
+
+export interface HrAtWorkloadSide {
+  sessions: number;
+  median_hr: number | null;
+  median_watts: number | null;
+  refs: string[];
+}
+
+export interface HrAtWorkload {
+  from: string;
+  to: string;
+  split_date: string;
+  sessions: number;
+  min_sessions: number;
+  bands: { band_w: [number, number]; earlier: HrAtWorkloadSide; recent: HrAtWorkloadSide; hr_change_bpm: number | null }[];
+}
+
+export interface SplitByRateSide {
+  strokes: number;
+  sessions: number;
+  split_s: number | null;
+}
+
+export interface SplitByRate {
+  from: string;
+  to: string;
+  split_date: string;
+  min_strokes: number;
+  min_sessions: number;
+  bands: { band_spm: [number, number]; earlier: SplitByRateSide; recent: SplitByRateSide; split_change_s: number | null }[];
+}
+
+// --- Session 36: goals ------------------------------------------------------------------------------------------------
+
+export type GoalKind = "text" | "distance_total" | "workout_count" | "weekly_volume" | "frequency" | "target_split" | "target_power";
+
+export interface GoalProgress {
+  kind: GoalKind;
+  unit: string | null;
+  target: number | null;
+  state: "active" | "done" | "abandoned" | "ended";
+  days_left: number | null;
+  measurable: boolean;
+  current?: number | null;
+  /** 0–100, capped: progress never reads as "over". */
+  pct?: number | null;
+  achieved?: boolean;
+  achieved_on?: string | null;
+  achieved_ref?: string | null;
+  best_ref?: string | null;
+  gap?: number | null;
+  efforts?: number;
+  weeks?: { week_start: string; value: number; met: boolean; current: boolean }[];
+  weeks_met?: number;
+  weeks_finished?: number;
+  contributors?: string[];
+}
+
+export interface Goal {
+  id: number;
+  ref: string;
+  text: string;
+  kind: GoalKind;
+  sport: string | null;
+  target_value: number | null;
+  unit: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  target_date: string | null;
+  status: "active" | "done" | "abandoned";
+  params: { distance_m?: number; min_duration_s?: number } | null;
+  created_at: string;
+  completed_at: string | null;
+  progress: GoalProgress;
+  recovery_today?: string | null;
+}
+
+export interface GoalInput {
+  text?: string | null;
+  kind?: GoalKind;
+  sport?: string | null;
+  target_value?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  target_date?: string | null;
+  status?: "active" | "done" | "abandoned";
+  params?: { distance_m?: number; min_duration_s?: number } | null;
+}

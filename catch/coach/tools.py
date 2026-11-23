@@ -828,15 +828,40 @@ def _update_event(session: Session, args: dict, ctx: dict) -> dict:
     return {"saved": True, "event": planning.event_dict(planning.update_event(session, current_owner(), event_id, fields))}
 
 
+_GOAL_ARGS = ("text", "kind", "sport", "target_value", "start_date", "end_date", "target_date", "status")
+
+
+def _goal_fields(args: dict) -> dict:
+    """Only what the caller actually passed: an update never resets a field it didn't mention (session 36)."""
+    fields = {k: args[k] for k in _GOAL_ARGS if args.get(k) is not None}
+    params = {k: args[k] for k in ("distance_m", "min_duration_s") if args.get(k) is not None}
+    if params:
+        fields["params"] = params
+    return fields
+
+
 def _set_goal(session: Session, args: dict, ctx: dict) -> dict:
-    goal = memory.set_goal(
-        session,
-        text=args["text"],
-        target_date=_parse_date(args.get("target_date")),
-        status=args.get("status", "active"),
-        goal_id=int(args["id"]) if args.get("id") is not None else None,
-    )
-    return memory._goal_dict(goal)
+    from catch.sync import goals
+
+    fields = _goal_fields(args)
+    try:
+        if args.get("id") is not None:
+            row = goals.update(session, int(args["id"]), fields)
+        else:
+            row = goals.create(session, fields)
+    except goals.NotFound as exc:
+        raise ValueError(str(exc)) from exc
+    return goals.goal_dict(session, row, localtime.today(session))
+
+
+def _get_goals(session: Session, args: dict, ctx: dict) -> dict:
+    from catch.sync import goals
+
+    view = args.get("view") or "active"
+    if view not in ("active", "history", "all"):
+        raise ValueError("view must be active, history or all")
+    items = goals.list_goals(session, None if view == "all" else view)
+    return {"view": view, "goals": items, "note": "Progress is computed from completed workouts and records; nothing here is stored or estimated."}
 
 
 def _forget(session: Session, args: dict, ctx: dict) -> dict:
@@ -1555,16 +1580,28 @@ TOOLS: dict[str, dict[str, Any]] = {
     "set_goal": {
         "fn": _set_goal,
         "write": True,
-        "description": "Create a new goal, or pass id to update an existing one's text/target_date/status.",
+        "description": (
+            "Create a goal, or pass id to change only the fields you give. Free text, or measurable: kind distance_total (target_value "
+            "metres), workout_count, weekly_volume (minutes a week), frequency (sessions a week), target_split (seconds per 500 m, with "
+            "distance_m; per 1000 m on a bike) or target_power (watts, with min_duration_s). A measurable goal needs start_date and "
+            "end_date. Progress is computed from completed training. Never set a goal that pushes training volume beyond what the athlete "
+            "asked for."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "id": {"type": "integer", "description": "Omit to create a new goal."},
-                "text": {"type": "string"},
+                "text": {"type": "string", "description": "The goal in words. Optional for a measurable goal (a description is generated)."},
+                "kind": {"type": "string", "enum": ["text", "distance_total", "workout_count", "weekly_volume", "frequency", "target_split", "target_power"]},
+                "sport": {"type": "string", "enum": ["rowing", "cycling", "running", "strength", "other"]},
+                "target_value": {"type": "number"},
+                "distance_m": {"type": "number", "description": "target_split: the distance the split is over."},
+                "min_duration_s": {"type": "number", "description": "target_power: how long the effort lasts."},
+                "start_date": {"type": "string", "format": "date"},
+                "end_date": {"type": "string", "format": "date"},
                 "target_date": {"type": "string", "format": "date"},
                 "status": {"type": "string", "enum": ["active", "done", "abandoned"]},
             },
-            "required": ["text"],
             "additionalProperties": False,
         },
     },
@@ -1689,10 +1726,12 @@ def _preview_remember(session: Session, args: dict, ctx: dict) -> dict:
 
 
 def _preview_goal(session: Session, args: dict, ctx: dict) -> dict:
-    if args.get("status") not in (None, "active", "done", "abandoned"):
-        raise ValueError("status must be active, done or abandoned.")
-    _parse_date(args.get("target_date"))
-    return {"id": args.get("id"), "text": _need_text(args.get("text"), "text", 500), "target_date": args.get("target_date"), "status": args.get("status", "active")}
+    from catch.sync import goals
+
+    try:
+        return goals.preview(session, _goal_fields(args), int(args["id"]) if args.get("id") is not None else None)
+    except goals.NotFound as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _preview_forget(session: Session, args: dict, ctx: dict) -> dict:

@@ -73,20 +73,15 @@ def set_goal(
     status: str = "active",
     goal_id: int | None = None,
 ) -> Goal:
-    allowed = {"active", "done", "abandoned"}
-    if status not in allowed:
-        raise ValueError(f"status must be one of {sorted(allowed)}")
-    if goal_id is not None:
-        goal = session.get(Goal, goal_id)
-        if goal is None:
-            raise ValueError(f"No goal with id {goal_id}")
-        goal.text, goal.target_date, goal.status = text, target_date, status
-    else:
-        goal = Goal(text=text, target_date=target_date, status=status)
-        session.add(goal)
-    session.commit()
-    session.refresh(goal)
-    return goal
+    """The Memory page's goal form (text, target date, status). Session 36: through catch/sync/goals.py, so a measurable goal's
+    other fields are never touched by this form."""
+    from catch.sync import goals
+
+    fields = {"text": text, "target_date": target_date, "status": status}
+    try:
+        return goals.update(session, goal_id, fields) if goal_id is not None else goals.create(session, fields)
+    except goals.NotFound as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def forget(session: Session, ref: str) -> bool:

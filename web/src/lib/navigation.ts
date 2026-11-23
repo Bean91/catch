@@ -19,6 +19,8 @@ import {
   TodayIcon,
   TrendsIcon,
   WorkoutsIcon,
+  LabIcon,
+  GoalsIcon,
 } from "../components/shell/icons";
 import { isMock } from "./api";
 import { isPublic } from "./deployment";
@@ -61,6 +63,8 @@ const ALL: NavItem[] = [
   { to: "/workouts", label: "Workouts", Icon: WorkoutsIcon, group: "training", sidebar: true, blurb: "Every session from every source" },
   { to: "/gym", label: "Gym", Icon: GymIcon, group: "training", sidebar: true, blurb: "Log sets — works offline" },
   { to: "/tests", label: "Tests", Icon: TestsIcon, group: "training", sidebar: true, blurb: "Erg tests, pieces and PBs" },
+  { to: "/lab", label: "Performance lab", Icon: LabIcon, group: "training", sidebar: true, blurb: "Records, progression, like-for-like" },
+  { to: "/goals", label: "Goals", Icon: GoalsIcon, group: "training", sidebar: true, blurb: "Targets with dates and progress" },
   { to: "/routes", label: "Routes", Icon: RoutesIcon, group: "training", sidebar: true, blurb: "On-water courses and GPS history" },
   { to: "/library", label: "Library", Icon: LibraryIcon, group: "training", sidebar: true, blurb: "Reusable workout templates" },
   { to: "/workouts/duplicates", label: "Duplicates", Icon: DuplicatesIcon, group: "training", blurb: "Review possible double recordings" },
@@ -100,7 +104,7 @@ export function moreGroups(): { id: GroupId; items: NavItem[] }[] {
 /** The Train hub's tiles. */
 export const TRAIN_ITEMS: NavItem[] = NAV_ITEMS.filter((i) => i.group === "training");
 
-const TRAIN_PREFIXES = ["/train", "/workouts", "/gym", "/tests", "/routes", "/library"];
+const TRAIN_PREFIXES = ["/train", "/workouts", "/gym", "/tests", "/routes", "/library", "/lab", "/goals"];
 
 function under(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);

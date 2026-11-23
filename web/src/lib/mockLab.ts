@@ -1,0 +1,99 @@
+// ?mock=1 fixtures for records and the Performance Lab. Fixed figures: the browser holds none of the rules (tolerances, bands,
+// thresholds) — the mock only answers in the server's shape.
+import { addDays, todayISO } from "./dates";
+import type { HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
+
+const t = () => todayISO();
+
+function entry(daysAgo: number, distance: number, duration: number, label: RecordEntry["label"], watts: number | null, extra: Partial<RecordEntry> = {}): RecordEntry {
+  return {
+    distance_m: distance, duration_s: duration, pace_s: (duration / distance) * 500, split_m: 500, avg_watts: watts, watts_basis: watts == null ? null : label === "piece" ? "derived" : "measured",
+    date: addDays(t(), -daysAgo), canonical_id: 1, piece_id: label === "piece" ? 1 : null, ref: label === "piece" ? "/tests/piece/1" : "/workouts/1", label, verified: label === "test", ...extra,
+  };
+}
+
+export function mockRecords(modality: "rowing_erg" | "bike" = "rowing_erg"): RecordsPayload {
+  if (modality === "bike") {
+    const e = { ...entry(20, 10000, 1180, "training", 238), pace_s: 118, split_m: 1000, watts_basis: "measured" as const, verified: false };
+    return {
+      modality, from: null, to: null,
+      distance: [1000, 5000, 10000, 20000].map((m) => ({ key: `${m}m`, target_m: m, count: m === 10000 ? 1 : 0, best: m === 10000 ? e : null, history: m === 10000 ? [e] : [] })),
+      duration: [{ key: "30min", target_s: 1800, count: 0, best: null, history: [] }, { key: "60min", target_s: 3600, count: 0, best: null, history: [] }],
+      power: [60, 300, 1200, 1800, 3600].map((s) => ({ key: `${s / 60}min_power`, min_duration_s: s, count: s <= 1200 ? 1 : 0, best: s <= 1200 ? e : null, history: s <= 1200 ? [e] : [] })),
+    };
+  }
+  const twoKOld = entry(160, 2000, 418.4, "test", 296);
+  const twoK = entry(12, 2000, 412.3, "test", 312);
+  const fiveK = entry(45, 5000, 1098.0, "training", 268, { verified: true });
+  const piece500 = entry(30, 500, 92.1, "piece", 449);
+  const sixty = entry(70, 14820, 3600, "training", 205);
+  return {
+    modality, from: null, to: null,
+    distance: [
+      { key: "500m", target_m: 500, count: 3, best: piece500, history: [piece500] },
+      { key: "1000m", target_m: 1000, count: 0, best: null, history: [] },
+      { key: "2000m", target_m: 2000, count: 4, best: twoK, history: [twoKOld, twoK] },
+      { key: "5000m", target_m: 5000, count: 2, best: fiveK, history: [fiveK] },
+      { key: "6000m", target_m: 6000, count: 0, best: null, history: [] },
+      { key: "10000m", target_m: 10000, count: 0, best: null, history: [] },
+    ],
+    duration: [
+      { key: "30min", target_s: 1800, count: 0, best: null, history: [] },
+      { key: "60min", target_s: 3600, count: 1, best: sixty, history: [sixty] },
+    ],
+    power: [
+      { key: "1min_power", min_duration_s: 60, count: 6, best: piece500, history: [piece500] },
+      { key: "5min_power", min_duration_s: 300, count: 4, best: twoK, history: [twoKOld, twoK] },
+      { key: "20min_power", min_duration_s: 1200, count: 2, best: sixty, history: [sixty] },
+      { key: "30min_power", min_duration_s: 1800, count: 1, best: sixty, history: [sixty] },
+      { key: "60min_power", min_duration_s: 3600, count: 1, best: sixty, history: [sixty] },
+    ],
+  };
+}
+
+export function mockProgression(modality: "rowing_erg" | "bike" = "rowing_erg"): LabProgression {
+  const pts = [
+    [160, 418.4, 296, "test", true], [120, 421.0, 291, "training", false], [80, 416.0, 301, "training", true], [40, 414.9, 304, "piece", true], [12, 412.3, 312, "test", true],
+  ] as const;
+  return {
+    from: addDays(t(), -365), to: t(), modality, split_m: modality === "bike" ? 1000 : 500,
+    series: modality === "bike" ? [] : [
+      { key: "2000m", points: pts.map(([d, dur, w, label, best]) => ({ date: addDays(t(), -d), distance_m: 2000, duration_s: dur, pace_s: dur / 4, avg_watts: w, watts_basis: label === "piece" ? "derived" : "measured", label, new_best: best, ref: "/workouts/1" })) },
+    ],
+  };
+}
+
+export function mockHrAtWorkload(): HrAtWorkload {
+  return {
+    from: addDays(t(), -365), to: t(), split_date: addDays(t(), -182), sessions: 22, min_sessions: 2,
+    bands: [
+      { band_w: [220, 240], earlier: { sessions: 3, median_hr: 158, median_watts: 228, refs: [] }, recent: { sessions: 4, median_hr: 154, median_watts: 231, refs: [] }, hr_change_bpm: -4 },
+      { band_w: [200, 220], earlier: { sessions: 6, median_hr: 151, median_watts: 208, refs: [] }, recent: { sessions: 5, median_hr: 147, median_watts: 210, refs: [] }, hr_change_bpm: -4 },
+      { band_w: [180, 200], earlier: { sessions: 1, median_hr: null, median_watts: null, refs: [] }, recent: { sessions: 3, median_hr: 139, median_watts: 191, refs: [] }, hr_change_bpm: null },
+    ],
+  };
+}
+
+export function mockSplitByRate(): SplitByRate {
+  return {
+    from: addDays(t(), -365), to: t(), split_date: addDays(t(), -182), min_strokes: 60, min_sessions: 2,
+    bands: [
+      { band_spm: [18, 20], earlier: { strokes: 4200, sessions: 9, split_s: 128.4 }, recent: { strokes: 5100, sessions: 11, split_s: 126.9 }, split_change_s: -1.5 },
+      { band_spm: [20, 22], earlier: { strokes: 3100, sessions: 7, split_s: 123.2 }, recent: { strokes: 2900, sessions: 6, split_s: 122.1 }, split_change_s: -1.1 },
+      { band_spm: [28, 30], earlier: { strokes: 40, sessions: 1, split_s: null }, recent: { strokes: 380, sessions: 3, split_s: 103.6 }, split_change_s: null },
+    ],
+  };
+}
+
+export function mockPredict2k(): Predicted2k {
+  return {
+    kind: "estimate", value: 102.8, range: [101.9, 103.8], predicted_time_s: 411.2, range_s: [407.6, 415.2], band: "moderate", confidence: "moderate",
+    components: [
+      { distance_m: 2000, duration_s: 412.3, date: addDays(t(), -12), age_days: 12, effort: "declared", label: "2k test", canonical_id: 1, implied_2k_s: 412.3, weight: 0.87 },
+      { distance_m: 5000, duration_s: 1098.0, date: addDays(t(), -45), age_days: 45, effort: "hr_verified", label: null, canonical_id: 1, implied_2k_s: 410.1, weight: 0.42 },
+    ],
+    excluded_count: 1,
+    explanation: "From 2 recent hard efforts, weighted by how recent and how certain the effort was. An estimate, not a result.",
+    measured_2k: null,
+  };
+}
