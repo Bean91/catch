@@ -67,7 +67,6 @@ export function EventSheet({
     onSuccess: () => {
       invalidateCalendar(qc);
       qc.invalidateQueries({ queryKey: ["memory"] });
-      qc.invalidateQueries({ queryKey: ["coach-memory"] });
       onOpenChange(false);
     },
     onError: (e: Error) => setError(e.message),
@@ -77,7 +76,7 @@ export function EventSheet({
     onSuccess: () => {
       invalidateCalendar(qc);
       qc.invalidateQueries({ queryKey: ["memory"] });
-      qc.invalidateQueries({ queryKey: ["coach-memory"] });
+      qc.invalidateQueries({ queryKey: ["memory"] });
       onOpenChange(false);
       onDeleted?.();
     },

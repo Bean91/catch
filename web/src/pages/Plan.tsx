@@ -18,7 +18,7 @@ export function PlanPage() {
   const phases = useQuery({ queryKey: ["phases"], queryFn: fetchPhases });
   const start = addDays(weekStart(today), -14);
   const weeks = Array.from({ length: 7 }, (_, i) => addDays(start, i * 7));
-  const summaries = useQueries({ queries: weeks.map((w) => ({ queryKey: ["plan-weeks", w], queryFn: () => fetchPlanWeekSummary(w) })) });
+  const summaries = useQueries({ queries: weeks.map((w) => ({ queryKey: ["plan-week", w], queryFn: () => fetchPlanWeekSummary(w) })) });
   const flags = summaries.flatMap((s) => s.data?.review_flags ?? []).filter((f, i, a) => a.findIndex((x) => x.week_start === f.week_start) === i);
   const maxMin = Math.max(1, ...summaries.map((s) => Math.max(s.data?.planned.minutes ?? 0, s.data?.completed.minutes ?? 0, s.data?.targets.minutes ?? 0)));
 

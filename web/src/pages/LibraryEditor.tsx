@@ -74,7 +74,7 @@ export function LibraryEditorPage() {
     setLoaded(true);
   }, [editing, existing.data, loaded]);
 
-  const exercises = useQuery({ queryKey: ["exercises", ""], queryFn: () => fetchExercises(), enabled: type === "strength" });
+  const exercises = useQuery({ queryKey: ["gym-exercises"], queryFn: () => fetchExercises(), enabled: type === "strength" });
 
   const built = useMemo(() => {
     const problems: string[] = [];

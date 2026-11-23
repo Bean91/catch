@@ -19,7 +19,7 @@ export function LibraryTemplatePage() {
   const [schedule, setSchedule] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { data: t, isLoading, isError, refetch } = useQuery({ queryKey: ["library", tid], queryFn: () => fetchLibraryTemplate(tid), enabled: Number.isFinite(tid) });
-  const exercises = useQuery({ queryKey: ["exercises", ""], queryFn: () => fetchExercises(), enabled: t?.workout_type === "strength" });
+  const exercises = useQuery({ queryKey: ["gym-exercises"], queryFn: () => fetchExercises(), enabled: t?.workout_type === "strength" });
   const names = Object.fromEntries((exercises.data ?? []).map((e) => [e.id, e.name]));
 
   const duplicate = useMutation({

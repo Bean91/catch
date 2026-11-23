@@ -21,7 +21,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function invalidateCalendar(qc: ReturnType<typeof useQueryClient>) {
-  for (const key of ["calendar", "plan-week", "upcoming-events", "event", "phases", "plan-weeks"]) qc.invalidateQueries({ queryKey: [key] });
+  for (const key of ["calendar", "plan-week", "upcoming-events", "event", "phases"]) qc.invalidateQueries({ queryKey: [key] });
 }
 
 export function PlannedWorkoutSheet({

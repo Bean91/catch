@@ -179,13 +179,13 @@ function GoalRow({ goal, onUpdate, onDelete }: { goal: MemoryGoal; onUpdate: (pa
 
 export function MemoryPage() {
   const queryClient = useQueryClient();
-  const memoryQuery = useQuery({ queryKey: ["coach-memory"], queryFn: fetchMemory });
+  const memoryQuery = useQuery({ queryKey: ["memory"], queryFn: fetchMemory });
 
   const [newFact, setNewFact] = useState({ category: "preference", text: "" });
   const [newEvent, setNewEvent] = useState({ name: "", date: "", type: "race", priority: "" });
   const [newGoal, setNewGoal] = useState({ text: "", target_date: "" });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["coach-memory"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["memory"] });
 
   const addFact = useMutation({ mutationFn: () => addMemoryFact(newFact.category, newFact.text, null), onSuccess: () => { setNewFact({ category: "preference", text: "" }); invalidate(); } });
   const addEvent = useMutation({
