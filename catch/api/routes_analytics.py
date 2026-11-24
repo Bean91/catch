@@ -525,9 +525,9 @@ def erg_strokes(
     # zero at every rep.
     # Session 36 follow-up: seconds since the PM5 started, rests included (None when an interval's rest isn't reported) — what a
     # confirmed offset to another device's heart-rate chart is measured against (catch/analytics/recording_offset.py).
-    from catch.analytics.recording_offset import wall_times
+    from catch.sync.recording_offset import erg_wall_times
 
-    walls = wall_times([{"t": s.t, "interval_index": s.interval_index} for s in strokes], defs) if strokes else None
+    walls = erg_wall_times(activity, [{"t": s.t, "interval_index": s.interval_index} for s in strokes]) if strokes else None
     stroke_dicts = []
     offset_distance = 0.0
     offset_t = 0.0
@@ -868,7 +868,7 @@ def activity_samples(
     if canonical is None:
         raise HTTPException(status_code=404, detail="Activity not found")
 
-    members = db.exec(select(Activity).where(Activity.canonical_id == canonical_id)).all()
+    members = db.exec(select(Activity).where(Activity.canonical_id == canonical_id).order_by(Activity.id)).all()
     settings = get_settings(db)
     # Session 33: {recording id: seconds from this workout's start}. A piece window is stored relative to its own recording, so
     # the chart adds this offset to draw it (and removes it when a band is dragged). Zero for an ordinary workout's one recording.

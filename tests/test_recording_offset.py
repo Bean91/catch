@@ -13,6 +13,8 @@ import pytest
 from catch.analytics import recording_offset as ro
 from catch.analytics.samples_codec import pack_series
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, Stroke
+from sqlmodel import select
+
 from conftest import TEST_PASSWORD
 
 
@@ -38,6 +40,15 @@ def test_wall_times_add_rests_and_refuse_unknown_ones():
     assert ro.wall_times(strokes, defs) == [2.0, 240.0, 363.0]
     assert ro.wall_times(strokes, [{"time": 2400}, {"time": 2400}]) is None  # the rest before rep 2 isn't known
     assert ro.wall_times([{"t": 5.0, "interval_index": 0}], []) == [5.0]  # one continuous piece
+
+
+def test_a_split_piece_restarts_its_clock_at_each_split_with_no_rest():
+    # A 2k shown in 500 m splits: the PM5's t restarts every split, and there is no workout.intervals.
+    strokes = [{"t": 2.0, "interval_index": 0}, {"t": 104.0, "interval_index": 0}, {"t": 1.5, "interval_index": 1}, {"t": 3.0, "interval_index": 2}]
+    splits = [{"time": 1050, "distance": 500}, {"time": 1060, "distance": 500}, {"time": 1055, "distance": 500}]
+    assert ro.wall_times(strokes, [], split_defs=splits) == [2.0, 104.0, 106.5, 214.0]  # the splits' own times
+    assert ro.wall_times(strokes, []) == [2.0, 104.0, 105.5, 108.5]  # no splits reported: where the previous segment ended
+    assert ro.wall_times(strokes, [], interval_workout=True) is None  # an interval session without its rests stays unknown
 
 
 def test_a_clear_match_is_proposed_at_the_right_offset():
@@ -123,6 +134,25 @@ def test_unknown_rests_block_alignment(client, session):
     assert "rests aren't known" in client.post(f"{url}/suggest").json()["reason"]
     assert client.put(url, json={"offset_s": 100}).status_code == 422
     assert client.get(f"/api/erg/{erg.id}/strokes").json()["strokes"][0]["t_wall"] is None
+
+
+def test_a_split_2k_beside_a_watch_can_be_aligned(client, session):
+    _login(client)
+    canonical, _, erg = _two_recordings(session)
+    erg.workout_type = "FixedDistanceSplits"
+    erg.intervals_json = json.dumps({"splits": [{"time": 9500, "distance": 2000}, {"time": 9500, "distance": 2000}]})
+    for s in session.exec(select(Stroke).where(Stroke.activity_id == erg.id)).all():
+        if s.seq >= 950:  # the second split: its clock restarts
+            s.interval_index, s.t = 1, float(s.seq - 950) or 0.5
+            session.add(s)
+    session.add(erg)
+    session.commit()
+    url = f"/api/activities/{canonical.id}/erg-alignment"
+    assert client.get(url).json()["wall_time_known"] is True
+    proposal = client.post(f"{url}/suggest").json()
+    assert proposal["offset_s"] == pytest.approx(137, abs=1)
+    walls = [s["t_wall"] for s in client.get(f"/api/erg/{erg.id}/strokes").json()["strokes"]]
+    assert walls == sorted(walls) and walls[-1] > 1800
 
 
 def test_same_recording_needs_no_offset(client, session):

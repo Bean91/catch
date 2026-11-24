@@ -154,7 +154,10 @@ export function WorkoutDetailPage() {
       return o == null ? null : { offset: o, axis: "t_cum" };
     }
     const a = alignment.data;
-    return a?.state === "confirmed" && a.offset_s != null && a.erg_activity_id === strokesActivityId ? { offset: a.offset_s, axis: "t_wall" } : null;
+    // Both ends must be the recordings these charts actually draw, or the saved offset belongs to another pair.
+    return a?.state === "confirmed" && a.offset_s != null && a.erg_activity_id === strokesActivityId && a.watch_activity_id === samples.recording_activity_id
+      ? { offset: a.offset_s, axis: "t_wall" }
+      : null;
   }, [samples, strokesActivityId, alignment.data]);
   const syncOffset = sync?.offset ?? null;
   const strokeAxis = useMemo(() => {
@@ -487,8 +490,8 @@ export function WorkoutDetailPage() {
               externalHoverX={ergHoverFromHr}
               onHoverXChange={onErgHover}
             />
-            {samples?.has_data && (crossDevice && alignment.data ? (
-              <ErgAlignmentNote canonicalId={canonicalId} alignment={alignment.data} />
+            {samples?.has_data && (crossDevice && (alignment.data?.state === "not_linked" || alignment.data?.state === "confirmed") ? (
+              <ErgAlignmentNote canonicalId={canonicalId} alignment={alignment.data!} />
             ) : (
               <p className="mt-2 text-xs text-text-tertiary" data-testid="chart-sync-note">
                 {syncOffset != null

@@ -9,6 +9,7 @@ score input, so it marks no day for a recompute."""
 from __future__ import annotations
 
 import json
+import time
 from typing import Iterable
 
 from sqlalchemy import update
@@ -76,11 +77,15 @@ def summaries_for(session: Session, activity_ids: list[int]) -> dict[int, dict]:
 
 
 BACKFILL_BATCH = 300
+BACKFILL_BUDGET_S = 5.0
 
 
-def backfill(session: Session, limit: int = BACKFILL_BATCH) -> int:
-    """Build up to `limit` missing or outdated summaries (recordings synced before the cache, or after a version change). Called by
-    `scheduler.run_maintenance`, so a reader rarely pays the cold cost; what's left is picked up on the next run or the first read."""
+def backfill(session: Session, limit: int = BACKFILL_BATCH, budget_s: float = BACKFILL_BUDGET_S) -> int:
+    """Build up to `limit` missing or outdated summaries (recordings synced before the cache, or after a version change), starting no
+    new chunk of `_FILL_CHUNK` recordings after `budget_s` seconds — on the public build this runs per user on a sync tick that has a
+    60 s timeout. Each chunk commits, so a stopped run keeps its progress. Called by `scheduler.run_maintenance`, so a reader rarely
+    pays the cold cost; what's left is picked up on the next run or the first read. Once everything is filled, the cost per run is
+    one indexed query over the owner's Concept2 rows."""
     current = f'{{"v": {ss.SUMMARY_VERSION},%'
     ids = session.exec(
         select(Activity.id).where(
@@ -88,6 +93,12 @@ def backfill(session: Session, limit: int = BACKFILL_BATCH) -> int:
             (Activity.stroke_summary_json.is_(None)) | (~Activity.stroke_summary_json.like(current)),
         ).order_by(Activity.start.desc()).limit(limit)
     ).all()
-    if ids:
-        summaries_for(session, list(ids))
-    return len(ids)
+    deadline = time.monotonic() + budget_s
+    done = 0
+    for i in range(0, len(ids), _FILL_CHUNK):
+        if time.monotonic() > deadline:
+            break
+        chunk = list(ids[i : i + _FILL_CHUNK])
+        summaries_for(session, chunk)
+        done += len(chunk)
+    return done

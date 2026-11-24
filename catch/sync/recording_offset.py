@@ -34,6 +34,16 @@ def _pair(session: Session, canonical: CanonicalActivity) -> tuple[Optional[Acti
     return erg, (hr or (members[0] if members else None))
 
 
+def erg_wall_times(erg: Activity, strokes: list[dict]) -> Optional[list[float]]:
+    """`analytics.recording_offset.wall_times` with this result's own intervals, splits and workout type."""
+    try:
+        workout = json.loads(erg.intervals_json) if erg.intervals_json else {}
+    except ValueError:
+        workout = {}
+    splits = workout.get("splits") if isinstance(workout, dict) and isinstance(workout.get("splits"), list) else None
+    return ro.wall_times(strokes, _concept2_interval_defs(erg), split_defs=splits, interval_workout="interval" in (erg.workout_type or "").lower())
+
+
 def _overrides(canonical: CanonicalActivity) -> dict:
     try:
         return json.loads(canonical.overrides_json or "{}")
@@ -59,7 +69,7 @@ def state(session: Session, canonical: CanonicalActivity) -> dict:
         return {**base, "state": "same_recording", "offset_s": 0}
     saved = _overrides(canonical).get("erg_alignment") or {}
     indices = session.exec(select(Stroke.interval_index).where(Stroke.activity_id == erg.id).distinct()).all()
-    wall_known = ro.wall_times([{"t": 0.0, "interval_index": i} for i in indices] or [{"t": 0.0}], _concept2_interval_defs(erg)) is not None
+    wall_known = erg_wall_times(erg, [{"t": 0.0, "interval_index": i} for i in indices] or [{"t": 0.0}]) is not None
     if saved.get("erg") == erg.id and saved.get("watch") == watch.id and isinstance(saved.get("offset_s"), int):
         return {**base, "state": "confirmed", "offset_s": saved["offset_s"], "wall_time_known": wall_known}
     return {**base, "state": "not_linked", "wall_time_known": wall_known}
@@ -70,7 +80,7 @@ def suggest(session: Session, canonical: CanonicalActivity) -> dict:
     if erg is None or watch is None or erg.id == watch.id or canonical.merge_mode == "combined":
         return {"offset_s": None, "reason": "There is no second recording to line up."}
     strokes = _strokes(session, erg.id)
-    walls = ro.wall_times(strokes, _concept2_interval_defs(erg)) if strokes else None
+    walls = erg_wall_times(erg, strokes) if strokes else None
     if not walls:
         return {"offset_s": None, "reason": "The erg recording's rests aren't known, so its strokes can't be placed in time."}
     samples = session.get(ActivitySamples, watch.id)

@@ -1513,8 +1513,9 @@ at any gap longer than 8 s (`SAMPLE_GAP_S`) instead of bridging it, and a record
 offset the athlete confirmed (stored in the workout's overrides as `erg_alignment = {erg, watch, offset_s}`, keyed by both recording
 ids so a merge, split or new heart-rate pick retires it). The offset is the watch-chart second at which the PM5's second 0 falls,
 measured against the PM5's **wall time** (`t_wall` on each stroke: interval time plus every earlier interval's time and rest), since
-the watch kept recording through the rests. When an interval session's rest isn't reported, wall time is unknown and no offset is
-offered or accepted. On request (`POST …/erg-alignment/suggest`, never on page load) the server proposes one: both recordings as 1 Hz
+the watch kept recording through the rests. The PM5's clock also restarts at every *split*: a continuous piece's split segments are back
+to back (each starts at the earlier splits' own times, or where the previous segment's last stroke was). Only an interval session whose
+rests aren't reported has no wall time, and then no offset is offered or accepted. On request (`POST …/erg-alignment/suggest`, never on page load) the server proposes one: both recordings as 1 Hz
 series (the PM5's resampled, each stroke holding ≤ 5 s), heart rate against heart rate when both have it, else stroke rate against the
 watch's cadence; shifts within 15 min of the clocks' own difference, a 5 s coarse pass then 1 s around the best. A proposal needs
 Pearson r ≥ 0.85 over ≥ 180 shared seconds, both series varying (SD ≥ 1.5), and the best shift beating every shift more than 30 s

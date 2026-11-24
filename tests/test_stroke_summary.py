@@ -177,5 +177,6 @@ def test_maintenance_backfill_fills_old_recordings_in_batches(session):
     assert stroke_summary.backfill(session, limit=2) == 2
     assert stroke_summary.backfill(session, limit=2) == 1
     assert stroke_summary.backfill(session, limit=2) == 0
+    assert stroke_summary.backfill(session, budget_s=-1) == 0  # past its time budget it starts nothing
     session.expire_all()
     assert all(json.loads(session.get(Activity, i).stroke_summary_json)["n"] == 50 for i in ids)

@@ -5331,7 +5331,7 @@ Asked to "fill those gaps and limitations". Migration **0014** (columns only): `
 
 | Check | Result |
 |---|---|
-| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,624 passed, 3 skipped (+27) |
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,627 passed, 3 skipped (+30; re-run after the review fixes below) |
 | `tests/pg` (local Supabase stack: 0014 applied, schema = models, RLS) | 101 passed, 1 skipped; stack re-seeded after |
 | vitest | 121 passed |
 | `test:touch` (3 projects, fresh production build) | 367 passed, 9 skipped, 0 failed (incl. `session36-followup.spec.ts` and the desktop drag) |
@@ -5344,6 +5344,16 @@ Asked to "fill those gaps and limitations". Migration **0014** (columns only): `
 | `tsc -b`, oxlint, ruff | Clean apart from the pre-existing oxlint warnings |
 | Initial bundle | 201.9 KB of 250 KB |
 | `perf_personal.py --years 3 --strokes` | split by rate warm 8.0 ms (1 yr) / 17.7 ms (3 yr), power curve 17.3 ms; cold first 3-year read 5.0 s / 977 statements, once |
+
+Review fixes before closing: a PM5's clock restarts at every *split* as well as every interval, so a plain 2k in splits was refused as
+"rests unknown" — `wall_times` now places split segments back to back (from `workout.splits` times, else the previous segment's last
+stroke) and refuses only an interval session without its rests; the workout page applies a saved offset only when both recording ids match
+what the charts draw (`/samples` now orders members like the alignment service), and shows the alignment panel only for
+`not_linked`/`confirmed`; the maintenance fill stops starting chunks after 5 s (public ticks have a 60 s timeout); `parse_fit`'s new lap
+fields have a test.
+
+Unverified: touch drag only in Chromium via CDP (WebKit skipped; not driven in iOS Safari or the native apps); the offset proposal only on
+synthetic series, never a real watch + PM5 pair; FIT lap `intensity` only from faked frames, not a real structured-workout file.
 
 Still not done: a calendar *subscription* feed (download only); drag in the month and agenda views (week view only — the sheet's date
 field covers the rest); coach/MCP tools for the curve, folders or offsets (74 tools, unchanged); lap pairing on laps parsed before this

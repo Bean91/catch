@@ -28,13 +28,31 @@ PEAK_EXCLUSION_S = 30
 MIN_SPREAD = 1.5
 
 
-def wall_times(strokes: list[dict], interval_defs: list[dict]) -> Optional[list[float]]:
-    """Each stroke's seconds since the PM5 started, rest included. `strokes` in order with `t` (seconds within the interval) and
-    `interval_index`; `interval_defs` Concept2's own `workout.intervals` (time and rest_time in tenths). None when there is more
-    than one interval and a rest or an interval's time isn't reported."""
+def wall_times(strokes: list[dict], interval_defs: list[dict], *, split_defs: Optional[list[dict]] = None,
+               interval_workout: bool = False) -> Optional[list[float]]:
+    """Each stroke's seconds since the PM5 started, rest included. `strokes` in order with `t` (seconds within its segment) and
+    `interval_index`; `interval_defs` Concept2's own `workout.intervals` (time and rest_time in tenths).
+
+    The PM5's clock restarts at every interval *and* every split, so a plain 2k split into 500 m segments has several segments too. With
+    no `workout.intervals` and not an interval workout, the segments are back to back with no rest: each starts at the sum of the
+    earlier splits' own times (`split_defs`, Concept2's `workout.splits`), or, where those aren't reported, where the earlier segment's
+    last stroke was. None for an interval session whose rests or times aren't reported."""
     indices = sorted({s.get("interval_index") or 0 for s in strokes})
-    if len(indices) <= 1 and not interval_defs:
+    if len(indices) <= 1:
         return [float(s["t"]) for s in strokes]
+    if not interval_defs:
+        if interval_workout:
+            return None
+        last_t: dict[int, float] = {}
+        for s in strokes:
+            last_t[s.get("interval_index") or 0] = float(s["t"])
+        splits = [d.get("time") for d in (split_defs or [])]
+        use_splits = len(splits) >= max(indices) and all(isinstance(x, (int, float)) for x in splits[: max(indices)])
+        starts, clock = {}, 0.0
+        for i in range(max(indices) + 1):
+            starts[i] = clock
+            clock += splits[i] / 10.0 if use_splits and i < len(splits) else last_t.get(i, 0.0)
+        return [starts[s.get("interval_index") or 0] + float(s["t"]) for s in strokes]
     starts: dict[int, float] = {}
     clock = 0.0
     for i in range(max(indices) + 1 if indices else 0):

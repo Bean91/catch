@@ -162,6 +162,27 @@ def test_laps_extracted_with_correct_offsets(monkeypatch, tmp_path):
     assert laps == [{"offset_s": 0.0, "duration_s": 60.0}, {"offset_s": 60.0, "duration_s": 60.0}]
 
 
+def test_laps_keep_what_the_lap_message_states(monkeypatch, tmp_path):
+    """Session 36 follow-up: distance, average HR/cadence and the watch's own intensity, so planned reps can pair with laps. Fields the
+    lap doesn't carry are left out, never zero; an unknown intensity enum (an int) is dropped."""
+    frames = [
+        FakeDataMessage("file_id", {"manufacturer": "garmin"}),
+        _record(T0, hr=140),
+        FakeDataMessage("lap", {"start_time": T0, "total_elapsed_time": 240.0, "total_distance": 1004.0, "avg_heart_rate": 168,
+                                "avg_cadence": 30, "intensity": "active"}),
+        FakeDataMessage("lap", {"start_time": datetime(2026, 1, 1, 7, 4, 0, tzinfo=timezone.utc), "total_elapsed_time": 120.0, "intensity": "rest"}),
+        FakeDataMessage("lap", {"start_time": datetime(2026, 1, 1, 7, 6, 0, tzinfo=timezone.utc), "total_elapsed_time": 60.0, "intensity": 9}),
+    ]
+    _patch_fitdecode(monkeypatch, frames)
+    path = tmp_path / "x.fit"
+    path.write_bytes(b"x")
+    assert parse_fit(path).laps == [
+        {"offset_s": 0.0, "duration_s": 240.0, "distance_m": 1004.0, "avg_hr": 168.0, "avg_cadence": 30.0, "intensity": "active"},
+        {"offset_s": 240.0, "duration_s": 120.0, "intensity": "rest"},
+        {"offset_s": 360.0, "duration_s": 60.0},
+    ]
+
+
 def test_parse_fit_returns_none_for_a_missing_file(tmp_path):
     assert parse_fit(tmp_path / "does-not-exist.fit") is None
 
