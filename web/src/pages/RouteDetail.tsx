@@ -133,7 +133,7 @@ export function RouteDetailPage() {
         </label>
       </div>
 
-      <Card title="Course">
+      <Card material="solid" title="Course">
         <LazyRouteMap lines={lines} height={300} label="Route reference and selected session" />
         <p className="mt-2 text-xs text-text-tertiary">Dashed line: the route's reference course. Solid line: the session selected below.</p>
       </Card>
@@ -162,7 +162,7 @@ export function RouteDetailPage() {
           </Card>
 
           {stats.speed_distribution && (
-            <Card title="Speed distribution">
+            <Card material="solid" title="Speed distribution">
               <SpeedHistogram dist={stats.speed_distribution} />
             </Card>
           )}
@@ -191,7 +191,7 @@ export function RouteDetailPage() {
             </Card>
           )}
 
-          <Card title="Sessions">
+          <Card material="solid" title="Sessions">
             <div className="overflow-x-auto">
               <table className="w-full text-sm" data-testid="route-sessions">
                 <thead>

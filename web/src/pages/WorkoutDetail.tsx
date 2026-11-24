@@ -365,7 +365,7 @@ export function WorkoutDetailPage() {
       )}
 
       {samples?.has_data && (
-        <Card title={samples.has_hr === false ? "Power and cadence" : "Heart rate"}>
+        <Card material="solid" title={samples.has_hr === false ? "Power and cadence" : "Heart rate"}>
           {samples.has_hr === false && <p className="mb-3 text-sm text-text-tertiary">No heart rate was recorded — this recording has {samples.has_power ? "power" : "cadence"} only.</p>}
           {samples.has_hr !== false && <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile size="sm" label="Average" value={Math.round(samples.avg_hr ?? 0)} unit="bpm" accent={METRIC_COLOR.hr} />
@@ -432,7 +432,7 @@ export function WorkoutDetailPage() {
 
       <GpsSection canonicalId={canonicalId} category={workout.category} hasTrack={!!workout.has_track} sportFamily={workout.sport_family} />
 
-      <Card
+      <Card material="solid"
         title="Pieces"
         action={
           <Button size="sm" variant="subtle" onClick={() => setAddPieceOpen(true)}>
@@ -476,7 +476,7 @@ export function WorkoutDetailPage() {
 
       {isRowing && hasStrokes && fullStrokesData && fullDomain && (
         <>
-          <Card title="Split, watts & rate over distance">
+          <Card material="solid" title="Split, watts & rate over distance">
             <ErgChart
               strokes={windowedStrokesData?.strokes ?? fullStrokesData.strokes}
               hrBoundsBpm={workout.zones_config?.hr_basis?.bounds_bpm ?? {}}
@@ -501,7 +501,7 @@ export function WorkoutDetailPage() {
             ))}
           </Card>
           <StrokeAnalysis strokes={fullStrokesData.strokes} />
-          <Card title="Intervals">
+          <Card material="solid" title="Intervals">
             <IntervalTable intervals={fullStrokesData.interval_summary} consistency={fullStrokesData.interval_consistency} hoveredInterval={hoveredInterval} onHoverInterval={setHoveredInterval} />
           </Card>
           {Object.entries(fullStrokesData.technique_by_interval)
@@ -515,7 +515,7 @@ export function WorkoutDetailPage() {
       )}
 
       {isRowing && !hasStrokes && (
-        <Card title="Zones">
+        <Card material="solid" title="Zones">
           <p className="mb-3 text-xs text-text-tertiary">
             No per-stroke data for this Garmin-only session — split/watts/rate charts and the interval table need a Concept2 (PM5) sync.
           </p>
@@ -524,7 +524,7 @@ export function WorkoutDetailPage() {
       )}
 
       {workout.category === "other" && (
-        <Card title="HR zones">
+        <Card material="solid" title="HR zones">
           <ZoneTable zones={workout.zones_config} currentZone={workout.hr_zone} />
         </Card>
       )}
@@ -765,7 +765,7 @@ const SOURCE_NAME: Record<string, string> = { garmin: "Garmin", concept2: "Conce
 function AboutThisData({ dq }: { dq: DataQuality }) {
   const have = Object.entries({ "Heart rate": dq.channels.heart_rate, Power: dq.channels.power, "Rate / cadence": dq.channels.cadence, GPS: dq.channels.gps, "PM5 strokes": dq.channels.strokes });
   return (
-    <details className="rounded-lg border border-border bg-surface p-4 text-sm" data-testid="about-this-data">
+    <details className="glass-secondary rounded-lg border border-border bg-surface p-4 text-sm" data-testid="about-this-data">
       <summary className="flex min-h-11 cursor-pointer items-center font-medium text-text-primary">About this data</summary>
       <div className="mt-2 flex flex-col gap-3 text-text-secondary">
         <p>
@@ -848,7 +848,7 @@ function StrokeAnalysis({ strokes }: { strokes: Stroke[] }) {
   }, [strokes]);
   if (splits.length < 20) return null;
   return (
-    <Card title="Stroke analysis" eyebrow={`${splits.length} strokes`}>
+    <Card material="solid" title="Stroke analysis" eyebrow={`${splits.length} strokes`}>
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
           <p className="mb-1 text-xs font-medium text-text-secondary">Share of strokes at each split</p>

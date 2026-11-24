@@ -64,7 +64,7 @@ export function PieceTestDetailPage() {
 
       {compare_to_earlier && <CompareCard title="Compare to earlier" earlier={compare_to_earlier} nowDate={activity.local_date} nowDurationS={piece.duration_s} />}
 
-      <Card title="Piece">
+      <Card material="solid" title="Piece">
         <PieceCard piece={piece} canonicalId={activity.id} />
       </Card>
     </div>

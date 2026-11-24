@@ -49,7 +49,7 @@ function CalendarDownload() {
     }
   };
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-3 text-sm text-text-secondary sm:flex-row sm:items-center sm:justify-between" data-testid="calendar-download">
+    <div className="glass-subtle flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-3 text-sm text-text-secondary sm:flex-row sm:items-center sm:justify-between" data-testid="calendar-download">
       <p>
         Put your plans in another calendar app: a file of planned sessions and events from 30 days ago to a year ahead. Importing a newer file updates the same
         entries.{state === "error" ? " The download didn't work — try again." : ""}
@@ -110,7 +110,7 @@ export function CalendarPage() {
 
       <NavLinks />
 
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="glass-subtle flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-2 sm:flex-row sm:items-center sm:justify-between">
         <Segmented label="Calendar view" value={view} onChange={(v) => setNav({ view: v })} options={VIEWS} className="w-full sm:w-auto" stretch />
         <div className="flex items-center justify-between gap-1 sm:justify-end">
           <IconButton label="Previous" onClick={() => step(-1)}>

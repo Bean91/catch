@@ -7,8 +7,11 @@ import { ToastProvider } from "./components/ui/Toast";
 import { UpdateToast } from "./components/shell/UpdateToast.tsx";
 import "./index.css";
 import { AuthProvider } from "./lib/auth.tsx";
+import { applyGlassPreference } from "./lib/glass.ts";
 import { SESSION_ENDED_EVENT } from "./lib/session.ts";
 import { ThemeProvider } from "./lib/theme.tsx";
+
+applyGlassPreference();
 
 const queryClient = new QueryClient({
   // offlineFirst (not the v5 default "online"): a query still tries the network first, but

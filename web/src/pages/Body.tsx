@@ -177,7 +177,7 @@ export function BodyPage() {
     <div className="flex flex-col gap-4 lg:gap-5">
       <PageHeader eyebrow="Health" title="Body" subtitle="Weight, composition and power for your size — one resolved reading per day." />
 
-      <div className="grid grid-cols-3 gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
+      <div className="glass-secondary grid grid-cols-3 gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
         <StatTile label="Weight" value={latestWeight ? latestWeight.value.toFixed(1) : "—"} unit="kg" sub={latestWeight ? formatShortDate(latestWeight.date) : "No reading"} />
         <StatTile label="Body fat" value={latest?.fat_pct != null ? formatNumber(latest.fat_pct, 1) : "—"} unit="%" sub={latest?.fat_pct != null ? sourceLabel(latest.fat_pct_source) : "No reading"} />
         <StatTile label="Muscle" value={latest?.muscle_kg != null ? formatNumber(latest.muscle_kg, 1) : "—"} unit="kg" sub={latest?.muscle_kg != null ? sourceLabel(latest.muscle_kg_source) : "No reading"} />
@@ -185,7 +185,7 @@ export function BodyPage() {
 
       <Segmented label="Range" size="sm" value={urlState.preset ?? ""} onChange={(v) => selectPreset(v as RangePreset)} options={RANGE_PRESETS.map((r) => ({ value: r.value, label: r.label }))} className="self-start" />
 
-      <Card title="Weight">
+      <Card material="solid" title="Weight">
         {seriesQuery.isError && weightPoints.length === 0 ? (
           <ErrorState message="Couldn't load your weight history." onRetry={() => seriesQuery.refetch()} />
         ) : seriesQuery.isLoading && weightPoints.length === 0 ? (
@@ -273,7 +273,7 @@ export function BodyPage() {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card title="Body fat %">
+        <Card material="solid" title="Body fat %">
           {latest?.fat_pct != null ? (
             <>
               <div className="font-mono-nums text-[2rem] font-semibold leading-none tracking-tight text-text-primary">{formatNumber(latest.fat_pct, 1)}%</div>
@@ -286,7 +286,7 @@ export function BodyPage() {
             <EmptyState message="No body-fat data yet." />
           )}
         </Card>
-        <Card title="Muscle mass">
+        <Card material="solid" title="Muscle mass">
           {latest?.muscle_kg != null ? (
             <>
               <div className="font-mono-nums text-[2rem] font-semibold leading-none tracking-tight text-text-primary">{formatNumber(latest.muscle_kg, 1)}kg</div>
@@ -301,7 +301,7 @@ export function BodyPage() {
         </Card>
       </div>
 
-      <Card title="W/kg over time">
+      <Card material="solid" title="W/kg over time">
         {seriesQuery.isLoading && wPerKgPoints.length === 0 ? (
           <ChartSkeleton height={240} />
         ) : wPerKgPoints.length > 0 ? (

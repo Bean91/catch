@@ -146,7 +146,7 @@ export function ProgressionCard({ modality, from, to }: { modality: Modality; fr
   const unit = splitUnitLabel(q.data.split_m);
   const withWatts = current.points.filter((p) => p.avg_watts != null);
   return (
-    <Card title="Progression" testId="progression-card">
+    <Card material="solid" title="Progression" testId="progression-card">
       <Segmented label="Distance or time" size="sm" className="mb-3 max-w-full overflow-x-auto" value={current.key} onChange={setKey} options={series.map((s) => ({ value: s.key, label: recordName(s.key) }))} />
       <p className="mb-1 text-xs text-text-tertiary">
         Average split {unit} for every {recordName(current.key)} effort — rings mark each new best. Faster is higher.
@@ -215,7 +215,7 @@ export function HrAtWorkloadCard({ from, to }: { from: string; to: string }) {
   const d = q.data;
   const rows = d.bands.filter((b) => b.earlier.sessions + b.recent.sessions > 0);
   return (
-    <Card title="Heart rate at the same power" testId="hr-workload-card">
+    <Card material="solid" title="Heart rate at the same power" testId="hr-workload-card">
       <p className="text-sm text-text-secondary">
         Continuous erg sessions of 10 minutes or more, grouped by average power, before and after {formatShortDate(d.split_date)}. A figure needs at least {d.min_sessions} sessions in that band and half.
       </p>
@@ -258,7 +258,7 @@ export function SplitByRateCard({ from, to }: { from: string; to: string }) {
   if (!q.data) return <CardSkeleton lines={4} />;
   const d = q.data;
   return (
-    <Card title="Split at the same stroke rate" testId="split-rate-card">
+    <Card material="solid" title="Split at the same stroke rate" testId="split-rate-card">
       <p className="text-sm text-text-secondary">
         Every Concept2 rowing stroke in the period, grouped by rate, before and after {formatShortDate(d.split_date)}. A figure needs at least {d.min_strokes} strokes from {d.min_sessions} sessions.
       </p>
@@ -315,7 +315,7 @@ export function PowerCurveCard({ from, to }: { from: string; to: string }) {
   const d = q.data;
   const rows = d.durations.filter((r) => r.best);
   return (
-    <Card title="Best power for each duration" testId="power-curve-card">
+    <Card material="solid" title="Best power for each duration" testId="power-curve-card">
       <p className="text-sm text-text-secondary">
         The highest average power held for each duration inside one continuous stretch of rowing, from {d.recordings} Concept2 {d.recordings === 1 ? "recording" : "recordings"}. Earlier and recent split at {formatShortDate(d.split_date)}.
       </p>
@@ -363,7 +363,7 @@ export function Estimate2kCard() {
   const p = q.data;
   const comps = (p.components as Predicted2kComponent[]).filter((c) => c && typeof c === "object" && "implied_2k_s" in c);
   return (
-    <Card title="Estimated 2k" eyebrow="Estimate" testId="estimate-2k-card">
+    <Card material="solid" title="Estimated 2k" eyebrow="Estimate" testId="estimate-2k-card">
       {p.predicted_time_s != null ? (
         <>
           <p className="font-mono-nums text-2xl font-semibold text-text-primary">{formatTimeTenths(p.predicted_time_s)}</p>

@@ -238,7 +238,7 @@ export function GymPage() {
           )}
           <Link
             to="/gym/readiness"
-            className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-colors hover:border-accent/40 sm:p-5"
+            className="glass-secondary group flex items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-colors hover:border-accent/40 sm:p-5"
           >
             <span className="min-w-0">
               <span className="block text-[0.9375rem] font-semibold text-text-primary">Muscle readiness</span>

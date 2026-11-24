@@ -145,7 +145,7 @@ export function DuplicatesPage() {
       {data?.map((pair) => {
         const key = `${pair.a.activity_id}-${pair.b.activity_id}`;
         return (
-          <Card key={key} testId="duplicate-pair">
+          <Card material="solid" key={key} testId="duplicate-pair">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <Side side={pair.a} />
               <span className="self-center text-xs text-text-tertiary">vs</span>

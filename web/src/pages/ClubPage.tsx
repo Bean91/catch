@@ -96,7 +96,7 @@ export function ClubPage() {
   return (
     <div className="flex flex-col gap-4" data-testid="club-page">
       <BackLink to="/clubs">Clubs</BackLink>
-      <header data-testid="club-header" className="flex items-start gap-4 rounded-lg border border-border bg-[linear-gradient(140deg,var(--accent-soft),transparent_55%),var(--surface)] p-4 shadow-[var(--highlight),var(--shadow-1)] sm:p-5">
+      <header data-testid="club-header" data-tone="accent" className="glass-secondary flex items-start gap-4 rounded-lg border border-border bg-[linear-gradient(140deg,var(--accent-soft),transparent_55%),var(--surface)] p-4 shadow-[var(--highlight),var(--shadow-1)] sm:p-5">
         <Logo club={c} />
         <div className="flex min-w-0 flex-col gap-2">
           <h1 className="truncate text-2xl font-semibold leading-tight tracking-tight text-text-primary sm:text-[1.75rem]">{c.name}</h1>

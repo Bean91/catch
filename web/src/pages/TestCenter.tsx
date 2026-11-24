@@ -94,7 +94,7 @@ export function TestCenterPage() {
         </Card>
       )}
 
-      <Card title="Personal bests">
+      <Card material="solid" title="Personal bests">
         {pbsQuery.isLoading ? (
           <CardSkeleton lines={3} />
         ) : pbsQuery.isError ? (

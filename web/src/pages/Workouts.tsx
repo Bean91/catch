@@ -114,7 +114,7 @@ export function WorkoutsPage() {
       />
 
       {bulkMode && (
-        <div className="sticky top-[calc(var(--shell-top)+env(safe-area-inset-top)+8px)] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-surface-3/95 px-4 py-3 shadow-raised backdrop-blur lg:top-4">
+        <div className="glass-primary glass-elevated sticky top-[calc(var(--shell-top)+env(safe-area-inset-top)+8px)] z-10 flex flex-wrap items-center gap-2 rounded-lg border border-accent/30 bg-surface-3/95 px-4 py-3 shadow-raised backdrop-blur lg:top-4">
           <span className="font-mono-nums text-sm text-text-secondary">{selected.size} selected</span>
           <select
             defaultValue=""

@@ -265,7 +265,7 @@ export function ChartTooltip({ xPct, title, rows, testId, pinned = false }: { xP
     <div
       data-testid={testId}
       role="presentation"
-      className="pointer-events-none absolute top-1 z-10 min-w-[7.5rem] max-w-full rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
+      className="glass-primary glass-dense glass-elevated pointer-events-none absolute top-1 z-10 min-w-[7.5rem] max-w-full rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
       style={pinned || xPct == null ? { left: 4 } : { left: `${pct}%`, transform: `translateX(-${pct}%)` }}
     >
       <div className="mb-1 text-text-tertiary">{title}</div>

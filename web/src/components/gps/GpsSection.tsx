@@ -148,7 +148,7 @@ function SplitsCard({ data, sport, splitM, onSplitM }: { data: OnWaterData; spor
   const options = choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
   const unit = data.pace.unit;
   return (
-    <Card title="Splits" action={<GpsBadge source="gps_derived" />}>
+    <Card material="solid" title="Splits" action={<GpsBadge source="gps_derived" />}>
       <div className="mb-3">
         <Segmented label="Split distance" value={current} onChange={onSplitM} options={options.map((v) => ({ value: v, label: v >= 1000 ? `${v / 1000} km` : `${v} m` }))} />
       </div>
@@ -192,7 +192,7 @@ function LapsCard({ data }: { data: OnWaterData }) {
   if (!data.laps.usable) return null;
   const unit = data.pace.unit;
   return (
-    <Card title="Laps">
+    <Card material="solid" title="Laps">
       <div className="overflow-x-auto">
         <table className="w-full text-sm" data-testid="laps-table">
           <thead>
@@ -285,7 +285,7 @@ export function GpsSection({ canonicalId, category, hasTrack, sportFamily }: { c
 
   return (
     <>
-      <Card title="Route" action={<GpsBadge source="gps_derived" />}>
+      <Card material="solid" title="Route" action={<GpsBadge source="gps_derived" />}>
         {mapData && <LazyRouteMap lines={mapData.lines} speedRange={mapData.range} hover={hoverPoint} label="Route map" />}
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary" data-testid="map-legend">
           <span>Ring = start, solid dot = finish</span>
@@ -300,7 +300,7 @@ export function GpsSection({ canonicalId, category, hasTrack, sportFamily }: { c
 
       <MetricsCard data={ow} />
 
-      <Card title="Speed & pace" action={<GpsBadge source="gps_derived" />}>
+      <Card material="solid" title="Speed & pace" action={<GpsBadge source="gps_derived" />}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <Segmented label="Metric" value={metric} onChange={setMetric} options={metrics.map((v) => ({ value: v, label: v === "pace" ? "Pace" : v === "speed" ? "Speed" : "Elevation" }))} />
           <Segmented label="X axis" value={xAxis} onChange={setXAxis} options={[{ value: "time", label: "Time" }, { value: "distance", label: "Distance" }]} />

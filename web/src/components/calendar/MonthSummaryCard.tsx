@@ -16,7 +16,7 @@ export function MonthSummaryCard({ month }: { month: string }) {
   const m = q.data;
   const sports = Object.entries(m.completed.minutes_by_sport).sort((a, b) => b[1] - a[1]);
   return (
-    <Card title="This month" testId="month-summary">
+    <Card material="solid" title="This month" testId="month-summary">
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div className="min-w-0">
           <dt className="text-xs text-text-tertiary">Trained</dt>

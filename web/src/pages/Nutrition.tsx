@@ -104,7 +104,7 @@ export function NutritionPage() {
 
       {view === "day" ? (
         <>
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface/60 p-1">
+          <div className="glass-subtle flex items-center justify-between gap-2 rounded-lg border border-border bg-surface/60 p-1">
             <button
               type="button"
               onClick={() => setDate((d) => shiftLocalDate(d, -1))}

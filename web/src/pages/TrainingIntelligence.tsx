@@ -61,7 +61,7 @@ export function TrainingIntelligencePage() {
       <SectionHeader title="Performance" description="Like-for-like pieces over time, and how intervals compare." />
       <ProgressionCard />
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
-        <Card title="Performance trajectory">
+        <Card material="solid" title="Performance trajectory">
           {trendsQuery.isLoading && loading}
           {trendsQuery.isError && <ErrorState message="Couldn't load performance trends." onRetry={() => trendsQuery.refetch()} />}
           {trendsQuery.data && <PerformanceTrendsCard buckets={trendsQuery.data.buckets} />}
@@ -75,7 +75,7 @@ export function TrainingIntelligencePage() {
 
       <SectionHeader title="Training" description="How your time is spread across intensities, and how regularly you train." />
       <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
-        <Card title="Training distribution (last 12 weeks)">
+        <Card material="solid" title="Training distribution (last 12 weeks)">
           {distributionQuery.isLoading && loading}
           {distributionQuery.isError && <ErrorState message="Couldn't load training distribution." onRetry={() => distributionQuery.refetch()} />}
           {distributionQuery.data && <TrainingDistributionCard weeks={distributionQuery.data.weeks} />}

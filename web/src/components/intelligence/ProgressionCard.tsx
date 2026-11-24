@@ -22,7 +22,7 @@ export function ProgressionCard() {
   const measured = (tests.data ?? []).filter((t) => t.kind === "test" && t.date && t.duration_s != null && t.date >= from).map((t) => ({ date: t.date as string, value: t.duration_s }));
 
   return (
-    <Card title="Progression" eyebrow="Last 12 months">
+    <Card material="solid" title="Progression" eyebrow="Last 12 months">
       {series.isLoading ? (
         <Skeleton className="h-[180px] w-full" />
       ) : series.isError ? (

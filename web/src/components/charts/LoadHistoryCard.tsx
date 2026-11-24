@@ -27,7 +27,7 @@ export function LoadHistoryCard() {
   const [weeks, setWeeks] = useState<"12" | "26" | "52">("26");
   const q = useQuery({ queryKey: ["load-history", weeks], queryFn: () => fetchLoadHistory(Number(weeks)) });
   return (
-    <Card
+    <Card material="solid"
       title="Load and volume"
       testId="load-history"
       action={<Segmented label="Weeks" size="sm" value={weeks} onChange={setWeeks} options={[{ value: "12", label: "12 wk" }, { value: "26", label: "26 wk" }, { value: "52", label: "1 yr" }]} />}

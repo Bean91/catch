@@ -5359,3 +5359,104 @@ Still not done: a calendar *subscription* feed (download only); drag in the mont
 field covers the rest); coach/MCP tools for the curve, folders or offsets (74 tools, unchanged); lap pairing on laps parsed before this
 change uses time only (public FIT files are deleted after parsing, so they can't be re-read); iOS native sign-in and anything on a
 physical device. Not deployed: `catch db upgrade` (0013 and 0014) before `fastapi deploy`.
+
+# Session 37: mobile-only glass material system
+
+Branch `session-37-mobile-glass`.
+- **Frontend only:** no API, schema or Python change (`EXPECTED_SCHEMA_REVISION` stays "0014"), so deploying is `fastapi deploy` alone.
+- **Design system:** DESIGN.md "Mobile glass (session 37)".
+
+## Decisions (the user chose the first three)
+
+1. **Tab bar:** a floating glass capsule with a sliding lens under the active tab (not an edge-to-edge bar).
+2. **Blur only on floating layers.** In-page cards get translucency, a sheen and a lit edge over a new fixed light layer, with no blur.
+   This is a deliberate deviation from the brief's "Glass Secondary: moderate blur": a blur over a smooth gradient is invisible and costs
+   a compositing layer per card on iOS.
+3. **A "Reduce transparency" switch:** left to me, and added. Capacitor's iOS web view doesn't pass on the system setting.
+4. **My choices:**
+   - Glass applies below `lg` (1024px), the width where AppShell already swaps the sidebar for the tab bar. Portrait tablets get glass;
+     a landscape iPad is desktop.
+   - One stylesheet (`styles/glass.css`), every rule inside one media block, unlayered. Materials never set `border-color`, and their
+     `box-shadow` keeps Tailwind's ring variables.
+   - Sheets, modals and chart tooltips are near-opaque and unblurred: a sheet sits on the dimmed overlay, and a tooltip would re-sample
+     a blur every frame.
+   - No new dependency; no JS viewport check.
+
+## Changes
+
+- **`web/src/styles/glass.css` (new):**
+  - tokens;
+  - materials: `glass-primary` (+ `glass-elevated`, `glass-dense`, `glass-bar`), `glass-secondary`, `glass-subtle`, `glass-solid`,
+    `glass-lens`;
+  - the fixed `body::before` light layer;
+  - fallbacks: no backdrop-filter support, reduced transparency, more contrast, `data-glass="off"`/`"lite"`, forced colours;
+  - motion: lens slide, press scale, sheet/modal/overlay exit.
+- **`lib/glass.ts` (new):** `applyGlassPreference()` runs before the first render in `main.tsx`, and `useReduceTransparency()` drives
+  the switch. Low-memory Chromium devices get `lite` (half blur).
+- **Shell:**
+  - `BottomNav` is a floating capsule: 52px, at most 560px wide, inset from the edges and the home indicator, with the sliding
+    `glass-lens`. Inactive labels moved from tertiary to secondary text.
+  - `--shell-bottom` is 52 → 60px.
+  - The top bar is `glass-primary glass-bar`. The More sheet's tiles are `glass-subtle`.
+- **Primitives:**
+  - `Card` gained `material` (default from tone) and `data-tone`.
+  - `SheetContent`/`ModalContent` use `glass-primary glass-dense`, with `glass-sheet`/`glass-modal`/`glass-overlay` exit hooks.
+  - `Segmented` (track subtle, selected lens), `PillNav`, `Toast`, `UpdateToast`, `InfoTip` and `ChartTooltip`.
+- **Pages:**
+  - 43 chart, map and table Cards are `material="solid"`.
+  - About 20 hand-built panels got the matching material: Today's recovery hero, Body's stat strip, link tiles, the calendar toolbar,
+    Coach transcript and composer, Workouts' bulk bar, the calendar drag ghost, the TrackChart tooltip, Trends' metric pills, and others
+    (list in DESIGN.md).
+- **Settings → Appearance:** a "Reduce transparency" switch, `lg:hidden`.
+
+## Bugs found and fixed
+
+- **InfoTip popover in the wrong place at every width.** `<main>`'s route animation (`fill: both`) leaves an identity transform, which
+  makes it the containing block for `position: fixed` children. The popover landed a sidebar's width to the right of its button on
+  desktop and ran off the bottom near the window edge; on a scrolled phone page it was hundreds of pixels off screen.
+  - It now measures where it lands and corrects for it.
+  - It flips above its button when there's no room below, with the tab bar counting as no room.
+  - It has `transition-none`, because the global reduced-motion rule (0.01 ms on `transition-property: all`) was transitioning its
+    `top`/`left`.
+- **The recovery ring's glow was clipped into a visible square** by the SVG's default `overflow: hidden`. The SVG is now `overflow-visible`.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| Desktop regression: every element's computed background, border colours/widths, radii, box-shadow, backdrop-filter, opacity, transform, filter, position, z-index, colour, width and height, plus `body::before`. 19 page states (Today, Today with an InfoTip open, Calendar week/month, a planned-session sheet, Workout detail, Workouts, Lab, Trends, Coach, Settings, Connections, setup, Train, Library, Body, Nutrition, Plan, Training intelligence) × 1280/1024 × dark/light, production builds of `HEAD` and the branch | **0 differences**. Two baseline runs agree once sub-pixel widths and the lazy route map are filtered. The same tool at 390px finds the intended mobile changes, so a zero is meaningful |
+| `tests/touch/glass.spec.ts` (both mobile projects; dark and light) | floating, inset, blurred tab bar with the lens under the active tab; translucent cards and ≥ 95 % chart cards; a segment's ring survives; a sheet is near-opaque, unblurred and above the bar; the switch makes everything opaque and persists across a reload; 320px fits; the chart tooltip is unblurred; the InfoTip opens beside its button above the bar |
+| `tests/touch/glass-desktop.spec.ts` (desktop-mouse) | No glass at 1280/1024 in both themes (blur allowlist, cards on `--surface`, body gradient, no switch); the InfoTip sits beside its button. Mutation-tested: a material leaked to desktop and a blurred top bar both fail it |
+| `test:touch` (3 projects, production build) | **393 passed, 10 skipped, 0 failed** (367 + 9 before; +26 new) |
+| `test:public` / `test:update` | 24 / 4 passed |
+| vitest | 121 passed |
+| `tsc -b`, oxlint | Clean apart from the pre-existing oxlint warnings (gymSync, useDeepLinks, health, coachRefs, android-e2e) |
+| `pytest tests/test_main_static.py` | 4 passed (no Python changed) |
+| Initial bundle | 202.5 KB of 250 KB (+0.6 KB; the materials are CSS) |
+| Contrast (composite of each fill over the brightest background light, and over a solid accent button for floating layers) | All text ≥ 4.5:1 on cards, subtle, solid and sheet surfaces in both themes. Below 4.5 only: the toast's ✕ glyph (3.8:1, a graphic, ≥ 3:1) and a tooltip's tertiary title over a *solid* series colour (4.3:1; over the real 16 % area fill it passes). Nav labels moved to secondary text (5.4:1) |
+| Chart palette | `glass-solid` (96 %) differs from `--surface` by at most 1.4/255 in any channel even under the brightest light (imperceptible), so session 35's validated pairs stand unchanged |
+| Visual review: production and dev builds, 320/390/430 portrait, 844×390 landscape, 768 tablet, dark and light | Today, Calendar week/month and a sheet, Workout detail, Lab, Coach, Settings, More sheet, InfoTip, opaque mode. Fixes from it: the two bugs above, a stronger lens tint, higher-opacity elevated/dense overlays |
+
+**Performance** (production build, Chromium, 4× CPU throttle, 390×844, median of 3, baseline → branch):
+
+| | Before | After |
+|---|---|---|
+| Blurred elements per screen | 2 | 2 |
+| Scroll frame time, Today / Calendar month / Lab / Trends (mean) | 16.6 ms each | 16.6–16.7 ms |
+| Frames over 34 ms while scrolling | 0 | 0 |
+| Trends chart drag, ms per move | 18.8 | 19.5 (within run-to-run noise) |
+
+Headless Chromium composites in software, so a phone GPU's blur cost isn't fully represented; the protection is the budget (two blurred
+bars, no blur in-flow or on anything that moves per frame).
+
+## Not done / limitations
+
+- **Not seen on a real device:** iOS Safari, the installed PWA, the Capacitor apps or a low-end Android. WebKit was exercised only
+  through Playwright's WebKit, and blur/compositing cost only through throttled headless Chromium.
+- **Chromium blur edges:** Chromium renders text just inside the bottom edge of a blurred bar sharper than further in (reproduced on a
+  bare test page, so it's not a Catch bug). Safari's backdrop blur samples past the edge.
+- **InfoTip doesn't follow the page** while it scrolls (it never did); it closes on the next tap.
+- **`<main>` still keeps its identity transform** after the route animation. InfoTip now corrects for it. Changing the animation's
+  fill mode would have changed desktop computed styles, so it was left.
+- **Landscape phones:** the 60px tab-bar footprint is a larger share of a 390px-tall screen. Same layout as before, 8px more.
+

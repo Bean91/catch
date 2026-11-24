@@ -37,7 +37,7 @@ export function TrainPage() {
           <li key={to} className="min-w-0">
             <Link
               to={to}
-              className="group flex h-full min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.99]"
+              className="glass-secondary group flex h-full min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)] transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.99]"
             >
               <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-md bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-accent-contrast">
                 <Icon className="h-5 w-5" />

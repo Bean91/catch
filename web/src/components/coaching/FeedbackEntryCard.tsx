@@ -53,7 +53,7 @@ export function FeedbackEntryCard({ entry, onEdit }: { entry: FeedbackEntry; onE
   const byCoach = entry.author.role === "coach";
 
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4" data-testid="feedback-entry" data-author-role={entry.author.role} data-visibility={entry.visibility}>
+    <li className="glass-secondary flex flex-col gap-2 rounded-lg border border-border bg-surface p-4" data-testid="feedback-entry" data-author-role={entry.author.role} data-visibility={entry.visibility}>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="font-medium text-text-primary">{authorLine(entry)}</span>
         <span className="rounded-full border border-border px-2 py-0.5 text-text-secondary">{byCoach ? "Coach" : "Your entry"}</span>

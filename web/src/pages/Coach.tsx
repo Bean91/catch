@@ -205,7 +205,7 @@ export function CoachPage() {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
+      <div ref={scrollRef} className="glass-solid flex-1 overflow-y-auto overscroll-contain rounded-lg border border-border bg-surface p-4 shadow-[var(--highlight),var(--shadow-1)]">
         {!hasMessages ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
             <span aria-hidden className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--accent-strong),var(--metric-pace))] text-lg font-bold text-accent-contrast shadow-raised">
@@ -261,7 +261,7 @@ export function CoachPage() {
           e.preventDefault();
           send(input);
         }}
-        className="flex items-end gap-2 rounded-lg border border-border bg-surface p-1.5 shadow-[var(--highlight),var(--shadow-1)] focus-within:border-accent/60"
+        className="glass-secondary flex items-end gap-2 rounded-lg border border-border bg-surface p-1.5 shadow-[var(--highlight),var(--shadow-1)] focus-within:border-accent/60"
       >
         <textarea
           value={input}

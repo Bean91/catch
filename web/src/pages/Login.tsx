@@ -19,7 +19,7 @@ function Frame({ children }: { children: ReactNode }) {
     // and a tap on "Sign in" mid-jump lands where the button used to be. Centred from sm: up, where there is no such keyboard.
     <div className="relative flex min-h-dvh items-start justify-center overflow-hidden px-4 pb-10 pt-[max(2.5rem,calc(env(safe-area-inset-top)+1.5rem))] text-text-primary sm:items-center sm:py-10">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_45%_at_50%_0%,var(--accent-soft),transparent_70%),radial-gradient(40%_35%_at_85%_100%,color-mix(in_oklab,var(--metric-pace)_10%,transparent),transparent_70%)]" />
-      <div className="relative w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-float sm:p-7">
+      <div data-tone="raised" className="glass-secondary relative w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-float sm:p-7">
         <div className="mb-6 flex flex-col items-center text-center">
           <Logomark className="h-11 w-11" />
           <h1 className="mt-3 text-lg font-semibold tracking-[0.16em]">CATCH</h1>

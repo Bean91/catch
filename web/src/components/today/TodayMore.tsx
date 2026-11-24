@@ -59,7 +59,7 @@ function ThisWeekCard() {
   );
   const s = plan.data;
   return (
-    <Card title="This week" action={<Link to="/calendar" className="text-sm font-medium text-accent hover:underline">Plan</Link>}>
+    <Card material="solid" title="This week" action={<Link to="/calendar" className="text-sm font-medium text-accent hover:underline">Plan</Link>}>
       {plan.isLoading ? (
         <Loading rows={2} />
       ) : plan.isError || !s ? (
@@ -107,7 +107,7 @@ function ConsistencyCard() {
     return out;
   }, [q.data]);
   return (
-    <Card title="Consistency" action={<Link to="/trends?metric=strain" className="text-sm font-medium text-accent hover:underline">Trends</Link>}>
+    <Card material="solid" title="Consistency" action={<Link to="/trends?metric=strain" className="text-sm font-medium text-accent hover:underline">Trends</Link>}>
       {q.isLoading ? (
         <Skeleton className="h-[150px] w-full" />
       ) : q.isError ? (

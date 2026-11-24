@@ -27,15 +27,17 @@ function TabInner({ active, label, Icon }: { active: boolean; label: string; Ico
         aria-hidden
         className={cn(
           "flex h-6 w-11 items-center justify-center rounded-full transition-colors duration-200",
-          active ? "bg-accent-soft text-accent" : "text-text-tertiary group-hover:text-text-secondary",
+          active ? "text-accent" : "text-text-secondary group-hover:text-text-primary",
         )}
       >
         <Icon className="h-5 w-5 shrink-0" />
       </span>
-      <span className={cn("w-full truncate text-center text-[11px] leading-none", active ? "font-semibold text-text-primary" : "text-text-tertiary")}>{label}</span>
+      <span className={cn("w-full truncate text-center text-[11px] leading-none", active ? "font-semibold text-text-primary" : "text-text-secondary")}>{label}</span>
     </>
   );
 }
+
+const TAB_INDEX: Record<TabId, number> = { today: 0, plan: 1, train: 2, coach: 3, more: 4 };
 
 export function BottomNav() {
   const { pathname } = useLocation();
@@ -43,20 +45,33 @@ export function BottomNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const { theme, toggle } = useTheme();
   const { logout, status } = useAuth();
+  const lensIndex = moreOpen ? TAB_INDEX.more : TAB_INDEX[current];
 
   return (
+    // Session 37 (DESIGN.md "Mobile glass"): a floating glass capsule, inset from the screen edges and the home indicator, at most
+    // 560px wide so a landscape phone or a tablet gets a centred bar rather than a stretched one. --shell-bottom (60px) is its 52px
+    // height plus the 8px gap; pages pad themselves from it.
     <nav
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-border/80 bg-surface/90 backdrop-blur-lg"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}
+      className="glass-primary fixed bottom-[max(8px,calc(env(safe-area-inset-bottom)-12px))] left-[max(12px,calc(env(safe-area-inset-left)+8px))] right-[max(12px,calc(env(safe-area-inset-right)+8px))] z-20 mx-auto max-w-[560px] rounded-2xl border border-border/70"
       aria-label="Primary"
     >
-      <ul className="mx-auto flex max-w-xl items-stretch justify-between px-1">
+      <ul className="relative flex h-[52px] items-stretch justify-between px-1">
+        {/* One indicator slides under the active slot. The five slots are equal (flex-1), so a fifth of the row moved by whole
+            widths lands exactly on each; the active tab also changes its icon and label colour, so the lens never carries state alone. */}
+        <li aria-hidden className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/5)]">
+          <span
+            data-accent
+            data-testid="nav-lens"
+            className="glass-lens block h-full rounded-xl transition-transform duration-300 ease-[var(--ease-out)]"
+            style={{ transform: `translateX(${lensIndex * 100}%)` }}
+          />
+        </li>
         {TABS.map(({ id, to, label, Icon }) => (
           <li key={id} className="min-w-0 flex-1">
             <Link
               to={to}
               aria-current={current === id ? "page" : undefined}
-              className="group flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 px-0.5 pb-1.5 pt-1.5"
+              className="glass-press group relative flex h-full min-h-11 min-w-0 flex-col items-center justify-center gap-1 px-0.5"
             >
               <TabInner active={current === id} label={label} Icon={Icon} />
             </Link>
@@ -65,7 +80,7 @@ export function BottomNav() {
         <li className="min-w-0 flex-1">
           <Dialog.Root open={moreOpen} onOpenChange={setMoreOpen}>
             <Dialog.Trigger asChild>
-              <button type="button" aria-label="More" className="group flex min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5 pb-1.5 pt-1.5">
+              <button type="button" aria-label="More" className="glass-press group relative flex h-full min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5">
                 <TabInner active={current === "more" || moreOpen} label="More" Icon={MoreIcon} />
               </button>
             </Dialog.Trigger>
@@ -81,7 +96,7 @@ export function BottomNav() {
                           <Link
                             to={to}
                             onClick={() => setMoreOpen(false)}
-                            className="flex h-full min-h-14 min-w-0 items-start gap-2.5 rounded-md border border-border bg-surface-2/60 p-3 transition-colors hover:border-border-strong hover:bg-surface-2"
+                            className="glass-subtle glass-press flex h-full min-h-14 min-w-0 items-start gap-2.5 rounded-md border border-border bg-surface-2/60 p-3 transition-colors hover:border-border-strong hover:bg-surface-2"
                           >
                             <Icon className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                             <span className="min-w-0">

@@ -5,6 +5,8 @@ import { fetchConnections, fetchSettings, isMock, saveSettings } from "../lib/ap
 import { STATUS_GLYPH, STATUS_LABEL } from "../lib/connections";
 import { formatRelativeTime } from "../lib/format";
 import { useTheme } from "../lib/theme";
+import { useReduceTransparency } from "../lib/glass";
+import { Switch } from "../components/ui/Switch";
 import type { Settings } from "../lib/types";
 import { Card } from "../components/ui/Card";
 import { buttonClass } from "../components/ui/Button";
@@ -190,7 +192,7 @@ export function SettingsPage() {
 
       <HrZonesCard form={form} update={update} />
 
-      <Card title="Power zones">
+      <Card material="solid" title="Power zones">
         <div className="mb-3 flex gap-2" role="radiogroup" aria-label="Workout screens open on">
           {(["hr", "power"] as const).map((mode) => (
             <button
@@ -403,6 +405,7 @@ export function SettingsPage() {
           {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
           Switch to {theme === "dark" ? "light" : "dark"} theme
         </button>
+        <ReduceTransparencyRow />
       </Card>
       <Card title="First-run setup">
         <p className="text-sm text-text-secondary">Walk through connecting sources, your time zone and training basics again. Nothing you already set is lost.</p>
@@ -427,6 +430,21 @@ export function SettingsPage() {
       <p className="text-center text-xs text-text-tertiary">
         Build {__BUILD_ID__} · {__COMMIT__}
       </p>
+    </div>
+  );
+}
+
+// Session 37: the phone/tablet layout's glass can be turned off (DESIGN.md "Mobile glass"). Hidden from lg up, where there is no glass,
+// so the desktop Settings page is unchanged.
+function ReduceTransparencyRow() {
+  const [reduced, setReduced] = useReduceTransparency();
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-4 lg:hidden" data-testid="reduce-transparency-row">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-primary">Reduce transparency</p>
+        <p className="mt-0.5 text-xs text-text-tertiary">Solid surfaces instead of glass on this device.</p>
+      </div>
+      <Switch checked={reduced} onChange={setReduced} label="Reduce transparency" testId="reduce-transparency" />
     </div>
   );
 }

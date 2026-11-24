@@ -39,7 +39,7 @@ export function Segmented<T extends string>({
       role="tablist"
       aria-label={label}
       className={cn(
-        "inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-surface-2/70 p-1",
+        "glass-subtle inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-surface-2/70 p-1",
         stretch && "flex w-full",
         className,
       )}
@@ -64,7 +64,7 @@ export function Segmented<T extends string>({
               "shrink-0 whitespace-nowrap rounded-md px-3 font-medium transition-colors duration-150",
               size === "sm" ? "min-h-8 text-[13px]" : "min-h-9 text-sm",
               stretch && "flex-1",
-              selected ? "bg-surface text-text-primary shadow-subtle ring-1 ring-border-strong" : "text-text-secondary hover:text-text-primary",
+              selected ? "glass-lens bg-surface text-text-primary shadow-subtle ring-1 ring-border-strong" : "text-text-secondary hover:text-text-primary",
             )}
           >
             {o.label}

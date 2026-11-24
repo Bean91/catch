@@ -225,7 +225,7 @@ export function TrendsPage() {
       <MetricPicker metric={metric} onSelect={setMetric} />
       <RangePicker activePreset={urlState.preset} onSelect={selectPreset} />
 
-      <Card title={activeMetric.label} action={<span aria-hidden className="h-2 w-2 rounded-full" style={{ background: trendMetricColor(metric), boxShadow: `0 0 0 4px color-mix(in oklab, ${trendMetricColor(metric)} 20%, transparent)` }} />}>
+      <Card material="solid" title={activeMetric.label} action={<span aria-hidden className="h-2 w-2 rounded-full" style={{ background: trendMetricColor(metric), boxShadow: `0 0 0 4px color-mix(in oklab, ${trendMetricColor(metric)} 20%, transparent)` }} />}>
         {seriesQuery.isError && activePoints.length === 0 ? (
           <ErrorState message="Couldn't load this metric." onRetry={() => seriesQuery.refetch()} />
         ) : seriesQuery.isLoading && activePoints.length === 0 ? (
@@ -265,7 +265,7 @@ export function TrendsPage() {
         </div>
       </Card>
 
-      <Card title="Weekly volume by zone">
+      <Card material="solid" title="Weekly volume by zone">
         {volumeQuery.isLoading ? (
           <Skeleton />
         ) : volumeQuery.isError ? (
@@ -312,8 +312,8 @@ const MetricPicker = memo(function MetricPicker({ metric, onSelect }: { metric: 
       onClick={() => onSelect(m.value)}
       className={`inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium transition-colors ${
         metric === m.value
-          ? "border-border-strong bg-surface-3 text-text-primary shadow-subtle"
-          : "border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text-primary"
+          ? "glass-lens border-border-strong bg-surface-3 text-text-primary shadow-subtle"
+          : "glass-subtle border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text-primary"
       }`}
     >
       <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: trendMetricColor(m.value), opacity: metric === m.value ? 1 : 0.55 }} />
@@ -353,7 +353,7 @@ const RangePicker = memo(function RangePicker({ activePreset, onSelect }: { acti
 const PersonalBestsCard = memo(function PersonalBestsCard() {
   const pbsQuery = useQuery({ queryKey: ["pbs"], queryFn: fetchPbs });
   return (
-    <Card title="Personal bests">
+    <Card material="solid" title="Personal bests">
       {pbsQuery.isLoading ? (
         <Skeleton />
       ) : pbsQuery.isError ? (

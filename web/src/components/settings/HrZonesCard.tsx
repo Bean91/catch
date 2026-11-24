@@ -21,7 +21,7 @@ export function HrZonesCard({ form, update }: { form: Settings; update: <K exten
   const pctLabel = method === "hrr" ? "% of HR reserve" : "% of max HR";
 
   return (
-    <Card title="Heart-rate zones">
+    <Card material="solid" title="Heart-rate zones">
       <div className="flex flex-col gap-4" data-testid="hr-zones-card">
         <div role="radiogroup" aria-label="How zones are set" className="flex flex-col gap-2">
           {(

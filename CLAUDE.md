@@ -817,6 +817,17 @@ unique length fit (`plan_compare.select_work_laps`; `parse_fit` laps keep distan
 `test_stroke_summary.py`, `test_recording_offset.py`, `test_calendar_ics.py`, lap cases in `test_plan_compare.py`, folders in
 `tests/tenancy/test_shared_examples.py`; Playwright `session36-followup.spec.ts`.
 
+Session 37 (mobile-only glass material system — see PLAN.md, DESIGN.md "Mobile glass (session 37)"). Frontend only, no migration.
+**All glass CSS is `web/src/styles/glass.css`, every rule inside `@media (max-width: 1023.98px)`** (AppShell's tab-bar/sidebar seam), unlayered
+so it beats Tailwind utilities; a material never sets `border-color` and its `box-shadow` keeps `--tw-ring-*`/`--tw-inset-*`. Materials:
+`glass-primary` (blur; tab bar, top bar `+glass-bar`, toasts; `+glass-elevated`; `+glass-dense` = 96 %, no blur: sheets, modals, InfoTip,
+chart tooltips), `glass-secondary` (cards, no blur), `glass-subtle`, `glass-solid` (chart/map/table cards: `Card material="solid"`),
+`glass-lens`. `Card` picks a material from `tone` and sets `data-tone`. Fixed `body::before` light layer on mobile. `lib/glass.ts`:
+`data-glass="off"` (Settings → Appearance "Reduce transparency", `lg:hidden`, localStorage `catch:glass`) / `"lite"` (deviceMemory ≤ 2).
+BottomNav is a floating capsule with a sliding lens; `--shell-bottom` is 60px. InfoTip measures and corrects its own position (`<main>`'s
+route animation makes it a containing block for fixed children). Guards: `web/tests/touch/glass.spec.ts` (mobile, both themes) and
+`glass-desktop.spec.ts` (desktop-mouse: no glass at 1280/1024).
+
 ## Commands
 
 - `uv sync` — install deps

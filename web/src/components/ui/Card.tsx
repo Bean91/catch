@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/cn";
 
 export type CardTone = "default" | "raised" | "inset" | "accent";
+/** Mobile-only glass material (DESIGN.md "Mobile glass"); inert on desktop. Omitted, the tone decides. */
+export type CardMaterial = "glass" | "solid" | "subtle" | "none";
+
+const MATERIAL: Record<CardMaterial, string> = { glass: "glass-secondary", solid: "glass-solid", subtle: "glass-subtle", none: "" };
 
 const TONE: Record<CardTone, string> = {
   default: "border-border bg-surface shadow-[var(--highlight),var(--shadow-1)]",
@@ -13,7 +17,8 @@ const TONE: Record<CardTone, string> = {
 /**
  * The surface every section sits on. `title` is always an `h3` (tests and screen readers find sections by it); `eyebrow` is a small
  * label above it; `action` sits at the right of the title row. The root keeps `rounded-lg` (gym-offline's piece-photo spec finds a
- * card by that class). With `onClick` the whole card is a button.
+ * card by that class). With `onClick` the whole card is a button. `material="solid"` is for a card holding a chart, map or table: on a
+ * phone it stays near-opaque so gridlines and series colours sit on the surface they were validated against.
  */
 export function Card({
   title,
@@ -23,6 +28,7 @@ export function Card({
   children,
   onClick,
   tone = "default",
+  material,
   padding = "md",
   className = "",
   testId,
@@ -34,6 +40,7 @@ export function Card({
   children: ReactNode;
   onClick?: () => void;
   tone?: CardTone;
+  material?: CardMaterial;
   padding?: "sm" | "md" | "none";
   className?: string;
   testId?: string;
@@ -43,9 +50,11 @@ export function Card({
     <Comp
       onClick={onClick}
       data-testid={testId}
+      data-tone={tone}
       className={cn(
         "w-full min-w-0 rounded-lg border text-left",
         TONE[tone],
+        MATERIAL[material ?? (tone === "inset" ? "subtle" : "glass")],
         padding === "md" ? "p-4 sm:p-5" : padding === "sm" ? "p-3 sm:p-4" : "",
         onClick && "cursor-pointer transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.995]",
         className,

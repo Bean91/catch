@@ -48,14 +48,15 @@ export function RecoveryRing({ recovery }: { recovery: Recovery | null }) {
       <Dialog.Trigger asChild>
         <button
           type="button"
-          className="group relative flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-[var(--highlight),var(--shadow-1)] transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.995]"
+          data-tone="raised"
+          className="glass-secondary group relative flex h-full w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-[var(--highlight),var(--shadow-1)] transition-[border-color,transform] duration-150 hover:border-accent/40 active:scale-[0.995]"
           aria-label="Recovery details"
         >
           {/* A soft wash of the band's colour behind the ring — the one place a status colour tints a surface. */}
           <span aria-hidden className="pointer-events-none absolute inset-0 opacity-70" style={{ background: `radial-gradient(70% 55% at 50% 42%, color-mix(in oklab, ${color} 16%, transparent), transparent 72%)` }} />
           <span className="relative self-start text-[0.9375rem] font-semibold text-text-primary">Recovery</span>
           <div className="relative" style={{ width: SIZE, height: SIZE }}>
-            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="-rotate-90">
+            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="-rotate-90 overflow-visible">
               <defs>
                 <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor={`color-mix(in oklab, ${color} 55%, white)`} />

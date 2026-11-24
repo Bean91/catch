@@ -42,7 +42,7 @@ export function MuscleReadinessPage() {
   return (
     <div className="flex flex-col gap-4">
       {header}
-      <Card title={`Load over the last ${query.data?.window_hours ?? 72}h`}>
+      <Card material="solid" title={`Load over the last ${query.data?.window_hours ?? 72}h`}>
         {sorted.length === 0 ? (
           <EmptyState message={`No lifting logged in the last ${query.data?.window_hours ?? 72} hours.`} />
         ) : (

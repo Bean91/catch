@@ -24,7 +24,7 @@ export function TemplateRow({ t }: { t: WorkoutTemplate }) {
       <Link
         to={`/library/${t.id}`}
         data-testid="template-card"
-        className="flex min-h-11 min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40"
+        className="glass-secondary flex min-h-11 min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/40"
       >
         <div className="flex flex-wrap items-center gap-2">
           <span className="min-w-0 wrap-anywhere font-medium text-text-primary">{t.name}</span>
@@ -80,7 +80,7 @@ export function LibraryPage() {
         </Link>
       </div>
 
-      <div role="tablist" aria-label="Library" className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1">
+      <div role="tablist" aria-label="Library" className="glass-subtle grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1">
         {SCOPES.map((s) => (
           <button
             key={s.value}

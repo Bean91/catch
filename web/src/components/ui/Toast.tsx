@@ -42,7 +42,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             data-testid="toast"
             className={cn(
-              "pointer-events-auto flex max-w-[min(92vw,420px)] animate-enter items-center gap-3 rounded-full border bg-surface-3 py-2 pl-3 pr-2 text-sm text-text-primary shadow-float",
+              "glass-primary glass-elevated pointer-events-auto flex max-w-[min(92vw,420px)] animate-enter items-center gap-3 rounded-full border bg-surface-3 py-2 pl-3 pr-2 text-sm text-text-primary shadow-float",
               t.tone === "error" ? "border-band-red/40" : "border-border-strong",
             )}
           >

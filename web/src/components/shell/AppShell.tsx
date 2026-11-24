@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         {/* The safe-area padding belongs to the sticky bar itself: with the status bar drawn over the web view (native, and an
             installed iPhone PWA), a sticky bar without it scrolls content up behind the clock and battery. */}
-        <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-lg lg:static lg:bg-transparent lg:backdrop-blur-none" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="glass-primary glass-bar sticky top-0 z-10 bg-bg/95 backdrop-blur-lg lg:static lg:bg-transparent lg:backdrop-blur-none" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <GarminKeyBanner />
 
         {/* Phone and tablet top bar. Its height (and the tab bar's) are --shell-top/--shell-bottom in index.css; Coach sizes its
@@ -36,7 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             to="/settings"
             aria-label="Settings"
-            className="flex h-11 w-11 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+            className="glass-press flex h-11 w-11 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
           >
             <SettingsIcon className="h-5 w-5" />
           </Link>

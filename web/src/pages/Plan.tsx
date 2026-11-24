@@ -99,7 +99,7 @@ export function PlanPage() {
       {block && <BlockProgressCard key={block.id} phase={block} />}
 
       {showWeeks && (
-      <Card title="Weeks: planned and completed time">
+      <Card material="solid" title="Weeks: planned and completed time">
         <ul className="flex flex-col gap-3" data-testid="plan-weeks">
           {weeks.map((w, i) => {
             const s = summaries[i].data;

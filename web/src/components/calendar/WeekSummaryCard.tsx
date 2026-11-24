@@ -22,7 +22,7 @@ function Bar({ label, planned, completed, target, unit }: { label: string; plann
 
 export function PhaseBanner({ phase }: { phase: PlanPhase }) {
   return (
-    <div data-testid="phase-banner" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
+    <div data-testid="phase-banner" className="glass-subtle flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
       <span className="font-medium text-text-primary">{phase.name}</span>
       <span className="text-text-tertiary">{phaseKindLabel(phase.kind)}</span>
       {phase.coach_approved && (
@@ -37,7 +37,7 @@ export function PhaseBanner({ phase }: { phase: PlanPhase }) {
 export function WeekSummaryCard({ s }: { s: PlanWeekSummary }) {
   const t = s.targets;
   return (
-    <Card title="This week: planned and completed" className="" >
+    <Card material="solid" title="This week: planned and completed" >
       <div className="flex flex-col gap-3" data-testid="week-summary">
         <Bar label="Time" planned={s.planned.minutes} completed={s.completed.minutes} target={t.minutes} unit="min" />
         <Bar label="Sessions" planned={s.planned.sessions} completed={s.completed.sessions} target={t.sessions} unit="n" />

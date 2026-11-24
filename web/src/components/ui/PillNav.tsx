@@ -15,7 +15,7 @@ export function PillNav({ items, label, className }: { items: { to: string; labe
               className={({ isActive }) =>
                 cn(
                   "inline-flex min-h-9 items-center rounded-full border px-3.5 text-[13px] font-medium transition-colors",
-                  isActive ? "border-accent/50 bg-accent-soft text-accent" : "border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text-primary",
+                  isActive ? "border-accent/50 bg-accent-soft text-accent" : "glass-subtle border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text-primary",
                 )
               }
             >

@@ -11,7 +11,7 @@ const WIDTH: Record<SheetWidth, string> = {
   xl: "sm:w-[min(94vw,680px)]",
 };
 
-export const overlayClass = "fixed inset-0 z-30 bg-overlay backdrop-blur-[2px] animate-fade";
+export const overlayClass = "glass-overlay fixed inset-0 z-30 bg-overlay backdrop-blur-[2px] animate-fade";
 
 type ContentProps = ComponentPropsWithoutRef<typeof Dialog.Content> & { width?: SheetWidth; children: ReactNode };
 
@@ -27,7 +27,7 @@ export function SheetContent({ width = "md", className, children, onOpenAutoFocu
       <Dialog.Content
         onOpenAutoFocus={onOpenAutoFocus ?? ((e) => e.preventDefault())}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-float animate-sheet-up focus:outline-none",
+          "glass-primary glass-dense glass-sheet fixed inset-x-0 bottom-0 z-30 max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-float animate-sheet-up focus:outline-none",
           "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:animate-fade",
           WIDTH[width],
           className,
@@ -49,7 +49,7 @@ export function ModalContent({ width = "md", className, children, onOpenAutoFocu
       <Dialog.Content
         onOpenAutoFocus={onOpenAutoFocus}
         className={cn(
-          "fixed left-1/2 top-1/2 z-30 max-h-[85dvh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-5 shadow-float animate-fade focus:outline-none",
+          "glass-primary glass-dense glass-modal fixed left-1/2 top-1/2 z-30 max-h-[85dvh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-5 shadow-float animate-fade focus:outline-none",
           WIDTH[width].replace("sm:", ""),
           className,
         )}

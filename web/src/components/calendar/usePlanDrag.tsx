@@ -133,7 +133,7 @@ export function usePlanDrag() {
     <div
       aria-hidden
       data-testid="plan-drag-ghost"
-      className="pointer-events-none fixed z-50 max-w-[16rem] -translate-x-1/2 -translate-y-[130%] truncate rounded-md border border-accent bg-surface px-3 py-1.5 text-sm font-medium text-text-primary shadow-[var(--shadow-2)]"
+      className="glass-primary glass-dense glass-elevated pointer-events-none fixed z-50 max-w-[16rem] -translate-x-1/2 -translate-y-[130%] truncate rounded-md border border-accent bg-surface px-3 py-1.5 text-sm font-medium text-text-primary shadow-[var(--shadow-2)]"
       style={{ left: drag.x, top: drag.y }}
     >
       {drag.plan.title}

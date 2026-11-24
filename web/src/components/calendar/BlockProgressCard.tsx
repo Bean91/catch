@@ -23,7 +23,7 @@ export function BlockProgressCard({ phase }: { phase: PlanPhase }) {
   const d = q.data;
   const max = Math.max(1, ...d.weeks.map((w) => Math.max(w.planned.minutes, w.completed?.minutes ?? 0, d.targets.minutes ?? 0)));
   return (
-    <Card title={`Block: ${phase.name}`} eyebrow={phase.category ?? phaseKindLabel(phase.kind)} testId="block-progress">
+    <Card material="solid" title={`Block: ${phase.name}`} eyebrow={phase.category ?? phaseKindLabel(phase.kind)} testId="block-progress">
       <p className="text-sm text-text-secondary">
         {formatShortDate(phase.start_date)} – {formatShortDate(phase.end_date)} · week {Math.min(d.totals.weeks_elapsed, d.totals.weeks_total)} of {d.totals.weeks_total}
       </p>

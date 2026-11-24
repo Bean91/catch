@@ -183,7 +183,7 @@ export function TrackChart({
       {hp && (
         <div
           data-testid="track-chart-tooltip"
-          className="pointer-events-none absolute top-1 rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
+          className="glass-primary glass-dense glass-elevated pointer-events-none absolute top-1 rounded-md border border-border-strong bg-surface-3/95 px-2.5 py-2 text-xs shadow-float backdrop-blur-sm"
           style={{ left: `${Math.min(Math.max((x(xs[hoverIdx!]) / width) * 100, 0), 100)}%`, transform: `translateX(-${Math.min(Math.max((x(xs[hoverIdx!]) / width) * 100, 0), 100)}%)` }}
         >
           <div className="text-text-tertiary">

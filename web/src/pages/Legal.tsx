@@ -33,7 +33,7 @@ export function LegalPage({ publicDoc }: { publicDoc?: string } = {}) {
           </Link>
         ))}
       </nav>
-      <article className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 sm:p-5">
+      <article className="glass-secondary flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 sm:p-5">
         {text ? renderMarkdown(text) : <p className="text-sm text-text-secondary">No such document.</p>}
       </article>
     </div>

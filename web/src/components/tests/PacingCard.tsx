@@ -7,7 +7,7 @@ import { SplitBarChart } from "./SplitBarChart";
 /** Test and piece detail share this: the split chart, the three segments, and the even-split reading. */
 export function PacingCard({ pacing, planStyle }: { pacing: PacingAnalysis; planStyle?: string | null }) {
   return (
-    <Card title="Pacing">
+    <Card material="solid" title="Pacing">
       <SplitBarChart splits={pacing.splits} vsPlan={pacing.vs_plan} />
       <div className="mt-4 grid grid-cols-3 gap-3 rounded-md bg-surface-2/60 p-3">
         <StatTile size="sm" label="Start" value={formatSplit(pacing.segments.start)} />

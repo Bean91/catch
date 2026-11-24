@@ -1,5 +1,146 @@
 # Catch — design system
 
+## Mobile glass (session 37) — phone and tablet layout only
+
+Session 37 added a translucent, layered material system to the **phone and tablet layout**. The desktop layout (lg and up, the sidebar)
+is session 35's design, unchanged: a before/after comparison of every element's computed background, border, radius, shadow, blur, opacity,
+transform, filter, colour and size on 19 page states at 1280 and 1024px, in both themes, found **0 differences**. The only desktop-visible
+changes are the two bug fixes at the end of this section. The session 35 section below remains the base everywhere.
+
+### Where it applies
+
+- **Breakpoint:** `max-width: 1023.98px`, the width at which `AppShell` swaps the desktop sidebar for the top bar and the tab bar
+  (Tailwind's `lg`). Phones, landscape phones and portrait tablets get glass. A landscape iPad (1024px and up) already uses the desktop
+  layout and gets none.
+- **No JS viewport check.** The split is CSS only. (`lib/glass.ts` reads a stored preference and the device memory, never the width.)
+
+### Desktop exclusion rules
+
+- **All glass CSS lives in `web/src/styles/glass.css`, and every rule sits inside the one media block.** Never add a rule outside it.
+  Keyframe definitions sit at the end of the file; they do nothing on their own.
+- **Components carry `glass-*` classes at every width.** Those classes are inert from lg up, so a component never needs `max-lg:`.
+- **Desktop-visible markup:** the Reduce transparency switch sits in an `lg:hidden` row.
+- **The guard:** `tests/touch/glass-desktop.spec.ts` (desktop-mouse, 1280 and 1024, both themes) fails if any element other than the
+  pre-existing ones (sidebar, dialog overlay, chart tooltips) blurs, if a card isn't on `--surface`, or if `body` loses its session 35
+  gradient. It was mutation-tested: a material rule leaked to desktop makes it fail.
+
+### Cascade rules (why the file looks the way it does)
+
+- **Unlayered on purpose.** Tailwind v4's utilities are in `@layer utilities`; an unlayered rule beats any layered one, so a material
+  replaces a card's `bg-surface`/`shadow-*` on mobile without rewriting class strings.
+- **A material never sets `border-color`.** Focus, hover and error borders (the Coach composer's `focus-within:border-accent/60`, toast
+  error borders, accent cards) keep working.
+- **A material's `box-shadow` keeps Tailwind's variables:** `--tw-inset-shadow`, `--tw-inset-ring-shadow`, `--tw-ring-offset-shadow` and
+  `--tw-ring-shadow` come first, then the rim and the material's own shadow. `ring-*` selection states survive; only `--tw-shadow` is replaced.
+- **`@import` hoists the file above `index.css`'s own unlayered rules**, so overriding one of those (the `body` background) uses
+  `:root body`.
+- **`backdrop-filter` makes an element the containing block for its `position: fixed` descendants.** Nothing that can hold an InfoTip or
+  the calendar drag ghost may blur. That is one reason sheets don't blur.
+
+### Materials
+
+| Class | Fill (dark / light) | Blur | Used for |
+|---|---|---|---|
+| `glass-primary` | `--surface` 80 % / 78 %, sheen, rim, float shadow | 20px, saturate 160 % | Floating chrome: tab bar, top bar (`+ glass-bar`: no shadow), toasts, UpdateToast, Workouts bulk bar |
+| `glass-primary glass-elevated` | `--surface-3` 90 % | as above | Raised small overlays: toasts, UpdateToast, bulk bar |
+| `glass-primary glass-dense` | 96 % | **none** | Sheets, modals, InfoTip popover, chart and track tooltips, calendar drag ghost |
+| `glass-secondary` | `--surface` 78 % / 74 %, tint, sheen, rim | none | Default, raised and accent cards; Today's recovery hero; link tiles (Train, Routes, Gym, Library); Body stat strip; Coach composer; sign-in panel; club header |
+| `glass-subtle` | `--surface-2` 58 % / 62 %, rim | none | Inset cards, Segmented track, PillNav and Trends metric pills, More-sheet tiles, calendar toolbar and download row, Nutrition day stepper, Library tab strip, phase banner |
+| `glass-solid` | `--surface` 96 %, rim | none | Every card holding a chart, map or table (43 of them, `Card material="solid"`), Coach transcript |
+| `glass-lens` | `--surface-3` 88 % (`data-accent`: accent 22 %) | none | Segmented's selected tab, Trends' selected metric, the tab bar's sliding indicator |
+
+- **`Card`:** `material?: "glass" | "solid" | "subtle" | "none"`. When it is omitted, the tone decides: inset → subtle, everything else →
+  glass. `data-tone` is set on the root; `raised` gets a stronger sheen and shadow, `accent` sets `--glass-tint` to `--accent-soft`.
+  Give a card that holds a chart, map or table `material="solid"`. Small sparklines and status bars (Vitals, Sleep, the workout summary)
+  stay glass.
+- **Hierarchy comes from the material, not from new type.** `StatTile` is unchanged.
+- **Left solid on purpose:** the calendar grid (week rows, month cells, chips), `WorkoutRow` list rows, Coach bubbles, inputs
+  (`controlSkin`) and DataTable rows.
+
+### Tokens
+
+In `glass.css`'s media block: `--glass-alpha-primary|secondary|subtle|dense|elevated|solid`, `--glass-blur` (20px), `--glass-saturate`
+(160 %), `--glass-filter`, `--glass-sheen` / `-raised` (≤ 4.5 % white in dark; 55–75 % white fading in light), `--glass-rim` (an inset
+specular top edge plus an inner hairline), `--glass-shadow` / `-raised` / `-float`, `--glass-tint`, and `--glass-light-1..3` (the
+background lights). Fills are `color-mix()`es of the existing surface tokens, so they follow the theme; only alphas, sheen, rim, shadows
+and lights have light-theme values (`[data-theme=light]` plus the `prefers-color-scheme` fallback, the same pattern as `tokens.css`).
+
+### Background
+
+- **Mobile:** `body` is a flat `--bg`, and a fixed `body::before` layer (z-index −1, no pointer events) carries three restrained lights:
+  accent at the top left, `--metric-pace` at the top right, and a faint `--metric-rate` glow at the bottom behind the tab bar.
+  - The middle of the screen stays quiet for dense charts.
+  - The layer is painted once. Desktop's `background-attachment: fixed`, which iOS ignores and other browsers repaint on scroll, is
+    dropped on mobile.
+  - Light theme uses the same geometry at lower strength.
+- **Desktop:** keeps session 35's gradient.
+- **Session 35's "one decorative gradient per screen":** on mobile, that gradient is this light layer.
+
+### Blur budget and performance
+
+- **Only floating layers blur.** On any screen that is the top bar and the tab bar, plus a toast or the Workouts bulk bar while one is
+  showing.
+- **In-page cards don't blur (a deliberate deviation from the brief, agreed with the owner).** They scroll over a smooth fixed gradient,
+  where a blur is invisible and costs a compositing layer per card on iOS. Translucency, sheen and rim carry the material.
+- **Sheets and chart tooltips don't blur either.** A sheet sits on the dimmed overlay. A tooltip moves on every pointer move, so a blur
+  would be re-sampled every frame; session 35's `blur-sm` on it is gone on mobile.
+- **Measured** (production build, Chromium, 4× CPU throttle, 390×844, before → after):
+  - 2 → 2 blurred elements per screen.
+  - Scroll frame time 16.6 → 16.6 ms mean on Today, Calendar month, Lab and Trends, with no frame over 34 ms.
+  - Trends chart drag 18.8 → 19.5 ms per move, within run-to-run noise.
+  - Headless Chromium composites in software, so a phone's GPU cost of the two blurs isn't fully in these numbers; the blur budget is
+    the protection.
+- **Low-memory devices:** `navigator.deviceMemory ≤ 2` sets `data-glass="lite"`, which halves the blur and drops the saturate. That is
+  Chromium/Android only; Safari has no `deviceMemory`, so iPhones are never downgraded.
+
+### Fallbacks and accessibility
+
+- **No `backdrop-filter` support:** `glass-primary` becomes opaque.
+- **Opaque mode.** The OS's reduced transparency or increased contrast, or the in-app **Reduce transparency** switch (Settings →
+  General → Appearance, phone and tablet layout only), sets every material to its plain surface with no blur. The light layer is hidden,
+  and the rim stays so the layering still reads.
+  - The switch is stored per device (`catch:glass`, read before the first render by `applyGlassPreference()` in `main.tsx`; no inline
+    script, because the public CSP hashes them).
+  - Capacitor's iOS web view doesn't pass on the system setting, so the switch is the way to get solid surfaces there.
+- **`forced-colors: active`:** materials are removed.
+- **Contrast** was measured on the composite colours (fill over the brightest background light, and over a solid accent button for
+  floating layers). Every text token is ≥ 4.5:1 on every card, subtle, solid and sheet surface in both themes. The exceptions are all
+  non-text or unrealistic:
+  - the tab bar uses `--text-secondary` for inactive labels (5.4:1 over an accent button), never tertiary;
+  - the toast's ✕ glyph is 3.8:1 / 4.2:1, which passes the 3:1 rule for graphics;
+  - a chart tooltip's tertiary title over a *solid* pace-coloured backdrop is 4.3:1. The real backdrop is a 16 % area fill and passes.
+- **When in doubt, raise the opacity.**
+- **State is never carried by the lens alone:** the active tab's icon turns accent and its label semibold and primary; `aria-current` is
+  unchanged.
+- **Focus rings are untouched,** because materials don't set `outline` or `border-color`.
+
+### Motion (mobile only; `prefers-reduced-motion` zeroes all of it through `index.css`'s global rule)
+
+- the tab lens slides on `transform` (300 ms `--ease-out`);
+- `glass-press` gives a 0.97 press scale on tabs, More tiles and the top bar's Settings button;
+- sheets slide down and fade out on close (200 ms), modals and the overlay fade out (Radix Presence waits for the exit animation). Desktop
+  keeps its instant close.
+
+### Navigation
+
+- **The tab bar is a floating capsule:** inset by `max(12px, safe area + 8px)` from the sides, `max(8px, safe-area-bottom − 12px)` from the
+  bottom, 52px tall, at most 560px wide and centred (landscape phones and tablets get a centred bar, not a stretched one).
+- **`--shell-bottom` is now 60px** (bar plus gap). It supersedes session 35's "52px, no taller" note: `charts.spec`, `basic.spec`, every
+  `aboveNav` spec and `calendar.spec` pass at 60.
+- **Inactive tab labels** moved from tertiary to secondary text for contrast over glass.
+- **The More sheet, the top bar and every sheet** use the materials above.
+
+### Bugs found while reviewing the rendered result (fixed at every width)
+
+- **The recovery ring's glow was clipped into a visible square** by the SVG's default `overflow: hidden`. The SVG is now
+  `overflow-visible`.
+- **InfoTip opened in the wrong place** on desktop (a sidebar's width to the right, and off the bottom near the window's edge) and off
+  screen on a scrolled phone page. `<main>`'s route animation leaves an identity transform that makes it the containing block for the
+  `position: fixed` popover.
+  - The popover now measures where it actually lands and corrects for it.
+  - It opens above its button when there's no room below, counting the tab bar as no room.
+  - It has `transition-none`, because the global reduced-motion rule otherwise transitions its `top`/`left`.
+
 ## Design system (session 35) — current
 
 Session 35 replaced the original "Boathouse Mono" palette and several layout rules. **Where an older section below disagrees with this
@@ -13,7 +154,7 @@ one, this one wins.** The older sections stay for their reasoning and for the ru
 - **What colour is for:** status, or the identity of a measurement. It never decorates.
 - **Type:** the PM5-style mono figures (IBM Plex Mono, tabular) and Inter for UI stay.
 - **Gradients:** at most one decorative gradient per screen, the soft navy glow behind the page (`body` in `index.css`). Cards are flat
-  surfaces.
+  surfaces. *(Session 37: on the phone/tablet layout the glow is the fixed light layer and cards are glass — see "Mobile glass".)*
 
 ### Tokens
 
@@ -82,7 +223,8 @@ This supersedes the "bottom nav at 8 items" notes further down.
 
 **Shell heights.**
 - `--shell-top` is 60px.
-- `--shell-bottom` is 52px. It must not be taller than the old bar, because charts.spec's Trends geometry depends on it.
+- `--shell-bottom` is 52px. It must not be taller than the old bar, because charts.spec's Trends geometry depends on it. *(Superseded,
+  session 37: 60px for the floating tab bar; the geometry specs pass — see "Mobile glass".)*
 
 ### Primitives
 
