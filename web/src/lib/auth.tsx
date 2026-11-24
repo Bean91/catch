@@ -148,6 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async (everywhere = false) => {
+    // Fixtures: end the pretend session (a public-mode mock build used to call the real auth client and native push here, fail,
+    // and stay signed in). A reload starts signed in again.
+    if (isMock) {
+      setStatus("anon");
+      return;
+    }
     if (isPublic) {
       // Native: stop this handset receiving the account's notifications while the session can still authorise the call.
       if (isNativeBuild) await (await import("./native/push")).releaseNativePush();

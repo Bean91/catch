@@ -100,10 +100,12 @@ cd ios/App && xcodebuild test -project App.xcodeproj -scheme App -parallel-testi
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO CATCH_ID_SUFFIX=.dev "CATCH_APP_NAME=Catch Dev"
 ```
 
-Ten tests: each tab drives the router; exactly one navigation surface; More opens the sheet and the bar steps aside; re-tapping a tab
+Eleven tests: each tab drives the router; exactly one navigation surface; More opens the sheet and the bar steps aside; re-tapping a tab
 returns to its root; an in-app link and a deep link move the selection; background/resume; the end of a page rests above the bar;
-rotation; Coach's composer sits just above the bar and, with the keyboard up, just above the keyboard. Re-run the mock build before a
-real build — never ship a `VITE_CATCH_MOCK` bundle (`vite.config.ts` refuses it for production). The sync rules themselves are vitest
+rotation; Coach's composer sits just above the bar and, with the keyboard up, just above the keyboard; signing out removes the bar
+(run last). Afterwards run `CATCH_NATIVE_ENV=production npm run native:sync`: the mock bundle and the `.dev` id stay in the gitignored
+`ios/App/App/public` and `capacitor.config.json` otherwise, and a plain Xcode Run/Archive would ship fixtures (`vite.config.ts` refuses
+`VITE_CATCH_MOCK` only for a production-mode web build). The sync rules themselves are vitest
 (`src/lib/native/tabBarSync.test.ts`).
 
 See `test-report.md`. Android: `web/tests/native/android-e2e.mjs` drives the real app over its WebView with Playwright's Android driver (needs an emulator with a

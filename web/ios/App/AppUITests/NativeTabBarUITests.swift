@@ -86,6 +86,17 @@ final class NativeTabBarUITests: XCTestCase {
         XCTAssertTrue(webText("Log, review and plan the work.").waitForExistence(timeout: 5))
     }
 
+    /// Signing out unmounts the app shell: the bar goes away and the sign-in screen has no navigation. (Last: it ends the session;
+    /// the fixtures build starts signed in again on the next launch.)
+    func testZSigningOutRemovesTheBar() {
+        tab("More").tap()
+        XCTAssertTrue(webText("Everything else in Catch.").waitForExistence(timeout: 5))
+        app.webViews.buttons["Log out"].tap()
+        XCTAssertTrue(app.webViews.buttons["Sign in"].waitForExistence(timeout: 10), "no sign-in screen after log out")
+        waitFor(tab("Today"), "hittable == false")
+        XCTAssertFalse(app.webViews.buttons["More"].exists, "the web tab bar appeared on the sign-in screen")
+    }
+
     // MARK: - React → native
 
     func testAnInAppLinkMovesTheSelection() {

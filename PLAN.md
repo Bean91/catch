@@ -5514,13 +5514,17 @@ operations and tests: docs/mobile/README.md "Native tab bar", docs/mobile/test-r
   once to the dark `--bg`. The theme sent to native now also sets the web view's background.
 - **The bar's inset stayed in the safe area under the keyboard** in the first draft's reasoning; the bar now hides while the keyboard is up
   (it is covered anyway), and the web view's bottom inset is measured at 0 then (Coach's composer 39pt above the keyboard).
+- **Mock log out did nothing on a public-mode fixtures build** (it called the real auth client and native push, failed silently). It now
+  ends the pretend session; found while writing the sign-out test.
 - A keyboard assertion that looked like a 200pt gap was the simulator's hardware keyboard (the software keyboard sat off-screen); the test
   now skips in that case and the docs say to disconnect it.
 
 ## Verification
 
-XCUITest 10/10 on iOS 26.3 (iPhone 17 Pro) and iOS 18.2 (iPhone SE 3rd gen); WebKit content-process kill → reload → handshake recovers;
-screenshots in both themes and with Reduce Transparency; vitest 141 (20 new); `tsc -b` clean; build ok, initial JS 204.1 KB / 250 KB
+XCUITest 11/11 on iOS 26.3 (iPhone 17 Pro) and iOS 18.2 (iPhone SE 3rd gen), including signing out (the bar goes, no web bar on the
+sign-in screen); WebKit content-process kill → reload → handshake recovers; moving the web view between hosts fires no
+`visibilitychange` (a `focus` per switch, which nothing listens to); screenshots in both themes, with Reduce Transparency, and with
+Increase Contrast + the largest text size; vitest 141 (20 new); `tsc -b` clean; build ok, initial JS 204.1 KB / 250 KB
 (+1.6 KB: the sync module and plugin proxy ship in the web bundle, inert there); `test:touch` 393 passed, 10 skipped, 2 failed — the two
 mobile-webkit horizontal-overflow specs, which fail the same way on a build of the base commit (pre-existing flakiness, not this session).
 
@@ -5532,4 +5536,8 @@ mobile-webkit horizontal-overflow specs, which fail the same way on a build of t
   the safe area while a sheet or the keyboard is up (extra bottom padding, nothing covered).
 - **Reload via `location.reload()`** wasn't triggered directly; the content-process crash exercises the same page-load path.
 - The Settings "Reduce transparency" switch shows only the athlete's own choice; when iOS's setting is on, glass is off regardless.
-- Increase Contrast, larger Dynamic Type and VoiceOver weren't toggled on the simulator; all three are handled by the system control.
+- VoiceOver wasn't run; the bar is the system control. Signing back in isn't reachable with fixtures (same mount → `configure` path as a
+  cold start).
+- **Not used:** `UIGlassEffect`/`UIGlassContainerEffect`. The system tab bar already is Liquid Glass, and no other control warranted a
+  custom glass view (see DESIGN.md).
+- After running the XCUITests, run `CATCH_NATIVE_ENV=production npm run native:sync` so the gitignored native copies hold the real bundle.

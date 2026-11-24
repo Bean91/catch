@@ -840,7 +840,8 @@ diffing, handshake, dispose; vitest) is the only logic; `lib/native/tabBar.ts` (
 **only** caller of the plugin; `lib/native/nativeModal.ts` (`NativeModalMarker` inside `SheetContent`/`ModalContent` — every dialog must use
 those primitives); `html[data-native-tabbar] { --shell-bottom: 0 }` because UIKit puts the bar in the web view's safe area (never pad twice);
 `MoreSheet` exported from `BottomNav.tsx`; `PRIMARY_TABS` in `navigation.ts`; `glass.ts::setSystemReduceTransparency`. XCUITest target
-`AppUITests` (`web/ios/App/AppUITests/NativeTabBarUITests.swift`, 10 tests) runs against the **mock** native bundle — see docs/mobile/README.md.
+`AppUITests` (`web/ios/App/AppUITests/NativeTabBarUITests.swift`, 11 tests) runs against the **mock** native bundle — see docs/mobile/README.md; re-run
+`CATCH_NATIVE_ENV=production npm run native:sync` afterwards so Xcode never archives fixtures.
 
 ## Commands
 
