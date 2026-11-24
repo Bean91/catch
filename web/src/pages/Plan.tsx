@@ -19,12 +19,14 @@ export function PlanPage() {
   const [sheet, setSheet] = useState<{ open: boolean; existing: PlanPhase | null }>({ open: false, existing: null });
   const phases = useQuery({ queryKey: ["phases"], queryFn: fetchPhases });
   const phaseList = phases.data?.phases ?? [];
-  // Session 36: with blocks defined, the page follows a block week by week (one request); the fixed seven-week window only remains
-  // as the view for someone who hasn't set up a block yet.
+  // Session 36: with blocks defined, the page follows a block week by week (one request); the fixed seven-week window remains
+  // for someone with no block covering today.
   const defaultBlock = phaseList.find((p) => p.start_date <= today && today <= p.end_date) ?? phaseList.find((p) => p.start_date > today) ?? phaseList[phaseList.length - 1] ?? null;
   const [blockId, setBlockId] = useState<number | null>(null);
   const block = phaseList.find((p) => p.id === blockId) ?? defaultBlock;
-  const showWeeks = phases.isSuccess && phaseList.length === 0;
+  // The weekly window also shows whenever today falls outside every block, so this week and the recent past stay visible.
+  const inBlock = phaseList.some((p) => p.start_date <= today && today <= p.end_date);
+  const showWeeks = phases.isSuccess && !inBlock;
   const start = addDays(weekStart(today), -14);
   // With blocks, two summaries still feed "Worth a look" (each one's review flags cover three weeks).
   const weeks = showWeeks ? Array.from({ length: 7 }, (_, i) => addDays(start, i * 7)) : phases.isSuccess ? [weekStart(today), addDays(weekStart(today), 21)] : [];

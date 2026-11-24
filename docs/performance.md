@@ -184,8 +184,19 @@ one per workout.
 | `GET /api/export/activities` (CSV, 1,241 workouts) | 21.6 | 66.9 | 2 | 188,872 |
 | `PATCH /api/activities/{id}` | 100.6 | 118.5 | 67 | 3,467 |
 
-- The scratch dataset has no Concept2 strokes and no steady pieces, so the HR-at-workload and split-by-rate figures measure the query
-  shape on empty input; the stroke aggregate is a single `GROUP BY activity_id, round(stroke_rate)` either way.
+- The default dataset has no Concept2 strokes or average power, so the two rows above for HR-at-workload and split-by-rate measure
+  the query shape on empty input. With `--strokes` (a Concept2 stroke stream for every rowing session: **732,660 strokes**, 3 years):
+
+  | Request | p50 ms | max ms | SQL | Bytes |
+  |---|---|---|---|---|
+  | `GET /api/lab/hr-at-workload` (default year) | 6.1 | 7.3 | 4 | 3,266 |
+  | `GET /api/lab/split-by-rate` (default year, ~245k strokes) | 123.5 | 206.4 | 5 | 1,300 |
+  | `GET /api/lab/split-by-rate?from=` 3 years back (the maximum range, all 733k) | 344.7 | 394.3 | 6 | 1,307 |
+
+  Split by rate is the one new read whose cost grows with the data: one `GROUP BY activity_id, round(stroke_rate)` over the range's
+  strokes (indexed by `activity_id`, chunked by id list), linear in stroke count. It is a plain `def` route, so on the public
+  deployment it runs in the thread pool and never blocks the event loop (session 33). If it ever matters, the per-recording band
+  sums could be cached when strokes are imported; not done, as 0.35 s for three years on one card isn't worth a new table.
 - `PATCH /api/activities/{id}` went from 85 ms / 60 statements (session 32) to 101 ms / 67: the response is the workout detail, which
   now also carries `data_quality` (a one-row stroke probe and the members' sync states), plus the edit validation for
   conditions/equipment/tags. Still bounded and independent of history length.

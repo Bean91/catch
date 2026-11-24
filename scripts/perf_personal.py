@@ -9,6 +9,7 @@ statements each request issues. No network: the scheduler is never started and n
 
     uv run python scripts/perf_personal.py --years 3 --repeat 7 [--json out.json]
     uv run python scripts/perf_personal.py --years 3 --only settings      # session 33: every Settings request + a concurrent burst
+    uv run python scripts/perf_personal.py --years 3 --strokes            # session 36: plus a Concept2 stroke stream per rowing session
 """
 
 from __future__ import annotations
@@ -43,12 +44,12 @@ if not os.environ.get("CATCH_FERNET_KEY"):
     os.environ["CATCH_FERNET_KEY"] = Fernet.generate_key().decode()
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import event  # noqa: E402
+from sqlalchemy import event, insert  # noqa: E402
 from sqlmodel import Session  # noqa: E402
 
 from catch.core import db as core_db  # noqa: E402
 from catch.core.models import (  # noqa: E402
-    Activity, BodyComp, CanonicalActivity, CheckIn, DailyWellness, Food, FoodLog, Note, StrengthSet,
+    Activity, BodyComp, CanonicalActivity, CheckIn, DailyWellness, Food, FoodLog, Note, StrengthSet, Stroke,
 )
 
 OWNER = "owner"
@@ -79,6 +80,7 @@ READS = (
     "/api/lab/progression",
     "/api/lab/hr-at-workload",
     "/api/lab/split-by-rate",
+    "/api/lab/split-by-rate?from={from3y}",
     "/api/trends/load-history?weeks=26",
     "/api/goals",
     "/api/activities?limit=30&q=steady",
@@ -139,10 +141,26 @@ def seed_ai_credential() -> None:
         coach_settings.update_coach_settings(s, {"provider": "anthropic", "models": {"anthropic": "claude-sonnet-5-5"}}, OWNER)
 
 
-def seed(years: int, rng: random.Random) -> dict:
+def _strokes(activity_id: int, dur: float, pace: float, hard: bool, rng: random.Random) -> list[dict]:
+    """Session 36 (--strokes): a Concept2-shaped stroke stream, so the Performance Lab's stroke aggregate is measured on real volume."""
+    rows, t, d, seq = [], 0.0, 0.0, 0
+    base_rate = 32.0 if hard else 20.0
+    while t < dur:
+        rate = base_rate + rng.choice((-2, -1, 0, 0, 1, 2))
+        p = pace + rng.uniform(-3, 3)
+        dt = 60.0 / rate
+        t += dt
+        d += 500.0 * dt / p
+        rows.append({"owner_id": OWNER, "activity_id": activity_id, "seq": seq, "t": round(t, 1), "distance": round(d, 1), "pace_500m": round(p, 1),
+                     "watts": round(2.8 / (p / 500.0) ** 3, 1), "stroke_rate": rate, "hr": 130.0 + (40 if hard else 0) + rng.uniform(-5, 5)})
+        seq += 1
+    return rows
+
+
+def seed(years: int, rng: random.Random, strokes: bool = False) -> dict:
     today = date.today()
     start_day = today - timedelta(days=365 * years)
-    counts = dict.fromkeys(("days", "activities", "sets", "body", "food", "checkins"), 0)
+    counts = dict.fromkeys(("days", "activities", "sets", "body", "food", "checkins", "strokes"), 0)
     with Session(core_db.engine) as s:
         food = Food(owner_id=OWNER, source="manual", name="Oats", kcal_100g=380, protein_100g=13, carbs_100g=67, fat_100g=7)
         s.add(food)
@@ -164,14 +182,20 @@ def seed(years: int, rng: random.Random) -> dict:
                 dur = dist / 500 * pace
                 c = CanonicalActivity(owner_id=OWNER, sport_family="rowing", category="erg", start=morning, duration=dur, distance=dist,
                                       avg_hr=rng.uniform(165, 180) if hard else rng.uniform(128, 142), title="Row",
-                                      strain_trimp=rng.uniform(40, 160))
+                                      strain_trimp=rng.uniform(40, 160), avg_power=round(2.8 / (pace / 500.0) ** 3, 1) if strokes else None)
                 s.add(c)
                 s.flush()
                 aid += 1
-                s.add(Activity(owner_id=OWNER, source="concept2", external_id=f"c2-{aid}", type="rower", start=morning, duration=dur,
+                act = Activity(owner_id=OWNER, source="concept2", external_id=f"c2-{aid}", type="rower", start=morning, duration=dur,
                                distance=dist, avg_hr=c.avg_hr, workout_type="JustRow", sport_family="rowing", canonical_id=c.id,
-                               raw_json=json.dumps({"id": aid, "date": morning.isoformat(), "stroke_data": True, "pad": "x" * 1500})))
+                               raw_json=json.dumps({"id": aid, "date": morning.isoformat(), "stroke_data": True, "pad": "x" * 1500}))
+                s.add(act)
                 counts["activities"] += 1
+                if strokes:
+                    s.flush()
+                    rows = _strokes(act.id, dur, pace, hard, rng)
+                    s.execute(insert(Stroke), rows)
+                    counts["strokes"] += len(rows)
             if day.weekday() in (1, 4):
                 eve = morning + timedelta(hours=10)
                 c = CanonicalActivity(owner_id=OWNER, sport_family="strength", category="other", start=eve, duration=3600, title="Lift",
@@ -234,6 +258,7 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=32)
     ap.add_argument("--json", help="write the results here as JSON")
     ap.add_argument("--only", choices=("all", "settings"), default="all")
+    ap.add_argument("--strokes", action="store_true", help="session 36: also seed a Concept2 stroke stream (and average power) for every rowing session")
     args = ap.parse_args()
 
     import catch.main as main_module
@@ -243,7 +268,7 @@ def main() -> int:
     core_db.init_db()
 
     t0 = time.perf_counter()
-    counts = seed(args.years, random.Random(args.seed))
+    counts = seed(args.years, random.Random(args.seed), strokes=args.strokes)
     seed_s = time.perf_counter() - t0
 
     from catch.sync.scoring import recompute_scores
@@ -266,7 +291,8 @@ def main() -> int:
         results.append(measure(client, "PUT", "/api/settings", max(2, args.repeat // 2), counter, {"notifications": {"quiet_hours_start": "22:30"}}))
         settings_burst = burst(client, list(SETTINGS_READS), args.repeat)
         for url in READS if args.only == "all" else ():
-            url = url.format(from_=(today - timedelta(days=35)).isoformat(), to=(today + timedelta(days=7)).isoformat())
+            url = url.format(from_=(today - timedelta(days=35)).isoformat(), to=(today + timedelta(days=7)).isoformat(),
+                             from3y=(today - timedelta(days=3 * 365)).isoformat())
             results.append(measure(client, "GET", url, args.repeat, counter))
         if args.only == "all":
             results.append(measure(client, "POST", "/api/checkins", max(2, args.repeat // 2), counter,

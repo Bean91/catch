@@ -5241,7 +5241,6 @@ Branch `session-36-training-environment`.
     is enough to draw.
 12. `/api/pbs` ignored "exclude from totals": it now delegates to `sync/records.py`, which respects it.
 13. Event result/distance/boat class weren't editable in the sheet, and plans/phases could never be tied to an event from the UI.
-14. Found while building: an old calendar Playwright test asserted the seven-week bars that the block view replaces (updated).
 
 ## Changes
 
@@ -5251,7 +5250,8 @@ Branch `session-36-training-environment`.
   target that was set; measured/derived on every actual. `GET /api/planned/{id}/comparison`, `/link-candidates`,
   `/api/activities/{id}/plan-comparison`. UI: "Planned and done" on the plan sheet and on workout detail, "Link a workout…" (±3 days).
 - **Blocks and months:** `training_phases.category` (suggested Base/Build/Peak/Taper/Recovery plus the owner's own), `GET /api/phases/{id}/progress`
-  (Plan page follows a block week by week; the seven-week window remains only with no phases), `GET /api/calendar/month-summary`.
+  (the Plan page follows a block week by week; the seven-week window still shows whenever no block covers today, so this week and the
+  recent past never disappear between blocks), `GET /api/calendar/month-summary`. `calendar.spec.ts` asserts both cases.
 - **Performance Lab** (`/lab`; `analytics|sync/performance_lab.py`, `api/routes_lab.py`): records with labels and history, power/split
   progression of equivalent pieces, HR at comparable power (20 W bands, ≥ 2 sessions a side), split by stroke rate (2 spm bands, one
   aggregate stroke query), the 2k estimate's inputs. Workout detail: HR panel on the erg chart, shared cursor, rest column and rep-to-rep
@@ -5288,11 +5288,12 @@ sport, result_canonical_id, result_piece_id (composite tenant FKs). `training_ph
 | `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,597 passed, 3 skipped |
 | `tests/pg` (local Supabase stack: 0013 applied, schema = models, RLS) | 101 passed, 1 skipped |
 | vitest | 121 passed |
-| `test:touch` (3 projects, production build) | 353 passed, 8 skipped (after the calendar test fix) |
+| `test:touch` (3 projects, fresh production build) | 355 passed, 8 skipped, 0 failed. The first full run had 2 failures: an old Plan-page test asserting the seven-week bars; it now asserts the block view, plus a new test for the between-blocks case |
 | `test:public` | 24 passed |
 | `tsc`, oxlint | Clean; only the pre-existing warnings |
 | Initial bundle | 201.4 KB of the 250 KB budget |
 | `scripts/perf_personal.py --years 3` | New reads 2–19 ms p50, 2–5 SQL statements each (docs/performance.md) |
+| `… --strokes` (733k Concept2 strokes) | Split by rate 124 ms for the default year, 345 ms for the full 3 years — linear in strokes; everything else unchanged |
 
 ## Not done / limitations
 
@@ -5301,5 +5302,6 @@ sport, result_canonical_id, result_piece_id (composite tenant FKs). `training_ph
 - Rolling best power from strokes (a power-duration curve): records use each effort's own average power.
 - Per-rep comparison against Garmin laps only when the lap count matches the plan (or alternates with the planned rests).
 - ICS calendar export and template folders.
+- Split by rate costs ~0.35 s over three years of strokes (linear); no cache of per-recording band sums.
 - `test:update`, `test:gym`, `test:live` and the native harnesses weren't re-run (this session touched none of what they cover).
 - Not deployed; the deploy needs `catch db upgrade` (0013) first.

@@ -245,6 +245,20 @@ test("training plan page: phases with approval state, weekly bars, no sideways s
   await expect(sheet).toContainText("Approved by Coach Sam");
 });
 
+test("with no block covering today, the weekly window still shows this week and the recent past", async ({ page }) => {
+  await page.goto("/calendar/plan?mock=1");
+  await page.getByTestId("phase-list").getByRole("button").first().tap();
+  const sheet = page.getByTestId("phase-sheet");
+  await sheet.getByLabel("Ends").fill(addDays(T, 60));
+  await sheet.getByLabel("Starts").fill(addDays(T, 35));
+  await sheet.getByRole("button", { name: "Save changes" }).tap();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByTestId("plan-weeks").getByRole("listitem")).toHaveCount(7);
+  await expect(page.getByTestId("plan-weeks")).toContainText("this week");
+  await expect(page.getByTestId("block-progress")).toBeVisible();
+  await noHorizontalOverflow(page);
+});
+
 test("changing a coach-approved phase's plan shows 'edited since approval'", async ({ page }) => {
   await page.goto("/calendar/plan?mock=1");
   await page.getByTestId("phase-list").getByRole("button").first().tap();
