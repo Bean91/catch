@@ -123,6 +123,18 @@ export async function downloadCategory(category: string, format: "csv" | "json")
   return saveBlob(await res.blob(), name);
 }
 
+/** Session 36 follow-up: planned sessions and events as an .ics file for another calendar app (a download — nothing subscribes). */
+export async function downloadCalendarIcs(): Promise<void> {
+  const name = `catch-calendar-${todayISO().replaceAll("-", "")}.ics`;
+  if (isMock) return saveBlob(new Blob(["BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"], { type: "text/calendar" }), name);
+  const res = await authedFetch("/api/calendar/export.ics");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, typeof body.detail === "string" ? body.detail : res.statusText);
+  }
+  return saveBlob(await res.blob(), name);
+}
+
 async function saveBlob(blob: Blob, name: string): Promise<void> {
   if (isNative()) return shareExportNatively(blob, name);
   const url = URL.createObjectURL(blob);

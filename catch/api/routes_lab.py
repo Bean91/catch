@@ -42,6 +42,11 @@ def get_split_by_rate(from_: date | None = Query(None, alias="from"), to: date |
     return lab.split_by_rate(db, from_, to)
 
 
+@router.get("/api/lab/power-curve")
+def get_power_curve(from_: date | None = Query(None, alias="from"), to: date | None = Query(None), db: Session = Depends(get_db)):
+    return lab.power_curve(db, from_, to)
+
+
 @router.get("/api/trends/load-history")
 def get_load_history(weeks: int = Query(26, ge=5, le=104), db: Session = Depends(get_db)):
     from catch.sync.load_history import load_history

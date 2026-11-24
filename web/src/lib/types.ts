@@ -933,6 +933,26 @@ export interface Stroke {
   hr: number | null;
   distance_cum: number | null;
   t_cum: number;
+  /** Session 36 follow-up: seconds since the PM5 started, rests included; null when an interval's rest isn't known. */
+  t_wall?: number | null;
+}
+
+/** Session 36 follow-up: whether the erg chart shares a cursor with the heart-rate chart. An offset across two devices is only
+ * ever one the athlete confirmed. */
+export interface ErgAlignment {
+  state: "no_pair" | "combined" | "same_recording" | "confirmed" | "not_linked";
+  erg_activity_id: number | null;
+  watch_activity_id: number | null;
+  offset_s: number | null;
+  wall_time_known?: boolean;
+}
+
+export interface ErgAlignmentSuggestion {
+  offset_s: number | null;
+  r?: number;
+  overlap_s?: number;
+  signal?: "heart_rate" | "stroke_rate";
+  reason?: string;
 }
 
 export interface TechniqueMetric {
@@ -2079,6 +2099,8 @@ export interface PlanComparison {
   mode: "per_rep" | "whole" | "none";
   reason: string | null;
   reps_source: "piece" | "concept2" | "laps" | null;
+  /** Session 36 follow-up: how a watch's laps were narrowed to the work reps (absent on older responses). */
+  pairing?: "order" | "intensity" | "alternating_rest" | "lengths" | null;
   totals: CompareRow[];
   reps: { index: number; block_index: number; kind: "warmup" | "work" | "cooldown"; metrics: CompareRow[] }[];
   whole: CompareRow[];
@@ -2413,6 +2435,8 @@ export interface TemplateSummary {
 export interface WorkoutTemplate {
   id: number;
   name: string;
+  /** Session 36 follow-up: the owner's own folder; never set on a shared example. */
+  folder?: string | null;
   description: string | null;
   workout_type: WorkoutType;
   session_type: SessionType;
@@ -2442,6 +2466,7 @@ export interface TemplateInput {
   difficulty?: Difficulty | null;
   target_zone?: ZoneLabel | null;
   tags?: string[];
+  folder?: string | null;
   structure: TemplateStructure;
 }
 export interface TemplateIssue {
@@ -3165,6 +3190,22 @@ export interface SplitByRate {
   min_strokes: number;
   min_sessions: number;
   bands: { band_spm: [number, number]; earlier: SplitByRateSide; recent: SplitByRateSide; split_change_s: number | null }[];
+}
+
+export interface PowerCurvePoint {
+  watts: number;
+  date: string;
+  ref: string;
+}
+
+export interface PowerCurve {
+  from: string;
+  to: string;
+  split_date: string;
+  recordings: number;
+  watts_basis: "derived_from_pace";
+  max_gap_s: number;
+  durations: { duration_s: number; best: PowerCurvePoint | null; earlier: PowerCurvePoint | null; recent: PowerCurvePoint | null }[];
 }
 
 // --- Session 36: goals ------------------------------------------------------------------------------------------------

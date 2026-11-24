@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from catch.analytics import workout_library as wl
@@ -25,7 +25,8 @@ SEED_PATH = Path(__file__).resolve().parent.parent / "seed" / "workout_templates
 EXAMPLE_LABEL = "Example — not prescribed training"
 MAX_LIST = 200
 
-_WRITABLE = ("name", "description", "workout_type", "session_type", "purpose", "difficulty", "target_zone", "tags", "structure")
+_WRITABLE = ("name", "description", "workout_type", "session_type", "purpose", "difficulty", "target_zone", "tags", "structure", "folder")
+FOLDER_MAX = 40
 
 
 class LibraryError(ValueError):
@@ -69,6 +70,8 @@ def template_dict(row: WorkoutTemplate, *, summary: bool = True) -> dict:
         "difficulty": row.difficulty,
         "target_zone": row.target_zone,
         "tags": json.loads(row.tags_json or "[]"),
+        # Session 36 follow-up: the owner's own folder; a shared example never has one (it would be everyone's folder).
+        "folder": row.folder,
         "structure": structure,
         "is_example": row.is_example,
         "example_label": EXAMPLE_LABEL if row.is_example else None,
@@ -137,6 +140,14 @@ def _clean(fields: dict) -> dict:
             out[key] = out[key].strip() or None
     if isinstance(out.get("tags"), list):
         out["tags"] = list(dict.fromkeys(t.strip().lower() for t in out["tags"] if isinstance(t, str) and t.strip()))
+    if "folder" in out:
+        folder = out["folder"]
+        if folder is not None and not isinstance(folder, str):
+            raise LibraryError("folder must be text")
+        folder = " ".join((folder or "").split())
+        if len(folder) > FOLDER_MAX:
+            raise LibraryError(f"A folder name can be at most {FOLDER_MAX} characters.")
+        out["folder"] = folder or None
     return out
 
 
@@ -148,6 +159,7 @@ def _row_fields(clean: dict) -> dict:
     row["sport_family"] = planning.pl.family_for_session_type(st)
     row["tags_json"] = json.dumps(clean.get("tags") or [])
     row["structure_json"] = json.dumps(clean.get("structure") or {})
+    row["folder"] = clean.get("folder")
     return row
 
 
@@ -216,7 +228,7 @@ def duplicate_template(session: Session, owner_id: str, template_id: int, name: 
         description=src.description, workout_type=src.workout_type, session_type=src.session_type,
         sport_family=src.sport_family, purpose=src.purpose, difficulty=src.difficulty,
         target_zone=src.target_zone, tags_json=src.tags_json, structure_json=src.structure_json,
-        is_example=False, duplicated_from_id=src.id,
+        is_example=False, duplicated_from_id=src.id, folder=src.folder if src.owner_id == owner_id else None,
     )
     session.add(copy)
     session.commit()
@@ -253,6 +265,7 @@ def search_templates(
     include_examples: bool = True,
     only_examples: bool = False,
     include_archived: bool = False,
+    folder: Optional[str] = None,
     limit: int = 50,
 ) -> list[WorkoutTemplate]:
     stmt = select(WorkoutTemplate).where(
@@ -270,6 +283,8 @@ def search_templates(
         stmt = stmt.where(WorkoutTemplate.session_type == session_type)
     if difficulty:
         stmt = stmt.where(WorkoutTemplate.difficulty == difficulty)
+    if folder:
+        stmt = stmt.where(WorkoutTemplate.owner_id == owner_id, WorkoutTemplate.folder == folder)
     rows = list(session.exec(stmt.order_by(WorkoutTemplate.name)).all())
     wanted = [t.strip().lower() for t in (tags or []) if t and t.strip()]
     if wanted:
@@ -278,6 +293,16 @@ def search_templates(
         needle = q.strip().lower()
         rows = [r for r in rows if needle in " ".join(filter(None, [r.name, r.description, r.purpose, r.tags_json])).lower()]
     return rows[: max(1, min(int(limit), MAX_LIST))]
+
+
+def list_folders(session: Session, owner_id: str) -> list[dict]:
+    """The owner's folders with how many of their live (not archived) templates each holds, by name."""
+    rows = session.exec(
+        select(WorkoutTemplate.folder, func.count()).where(
+            WorkoutTemplate.owner_id == owner_id, WorkoutTemplate.folder.is_not(None), WorkoutTemplate.archived_at.is_(None)
+        ).group_by(WorkoutTemplate.folder)
+    ).all()
+    return [{"name": name, "count": int(n)} for name, n in sorted(rows, key=lambda r: r[0].lower())]
 
 
 # --- Scheduling -----------------------------------------------------------------------------------

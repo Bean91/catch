@@ -1476,6 +1476,21 @@ signed difference (a positive split delta is slower); ranges (rate, HR) give bel
 interval piece; the Concept2 result's `workout.intervals`; device laps (with HR/power/cadence averaged from the recording's own
 samples), the first source that has any. Splits are worked out from time ÷ distance (`derived`); rowing interval watts are from pace.
 
+**Laps that don't match the plan's count** (follow-up, `plan_compare.select_work_laps`). A watch's laps are narrowed to the work reps
+by the first rule that applies, and the method is returned as `pairing`:
+1. the counts already agree → in order (`order`);
+2. every lap carries the FIT lap's own `intensity` and the `active`/`interval` laps number the work reps → those (`intensity`);
+3. work and rest laps alternate, every in-between lap is the planned rest (±25 %) **and** every work lap its rep's planned length
+   (±10 %, wherever the lap states it) → the work laps (`alternating_rest`). The work-lap check is new: the old rule checked only the
+   rest laps, so a long warm-up lap could be taken as rep 1;
+4. exactly one in-order choice of laps fits every work rep's planned length (time for a timed rep, distance for a distance rep, ±10 %)
+   → that choice (`lengths`), counted by a small DP (capped at 2, so "several" is cheap to detect);
+5. otherwise nothing is paired and the reason says whether no choice or several fit. Two fits are as unknown as none.
+
+`parse_fit` now keeps each lap's distance, average heart rate/cadence and `intensity` (only fields the lap message states; none is
+zero-filled), and `parse_fit_track` keeps `intensity`. Laps parsed before this change have time only, so rules 2 and (for distance
+reps) 3–4 can't use them; on the public deployment the FIT files are deleted after parsing, so those laps can't be re-read.
+
 ### 35.5 Performance Lab comparisons (`analytics/performance_lab.py`, `sync/performance_lab.py`)
 
 The chosen range (≤ 3 years) is split at its midpoint into an earlier and a recent half.
@@ -1493,6 +1508,31 @@ recording (or, on a combined workout, a part with a known offset). A Concept2 st
 not on that axis), and so is the per-second stream built from strokes (`sync/samples.py`), so the mapping is exact. Two devices'
 clocks are never assumed to agree: a watch's HR beside a PM5's strokes is labelled "not linked". The heart-rate chart breaks its line
 at any gap longer than 8 s (`SAMPLE_GAP_S`) instead of bridging it, and a recording with power or cadence but no heart rate is drawn.
+
+**Two devices** (follow-up, `analytics|sync/recording_offset.py`). A PM5's strokes beside a watch's heart-rate chart link only at an
+offset the athlete confirmed (stored in the workout's overrides as `erg_alignment = {erg, watch, offset_s}`, keyed by both recording
+ids so a merge, split or new heart-rate pick retires it). The offset is the watch-chart second at which the PM5's second 0 falls,
+measured against the PM5's **wall time** (`t_wall` on each stroke: interval time plus every earlier interval's time and rest), since
+the watch kept recording through the rests. When an interval session's rest isn't reported, wall time is unknown and no offset is
+offered or accepted. On request (`POST …/erg-alignment/suggest`, never on page load) the server proposes one: both recordings as 1 Hz
+series (the PM5's resampled, each stroke holding ≤ 5 s), heart rate against heart rate when both have it, else stroke rate against the
+watch's cadence; shifts within 15 min of the clocks' own difference, a 5 s coarse pass then 1 s around the best. A proposal needs
+Pearson r ≥ 0.85 over ≥ 180 shared seconds, both series varying (SD ≥ 1.5), and the best shift beating every shift more than 30 s
+away by ≥ 0.1 — a session of identical repeats fits one rep later almost as well, so it gets no proposal and the athlete sets the
+offset by hand. The screen calls it a proposal, not a measurement.
+
+### 35.8 Best power for each duration and the stroke summary cache (`analytics|sync/stroke_summary.py`, follow-up)
+
+One summary per Concept2 recording, in `activities.stroke_summary_json` (migration 0014): the split-by-rate band sums and the
+best-power curve, stamped with `SUMMARY_VERSION` and the stroke count. `upsert_strokes` (the only writer of strokes) replaces it in the
+same commit; a reader builds any that is missing or from an older version; `run_maintenance` fills up to 300 per run. The write is a
+plain UPDATE of that column, so it marks no day for a score recompute.
+- **Split by rate** now sums the cached bands (same filters and half-up rounding as the old per-stroke query; a test compares the two).
+- **Best power curve** for 10 s, 30 s, 1, 2, 5, 10, 20, 30 and 60 min: the highest time-weighted average of a step function (a stroke's
+  watts hold from the previous stroke to it). With a step function the best window starts or ends on a stroke, so only those windows
+  are checked (O(n) per duration). A window never spans an interval change, a pause over 10 s or a stroke without watts, and a duration
+  appears only when one continuous run is at least that long. The watts are Concept2's pace formula per stroke — **derived**, and
+  rowing erg only. The Lab shows the best over the range and in each half, each linked to its workout.
 
 ### 35.7 Rep consistency (`analytics/technique.py::rep_consistency`)
 

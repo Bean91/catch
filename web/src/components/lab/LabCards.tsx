@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchHrAtWorkload, fetchLabProgression, fetchPredict2k, fetchRecords, fetchSplitByRate } from "../../lib/api";
+import { fetchHrAtWorkload, fetchLabProgression, fetchPowerCurve, fetchPredict2k, fetchRecords, fetchSplitByRate } from "../../lib/api";
 import { formatShortDate, formatSplit, formatTimeTenths, splitUnitLabel } from "../../lib/format";
 import { METRIC_COLOR } from "../../lib/metricColors";
 import type { Predicted2kComponent, RecordEntry, RecordRow } from "../../lib/types";
@@ -289,6 +289,63 @@ export function SplitByRateCard({ from, to }: { from: string; to: string }) {
         </DataTable>
       )}
       <p className="mt-2 text-xs text-text-tertiary">Splits are /500m: the average of each stroke's own split. Drag factor and the session's purpose (steady or hard) aren't accounted for.</p>
+    </Card>
+  );
+}
+
+function durationLabel(s: number): string {
+  return s < 60 ? `${s} s` : s < 3600 ? `${s / 60} min` : `${s / 3600} h`;
+}
+
+function wattsCell(p: { watts: number; ref: string; date: string } | null) {
+  if (!p) return <span className="text-text-tertiary">—</span>;
+  return (
+    <Link to={p.ref} className="font-mono-nums text-accent underline-offset-2 hover:underline" title={formatShortDate(p.date)}>
+      {Math.round(p.watts)} W
+    </Link>
+  );
+}
+
+/** Session 36 follow-up: the best average power the athlete has held for each standard duration, read from each recording's strokes
+ * (cached per recording on the server). Watts are worked out from each stroke's split, so the card says so. */
+export function PowerCurveCard({ from, to }: { from: string; to: string }) {
+  const q = useQuery({ queryKey: ["lab-power-curve", from, to], queryFn: () => fetchPowerCurve(from, to) });
+  if (q.isError) return <ErrorState message="Couldn't load the best-power curve." onRetry={() => q.refetch()} />;
+  if (!q.data) return <CardSkeleton lines={4} />;
+  const d = q.data;
+  const rows = d.durations.filter((r) => r.best);
+  return (
+    <Card title="Best power for each duration" testId="power-curve-card">
+      <p className="text-sm text-text-secondary">
+        The highest average power held for each duration inside one continuous stretch of rowing, from {d.recordings} Concept2 {d.recordings === 1 ? "recording" : "recordings"}. Earlier and recent split at {formatShortDate(d.split_date)}.
+      </p>
+      {rows.length === 0 ? (
+        <EmptyState message="No per-stroke Concept2 rowing data in this period." />
+      ) : (
+        <DataTable label="Best power by duration" className="mt-3">
+          <thead>
+            <tr>
+              <th>Duration</th>
+              <th>Best</th>
+              <th>Earlier</th>
+              <th>Recent</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.duration_s}>
+                <td className="whitespace-nowrap font-mono-nums">{durationLabel(r.duration_s)}</td>
+                <td>{wattsCell(r.best)}</td>
+                <td>{wattsCell(r.earlier)}</td>
+                <td>{wattsCell(r.recent)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+      <p className="mt-2 text-xs text-text-tertiary">
+        Derived, not measured: each stroke's watts come from its split with Concept2's formula. A stretch ends at a rest between intervals or a pause over {d.max_gap_s} s.
+      </p>
     </Card>
   );
 }

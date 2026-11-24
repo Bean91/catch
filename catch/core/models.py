@@ -152,6 +152,9 @@ class Activity(OwnedStrict, SQLModel, table=True):
     # [{"offset_s", "duration_s"}, ...] from FIT lap messages (Part E.8's lap markers) —
     # symmetric with intervals_json, which is Concept2's equivalent.
     laps_json: Optional[str] = None
+    # Session 36 follow-up: derived from this recording's strokes (split-by-rate bands, best-power curve), versioned and
+    # stamped with the stroke count it was built from — catch/sync/stroke_summary.py rebuilds it when either is stale.
+    stroke_summary_json: Optional[str] = None
     # The source's own native title, where one exists — Garmin's `activityName` (set at
     # upsert time from the summary JSON, since raw_json isn't parsed again later). Used as
     # the canonical's title only when it isn't Garmin's generic per-type label (e.g. "Indoor
@@ -1427,6 +1430,7 @@ class WorkoutTemplate(OwnedOrShared, SQLModel, table=True):
     tags_json: str = "[]"
     structure_json: str = "{}"
     is_example: bool = False
+    folder: Optional[str] = None  # the owner's own label; never set on a shared example
     duplicated_from_id: Optional[int] = None
     archived_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)

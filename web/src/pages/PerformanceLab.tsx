@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Estimate2kCard, HrAtWorkloadCard, ProgressionCard, RecordsCard, SplitByRateCard, type Modality } from "../components/lab/LabCards";
+import { Estimate2kCard, HrAtWorkloadCard, PowerCurveCard, ProgressionCard, RecordsCard, SplitByRateCard, type Modality } from "../components/lab/LabCards";
 import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
 import { PillNav } from "../components/ui/PillNav";
 import { Segmented } from "../components/ui/Segmented";
@@ -50,7 +50,10 @@ export function PerformanceLabPage() {
             <HrAtWorkloadCard from={from} to={to} />
             <SplitByRateCard from={from} to={to} />
           </div>
-          <Estimate2kCard />
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start lg:gap-5">
+            <PowerCurveCard from={from} to={to} />
+            <Estimate2kCard />
+          </div>
         </>
       )}
       <p className="text-xs text-text-tertiary">Records are all-time; progression and the comparisons follow the period chosen above.</p>

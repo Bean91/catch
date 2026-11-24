@@ -4,7 +4,7 @@ import { padDomain, quantizePoints } from "../lib/chartFetch";
 import { useCallback, useMemo, useState } from "react";
 import { nearestIndex } from "../components/charts/core";
 import { useParams } from "react-router-dom";
-import { alignPiece, fetchWorkoutPlanComparison, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
+import { alignPiece, fetchErgAlignment, fetchWorkoutPlanComparison, fetchActivitySamples, importConcept2Intervals, fetchErgStrokes, fetchPieces, fetchWorkoutDetail, patchActivity, revertActivityField, splitActivity, undoMerge } from "../lib/api";
 import { bandLabel, categoryLabel, formatDistance, formatDuration, formatShortDate, formatSplit } from "../lib/format";
 import type { Domain } from "../lib/useChartInteraction";
 import type { DataQuality, EditableActivityField, SportFamily, Stroke } from "../lib/types";
@@ -18,6 +18,7 @@ import { PlanComparisonView } from "../components/calendar/PlanComparisonView";
 import { PieceCard } from "../components/pieces/PieceCard";
 import { IntervalTable } from "../components/workouts/IntervalTable";
 import { NotesBox } from "../components/workouts/NotesBox";
+import { ErgAlignmentNote } from "../components/workouts/ErgAlignmentNote";
 import { TechniqueGrid } from "../components/workouts/TechniqueGrid";
 import { ZoneBar } from "../components/workouts/ZoneBar";
 import { ZoneTable } from "../components/workouts/ZoneTable";
@@ -141,16 +142,26 @@ export function WorkoutDetailPage() {
   // --- Shared cursor between the HR chart (elapsed time) and the erg chart (distance), session 36 ---------------------------
   // Only when the stroke list and the HR chart's timeline are the same recording (or, on a combined workout, a part whose offset
   // is known). A watch and a PM5 started at different moments, and their clocks are never assumed to agree.
-  const syncOffset = useMemo(() => {
+  // Session 36 follow-up: across two devices, only at an offset the athlete confirmed — measured against the erg's wall time (rests
+  // included), since the other device kept recording through them.
+  const crossDevice = !!samples?.has_data && strokesActivityId != null && samples.recording_activity_id !== strokesActivityId && !samples.combined;
+  const alignment = useQuery({ queryKey: ["erg-alignment", canonicalId], queryFn: () => fetchErgAlignment(canonicalId), enabled: crossDevice });
+  const sync = useMemo((): { offset: number; axis: "t_cum" | "t_wall" } | null => {
     if (!samples?.has_data || strokesActivityId == null) return null;
-    if (samples.recording_activity_id === strokesActivityId) return 0;
-    if (samples.combined) return samples.member_offsets?.[String(strokesActivityId)] ?? null;
-    return null;
-  }, [samples, strokesActivityId]);
+    if (samples.recording_activity_id === strokesActivityId) return { offset: 0, axis: "t_cum" };
+    if (samples.combined) {
+      const o = samples.member_offsets?.[String(strokesActivityId)];
+      return o == null ? null : { offset: o, axis: "t_cum" };
+    }
+    const a = alignment.data;
+    return a?.state === "confirmed" && a.offset_s != null && a.erg_activity_id === strokesActivityId ? { offset: a.offset_s, axis: "t_wall" } : null;
+  }, [samples, strokesActivityId, alignment.data]);
+  const syncOffset = sync?.offset ?? null;
   const strokeAxis = useMemo(() => {
-    const rows = (fullStrokesData?.strokes ?? []).filter((st) => st.distance_cum != null && st.t_cum != null);
-    return { d: rows.map((st) => st.distance_cum as number), t: rows.map((st) => st.t_cum as number) };
-  }, [fullStrokesData]);
+    const key = sync?.axis ?? "t_cum";
+    const rows = (fullStrokesData?.strokes ?? []).filter((st) => st.distance_cum != null && st[key] != null);
+    return { d: rows.map((st) => st.distance_cum as number), t: rows.map((st) => st[key] as number) };
+  }, [fullStrokesData, sync]);
   const [hrHoverFromErg, setHrHoverFromErg] = useState<number | null>(null);
   const [ergHoverFromHr, setErgHoverFromHr] = useState<number | null>(null);
   const onErgHover = useCallback(
@@ -476,13 +487,15 @@ export function WorkoutDetailPage() {
               externalHoverX={ergHoverFromHr}
               onHoverXChange={onErgHover}
             />
-            {samples?.has_data && (
+            {samples?.has_data && (crossDevice && alignment.data ? (
+              <ErgAlignmentNote canonicalId={canonicalId} alignment={alignment.data} />
+            ) : (
               <p className="mt-2 text-xs text-text-tertiary" data-testid="chart-sync-note">
                 {syncOffset != null
                   ? "Linked to the heart-rate chart above: pointing at one shows the same moment on the other. The distance axis is rowing time only — rest isn't on it."
                   : "Not linked to the heart-rate chart: that chart is from another device's recording, and the two clocks can't be matched exactly."}
               </p>
-            )}
+            ))}
           </Card>
           <StrokeAnalysis strokes={fullStrokesData.strokes} />
           <Card title="Intervals">

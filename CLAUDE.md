@@ -807,7 +807,15 @@ links only the allow-listed shapes in `lib/coachRefs.ts`. Bugs fixed: bulk taggi
 104-week volume request, a cleared plan title 500, shared examples invisible on public, adjacent-day plan links, LibraryEditor dropping
 warm-up distance/zone. Tests: `tests/test_session36_bugs.py`, `test_plan_compare.py`, `test_blocks_and_months.py`, `test_records_and_lab.py`,
 `test_goals.py`, `test_workout_search.py`, `test_merge_preview.py`, `test_load_history.py`, `tests/tenancy/test_shared_examples.py`,
-`test_category_exports.py`; Playwright `web/tests/touch/session36.spec.ts` (+ `-desktop`).
+`test_category_exports.py`; Playwright `web/tests/touch/session36.spec.ts` (+ `-desktop`). **Follow-up** (migration **0014**:
+`activities.stroke_summary_json`, `workout_templates.folder`; `EXPECTED_SCHEMA_REVISION = "0014"`): per-recording stroke summaries
+(`analytics|sync/stroke_summary.py` — split-by-rate bands + best-power curve, written by `upsert_strokes`, filled lazily and by
+`run_maintenance`; `/api/lab/power-curve`), two-device chart alignment only at an athlete-confirmed offset (`analytics|sync/
+recording_offset.py`, `/api/activities/{id}/erg-alignment`, strokes carry `t_wall`), lap pairing by FIT intensity / alternating rest /
+unique length fit (`plan_compare.select_work_laps`; `parse_fit` laps keep distance/HR/cadence/intensity), drag-to-reschedule
+(`components/calendar/usePlanDrag.tsx`), `.ics` download (`/api/calendar/export.ics`), template folders (`/api/library/folders`). Tests:
+`test_stroke_summary.py`, `test_recording_offset.py`, `test_calendar_ics.py`, lap cases in `test_plan_compare.py`, folders in
+`tests/tenancy/test_shared_examples.py`; Playwright `session36-followup.spec.ts`.
 
 ## Commands
 

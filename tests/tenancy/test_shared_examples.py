@@ -39,3 +39,29 @@ def test_shared_examples_are_readable_but_never_shared_writes(pub_client, pub_en
     day = (date.today() + timedelta(days=2)).isoformat()
     sched = pub_client.post(f"/api/library/templates/{ex['id']}/schedule", json={"date": day, "confirm": True}, headers=A)
     assert sched.status_code == 200, sched.text
+
+
+def test_template_folders_are_per_owner_and_never_on_a_shared_example(pub_client, pub_engine):
+    """Session 36 follow-up: folders. A folder lives on the owner's own templates only, so a shared example can't carry one."""
+    with tenant.system(), Session(pub_engine) as s:
+        seed_examples(s)
+    ex = pub_client.get("/api/library/templates", params={"scope": "examples"}, headers=A).json()["templates"][0]
+    assert ex["folder"] is None
+    assert pub_client.patch(f"/api/library/templates/{ex['id']}", json={"folder": "Mine"}, headers=A).status_code == 422
+
+    copy = pub_client.post(f"/api/library/templates/{ex['id']}/duplicate", json={}, headers=A).json()
+    assert copy["folder"] is None
+    filed = pub_client.patch(f"/api/library/templates/{copy['id']}", json={"folder": "  Winter   base "}, headers=A).json()
+    assert filed["folder"] == "Winter base"
+    second = pub_client.post(f"/api/library/templates/{copy['id']}/duplicate", json={}, headers=A).json()
+    assert second["folder"] == "Winter base"  # a copy of your own template stays in its folder
+
+    assert pub_client.get("/api/library/folders", headers=A).json()["folders"] == [{"name": "Winter base", "count": 2}]
+    assert pub_client.get("/api/library/folders", headers=B).json()["folders"] == []
+    in_folder = pub_client.get("/api/library/templates", params={"scope": "all", "folder": "Winter base"}, headers=A).json()["templates"]
+    assert sorted(t["id"] for t in in_folder) == sorted([copy["id"], second["id"]])
+    assert pub_client.get("/api/library/templates", params={"scope": "all", "folder": "Winter base"}, headers=B).json()["templates"] == []
+
+    assert pub_client.patch(f"/api/library/templates/{copy['id']}", json={"folder": "x" * 41}, headers=A).status_code == 422
+    assert pub_client.patch(f"/api/library/templates/{copy['id']}", json={"folder": ""}, headers=A).json()["folder"] is None
+    assert pub_client.patch(f"/api/library/templates/{copy['id']}", json={"folder": 5}, headers=A).status_code == 422

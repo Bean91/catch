@@ -196,7 +196,20 @@ one per workout.
   Split by rate is the one new read whose cost grows with the data: one `GROUP BY activity_id, round(stroke_rate)` over the range's
   strokes (indexed by `activity_id`, chunked by id list), linear in stroke count. It is a plain `def` route, so on the public
   deployment it runs in the thread pool and never blocks the event loop (session 33). If it ever matters, the per-recording band
-  sums could be cached when strokes are imported; not done, as 0.35 s for three years on one card isn't worth a new table.
+  sums could be cached when strokes are imported. **Done in the follow-up** (below).
+
+### Follow-up: the per-recording stroke summary cache (same 733k strokes, `--strokes`, 7 repeats)
+
+| Request | p50 ms | max ms | SQL |
+|---|---|---|---|
+| `GET /api/lab/split-by-rate?from=` 3 years, **cold** (builds every recording's summary once) | 5,024 | — | 977 |
+| `GET /api/lab/split-by-rate` (default year), warm | 8.0 | 8.5 | 5 |
+| `GET /api/lab/split-by-rate?from=` 3 years, warm | 17.7 | 60.3 | 6 |
+| `GET /api/lab/power-curve?from=` 3 years, warm | 17.3 | 60.1 | 6 |
+
+Warm reads are 15–20× faster and no longer grow with stroke count (one row per recording). The cold cost is paid once per recording:
+strokes stored by a sync are summarised in the same commit, and `run_maintenance` fills up to 300 older recordings per run, so a reader
+should rarely see it. Most of the cold time is reading the strokes; the summary itself is ~2 ms per 800-stroke recording.
 - `PATCH /api/activities/{id}` went from 85 ms / 60 statements (session 32) to 101 ms / 67: the response is the workout detail, which
   now also carries `data_quality` (a one-row stroke probe and the members' sync states), plus the edit validation for
   conditions/equipment/tags. Still bounded and independent of history length.

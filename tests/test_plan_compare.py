@@ -122,3 +122,87 @@ def test_plan_comparison_for_an_unlinked_workout(client, session):
     session.refresh(a)
     assert client.get(f"/api/activities/{a.canonical_id}/plan-comparison").json() == {"planned": None}
     assert client.get("/api/activities/999999/plan-comparison").status_code == 404
+
+
+# --- Session 36 follow-up: narrowing a watch's laps to the planned work reps -------------------------------------------
+
+_WORK4 = pc.expand_planned([{"reps": 4, "work_min": 4, "rest_min": 2, "split_s": 110}])
+_WARM_WORK_COOL = pc.expand_planned([{"kind": "warmup", "work_min": 10}, {"reps": 4, "work_min": 4, "rest_min": 2}, {"kind": "cooldown", "work_min": 8}])
+
+
+def _lap(seconds: float, intensity: str | None = None, distance: float | None = None) -> dict:
+    lap = {"duration_s": seconds}
+    if intensity:
+        lap["intensity"] = intensity
+    if distance is not None:
+        lap["distance_m"] = distance
+    return lap
+
+
+def _work(reps):
+    return [r for r in reps if r["kind"] == "work"]
+
+
+def test_lap_counts_that_agree_pair_in_order():
+    laps = [_lap(240)] * 4
+    assert pc.select_work_laps(laps, _work(_WORK4), _WORK4)[1] == "order"
+
+
+def test_laps_with_the_watchs_own_intensity_pair_by_it():
+    laps = [_lap(600, "warmup")] + [_lap(240, "active"), _lap(120, "rest")] * 4 + [_lap(480, "cooldown")]
+    chosen, method, reason = pc.select_work_laps(laps, _work(_WORK4), _WORK4)
+    assert method == "intensity" and len(chosen) == 4 and all(lap["intensity"] == "active" for lap in chosen) and reason is None
+
+
+def test_alternating_rest_laps_are_still_recognised():
+    laps = [_lap(241), _lap(118), _lap(239), _lap(121), _lap(240), _lap(119), _lap(242)]
+    chosen, method, _ = pc.select_work_laps(laps, _work(_WORK4), _WORK4)
+    assert method == "alternating_rest" and [lap["duration_s"] for lap in chosen] == [241, 239, 240, 242]
+
+
+def test_one_fitting_choice_of_laps_pairs_by_length():
+    # A warm-up, four work laps (one an auto-lap split into two: no fit), an extra lap pressed at the end, a cool-down.
+    laps = [_lap(612), _lap(238), _lap(130), _lap(243), _lap(118), _lap(236), _lap(125), _lap(244), _lap(470)]
+    chosen, method, _ = pc.select_work_laps(laps, _work(_WORK4), _WORK4)
+    assert method == "lengths" and [lap["duration_s"] for lap in chosen] == [238, 243, 236, 244]
+    dist = pc.expand_planned([{"reps": 3, "work_m": 1000, "rest_min": 3}])
+    laps = [_lap(400, distance=1500), _lap(220, distance=1004), _lap(180, distance=210), _lap(222, distance=998), _lap(180, distance=200), _lap(219, distance=1001)]
+    chosen, method, _ = pc.select_work_laps(laps, _work(dist), dist)
+    assert method == "lengths" and [lap["distance_m"] for lap in chosen] == [1004, 998, 1001]
+
+
+def test_several_or_no_fitting_choices_stay_unpaired_with_the_reason():
+    several = [_lap(240)] * 6  # any 4 of 6 equal laps fit: which four is unknown
+    chosen, method, reason = pc.select_work_laps(several, _work(_WORK4), _WORK4)
+    assert method is None and chosen == several and "more than one" in reason
+    none = [_lap(100)] * 6
+    assert "none of the ways" in pc.select_work_laps(none, _work(_WORK4), _WORK4)[2]
+    fewer = [_lap(240)] * 3
+    assert "3 laps for 4 planned" in pc.select_work_laps(fewer, _work(_WORK4), _WORK4)[2]
+    result = pc.compare({"structure": [{"reps": 4, "work_min": 4, "rest_min": 2, "split_s": 110}]}, [{"duration_s": 240}] * 6, {},
+                        reps_source="laps", pairing_reason=reason)
+    assert result["mode"] != "per_rep" and "more than one" in result["reason"]
+
+
+def test_laps_pair_through_the_api(client, session):
+    _login(client)
+    day = localtime.today(session) - timedelta(days=2)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=7)
+    laps = [{"offset_s": 0, "duration_s": 600, "intensity": "warmup"}]
+    t = 600
+    for _ in range(4):
+        laps += [{"offset_s": t, "duration_s": 240, "intensity": "active", "avg_hr": 165.0}, {"offset_s": t + 240, "duration_s": 120, "intensity": "rest"}]
+        t += 360
+    a = Activity(source="garmin", external_id="g-laps", type="indoor_rowing", start=start, duration=float(t), laps_json=json.dumps(laps))
+    session.add(a)
+    session.commit()
+    run_matching(session)
+    session.refresh(a)
+    planned = client.post("/api/planned", json={
+        "date": day.isoformat(), "session_type": "erg", "title": "4 x 4 min",
+        "structure": [{"reps": 4, "work_min": 4, "rest_min": 2, "hr_min": 150, "hr_max": 160}],
+    }).json()["planned"][0]
+    client.post(f"/api/planned/{planned['id']}/link", json={"canonical_id": a.canonical_id})
+    cmp = client.get(f"/api/planned/{planned['id']}/comparison").json()["comparison"]
+    assert cmp["mode"] == "per_rep" and cmp["reps_source"] == "laps" and cmp["pairing"] == "intensity"
+    assert {m["metric"]: m for m in cmp["reps"][0]["metrics"]}["hr"]["status"] == "above"

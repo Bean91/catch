@@ -523,6 +523,11 @@ def erg_strokes(
     # t/distance reset to 0 at each interval boundary (docs/concept2-endpoints.md); add the
     # running offset from prior intervals so a distance-based chart doesn't saw-tooth back to
     # zero at every rep.
+    # Session 36 follow-up: seconds since the PM5 started, rests included (None when an interval's rest isn't reported) — what a
+    # confirmed offset to another device's heart-rate chart is measured against (catch/analytics/recording_offset.py).
+    from catch.analytics.recording_offset import wall_times
+
+    walls = wall_times([{"t": s.t, "interval_index": s.interval_index} for s in strokes], defs) if strokes else None
     stroke_dicts = []
     offset_distance = 0.0
     offset_t = 0.0
@@ -539,6 +544,7 @@ def erg_strokes(
                 **s.model_dump(),
                 "distance_cum": (s.distance + offset_distance) if s.distance is not None else None,
                 "t_cum": s.t + offset_t,
+                "t_wall": walls[len(stroke_dicts)] if walls else None,
             }
         )
 
@@ -801,6 +807,49 @@ def _hr_recovery(hr_full: list[float | None], from_offset: int, window_s: int = 
 
 
 SAMPLE_GAP_S = 8  # a dropout longer than this breaks the drawn line; shorter ones are a sensor's normal recording interval
+
+
+def _canonical_or_404(db: Session, canonical_id: int) -> CanonicalActivity:
+    canonical = db.get(CanonicalActivity, canonical_id)
+    if canonical is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return canonical
+
+
+@router.get("/api/activities/{canonical_id}/erg-alignment")
+def get_erg_alignment(canonical_id: int, db: Session = Depends(get_db)):
+    """Session 36 follow-up: whether the erg chart and the heart-rate chart share a cursor, and at what offset."""
+    from catch.sync import recording_offset
+
+    return recording_offset.state(db, _canonical_or_404(db, canonical_id))
+
+
+@router.post("/api/activities/{canonical_id}/erg-alignment/suggest")
+def suggest_erg_alignment(canonical_id: int, db: Session = Depends(get_db)):
+    """A proposed offset (or the reason there isn't one). Never applied until the athlete confirms it."""
+    from catch.sync import recording_offset
+
+    return recording_offset.suggest(db, _canonical_or_404(db, canonical_id))
+
+
+@router.put("/api/activities/{canonical_id}/erg-alignment")
+def put_erg_alignment(canonical_id: int, body: dict = Body(...), db: Session = Depends(get_db)):
+    from catch.sync import recording_offset
+
+    offset = body.get("offset_s")
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise HTTPException(status_code=422, detail="offset_s must be a whole number of seconds")
+    try:
+        return recording_offset.set_offset(db, _canonical_or_404(db, canonical_id), offset)
+    except recording_offset.AlignmentError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@router.delete("/api/activities/{canonical_id}/erg-alignment")
+def delete_erg_alignment(canonical_id: int, db: Session = Depends(get_db)):
+    from catch.sync import recording_offset
+
+    return recording_offset.clear(db, _canonical_or_404(db, canonical_id))
 
 
 @router.get("/api/activities/{canonical_id}/samples")

@@ -98,6 +98,7 @@ import type {
   StrengthTemplateItem,
 } from "./types";
 import { ZONE_NAMES } from "./types";
+import { MOCK_CROSS_DEVICE_WORKOUT } from "./mockLab";
 import { localDateString } from "./format";
 import { SPLIT_M, aggregateFromSplits, defaultSplits, totalsOnlySplits, validateSplits, type PieceModality } from "./pieceSplits";
 
@@ -876,7 +877,8 @@ export function mockActivitySamples(id: number): ActivitySamplesResponse {
     returned_count: points.length,
     raw_count: points.length,
     // The mock's heart rate comes from the workout's own (only) recording, so a PM5 stroke list shares its timeline.
-    recording_activity_id: workout.sources[0]?.activity_id ?? null,
+    // Session 36 follow-up: workout 13 is the cross-device case — a watch's heart rate beside a PM5's strokes.
+    recording_activity_id: id === MOCK_CROSS_DEVICE_WORKOUT ? 7013 : (workout.sources[0]?.activity_id ?? null),
     combined: false,
     has_hr: true,
     has_power: points.some((p) => p.power != null),
@@ -901,6 +903,7 @@ function mockStroke(seq: number, intervalIndex: number, offsetDistance: number, 
     hr: 148 + Math.round(seq / 8),
     distance_cum: offsetDistance + distance,
     t_cum: offsetT + t,
+    t_wall: offsetT + t + intervalIndex * 60,
   };
 }
 

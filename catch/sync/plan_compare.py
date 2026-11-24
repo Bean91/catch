@@ -20,7 +20,6 @@ from catch.analytics.samples_codec import unpack_series
 from catch.core.models import Activity, ActivitySamples, CanonicalActivity, Piece
 from catch.sync import planning
 
-_LAP_REST_TOLERANCE = 0.25
 
 
 def _split_m(canonical: CanonicalActivity) -> float:
@@ -84,7 +83,7 @@ def _mean(vals: list) -> Optional[float]:
     return sum(v) / len(v) if v else None
 
 
-def _reps_from_laps(session: Session, members: list[Activity], planned_work: list[dict]) -> Optional[list[dict]]:
+def _reps_from_laps(session: Session, members: list[Activity], planned_work: list[dict], all_reps: list[dict]) -> Optional[tuple[list[dict], Optional[str], Optional[str]]]:
     for m in members:
         if not m.laps_json:
             continue
@@ -96,14 +95,7 @@ def _reps_from_laps(session: Session, members: list[Activity], planned_work: lis
         if samples is not None:
             n = samples.n_samples
             hr, power, cadence = unpack_series(samples.hr_blob, n), unpack_series(samples.power_blob, n), unpack_series(samples.cadence_blob, n)
-        chosen = laps
-        # Work/rest laps alternate on a structured watch workout: take the work laps only when every lap between them really is
-        # the planned rest (within 25 %). Anything less certain is left unpaired.
-        if len(laps) != len(planned_work) and len(laps) in (2 * len(planned_work) - 1, 2 * len(planned_work)):
-            rests = [w.get("rest_min") for w in planned_work]
-            odd = laps[1::2]
-            if all(r and abs(lap["duration_s"] - r * 60.0) <= _LAP_REST_TOLERANCE * r * 60.0 for lap, r in zip(odd, rests)):
-                chosen = laps[0::2][: len(planned_work)]
+        chosen, method, reason = pc.select_work_laps(laps, planned_work, all_reps)
         out = []
         for lap in chosen:
             a, b = int(lap.get("offset_s") or 0), int((lap.get("offset_s") or 0) + (lap.get("duration_s") or 0))
@@ -114,7 +106,7 @@ def _reps_from_laps(session: Session, members: list[Activity], planned_work: lis
                 rate=lap.get("avg_cadence") if lap.get("avg_cadence") is not None else (_mean(cadence[a:b]) if cadence else None),
                 split_m=500.0,
             ))
-        return out
+        return out, method, reason
     return None
 
 
@@ -129,13 +121,18 @@ def comparison(session: Session, owner_id: str, planned_id: int) -> dict:
         return {**base, "linked": False, "comparison": None, "reason": "The linked workout no longer exists."}
     members = list(session.exec(select(Activity).where(Activity.canonical_id == canonical.id).order_by(Activity.id)).all())
     split_m = _split_m(canonical)
-    work = [r for r in pc.expand_planned(planned["structure"]) if r["kind"] == "work"]
+    all_reps = pc.expand_planned(planned["structure"])
+    work = [r for r in all_reps if r["kind"] == "work"]
 
+    pairing = pairing_reason = None
     reps, source = _reps_from_piece(session, canonical.id), "piece"
     if not reps:
         reps, source = _reps_from_concept2(session, members), "concept2"
     if not reps:
-        reps, source = _reps_from_laps(session, members, work), "laps"
+        from_laps = _reps_from_laps(session, members, work, all_reps)
+        reps, source = [], "laps"
+        if from_laps:
+            reps, pairing, pairing_reason = from_laps
     if not reps:
         reps, source = [], None
 
@@ -143,7 +140,7 @@ def comparison(session: Session, owner_id: str, planned_id: int) -> dict:
         duration_s=canonical.duration, distance_m=canonical.distance, watts=canonical.avg_power,
         rate=canonical.avg_cadence, hr=canonical.avg_hr, split_m=split_m,
     )
-    result = pc.compare(planned, reps, whole, reps_source=source)
+    result = pc.compare(planned, reps, whole, reps_source=source, pairing=pairing, pairing_reason=pairing_reason)
     return {
         **base,
         "workout": {"id": canonical.id, "ref": f"/workouts/{canonical.id}", "title": canonical.title, "sport_family": canonical.sport_family},

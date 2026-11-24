@@ -27,9 +27,13 @@ export default defineConfig({
           SUPABASE_PUBLISHABLE_KEY: env.CATCH_TEST_SUPABASE_PUBLISHABLE_KEY ?? "",
           SUPABASE_SECRET_KEY: env.CATCH_TEST_SUPABASE_SECRET_KEY ?? "",
           CATCH_TICK_SECRET: "live-tick-secret-for-the-local-test-stack-only",
+          // Session 28 refuses a public start without its own master key; a fixed throwaway one for this local stack only.
+          CATCH_SECRETS_MASTER_KEY: "live-master-key-for-the-local-test-stack-only-0000",
           CATCH_SESSION_CHECK_TTL: "0",
           CATCH_OLLAMA_ENABLED: "0",
           CATCH_BASE_URL: "http://127.0.0.1:8799",
+          // Session 29's startup check refuses a non-https base URL; this is the documented escape hatch for a local rehearsal only.
+          CATCH_ALLOW_LOCAL_BASE_URL: "1",
         },
       }
     : undefined,

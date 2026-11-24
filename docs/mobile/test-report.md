@@ -43,3 +43,8 @@ Redesigned build. Android emulator: `android-e2e.mjs` **20/20** (sign-in, Keysto
 was found and fixed on the way: `vite:preloadError` also fires for failed API fetches, and the app reloaded mid sign-in (see PLAN.md "Follow-ups").
 iOS simulator: Mobile Safari renders the production build correctly. The native shell builds, launches to the login screen in dark mode, and shows
 the new navy icon. iOS native sign-in was not run. Nothing was checked on a physical device.
+
+## Session 36 follow-up re-run (2026-11-23)
+Android emulator (`catch_pixel8`, dev debug build against a local public-mode API and the throwaway stack): `android-e2e.mjs` **21/21**.
+iOS simulator: Debug build succeeds unsigned, installs and launches to the sign-in screen. iOS native sign-in still not run; nothing on a
+physical device.

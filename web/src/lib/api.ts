@@ -251,7 +251,7 @@ import type {
 } from "./types";
 import type { DuplicateMergePreview } from "./types";
 import { mockDuplicateMergePreview } from "./mockLab";
-import type { HrAtWorkload, LabProgression, LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse, Predicted2k, RecordsPayload, SplitByRate } from "./types";
+import type { ErgAlignment, ErgAlignmentSuggestion, HrAtWorkload, LabProgression, LinkCandidate, MonthSummary, PhaseProgress, PlanComparisonResponse, PowerCurve, Predicted2k, RecordsPayload, SplitByRate } from "./types";
 import * as mockLab from "./mockLab";
 import * as mockGoalsMod from "./mockGoals";
 import type { Goal, GoalInput, LoadHistory } from "./types";
@@ -428,6 +428,30 @@ export async function bulkEditActivities(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ canonical_ids: ids, patch, tags_add: opts?.tagsAdd, tags_remove: opts?.tagsRemove }),
   });
+}
+
+export async function fetchErgAlignment(canonicalId: number): Promise<ErgAlignment> {
+  if (isMock) return delay(mockLab.mockErgAlignment(canonicalId), 80);
+  return request<ErgAlignment>(`/api/activities/${canonicalId}/erg-alignment`);
+}
+
+export async function suggestErgAlignment(canonicalId: number): Promise<ErgAlignmentSuggestion> {
+  if (isMock) return delay(mockLab.mockSuggestErgAlignment(), 300);
+  return request<ErgAlignmentSuggestion>(`/api/activities/${canonicalId}/erg-alignment/suggest`, { method: "POST" });
+}
+
+export async function setErgAlignment(canonicalId: number, offsetS: number): Promise<ErgAlignment> {
+  if (isMock) return delay(mockLab.mockSetErgAlignment(canonicalId, offsetS), 120);
+  return request<ErgAlignment>(`/api/activities/${canonicalId}/erg-alignment`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ offset_s: offsetS }),
+  });
+}
+
+export async function clearErgAlignment(canonicalId: number): Promise<ErgAlignment> {
+  if (isMock) return delay(mockLab.mockSetErgAlignment(canonicalId, null), 120);
+  return request<ErgAlignment>(`/api/activities/${canonicalId}/erg-alignment`, { method: "DELETE" });
 }
 
 export async function fetchActivitySamples(
@@ -1861,7 +1885,12 @@ export async function unapprovePhase(id: number): Promise<PlanPhase> {
 
 // --- Session 22: workout library, technique notes, coach feedback ---------------------------------
 
-export async function fetchLibraryTemplates(opts: { scope?: TemplateScope; q?: string; workout_type?: string; difficulty?: string } = {}): Promise<{ templates: WorkoutTemplate[] }> {
+export async function fetchLibraryFolders(): Promise<{ folders: { name: string; count: number }[] }> {
+  if (isMock) return delay({ folders: mockLib.mockFolders() }, 80);
+  return request<{ folders: { name: string; count: number }[] }>("/api/library/folders");
+}
+
+export async function fetchLibraryTemplates(opts: { scope?: TemplateScope; q?: string; workout_type?: string; difficulty?: string; folder?: string } = {}): Promise<{ templates: WorkoutTemplate[] }> {
   if (isMock) {
     if (MOCK_SCENARIO === "error") throw new ApiError(500, "Mock server error");
     return delay({ templates: mockLib.mockTemplates(opts) }, 120);
@@ -1870,6 +1899,7 @@ export async function fetchLibraryTemplates(opts: { scope?: TemplateScope; q?: s
   if (opts.q) qs.set("q", opts.q);
   if (opts.workout_type) qs.set("workout_type", opts.workout_type);
   if (opts.difficulty) qs.set("difficulty", opts.difficulty);
+  if (opts.folder) qs.set("folder", opts.folder);
   return request<{ templates: WorkoutTemplate[] }>(`/api/library/templates?${qs}`);
 }
 
@@ -2406,6 +2436,11 @@ export async function fetchHrAtWorkload(from?: string, to?: string): Promise<HrA
 export async function fetchSplitByRate(from?: string, to?: string): Promise<SplitByRate> {
   if (isMock) return delay(mockLab.mockSplitByRate(), 120);
   return request<SplitByRate>(`/api/lab/split-by-rate${rangeQuery(from, to)}`);
+}
+
+export async function fetchPowerCurve(from?: string, to?: string): Promise<PowerCurve> {
+  if (isMock) return delay(mockLab.mockPowerCurve(), 120);
+  return request<PowerCurve>(`/api/lab/power-curve${rangeQuery(from, to)}`);
 }
 
 export async function fetchPredict2k(): Promise<Predicted2k> {

@@ -27,6 +27,7 @@ export function LibraryTemplatePage() {
     mutationFn: () => duplicateLibraryTemplate(tid),
     onSuccess: (copy) => {
       qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["library-folders"] });
       navigate(`/library/${copy.id}`);
     },
     onError: (e: Error) => setError(e.message),

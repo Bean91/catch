@@ -140,3 +140,14 @@ planned-session sheet; the Feedback page is where authored, versioned feedback l
 - Phases have a free `category` label (suggestions Base/Build/Peak/Taper/Recovery); `GET /api/phases/{id}/progress` gives the block week
   by week; `GET /api/calendar/month-summary?month=YYYY-MM` gives completed vs planned totals for a month (plans never counted as done).
 - Events: `participation`, `sport`, and a linked result (`result_canonical_id`, optionally `result_piece_id`) read live from the workout.
+
+## Follow-up: drag to reschedule, .ics download
+
+- **Drag** (week view, `components/calendar/usePlanDrag.tsx`): mouse drags after 6 px; touch needs a 350 ms press-and-hold first, so a
+  swipe still scrolls. A drop calls `POST /api/planned/{id}/move` — the occurrence only, a link kept — and a toast offers Undo. Tapping
+  still opens the sheet, which remains the keyboard and screen-reader way to change a date.
+- **`GET /api/calendar/export.ics?from=&to=`** (default 30 days back to a year ahead, at most two years): planned sessions and events as
+  an iCalendar download (`analytics/ics.py`, `sync/calendar_export.py`). No completed workouts. All-day unless the plan has a start time,
+  which is converted from the athlete's zone for that day to UTC. Stable UIDs per row, so a newer file updates the same entries. Skipped
+  plans and withdrawn/did-not-start events are `STATUS:CANCELLED`. It is a download, not a subscription feed (a feed would need a
+  separate unauthenticated token). Counts against the daily export allowance.

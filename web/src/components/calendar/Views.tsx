@@ -5,6 +5,7 @@ import type { CalendarDay, CalendarPayload, MatchSuggestion, PlannedWorkout } fr
 import { CompletedChip, EventChip, PlannedSessionChip } from "./Chips";
 import { BlockLine } from "./BlockLine";
 import { invalidateCalendar } from "./PlannedWorkoutSheet";
+import { usePlanDrag } from "./usePlanDrag";
 import { PillNav } from "../ui/PillNav";
 import { EmptyState } from "../ui/EmptyState";
 import { buttonClass } from "../ui/Button";
@@ -28,7 +29,12 @@ export function WeekView({
   onAdd: (date: string) => void;
   onSelectDay: (date: string) => void;
 }) {
+  const { handlers, ghost, overDate } = usePlanDrag();
   return (
+    <>
+    <p id="plan-drag-hint" className="sr-only">
+      Press and hold a planned session, then drag it to another day to move it. Or open it and change its date.
+    </p>
     <ul className="flex flex-col gap-2" data-testid="week-view">
       {days.map((day) => {
         const linked = linkedCompletedIds(day);
@@ -40,7 +46,9 @@ export function WeekView({
             key={day.date}
             data-testid="week-day"
             data-date={day.date}
-            className={`grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-start gap-2 rounded-lg border p-2 shadow-[var(--highlight),var(--shadow-1)] ${isToday ? "border-accent/60 bg-[linear-gradient(100deg,var(--accent-soft),transparent_45%),var(--surface)]" : "border-border bg-surface"}`}
+            data-drop-date={day.date}
+            data-drop-over={overDate === day.date || undefined}
+            className={`grid grid-cols-[3.5rem_minmax(0,1fr)_2.75rem] items-start gap-2 rounded-lg border p-2 shadow-[var(--highlight),var(--shadow-1)] ${overDate === day.date ? "outline-2 outline-offset-2 outline-accent " : ""}${isToday ? "border-accent/60 bg-[linear-gradient(100deg,var(--accent-soft),transparent_45%),var(--surface)]" : "border-border bg-surface"}`}
           >
             <button
               type="button"
@@ -57,7 +65,9 @@ export function WeekView({
                 <EventChip key={`e${e.id}`} e={e} />
               ))}
               {day.planned.map((p) => (
-                <PlannedSessionChip key={`p${p.id}`} p={p} onOpen={onOpenPlanned} />
+                <div key={`p${p.id}`} data-testid="planned-drag" className="select-none [-webkit-touch-callout:none]" aria-describedby="plan-drag-hint" {...handlers(p)}>
+                  <PlannedSessionChip p={p} onOpen={onOpenPlanned} />
+                </div>
               ))}
               {loose.map((c) => (
                 <CompletedChip key={`c${c.id}`} c={c} />
@@ -76,6 +86,8 @@ export function WeekView({
         );
       })}
     </ul>
+    {ghost}
+    </>
   );
 }
 

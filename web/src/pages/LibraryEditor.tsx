@@ -7,7 +7,7 @@ import { DIFFICULTIES, SESSION_TYPE_CHOICES, WORKOUT_TYPES } from "../components
 import { Card } from "../components/ui/Card";
 import { ErrorState } from "../components/ui/EmptyState";
 import { CardSkeleton } from "../components/ui/Skeleton";
-import { createLibraryTemplate, fetchExercises, fetchLibraryTemplate, previewLibraryTemplate, updateLibraryTemplate } from "../lib/api";
+import { createLibraryTemplate, fetchExercises, fetchLibraryFolders, fetchLibraryTemplate, previewLibraryTemplate, updateLibraryTemplate } from "../lib/api";
 import type { Difficulty, SessionType, TemplateBlock, TemplateInput, TemplateStrengthItem, WorkoutType, ZoneLabel } from "../lib/types";
 import { buttonClass } from "../components/ui/Button";
 import { controlSkin } from "../components/ui/Field";
@@ -51,6 +51,8 @@ export function LibraryEditorPage() {
   const [difficulty, setDifficulty] = useState<Difficulty | "">("");
   const [zone, setZone] = useState<ZoneLabel | "">("");
   const [tags, setTags] = useState("");
+  const [folder, setFolder] = useState("");
+  const folders = useQuery({ queryKey: ["library-folders"], queryFn: fetchLibraryFolders });
   const [warm, setWarm] = useState<SegmentRow>(blankSegment());
   const [cool, setCool] = useState<SegmentRow>(blankSegment());
   const [rows, setRows] = useState<BlockRow[]>(FIRST_ROWS.erg_intervals);
@@ -69,6 +71,7 @@ export function LibraryEditorPage() {
     setDifficulty(t.difficulty ?? "");
     setZone(t.target_zone ?? "");
     setTags(t.tags.join(", "));
+    setFolder(t.folder ?? "");
     setWarm(segmentToRow(t.structure.warmup));
     setCool(segmentToRow(t.structure.cooldown));
     setRows((t.structure.blocks ?? []).map(blockToRow));
@@ -102,10 +105,11 @@ export function LibraryEditorPage() {
       difficulty: difficulty || null,
       target_zone: zone || null,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      folder: folder.trim() || null,
       structure: type === "strength" ? { strength_items: items } : { warmup, blocks, cooldown },
     };
     return { input, problems };
-  }, [name, type, sessionType, description, purpose, difficulty, zone, tags, warm, cool, rows, items]);
+  }, [name, type, sessionType, description, purpose, difficulty, zone, tags, folder, warm, cool, rows, items]);
 
   const preview = useQuery({
     queryKey: ["library-preview", built.input],
@@ -118,6 +122,7 @@ export function LibraryEditorPage() {
     mutationFn: () => (editing ? updateLibraryTemplate(tid, built.input) : createLibraryTemplate(built.input)),
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["library-folders"] });
       navigate(`/library/${t.id}`);
     },
     onError: (e: Error) => setError(e.message),
@@ -217,6 +222,16 @@ export function LibraryEditorPage() {
                 <Field label="Tags (comma-separated)">
                   <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputCls} />
                 </Field>
+              </div>
+              <div className="col-span-2">
+                <Field label="Folder (optional)">
+                  <input value={folder} onChange={(e) => setFolder(e.target.value)} maxLength={40} list="template-folders" data-testid="template-folder" className={inputCls} />
+                </Field>
+                <datalist id="template-folders">
+                  {(folders.data?.folders ?? []).map((f) => (
+                    <option key={f.name} value={f.name} />
+                  ))}
+                </datalist>
               </div>
             </div>
           </Card>

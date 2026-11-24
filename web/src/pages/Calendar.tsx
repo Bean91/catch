@@ -14,6 +14,7 @@ import { ErrorState } from "../components/ui/EmptyState";
 import { fetchCalendar, fetchPlanWeekSummary } from "../lib/api";
 import { addDays, addMonths, dayLabel, monthGrid, monthLabel, parseISODate, todayISO, weekRangeLabel, weekStart } from "../lib/dates";
 import type { PlannedWorkout } from "../lib/types";
+import { downloadCalendarIcs } from "../lib/privacy";
 
 type View = "day" | "week" | "month" | "agenda";
 const VIEWS: { value: View; label: string }[] = [
@@ -33,6 +34,31 @@ function rangeFor(view: View, date: string): [string, string] {
   const d = parseISODate(date);
   const grid = monthGrid(d.getFullYear(), d.getMonth());
   return [grid[0][0], grid[grid.length - 1][6]];
+}
+
+/** Session 36 follow-up: planned sessions and events as an .ics file. */
+function CalendarDownload() {
+  const [state, setState] = useState<"idle" | "busy" | "error">("idle");
+  const run = async () => {
+    setState("busy");
+    try {
+      await downloadCalendarIcs();
+      setState("idle");
+    } catch {
+      setState("error");
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface/60 p-3 text-sm text-text-secondary sm:flex-row sm:items-center sm:justify-between" data-testid="calendar-download">
+      <p>
+        Put your plans in another calendar app: a file of planned sessions and events from 30 days ago to a year ahead. Importing a newer file updates the same
+        entries.{state === "error" ? " The download didn't work — try again." : ""}
+      </p>
+      <Button size="sm" loading={state === "busy"} onClick={run} className="shrink-0">
+        Download .ics
+      </Button>
+    </div>
+  );
 }
 
 export function CalendarPage() {
@@ -135,6 +161,8 @@ export function CalendarPage() {
       )}
 
       {view === "month" ? <MonthSummaryCard month={date.slice(0, 7)} /> : summary.data && <WeekSummaryCard s={summary.data} />}
+
+      <CalendarDownload />
 
       <PlannedWorkoutSheet open={sheet.open} onOpenChange={(o) => setSheet((s) => ({ ...s, open: o }))} existing={sheet.existing} defaultDate={sheet.date} />
       <EventSheet open={eventSheet} onOpenChange={setEventSheet} existing={null} defaultDate={date} />

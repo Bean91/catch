@@ -9,17 +9,17 @@ import json
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import func
 from sqlmodel import Session, select
 
 from catch.analytics import performance_lab as lab
+from catch.analytics import stroke_summary as ss
 from catch.core import localtime
-from catch.core.models import Activity, CanonicalActivity, Stroke
+from catch.core.models import Activity, CanonicalActivity
 from catch.sync import records as rec
+from catch.sync import stroke_summary
 from catch.sync.activity_days import canonical_in_days
 
 MAX_RANGE_DAYS = 3 * 366
-_ID_CHUNK = 500
 
 
 def clamp_range(session: Session, start: Optional[date], end: Optional[date]) -> tuple[date, date]:
@@ -54,41 +54,40 @@ def steady_rowing_sessions(session: Session, start: date, end: date) -> list[dic
     ]
 
 
-def stroke_rate_rows(session: Session, start: date, end: date) -> list[dict]:
-    """Per rowing-erg recording and 2-spm rate band: how many strokes and the sum of their splits."""
+def _rower_recordings(session: Session, start: date, end: date) -> dict[int, tuple[date, int]]:
+    """`{Concept2 rowing recording id: (its workout's day, canonical id)}` for workouts in range not excluded from totals."""
     canon = {c.id: c for c in canonical_in_days(session, start, end) if not _excluded(c)}
     if not canon:
-        return []
+        return {}
     acts = session.exec(
         select(Activity.id, Activity.canonical_id).where(Activity.canonical_id.in_(list(canon)), Activity.source == "concept2", Activity.type == "rower")
     ).all()
-    day_of_act = {aid: localtime.day_of(session, canon[cid]) for aid, cid in acts}
+    return {aid: (localtime.day_of(session, canon[cid]), cid) for aid, cid in acts}
+
+
+def stroke_rate_rows(session: Session, start: date, end: date) -> list[dict]:
+    """Per rowing-erg recording and 2-spm rate band: how many strokes and the sum of their splits — from each recording's cached
+    stroke summary (catch/sync/stroke_summary.py), so a range read touches one row per recording, not every stroke."""
+    recs = _rower_recordings(session, start, end)
     out: list[dict] = []
-    ids = list(day_of_act)
-    rate = func.round(Stroke.stroke_rate)
-    for i in range(0, len(ids), _ID_CHUNK):
-        chunk = ids[i : i + _ID_CHUNK]
-        q = (
-            select(Stroke.activity_id, rate, func.count(), func.sum(Stroke.pace_500m))
-            .where(
-                Stroke.activity_id.in_(chunk), Stroke.stroke_rate.is_not(None), Stroke.pace_500m.is_not(None),
-                Stroke.stroke_rate >= lab.RATE_RANGE[0], Stroke.stroke_rate <= lab.RATE_RANGE[1],
-                Stroke.pace_500m >= 60, Stroke.pace_500m <= 300,
-            )
-            .group_by(Stroke.activity_id, rate)
-        )
-        for aid, r, n, total in session.exec(q).all():
-            out.append({"session": aid, "date": day_of_act[aid], "band": lab.rate_band(float(r)), "strokes": int(n), "pace_sum": float(total or 0.0)})
-    # Several rounded rates fall in one band: merge them per session.
-    merged: dict[tuple, dict] = {}
-    for r in out:
-        k = (r["session"], r["band"])
-        if k in merged:
-            merged[k]["strokes"] += r["strokes"]
-            merged[k]["pace_sum"] += r["pace_sum"]
-        else:
-            merged[k] = dict(r)
-    return list(merged.values())
+    for aid, summary in stroke_summary.summaries_for(session, list(recs)).items():
+        for band, (n, total) in (summary.get("rate_bands") or {}).items():
+            out.append({"session": aid, "date": recs[aid][0], "band": int(band), "strokes": int(n), "pace_sum": float(total)})
+    return out
+
+
+def power_curve(session: Session, start: Optional[date] = None, end: Optional[date] = None) -> dict:
+    """The best time-weighted average power over standard durations, from each rowing-erg recording's strokes, for the range and
+    each half of it. Watts are derived from each stroke's pace (Concept2's formula), never measured."""
+    start, end = clamp_range(session, start, end)
+    split = lab.midpoint(start, end)
+    recs = _rower_recordings(session, start, end)
+    entries = [
+        {"curve": s.get("power_curve") or {}, "date": recs[aid][0], "ref": f"/workouts/{recs[aid][1]}"}
+        for aid, s in stroke_summary.summaries_for(session, list(recs)).items()
+    ]
+    return {"from": start, "to": end, "split_date": split, "recordings": len(entries), "watts_basis": "derived_from_pace",
+            "max_gap_s": ss.MAX_GAP_S, "durations": ss.curve_halves(entries, split)}
 
 
 def hr_at_workload(session: Session, start: Optional[date] = None, end: Optional[date] = None) -> dict:

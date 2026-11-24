@@ -5,7 +5,9 @@ Rules that matter more than they look:
     didn't have, and no target is inferred.
   * Reps are paired by order, and only when the counts agree (work reps alone, or every planned
     block including the warm-up and cool-down). Anything else falls back to the whole session,
-    and the reason is stated rather than guessed around.
+    and the reason is stated rather than guessed around. A watch's laps are first narrowed to the
+    work laps by `select_work_laps` (the lap's own intensity, alternating rest laps, or the one
+    way the laps fit the plan's rep lengths) — never by picking the best-looking subset.
   * Per-rep targets (split, watts, rate, heart rate) are compared with the whole session only when
     the plan is one continuous block with nothing around it; otherwise a whole-session average
     would mix in warm-up and rest, so it isn't offered.
@@ -90,7 +92,76 @@ def _has_rep_targets(rep: dict) -> bool:
     return any(rep.get(k) is not None for k in ("split_s", "watts", "rate_min", "rate_max", "hr_min", "hr_max", "work_m", "work_min"))
 
 
-def compare(planned: dict, actual_reps: list[dict], actual_whole: dict, *, reps_source: Optional[str] = None) -> dict:
+LAP_MATCH_TOLERANCE = 0.10
+LAP_REST_TOLERANCE = 0.25
+WORK_INTENSITIES = ("active", "interval")
+
+
+def _lap_fits(lap: dict, rep: dict, tol: float) -> bool:
+    """Does this lap have the planned rep's own length (time for a timed rep, distance for a distance rep) within `tol`?"""
+    if rep.get("work_m"):
+        d = lap.get("distance_m")
+        return d is not None and abs(d - float(rep["work_m"])) <= tol * float(rep["work_m"])
+    if rep.get("work_min"):
+        t = lap.get("duration_s")
+        target = float(rep["work_min"]) * 60.0
+        return t is not None and abs(t - target) <= tol * target
+    return False
+
+
+def select_work_laps(laps: list[dict], work: list[dict], all_reps: list[dict]) -> tuple[list[dict], Optional[str], Optional[str]]:
+    """Narrow a watch's laps to the planned reps. Returns (laps, method, reason):
+      * the counts already agree → every lap, "order";
+      * every lap carries the FIT `intensity` and the active laps number the work reps → those, "intensity";
+      * work and rest laps alternate, every rest lap is the planned rest (±25 %) and every work lap its rep's length (±10 %, where
+        the lap states it) → the work laps, "alternating_rest";
+      * exactly one in-order choice of laps fits every work rep's planned length (±10 %) → that choice, "lengths";
+      * otherwise the laps unchanged, no method, and the reason. Two or more fits are as unknown as none."""
+    n = len(work)
+    if not laps or not work or len(laps) in (n, len(all_reps)):
+        return laps, ("order" if laps and work else None), None
+    if all(lap.get("intensity") for lap in laps):
+        active = [lap for lap in laps if lap["intensity"] in WORK_INTENSITIES]
+        if len(active) == n:
+            return active, "intensity", None
+    if len(laps) in (2 * n - 1, 2 * n):
+        rests = [w.get("rest_min") for w in work]
+        odd = laps[1::2]
+        even = laps[0::2][:n]
+        rests_fit = all(r and lap.get("duration_s") is not None and abs(lap["duration_s"] - r * 60.0) <= LAP_REST_TOLERANCE * r * 60.0 for lap, r in zip(odd, rests))
+        # The work laps must fit too, wherever the lap states the rep's own length: a rest-length lap alone proves nothing.
+        work_fit = all(_lap_fits(lap, rep, LAP_MATCH_TOLERANCE) or (rep.get("work_m") and lap.get("distance_m") is None) for lap, rep in zip(even, work))
+        if rests_fit and work_fit:
+            return even, "alternating_rest", None
+    if len(laps) > n:
+        # ways[i][j]: in-order ways to pair the first j reps using laps[:i]. Capped at 2 — only "none", "one" or "several" matter.
+        ways = [[0] * (n + 1) for _ in range(len(laps) + 1)]
+        for i in range(len(laps) + 1):
+            ways[i][0] = 1
+        for i in range(1, len(laps) + 1):
+            for j in range(1, n + 1):
+                w = ways[i - 1][j]
+                if _lap_fits(laps[i - 1], work[j - 1], LAP_MATCH_TOLERANCE):
+                    w += ways[i - 1][j - 1]
+                ways[i][j] = min(w, 2)
+        if ways[len(laps)][n] == 1:
+            chosen: list[dict] = []
+            i, j = len(laps), n
+            while j > 0:
+                if ways[i - 1][j] == 1:
+                    i -= 1
+                    continue
+                chosen.append(laps[i - 1])
+                i, j = i - 1, j - 1
+            return list(reversed(chosen)), "lengths", None
+        if ways[len(laps)][n] >= 2:
+            return laps, None, f"The watch recorded {len(laps)} laps for {n} planned work reps, and more than one set of them fits the plan, so reps aren't paired."
+        return laps, None, f"The watch recorded {len(laps)} laps for {n} planned work reps, and none of the ways to pick {n} of them matches the planned rep lengths, so reps aren't paired."
+    return laps, None, f"The watch recorded {len(laps)} laps for {n} planned work reps, so reps aren't paired."
+
+
+def compare(planned: dict, actual_reps: list[dict], actual_whole: dict, *, reps_source: Optional[str] = None,
+            pairing: Optional[str] = None, pairing_reason: Optional[str] = None) -> dict:
     """`planned` is the planned row's dict (`structure`, `duration_min`, `distance_m`).
     `actual_reps`: recorded reps in order, each `{duration_s, distance_m, split_s, watts, rate, hr,
     basis: {metric: "measured"|"derived"}}` (missing values None). `actual_whole`: the same keys for
@@ -122,7 +193,7 @@ def compare(planned: dict, actual_reps: list[dict], actual_whole: dict, *, reps_
     elif not actual_reps:
         reason = "This recording has no per-rep data, so only the session as a whole can be compared."
     else:
-        reason = f"The plan has {len(work)} work rep{'s' if len(work) != 1 else ''} and the recording has {len(actual_reps)}, so reps aren't paired."
+        reason = pairing_reason or f"The plan has {len(work)} work rep{'s' if len(work) != 1 else ''} and the recording has {len(actual_reps)}, so reps aren't paired."
 
     reps_out = []
     for i, (target, actual) in enumerate(paired):
@@ -149,6 +220,7 @@ def compare(planned: dict, actual_reps: list[dict], actual_whole: dict, *, reps_
         "mode": mode if (paired or whole_metrics or totals) else "none",
         "reason": reason.strip() if reason else None,
         "reps_source": reps_source if paired else None,
+        "pairing": (pairing or "order") if paired else None,
         "totals": totals,
         "reps": reps_out,
         "whole": whole_metrics,

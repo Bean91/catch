@@ -172,6 +172,9 @@ _NEW_COLUMNS.setdefault("goals", {}).update({
 })
 _NEW_COLUMNS.setdefault("events", {}).update({"participation": "TEXT", "sport": "TEXT", "result_canonical_id": "INTEGER", "result_piece_id": "INTEGER"})
 _NEW_COLUMNS.setdefault("training_phases", {})["category"] = "TEXT"
+# Session 36 follow-up: the per-recording stroke summary cache and template folders (migration 0014 on the public build).
+_NEW_COLUMNS["activities"]["stroke_summary_json"] = "TEXT"
+_NEW_COLUMNS.setdefault("workout_templates", {})["folder"] = "TEXT"
 
 
 _SESSION32_INDEXES = (

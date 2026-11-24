@@ -4,11 +4,13 @@ from catch.core.tenant import current_owner
 from datetime import date as date_
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlmodel import Session
 
 from catch.api.deps import get_db, require_auth
+from catch.api.ratelimit import rate_limit
+from catch.core.owner import current_owner_id
 from catch.sync import planning as sp
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -41,6 +43,27 @@ def get_week_summary(week_start: date_ | None = Query(None), db: Session = Depen
 def get_month_summary(month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), db: Session = Depends(get_db)):
     year, mon = (int(x) for x in month.split("-"))
     return sp.month_summary(db, current_owner(), year, mon)
+
+
+@router.get("/api/calendar/export.ics", dependencies=[rate_limit("export_table")])
+def export_calendar_ics(
+    from_: date_ | None = Query(None, alias="from"), to: date_ | None = Query(None),
+    owner_id: str = Depends(current_owner_id), db: Session = Depends(get_db),
+):
+    """Session 36 follow-up: planned sessions and events as an .ics download (catch/sync/calendar_export.py). Counted against the
+    same daily export allowance as the per-category exports."""
+    from catch.api.routes_privacy import EXPORT_TABLES_PER_DAY
+    from catch.coach import limits
+    from catch.sync import calendar_export
+
+    try:
+        limits.check_daily(owner_id, "export_table", EXPORT_TABLES_PER_DAY)
+    except limits.LimitExceeded as exc:
+        raise HTTPException(status_code=429, detail=exc.message, headers={"Retry-After": str(exc.retry_after_s)}) from None
+    start, end = calendar_export.clamp(db, from_, to)
+    body = calendar_export.build(db, owner_id, start, end)
+    return Response(content=body, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="catch-calendar-{start:%Y%m%d}-{end:%Y%m%d}.ics"', "Cache-Control": "no-store"})
 
 
 @router.get("/api/calendar/phase")

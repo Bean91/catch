@@ -81,6 +81,7 @@ READS = (
     "/api/lab/hr-at-workload",
     "/api/lab/split-by-rate",
     "/api/lab/split-by-rate?from={from3y}",
+    "/api/lab/power-curve?from={from3y}",
     "/api/trends/load-history?weeks=26",
     "/api/goals",
     "/api/activities?limit=30&q=steady",
@@ -290,6 +291,11 @@ def main() -> int:
             results.append(measure(client, "GET", url, args.repeat, counter))
         results.append(measure(client, "PUT", "/api/settings", max(2, args.repeat // 2), counter, {"notifications": {"quiet_hours_start": "22:30"}}))
         settings_burst = burst(client, list(SETTINGS_READS), args.repeat)
+        if args.strokes and args.only == "all":
+            # Session 36 follow-up: strokes seeded in bulk have no per-recording summary yet, so the first 3-year read builds every
+            # recording's summary (the cold cost, once); everything after reads the cache.
+            cold_url = f"/api/lab/split-by-rate?from={(today - timedelta(days=3 * 365)).isoformat()}"
+            results.append({**measure(client, "GET", cold_url, 1, counter), "url": cold_url + " (cold: builds the cache)"})
         for url in READS if args.only == "all" else ():
             url = url.format(from_=(today - timedelta(days=35)).isoformat(), to=(today + timedelta(days=7)).isoformat(),
                              from3y=(today - timedelta(days=3 * 365)).isoformat())

@@ -5297,11 +5297,55 @@ sport, result_canonical_id, result_piece_id (composite tenant FKs). `training_ph
 
 ## Not done / limitations
 
-- Drag-and-drop rescheduling (←/→ and the date field remain; drag is poor on touch, DESIGN.md session 21).
-- Cross-device chart sync (watch + PM5 with unknown clock agreement): shown as "Not linked", never guessed.
-- Rolling best power from strokes (a power-duration curve): records use each effort's own average power.
-- Per-rep comparison against Garmin laps only when the lap count matches the plan (or alternates with the planned rests).
-- ICS calendar export and template folders.
-- Split by rate costs ~0.35 s over three years of strokes (linear); no cache of per-recording band sums.
-- `test:update`, `test:gym`, `test:live` and the native harnesses weren't re-run (this session touched none of what they cover).
-- Not deployed; the deploy needs `catch db upgrade` (0013) first.
+- ~~Drag-and-drop rescheduling~~ — done in the follow-up below.
+- ~~Cross-device chart sync~~ — done: linked at an offset the athlete confirms (a server proposal is optional).
+- ~~Rolling best power from strokes~~ — done: the per-recording best-power curve.
+- ~~Garmin laps only when the counts match~~ — done: intensity, alternating rest (now also checks the work laps), unique fit by length.
+- ~~ICS calendar export and template folders~~ — done.
+- ~~Split by rate uncached~~ — done: per-recording stroke summaries.
+- Harnesses: see the follow-up's verification.
+- Not deployed; the deploy needs `catch db upgrade` (0013 and 0014) first.
+
+## Follow-up (2026-11-23): the "Not done" list above
+
+Asked to "fill those gaps and limitations". Migration **0014** (columns only): `activities.stroke_summary_json`,
+`workout_templates.folder`; `EXPECTED_SCHEMA_REVISION = "0014"`; SQLite via `_NEW_COLUMNS`.
+
+- **Drag to reschedule** (`components/calendar/usePlanDrag.tsx`, week view): a mouse drags after 6 px; a finger must press and hold
+  350 ms first (a swipe that moves earlier stays a scroll; a non-passive `touchmove` listener cancels scrolling only while a drag is
+  active). Drops call the existing `POST /api/planned/{id}/move` (this occurrence only; a link stays as it is). A toast offers Undo. A
+  tap still opens the sheet, which stays the keyboard/screen-reader path (`aria-describedby` hint).
+- **Two-device chart cursor** (`analytics|sync/recording_offset.py`, `/api/activities/{id}/erg-alignment` GET/PUT/DELETE +
+  `/suggest`, `components/workouts/ErgAlignmentNote.tsx`): never auto-linked. analytics.md §35.6.
+- **Best power for each duration + stroke summary cache** (`analytics|sync/stroke_summary.py`, `GET /api/lab/power-curve`, Lab
+  "Best power for each duration" card). analytics.md §35.8.
+- **Lap pairing** (`plan_compare.select_work_laps`; `parse_fit` keeps lap distance/HR/cadence/intensity). analytics.md §35.4. The
+  old alternating-rest rule only checked rest laps, so a long warm-up lap could become rep 1 — found by a new test, fixed.
+- **ICS export** (`analytics/ics.py`, `sync/calendar_export.py`, `GET /api/calendar/export.ics`, Calendar "Download .ics"): a
+  download (no subscription URL — that would need an unauthenticated token), plans and events only, stable UIDs, CRLF + 75-octet
+  folding, timed plans in UTC, skipped/withdrawn as cancelled; same daily export allowance as the category exports.
+- **Template folders** (`workout_templates.folder`, `GET /api/library/folders`, `?folder=` on the list, editor field + list filter):
+  the owner's own templates only; a shared example never has one (bug #5's trap: a folder on a shared row would be everyone's).
+
+### Verification (follow-up)
+
+| Check | Result |
+|---|---|
+| `CATCH_DEPLOYMENT=personal uv run pytest --ignore=tests/pg` | 2,624 passed, 3 skipped (+27) |
+| `tests/pg` (local Supabase stack: 0014 applied, schema = models, RLS) | 101 passed, 1 skipped; stack re-seeded after |
+| vitest | 121 passed |
+| `test:touch` (3 projects, fresh production build) | 367 passed, 9 skipped, 0 failed (incl. `session36-followup.spec.ts` and the desktop drag) |
+| `test:public` | 24 passed |
+| `test:update` | 4 passed |
+| `test:gym` (real backend, scratch DB) | 3 passed |
+| `test:live` (real GoTrue + RLS + CSP, local stack) | 1 passed — after giving `playwright.live.config.ts` the local-only `CATCH_ALLOW_LOCAL_BASE_URL=1` and a throwaway `CATCH_SECRETS_MASTER_KEY` (sessions 28/29 startup checks had left it unable to start) |
+| Android `android-e2e.mjs` (emulator, dev build, local API) | 21/21 |
+| iOS simulator | builds (unsigned Debug), installs, launches to sign-in; native sign-in not automated |
+| `tsc -b`, oxlint, ruff | Clean apart from the pre-existing oxlint warnings |
+| Initial bundle | 201.9 KB of 250 KB |
+| `perf_personal.py --years 3 --strokes` | split by rate warm 8.0 ms (1 yr) / 17.7 ms (3 yr), power curve 17.3 ms; cold first 3-year read 5.0 s / 977 statements, once |
+
+Still not done: a calendar *subscription* feed (download only); drag in the month and agenda views (week view only — the sheet's date
+field covers the rest); coach/MCP tools for the curve, folders or offsets (74 tools, unchanged); lap pairing on laps parsed before this
+change uses time only (public FIT files are deleted after parsing, so they can't be re-read); iOS native sign-in and anything on a
+physical device. Not deployed: `catch db upgrade` (0013 and 0014) before `fastapi deploy`.

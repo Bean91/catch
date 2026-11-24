@@ -35,3 +35,30 @@ test("performance lab at desktop width", async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test("week view: drag a planned session to another day with the mouse; a plain click still opens it", async ({ page }) => {
+  await page.goto("/calendar?mock=1");
+  const days = page.getByTestId("week-day");
+  await expect(days).toHaveCount(7);
+  const source = days.filter({ has: page.getByTestId("planned-drag") }).first();
+  const fromDate = (await source.getAttribute("data-date"))!;
+  const chip = source.getByTestId("planned-drag").first();
+  const title = (await chip.locator("span.truncate.font-medium").textContent())!.trim();
+  const dates = await days.evaluateAll((els) => els.map((e) => e.getAttribute("data-date")!));
+  const toDate = dates.find((d) => d !== fromDate)!;
+  const target = page.locator(`[data-testid="week-day"][data-date="${toDate}"]`);
+  await chip.scrollIntoViewIfNeeded();
+  const a = (await chip.boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await target.scrollIntoViewIfNeeded();
+  const b = (await target.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
+  await expect(page.getByTestId("plan-drag-ghost")).toBeVisible();
+  await expect(target).toHaveAttribute("data-drop-over", "true");
+  await page.mouse.up();
+  await expect(target.getByText(title, { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0); // the drop didn't also open the sheet
+  await target.getByTestId("planned-chip").filter({ hasText: title }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});

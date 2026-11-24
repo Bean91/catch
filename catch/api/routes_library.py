@@ -33,17 +33,24 @@ def list_templates(
     difficulty: str | None = Query(None),
     tag: str | None = Query(None),
     scope: str = Query("mine", pattern="^(mine|examples|all|archived)$"),
+    folder: str | None = Query(None, max_length=40),
     limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
     rows = lib.search_templates(
         db, current_owner(), q=q, workout_type=workout_type, difficulty=difficulty, tags=[tag] if tag else None,
         include_examples=scope in ("examples", "all", "archived"), only_examples=scope == "examples",
-        include_archived=scope == "archived", limit=limit,
+        include_archived=scope == "archived", folder=folder, limit=limit,
     )
     if scope == "archived":
         rows = [r for r in rows if r.archived_at is not None]
     return {"templates": [lib.template_dict(r) for r in rows]}
+
+
+@router.get("/api/library/folders")
+def list_folders(db: Session = Depends(get_db)):
+    """Session 36 follow-up: the owner's template folders and how many live templates each holds."""
+    return {"folders": lib.list_folders(db, current_owner())}
 
 
 @router.post("/api/library/templates/preview")

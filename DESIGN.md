@@ -813,6 +813,13 @@ Guarded by `web/tests/touch/text-wrap.spec.ts` (320px, both mobile engines, plus
 - **Coach links.** In-app paths the coach cites (`/workouts/123`, `/tests/12`, `/tests/piece/4`, `/calendar/events/9`, `/lab`, `/goals`,
   `/trends`) become accent links; nothing else in model text is ever a link (`lib/coachRefs.ts`).
 - **Exports** sit under "Download your data" as one row per category with CSV and JSON buttons.
+- **Follow-up.** *Drag to reschedule*: a floating label follows the pointer ("→ Tue 12 May") and the day under it gets an accent
+  outline; on touch it starts only after a press-and-hold, never on a swipe; Undo in the toast. *Two devices*: the line under the erg chart
+  becomes a small panel — "Find the offset" asks the server for a proposal, shown as a sentence ("…starts 0:42 into the heart-rate
+  recording (correlation 0.96 over 28 min). A proposal, not a measurement") with "Use this offset" / "Adjust"; adjusting is a number
+  field with −5/−1/+1/+5 s buttons. Nothing links until saved; "Unlink" undoes it. *Best power for each duration* is a table like the
+  other Lab cards, every figure a link to its workout, with "Derived, not measured" under it. *Folders*: a select under the type chips
+  (hidden on Examples) and a "Folder: …" prefix on the card. *Calendar download*: a muted row at the end of the calendar.
 - Playwright: `web/tests/touch/session36.spec.ts` (both mobile engines) and `session36-desktop.spec.ts`.
 
 ## Rowing character, restrained

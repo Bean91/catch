@@ -17,6 +17,12 @@ const SOURCE_TEXT: Record<string, string> = {
   laps: "the device's laps",
 };
 
+const PAIRING_TEXT: Record<string, string> = {
+  intensity: "the work laps as the watch marked them",
+  alternating_rest: "every other lap, the ones between matching the planned rest",
+  lengths: "the only laps that fit the planned rep lengths",
+};
+
 const BASIS_TEXT: Partial<Record<ValueBasis, string>> = { derived: "worked out", entered: "typed" };
 
 function fmt(metric: CompareRow["metric"], v: number | null | undefined, splitM: number, bike: boolean): string {
@@ -100,7 +106,8 @@ export function PlanComparisonView({ data, showWorkoutLink = true }: { data: Pla
           <Link to={data.workout.ref} className="text-accent underline">
             {data.workout.title ?? "the linked workout"}
           </Link>
-          {c.reps_source && <> — reps from {SOURCE_TEXT[c.reps_source]}</>}.
+          {c.reps_source && <> — reps from {SOURCE_TEXT[c.reps_source]}</>}
+          {c.reps_source === "laps" && c.pairing && PAIRING_TEXT[c.pairing] && <> ({PAIRING_TEXT[c.pairing]})</>}.
         </p>
       )}
       {c.totals.length > 0 && (

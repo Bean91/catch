@@ -133,7 +133,7 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
     file_id_manufacturer: Optional[str] = None
     hr_device_types: set[str] = set()
     records: list[tuple[datetime, Optional[float], Optional[float], Optional[float]]] = []
-    raw_laps: list[tuple[datetime, float]] = []
+    raw_laps: list[tuple[datetime, float, dict]] = []
 
     try:
         with fitdecode.FitReader(str(path)) as fit:
@@ -169,7 +169,7 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
                     if lap_start is not None and lap_elapsed is not None:
                         if lap_start.tzinfo is None:
                             lap_start = lap_start.replace(tzinfo=timezone.utc)
-                        raw_laps.append((lap_start, float(lap_elapsed)))
+                        raw_laps.append((lap_start, float(lap_elapsed), _lap_extras(frame)))
     except Exception:
         logger.exception("failed to parse FIT file %s", path)
         return None
@@ -195,8 +195,8 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
         hr_source_type = "wrist"
 
     laps = [
-        {"offset_s": max(0.0, (lap_start - start).total_seconds()), "duration_s": lap_elapsed}
-        for lap_start, lap_elapsed in sorted(raw_laps)
+        {"offset_s": max(0.0, (lap_start - start).total_seconds()), "duration_s": lap_elapsed, **extras}
+        for lap_start, lap_elapsed, extras in sorted(raw_laps, key=lambda x: x[0])
     ]
 
     return FitSamples(
@@ -209,6 +209,25 @@ def parse_fit(path: str | Path) -> Optional[FitSamples]:
         hr_source_type=hr_source_type,
         laps=laps,
     )
+
+
+def _lap_intensity(frame) -> Optional[str]:
+    """The lap's FIT `intensity` (active, rest, warmup, cooldown, recovery, interval…): what the watch itself recorded the lap as —
+    a structured workout's step type. An unknown enum value arrives as an int and is dropped."""
+    value = _field_value(frame, "intensity")
+    return value.lower() if isinstance(value, str) else None
+
+
+def _lap_extras(frame) -> dict:
+    """Session 36 follow-up: what a lap message itself states — distance, average heart rate/cadence and intensity — so planned
+    reps can be paired with laps by their own length and type. Missing fields are left out, never zero."""
+    extras = {
+        "distance_m": _opt_float(_field_value(frame, "total_distance")),
+        "avg_hr": _opt_float(_field_value(frame, "avg_heart_rate")),
+        "avg_cadence": _opt_float(_field_value(frame, "avg_cadence")),
+        "intensity": _lap_intensity(frame),
+    }
+    return {k: v for k, v in extras.items() if v is not None}
 
 
 def _field_value(frame: "fitdecode.FitDataMessage", name: str):
@@ -340,6 +359,7 @@ def parse_fit_track(path: str | Path) -> Optional[FitTrack]:
                             "avg_hr": _opt_float(_field_value(frame, "avg_heart_rate")),
                             "max_hr": _opt_float(_field_value(frame, "max_heart_rate")),
                             "avg_cadence": _opt_float(_field_value(frame, "avg_cadence")),
+                            "intensity": _lap_intensity(frame),
                         }
                     )
                 elif frame.name == "session":
@@ -366,7 +386,7 @@ def parse_fit_track(path: str | Path) -> Optional[FitTrack]:
     rows.sort(key=lambda r: r[0])
     laps = []
     for lap in sorted(raw_laps, key=lambda x: x["_start"]):
-        item = {k: v for k, v in lap.items() if k != "_start"}
+        item = {k: v for k, v in lap.items() if k != "_start" and not (k == "intensity" and v is None)}
         item["offset_s"] = max(0.0, (lap["_start"] - first_ts).total_seconds())
         laps.append(item)
 

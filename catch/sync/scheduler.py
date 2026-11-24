@@ -286,6 +286,7 @@ def run_maintenance() -> dict:
     with get_session() as session:
         stamped = localtime.ensure_backfilled(session)
         powered = _backfill_piece_power(session)
+        _backfill_stroke_summaries(session)
         # Session 33: zones moved to heart-rate reserve — every workout's cached zones are re-resolved once, here.
         if not stamped and model_is_current(session) and zones_model_is_current(session):
             return {"backfilled": False, "recomputed": False, "piece_power_workouts": len(powered)}
@@ -293,6 +294,19 @@ def run_maintenance() -> dict:
         resolve_all_canonicals(session)
         recompute_scores(session, full=True)
         return {"backfilled": stamped, "recomputed": True}
+
+
+def _backfill_stroke_summaries(session) -> int:
+    """Session 36 follow-up: per-recording stroke summaries for results synced before the cache existed, a bounded batch per run
+    (sync/stroke_summary.py). Its own try/except, like the piece-power upgrade: a failure here must not block maintenance."""
+    from catch.sync.stroke_summary import backfill
+
+    try:
+        return backfill(session)
+    except Exception:
+        logger.exception("stroke summary backfill failed")
+        session.rollback()
+        return 0
 
 
 def _backfill_piece_power(session) -> set[int]:

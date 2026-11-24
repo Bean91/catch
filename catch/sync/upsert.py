@@ -67,6 +67,10 @@ def upsert_strokes(session: Session, activity_id: int, strokes: list[dict]) -> i
         session.delete(row)
     for fields in strokes:
         session.add(Stroke(activity_id=activity_id, **fields))
+    session.flush()
+    from catch.sync import stroke_summary
+
+    stroke_summary.store_for(session, activity_id, sorted(strokes, key=lambda f: f.get("seq") or 0))
     session.commit()
     return len(strokes)
 

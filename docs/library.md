@@ -145,3 +145,10 @@ Blocks and the warm-up/cool-down gained heart-rate targets (`hr_min`/`hr_max`); 
 A split target is per 500 m for rowed sessions and per 1000 m for `session_type: bike` (its own range, 1:00–8:00); a bike's watts target is
 never converted to a pace. Scheduling copies every target into the plan (docs/calendar.md). On the public deployment the examples are one
 shared, ownerless set: anyone can open, duplicate or schedule them; none can archive them (`can_archive: false`).
+
+## Follow-up: folders
+
+`workout_templates.folder` (migration 0014): a free label (≤ 40 characters, whitespace collapsed, blank = none) on the owner's own
+templates. `GET /api/library/folders` lists them with counts of live templates; `GET /api/library/templates?folder=` filters (own templates
+only). A shared example never has a folder and can't be given one (it's read-only, and a folder on a shared row would be everyone's);
+duplicating your own template keeps its folder, duplicating an example doesn't. The coach tools don't take a folder.

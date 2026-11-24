@@ -77,7 +77,7 @@ function make(id: number, input: TemplateInput, extra: Partial<WorkoutTemplate> 
     id, name: input.name, description: input.description ?? null, workout_type: input.workout_type, session_type: session,
     sport_family: session === "erg" || session === "on_water" ? "rowing" : session === "strength" ? "strength" : null,
     purpose: input.purpose ?? null, difficulty: input.difficulty ?? null, target_zone: input.target_zone ?? null,
-    tags: input.tags ?? [], structure: input.structure, is_example: false, example_label: null, duplicated_from_id: null,
+    tags: input.tags ?? [], folder: input.folder ?? null, structure: input.structure, is_example: false, example_label: null, duplicated_from_id: null,
     archived: false, signature: signature(input.structure), summary: mockSummary(input.structure, input.target_zone ?? null),
     created_at: now, updated_at: now, ...extra,
   };
@@ -96,8 +96,8 @@ let nextId = 100;
 
 function seed() {
   templates = [
-    make(1, { name: "Threshold 4 x 5 min", workout_type: "erg_intervals", difficulty: "moderate", target_zone: "AT", tags: ["threshold", "erg"], purpose: "Steady work at the top of the aerobic range", structure: { warmup: { duration_min: 10 }, blocks: [{ reps: 4, work_s: 300, rest_s: 120, zone: "AT", rate_min: 24, rate_max: 26 }], cooldown: { duration_min: 5 } } }),
-    make(2, { name: "Sunday long steady", workout_type: "steady_state", difficulty: "easy", target_zone: "UT2", tags: ["base"], structure: { blocks: [{ reps: 1, work_s: 4800, zone: "UT2", rate_min: 18, rate_max: 20 }] } }),
+    make(1, { name: "Threshold 4 x 5 min", folder: "Winter base", workout_type: "erg_intervals", difficulty: "moderate", target_zone: "AT", tags: ["threshold", "erg"], purpose: "Steady work at the top of the aerobic range", structure: { warmup: { duration_min: 10 }, blocks: [{ reps: 4, work_s: 300, rest_s: 120, zone: "AT", rate_min: 24, rate_max: 26 }], cooldown: { duration_min: 5 } } }),
+    make(2, { name: "Sunday long steady", folder: "Winter base", workout_type: "steady_state", difficulty: "easy", target_zone: "UT2", tags: ["base"], structure: { blocks: [{ reps: 1, work_s: 4800, zone: "UT2", rate_min: 18, rate_max: 20 }] } }),
     make(3, { name: "6 x 500m (no split set)", workout_type: "erg_intervals", difficulty: "hard", tags: ["speed"], description: "Distance only — no duration until a split is chosen.", structure: { blocks: [{ reps: 6, work_m: 500, rest_s: 90 }] } }),
     make(4, { name: "Old session", workout_type: "time_piece", structure: { blocks: [{ reps: 1, work_s: 1800 }] } }, { archived: true }),
     ...EXAMPLES.map((e, i) => make(20 + i, e, { is_example: true, example_label: EXAMPLE_LABEL, tags: ["example"] })),
@@ -110,9 +110,16 @@ export function resetMockLibrary() {
   seed();
 }
 
-export function mockTemplates(opts: { scope?: TemplateScope; q?: string; workout_type?: string; difficulty?: string }): WorkoutTemplate[] {
+export function mockFolders(): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const t of templates) if (t.folder && !t.archived && !t.is_example) counts.set(t.folder, (counts.get(t.folder) ?? 0) + 1);
+  return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function mockTemplates(opts: { scope?: TemplateScope; q?: string; workout_type?: string; difficulty?: string; folder?: string }): WorkoutTemplate[] {
   const scope = opts.scope ?? "mine";
   return templates
+    .filter((t) => !opts.folder || (t.folder === opts.folder && !t.is_example))
     .filter((t) => (scope === "archived" ? t.archived : !t.archived))
     .filter((t) => (scope === "mine" ? !t.is_example : scope === "examples" ? t.is_example : true))
     .filter((t) => !opts.workout_type || t.workout_type === opts.workout_type)
@@ -169,7 +176,7 @@ export function updateMockTemplate(id: number, patch: Partial<TemplateInput>): W
 
 export function duplicateMockTemplate(id: number, name?: string): WorkoutTemplate {
   const t = mockTemplate(id);
-  const copy = make(nextId++, { ...t, name: name ?? `${t.name} (copy)`, tags: t.tags.filter((x) => x !== "example") } as TemplateInput, { duplicated_from_id: t.id });
+  const copy = make(nextId++, { ...t, name: name ?? `${t.name} (copy)`, folder: t.is_example ? null : t.folder, tags: t.tags.filter((x) => x !== "example") } as TemplateInput, { duplicated_from_id: t.id });
   templates.push(copy);
   return copy;
 }

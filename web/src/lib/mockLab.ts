@@ -1,7 +1,7 @@
 // ?mock=1 fixtures for records and the Performance Lab. Fixed figures: the browser holds none of the rules (tolerances, bands,
 // thresholds) — the mock only answers in the server's shape.
 import { addDays, todayISO, weekStart } from "./dates";
-import type { LoadHistory, DuplicateMergePreview, HrAtWorkload, LabProgression, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
+import type { ErgAlignment, ErgAlignmentSuggestion, LoadHistory, DuplicateMergePreview, HrAtWorkload, LabProgression, PowerCurve, Predicted2k, RecordEntry, RecordsPayload, SplitByRate } from "./types";
 
 const t = () => todayISO();
 
@@ -85,6 +85,20 @@ export function mockSplitByRate(): SplitByRate {
   };
 }
 
+export function mockPowerCurve(): PowerCurve {
+  const pt = (watts: number, days: number, id = 1) => ({ watts, date: addDays(t(), -days), ref: `/workouts/${id}` });
+  return {
+    from: addDays(t(), -365), to: t(), split_date: addDays(t(), -182), recordings: 38, watts_basis: "derived_from_pace", max_gap_s: 10,
+    durations: [
+      { duration_s: 10, best: pt(612.4, 20), earlier: pt(590.1, 240, 6), recent: pt(612.4, 20) },
+      { duration_s: 60, best: pt(455.0, 12), earlier: pt(441.2, 210, 6), recent: pt(455.0, 12) },
+      { duration_s: 300, best: pt(322.8, 12), earlier: pt(318.0, 200, 6), recent: pt(322.8, 12) },
+      { duration_s: 1200, best: pt(251.3, 230, 6), earlier: pt(251.3, 230, 6), recent: null },
+      { duration_s: 3600, best: null, earlier: null, recent: null },
+    ],
+  };
+}
+
 export function mockPredict2k(): Predicted2k {
   return {
     kind: "estimate", value: 102.8, range: [101.9, 103.8], predicted_time_s: 411.2, range_s: [407.6, 415.2], band: "moderate", confidence: "moderate",
@@ -143,4 +157,25 @@ export function mockLoadHistory(weeks: number): LoadHistory {
     rest_by_weekday: [9, 1, 2, 1, 7, 2, 6],
     complete_weeks: weeks - 1,
   };
+}
+
+// --- Session 36 follow-up: erg/heart-rate chart alignment across two devices. Workout 13's heart-rate chart is a watch's recording and
+// its strokes a PM5's, so the two share a cursor only at an offset confirmed here.
+export const MOCK_CROSS_DEVICE_WORKOUT = 13;
+const mockAlignmentOffsets = new Map<number, number>();
+
+export function mockErgAlignment(canonicalId: number): ErgAlignment {
+  if (canonicalId !== MOCK_CROSS_DEVICE_WORKOUT) return { state: "same_recording", erg_activity_id: null, watch_activity_id: null, offset_s: 0 };
+  const offset = mockAlignmentOffsets.get(canonicalId);
+  return { state: offset != null ? "confirmed" : "not_linked", erg_activity_id: 9013, watch_activity_id: 7013, offset_s: offset ?? null, wall_time_known: true };
+}
+
+export function mockSuggestErgAlignment(): ErgAlignmentSuggestion {
+  return { offset_s: 42, r: 0.962, overlap_s: 1710, signal: "heart_rate" };
+}
+
+export function mockSetErgAlignment(canonicalId: number, offset: number | null): ErgAlignment {
+  if (offset == null) mockAlignmentOffsets.delete(canonicalId);
+  else mockAlignmentOffsets.set(canonicalId, offset);
+  return mockErgAlignment(canonicalId);
 }

@@ -7,7 +7,7 @@ import { EXAMPLE_NOTICE, WORKOUT_TYPES, workoutTypeLabel } from "../components/l
 import { Card } from "../components/ui/Card";
 import { EmptyState, ErrorState } from "../components/ui/EmptyState";
 import { Skeleton } from "../components/ui/Skeleton";
-import { fetchLibraryTemplates } from "../lib/api";
+import { fetchLibraryFolders, fetchLibraryTemplates } from "../lib/api";
 import { formatMinutesOrHours } from "../lib/duration";
 import type { TemplateScope, WorkoutTemplate } from "../lib/types";
 import { controlSkin } from "../components/ui/Field";
@@ -41,7 +41,13 @@ export function TemplateRow({ t }: { t: WorkoutTemplate }) {
           {t.signature && t.signature.length <= 28 ? ` · ${t.signature}` : ""}
           {t.summary.total_duration_s != null ? ` · ${formatMinutesOrHours(t.summary.total_duration_s)}${t.summary.duration_basis === "estimated" ? " (est.)" : ""}` : ""}
         </p>
-        {t.tags.length > 0 && <p className="text-xs text-text-tertiary">{t.tags.join(" · ")}</p>}
+        {(t.folder || t.tags.length > 0) && (
+          <p className="text-xs text-text-tertiary">
+            {t.folder ? <span data-testid="template-folder-label">{`Folder: ${t.folder}`}</span> : null}
+            {t.folder && t.tags.length > 0 ? " · " : ""}
+            {t.tags.join(" · ")}
+          </p>
+        )}
       </Link>
     </li>
   );
@@ -51,9 +57,14 @@ export function LibraryPage() {
   const [scope, setScope] = useState<TemplateScope>("mine");
   const [type, setType] = useState("");
   const [q, setQ] = useState("");
+  const [folder, setFolder] = useState("");
+  const folders = useQuery({ queryKey: ["library-folders"], queryFn: fetchLibraryFolders });
+  const folderList = folders.data?.folders ?? [];
+  // Examples are shared and never filed, so the folder filter applies to your own templates only.
+  const activeFolder = scope === "examples" ? "" : folder;
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["library", { scope, type, q }],
-    queryFn: () => fetchLibraryTemplates({ scope, workout_type: type || undefined, q: q.trim() || undefined }),
+    queryKey: ["library", { scope, type, q, folder: activeFolder }],
+    queryFn: () => fetchLibraryTemplates({ scope, workout_type: type || undefined, q: q.trim() || undefined, folder: activeFolder || undefined }),
   });
   const templates = data?.templates ?? [];
 
@@ -106,6 +117,19 @@ export function LibraryPage() {
             </button>
           ))}
         </div>
+        {scope !== "examples" && folderList.length > 0 && (
+          <label className="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
+            Folder
+            <select value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="folder-filter" className={controlSkin + " min-h-11 min-w-0 max-w-full flex-1 sm:flex-none"}>
+              <option value="">All folders</option>
+              {folderList.map((f) => (
+                <option key={f.name} value={f.name}>
+                  {f.name} ({f.count})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {scope === "examples" && (
