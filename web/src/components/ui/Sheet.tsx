@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { NativeModalMarker } from "../../lib/native/nativeModal";
 
 export type SheetWidth = "sm" | "md" | "lg" | "xl";
 
@@ -34,6 +35,7 @@ export function SheetContent({ width = "md", className, children, onOpenAutoFocu
         )}
         {...rest}
       >
+        <NativeModalMarker />
         <div aria-hidden className="mx-auto -mt-2 mb-3 h-1 w-10 rounded-full bg-border-strong sm:hidden" />
         {children}
       </Dialog.Content>
@@ -55,6 +57,7 @@ export function ModalContent({ width = "md", className, children, onOpenAutoFocu
         )}
         {...rest}
       >
+        <NativeModalMarker />
         {children}
       </Dialog.Content>
     </Dialog.Portal>

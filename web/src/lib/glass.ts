@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
 
 // Session 37 (DESIGN.md "Mobile glass"): the phone/tablet glass materials have three levels, set as `data-glass` on <html>:
-// - "off"  — the athlete turned on Reduce transparency (Settings → Appearance). Saved on this device only. Capacitor's iOS web view
-//            doesn't pass on the system's reduce-transparency setting, so this switch is the way to get solid surfaces there.
+// - "off"  — the athlete turned on Reduce transparency (Settings → Appearance; saved on this device only), or — in the iOS app —
+//            iOS's own Reduce Transparency is on. The web view doesn't expose that setting, so the native tab bar plugin reports it
+//            (session 38, lib/native/tabBar.ts → setSystemReduceTransparency).
 // - "lite" — a low-memory Chromium/Android device: half the blur. Safari has no navigator.deviceMemory, so iPhones are never downgraded.
 // - unset  — full glass.
 // The CSS does nothing with any of this at desktop widths.
@@ -19,8 +20,17 @@ function storedOff(): boolean {
   }
 }
 
+let systemReduced = false;
+
+/** iOS's Reduce Transparency, as reported by the native shell. It turns glass off in addition to the athlete's own switch. */
+export function setSystemReduceTransparency(reduced: boolean): void {
+  if (reduced === systemReduced) return;
+  systemReduced = reduced;
+  applyGlassPreference();
+}
+
 export function glassLevel(): GlassLevel {
-  if (storedOff()) return "off";
+  if (storedOff() || systemReduced) return "off";
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   return typeof memory === "number" && memory <= 2 ? "lite" : "full";
 }

@@ -48,3 +48,18 @@ the new navy icon. iOS native sign-in was not run. Nothing was checked on a phys
 Android emulator (`catch_pixel8`, dev debug build against a local public-mode API and the throwaway stack): `android-e2e.mjs` **21/21**.
 iOS simulator: Debug build succeeds unsigned, installs and launches to the sign-in screen. iOS native sign-in still not run; nothing on a
 physical device.
+
+## Session 38: native iOS tab bar (2026-11-24)
+Fixtures-only native bundle (`VITE_CATCH_MOCK=1`), Debug, unsigned, Xcode 26.3.
+| Check | Result |
+|---|---|
+| XCUITest `AppUITests` on iPhone 17 Pro, **iOS 26.3** | **10/10** passed (software keyboard on) |
+| XCUITest `AppUITests` on iPhone SE (3rd generation), **iOS 18.2** | **10/10** passed. One earlier full run had a single "timed out while synthesizing event" on a tap in the background test; it passed on both reruns and in the final full run |
+| WebKit content process killed (`kill -9`) on the Plan tab | the page reloads, the bar stays on Plan, and a following Train tap navigates — the listener re-subscribed and the handshake re-ran |
+| Screenshots: dark and light (iOS 26 glass capsule and lens; iOS 18 standard bar), Reduce Transparency on (system bar opaque and web glass off together), Coach composer above the bar and above the keyboard | as designed. Found and fixed from them: a dark band behind the bar in the light theme (the edge effect faded to the web view's dark background) |
+| web vitest / `tsc -b` / production build / bundle | 141 passed / clean / ok / 204.1 KB of 250 KB |
+| `test:touch` (3 projects) | 393 passed, 10 skipped, 2 failed — both mobile-webkit horizontal-overflow checks (`intervals.spec`, `route-map.spec`), which fail the same way on a build of the base commit |
+Not done here: Android (no SDK or emulator in this environment; the Android path is the unchanged web tab bar — `nativeTabBarAvailable()` is
+iOS-only); a physical iPhone (feel of the glass, ProMotion, real haptics); iOS 15–17 runtimes (none installed; on iOS < 18 the bar hides with
+`isHidden`, which may leave the bar's inset in the safe area while a sheet is open); Increase Contrast and larger Dynamic Type were not
+toggled; VoiceOver was not run (the bar is the system control, labelled by its titles).

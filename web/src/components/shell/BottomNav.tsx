@@ -1,26 +1,20 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { cn } from "../../lib/cn";
-import { GROUP_LABEL, moreGroups, tabFor, type TabId } from "../../lib/navigation";
+import { GROUP_LABEL, moreGroups, PRIMARY_TABS, tabFor, type TabId } from "../../lib/navigation";
 import { useTheme } from "../../lib/theme";
 import { SheetContent, SheetHeader } from "../ui/Sheet";
-import { CalendarIcon, CoachIcon, LogoutIcon, MoonIcon, MoreIcon, SunIcon, TodayIcon, TrainIcon } from "./icons";
+import { LogoutIcon, MoonIcon, MoreIcon, SunIcon } from "./icons";
 import { buttonClass } from "../ui/Button";
 
-// Session 35: four destinations and More (was eight squeezed tabs). The calendar's tab keeps the short label "Plan" — "Calendar"
-// clips at 11px on 360–375px phones (DESIGN.md, calendar.spec). Every other destination is one tap away in the More sheet.
-const TABS: { id: Exclude<TabId, "more">; to: string; label: string; Icon: typeof TodayIcon }[] = [
-  { id: "today", to: "/", label: "Today", Icon: TodayIcon },
-  { id: "plan", to: "/calendar", label: "Plan", Icon: CalendarIcon },
-  { id: "train", to: "/train", label: "Train", Icon: TrainIcon },
-  { id: "coach", to: "/coach", label: "Coach", Icon: CoachIcon },
-];
-
+// Session 35: four destinations and More (was eight squeezed tabs). Every other destination is one tap away in the More sheet.
+// Session 38: in the iOS app this web tab bar isn't rendered — the native one is (lib/native/tabBar.ts) — and AppShell opens
+// the same MoreSheet from it.
 const groups = moreGroups();
 
-function TabInner({ active, label, Icon }: { active: boolean; label: string; Icon: typeof TodayIcon }) {
+function TabInner({ active, label, Icon }: { active: boolean; label: string; Icon: ComponentType<{ className?: string }> }) {
   return (
     <>
       <span
@@ -43,8 +37,6 @@ export function BottomNav() {
   const { pathname } = useLocation();
   const current = tabFor(pathname);
   const [moreOpen, setMoreOpen] = useState(false);
-  const { theme, toggle } = useTheme();
-  const { logout, status } = useAuth();
   const lensIndex = moreOpen ? TAB_INDEX.more : TAB_INDEX[current];
 
   return (
@@ -67,7 +59,7 @@ export function BottomNav() {
             style={{ transform: `translateX(${lensIndex * 100}%)` }}
           />
         </li>
-        {TABS.map(({ id, to, label, Icon }) => (
+        {PRIMARY_TABS.map(({ id, to, label, Icon }) => (
           <li key={id} className="min-w-0 flex-1">
             <Link
               to={to}
@@ -79,61 +71,74 @@ export function BottomNav() {
           </li>
         ))}
         <li className="min-w-0 flex-1">
-          <Dialog.Root open={moreOpen} onOpenChange={setMoreOpen}>
-            <Dialog.Trigger asChild>
+          <MoreSheet
+            open={moreOpen}
+            onOpenChange={setMoreOpen}
+            trigger={
               <button type="button" aria-label="More" className="glass-press group relative flex h-full min-h-11 w-full min-w-0 flex-col items-center justify-center gap-1 px-0.5">
                 <TabInner active={current === "more" || moreOpen} label="More" Icon={MoreIcon} />
               </button>
-            </Dialog.Trigger>
-            <SheetContent width="md" data-testid="more-sheet">
-              <SheetHeader title="More" description="Everything else in Catch." onClose />
-              <nav aria-label="More destinations" className="flex flex-col gap-5">
-                {groups.map((g) => (
-                  <div key={g.id}>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.09em] text-text-tertiary">{GROUP_LABEL[g.id]}</p>
-                    <ul className="grid grid-cols-2 gap-2">
-                      {g.items.map(({ to, label, Icon, blurb }) => (
-                        <li key={to} className="min-w-0">
-                          <Link
-                            to={to}
-                            onClick={() => setMoreOpen(false)}
-                            className="glass-subtle glass-press flex h-full min-h-14 min-w-0 items-start gap-2.5 rounded-md border border-border bg-surface-2/60 p-3 transition-colors hover:border-border-strong hover:bg-surface-2"
-                          >
-                            <Icon className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-                            <span className="min-w-0">
-                              <span className="block text-sm font-medium text-text-primary">{label}</span>
-                              {blurb && <span className="mt-0.5 block text-xs leading-snug text-text-tertiary">{blurb}</span>}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-                <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-                  <button type="button" onClick={toggle} className={buttonClass("secondary", "md")}>
-                    {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
-                    {theme === "dark" ? "Light theme" : "Dark theme"}
-                  </button>
-                  {status === "authed" && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMoreOpen(false);
-                        logout();
-                      }}
-                      className={buttonClass("secondary", "md")}
-                    >
-                      <LogoutIcon className="h-5 w-5" />
-                      Log out
-                    </button>
-                  )}
-                </div>
-              </nav>
-            </SheetContent>
-          </Dialog.Root>
+            }
+          />
         </li>
       </ul>
     </nav>
+  );
+}
+
+/** The grouped list of every other destination, plus the theme switch and log out. */
+export function MoreSheet({ open, onOpenChange, trigger }: { open: boolean; onOpenChange: (open: boolean) => void; trigger?: ReactNode }) {
+  const { theme, toggle } = useTheme();
+  const { logout, status } = useAuth();
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      {trigger && <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>}
+      <SheetContent width="md" data-testid="more-sheet">
+        <SheetHeader title="More" description="Everything else in Catch." onClose />
+        <nav aria-label="More destinations" className="flex flex-col gap-5">
+          {groups.map((g) => (
+            <div key={g.id}>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.09em] text-text-tertiary">{GROUP_LABEL[g.id]}</p>
+              <ul className="grid grid-cols-2 gap-2">
+                {g.items.map(({ to, label, Icon, blurb }) => (
+                  <li key={to} className="min-w-0">
+                    <Link
+                      to={to}
+                      onClick={() => onOpenChange(false)}
+                      className="glass-subtle glass-press flex h-full min-h-14 min-w-0 items-start gap-2.5 rounded-md border border-border bg-surface-2/60 p-3 transition-colors hover:border-border-strong hover:bg-surface-2"
+                    >
+                      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-text-primary">{label}</span>
+                        {blurb && <span className="mt-0.5 block text-xs leading-snug text-text-tertiary">{blurb}</span>}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+            <button type="button" onClick={toggle} className={buttonClass("secondary", "md")}>
+              {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
+              {theme === "dark" ? "Light theme" : "Dark theme"}
+            </button>
+            {status === "authed" && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenChange(false);
+                  logout();
+                }}
+                className={buttonClass("secondary", "md")}
+              >
+                <LogoutIcon className="h-5 w-5" />
+                Log out
+              </button>
+            )}
+          </div>
+        </nav>
+      </SheetContent>
+    </Dialog.Root>
   );
 }

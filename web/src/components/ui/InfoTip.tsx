@@ -1,6 +1,21 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 /**
+ * The height at the bottom of the viewport taken by the tab bar: the web bar's `--shell-bottom` plus the bottom safe area. In the
+ * iOS app the native tab bar's footprint arrives through the safe area alone (session 38), so both parts count. `env()` can only be
+ * resolved by layout, hence the measured probe.
+ */
+function bottomReserve(): number {
+  const probe = document.createElement("div");
+  probe.style.cssText =
+    "position:fixed;left:0;bottom:0;width:0;visibility:hidden;pointer-events:none;height:calc(var(--shell-bottom, 0px) + env(safe-area-inset-bottom, 0px))";
+  document.body.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  probe.remove();
+  return h;
+}
+
+/**
  * A small "?" that explains an unfamiliar metric. A tap or click toggles it (hover-only tooltips don't exist on a phone); Escape
  * and a tap elsewhere close it. The explanation is a real element referenced by `aria-describedby`, so it is read out too.
  */
@@ -21,7 +36,7 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
     el.style.top = "0px";
     el.style.left = "0px";
     const origin = el.getBoundingClientRect();
-    const shellBottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--shell-bottom")) || 0;
+    const shellBottom = bottomReserve();
     const left = Math.min(Math.max(8, anchor.left + anchor.width / 2 - origin.width / 2), window.innerWidth - origin.width - 8);
     const below = anchor.bottom + 8;
     const above = anchor.top - 8 - origin.height;

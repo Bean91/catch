@@ -1,5 +1,38 @@
 # Catch — design system
 
+## Native tab bar (session 38) — the iOS app only
+
+In the iOS app the bottom navigation is **the system tab bar** (`UITabBarController`), not the web `BottomNav`. Built with the iOS 26
+SDK it is Apple's own Liquid Glass bar: the floating capsule, the selection lens that follows your finger, the material that samples the
+page under it, the scroll-edge effect, Dynamic Type's large-content viewer and VoiceOver all come from UIKit. On iOS 15–25 the same code is
+the standard translucent bar of that release. Nothing here is CSS: the session 37 capsule is still what the PWA, mobile Safari and Android
+show, unchanged, and desktop is untouched.
+
+- **One navigation surface.** Where the native bar is in charge, AppShell renders no `BottomNav` (an XCUITest asserts the web More button
+  doesn't exist). Its More tab opens the same React More sheet, so the theme switch and log out stay where they are.
+- **The same five tabs** (`PRIMARY_TABS` in `lib/navigation.ts` + More). Icons are SF Symbols picked to read like the web icons —
+  `clock.fill`, `calendar`, `bolt.fill`, `person.fill`, `square.grid.2x2.fill` — sent from the web side with a fallback name each. The
+  selected tint is `--accent` (`#8C9CFF` dark / `#4D58D0` light); everything else is the system's.
+- **iOS conventions:** a tab opens its root page; tapping the current tab deeper in its section returns to the root; tapping it again on
+  the root scrolls to the top. `tabBarMinimizeBehavior = .never` — these are short dashboards and the bar is the primary navigation
+  (Health and Settings don't minimise theirs either).
+- **Sheets and the keyboard cover the bar, as on iOS.** A native view sits above the web view whatever its z-index, so while any dialog is
+  open (`NativeModalMarker` in every `SheetContent`/`ModalContent`) or the keyboard is up, the bar steps aside with the system
+  animation (none with Reduce Motion).
+- **Footprint through the safe area, once.** The web view lives inside the selected tab's controller, so UIKit adds the bar to its safe area
+  and `env(safe-area-inset-bottom)` already clears it; `html[data-native-tabbar]` sets `--shell-bottom: 0`. Page padding, toasts, Coach's
+  height and the InfoTip's "no room below" all keep working from those two values. Content scrolls under the glass and the end of a page
+  rests above it.
+- **Theme:** the bar follows the app's theme (only the bar is overridden — overriding the controller would feed back into the web view's
+  `prefers-color-scheme`), and the web view's background follows it too, because iOS 26's edge effect under the bar fades towards that
+  colour (without this the light theme had a dark band behind the bar).
+- **Accessibility:** iOS Reduce Transparency now reaches the web layer (the plugin reports it; `lib/glass.ts` turns glass off), so the
+  whole app goes solid together. Increase Contrast and Reduce Motion are honoured by the system bar and, as before, by `glass.css` /
+  the reduced-motion rules in the web view.
+- **Nothing else became native.** The top bar, sheets, cards and charts stay React: a native navigation bar would duplicate every page's
+  title and back link in UIKit, and native glass on content would be decoration, not interface. The tab bar is the one place where a
+  standard system control exists for exactly what the web was imitating.
+
 ## Mobile glass (session 37) — phone and tablet layout only
 
 Session 37 added a translucent, layered material system to the **phone and tablet layout**. The desktop layout (lg and up, the sidebar)
@@ -103,7 +136,8 @@ and lights have light-theme values (`[data-theme=light]` plus the `prefers-color
   and the rim stays so the layering still reads.
   - The switch is stored per device (`catch:glass`, read before the first render by `applyGlassPreference()` in `main.tsx`; no inline
     script, because the public CSP hashes them).
-  - Capacitor's iOS web view doesn't pass on the system setting, so the switch is the way to get solid surfaces there.
+  - Capacitor's iOS web view doesn't pass on the system setting; since session 38 the native tab bar plugin reports it and
+    `setSystemReduceTransparency()` applies it, so the iOS app follows the system as well as the switch.
 - **`forced-colors: active`:** materials are removed.
 - **Contrast** was measured on the composite colours (fill over the brightest background light, and over a solid accent button for
   floating layers). Every text token is ≥ 4.5:1 on every card, subtle, solid and sheet surface in both themes. The exceptions are all
@@ -808,7 +842,7 @@ News, Calendar, Challenges, Board, Members, Manage), `/clubs/:id/challenges/:cid
 
 The store apps are the same screens in the same tokens; nothing was redesigned. What the native shell adds, and the few rules it follows:
 
-- **Safe areas are the web layer's job** (`contentInset: never`): top/bottom padding in `AppShell`/`BottomNav` as before, plus left/right insets on `#root` and the nav for landscape. Every bottom sheet pads its bottom by `env(safe-area-inset-bottom)` and caps at `dvh`, not `vh`.
+- **Safe areas are the web layer's job** (`contentInset: never`): top/bottom padding in `AppShell`/`BottomNav` as before, plus left/right insets on `#root` and the nav for landscape. *(Session 38: in the iOS app the bottom inset also carries the native tab bar — see "Native tab bar".)* Every bottom sheet pads its bottom by `env(safe-area-inset-bottom)` and caps at `dvh`, not `vh`.
 - **The system decides light/dark** until the person taps the theme button once; that tap is remembered. The status-bar text colour follows the theme.
 - **Permissions are never asked at launch.** Notifications on the Enable tap, camera on "Take photo", Health after the consent screen. A refusal is explained in a sentence with the Settings path, not retried.
 - **Haptics confirm, never decorate:** a light tap on a logged set, a success pattern on a PR, a medium tap when the rest timer ends. Off with reduced motion or the Settings switch.

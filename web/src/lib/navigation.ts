@@ -4,6 +4,7 @@ import {
   CalendarIcon,
   ClubsIcon,
   CoachIcon,
+  TrainIcon,
   DuplicatesIcon,
   FeedbackIcon,
   GymIcon,
@@ -100,6 +101,18 @@ export function moreGroups(): { id: GroupId; items: NavItem[] }[] {
     .map((id) => ({ id, items: NAV_ITEMS.filter((i) => i.group === id && !inTabs.has(i.to)) }))
     .filter((g) => g.items.length > 0);
 }
+
+/**
+ * The four destination tabs; the fifth, More, opens the More sheet. The web tab bar (BottomNav) and the iOS app's native tab bar
+ * (lib/native/tabBar.ts) both read this. The calendar's tab keeps the short label "Plan" — "Calendar" clips at 11px on 360–375px
+ * phones (DESIGN.md, calendar.spec).
+ */
+export const PRIMARY_TABS: { id: Exclude<TabId, "more">; to: string; label: string; Icon: ComponentType<{ className?: string }> }[] = [
+  { id: "today", to: "/", label: "Today", Icon: TodayIcon },
+  { id: "plan", to: "/calendar", label: "Plan", Icon: CalendarIcon },
+  { id: "train", to: "/train", label: "Train", Icon: TrainIcon },
+  { id: "coach", to: "/coach", label: "Coach", Icon: CoachIcon },
+];
 
 /** The Train hub's tiles. */
 export const TRAIN_ITEMS: NavItem[] = NAV_ITEMS.filter((i) => i.group === "training");

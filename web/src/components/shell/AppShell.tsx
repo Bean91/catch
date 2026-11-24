@@ -1,12 +1,17 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { BottomNav } from "./BottomNav";
+import { useNativeTabBar } from "../../lib/native/tabBar";
+import { BottomNav, MoreSheet } from "./BottomNav";
 import { GarminKeyBanner } from "./GarminKeyBanner";
 import { Sidebar } from "./Sidebar";
 import { Logomark, SettingsIcon } from "./icons";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  // Session 38: in the iOS app the system tab bar replaces BottomNav (exactly one navigation surface); its More tab opens the
+  // same More sheet. Everywhere else this is false and nothing changes.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const nativeTabBar = useNativeTabBar(() => setMoreOpen(true));
 
   return (
     <div className="flex min-h-dvh text-text-primary">
@@ -50,9 +55,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
 
-        <div className="lg:hidden">
-          <BottomNav />
-        </div>
+        {nativeTabBar ? (
+          <MoreSheet open={moreOpen} onOpenChange={setMoreOpen} />
+        ) : (
+          <div className="lg:hidden">
+            <BottomNav />
+          </div>
+        )}
       </div>
     </div>
   );

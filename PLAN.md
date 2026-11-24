@@ -5468,3 +5468,68 @@ bars, no blur in-flow or on anything that moves per frame).
   font size (Playwright can't set the default font size); the built CSS uses the exact complement of `lg`.
 - **Landscape phones:** the 60px tab-bar footprint is a larger share of a 390px-tall screen. Same layout as before, 8px more.
 
+
+# Session 38: native iOS tab bar (Liquid Glass)
+
+Branch `session-38-native-tabbar`. **Frontend + iOS shell only:** no API, schema or Python change (`EXPECTED_SCHEMA_REVISION` stays "0014").
+The web/PWA/Android tab bar (session 37's capsule) and the desktop layout are unchanged. Design: DESIGN.md "Native tab bar (session 38)";
+operations and tests: docs/mobile/README.md "Native tab bar", docs/mobile/test-report.md.
+
+## Audit (before any code)
+
+- The bottom navigation was entirely React (`AppShell` → `BottomNav`, React Router 7, `tabFor()` in `lib/navigation.ts`); the iOS app had no
+  native code beyond `AppDelegate`/`SceneDelegate`, and `SceneDelegate` made a bare `CAPBridgeViewController` the root. Capacitor 8.6.2 via
+  SPM, deployment target iOS 15.0, iPhone-only, Xcode 26.3 (SDK 26.2), `contentInset: never` (the web layer owns safe areas).
+- Info.plist named `Main` as both `UIMainStoryboardFile` and `UISceneStoryboardFile`, and the storyboard holds a second
+  `CAPBridgeViewController` — removed, so the scene creates one bridge.
+- Constraints that shaped the design: `CAPBridgeViewController.loadView` sets `view = webView` (no native siblings inside it → a container);
+  the Keyboard (`resize: native`) and StatusBar plugins set frames directly (no Auto Layout on the bridge); `cap sync` regenerates
+  `packageClassList` (register a local plugin by instance); `bridge.reset()` drops plugin listeners on every page load.
+
+## Decisions
+
+1. **A standard `UITabBarController` as the root,** not a custom glass view or a standalone `UITabBar`: the floating capsule, selection lens,
+   hide animation and safe-area management belong to the controller (iOS 26 headers: `tabBarMinimizeBehavior`, `setTabBarHidden`,
+   `contentLayoutGuide` are controller APIs). One web view, moved into the selected tab's empty host — a reload-free reparent; being the tab
+   controller's child gives the web view a safe area that includes the bar, so the bar's footprint has one source of truth (`env()`),
+   and `--shell-bottom` is 0 under `html[data-native-tabbar]`.
+2. **React Router stays the source of truth.** Native selects on touch for immediate feedback, reports the tap, the web navigates and the
+   selection is reconciled from the route; programmatic selection never fires the delegate, and the tap's own tab isn't echoed.
+3. **More opens the existing React More sheet** (theme switch, log out, all destinations) rather than a second, native list.
+4. **SF Symbols** (the owner's choice) close to the web icons; **an XCUITest target** (the owner's choice) for native ↔ React.
+5. **Only the tab bar is native.** The top bar, sheets and content stay React; reasons in DESIGN.md.
+6. **No deployment-target change.** iOS 26 gets Liquid Glass from the SDK; iOS 15–25 get their own standard bar.
+
+## Changes
+
+- iOS: `CatchTabBarController.swift`, `CatchBridgeViewController.swift`, `NativeTabBarPlugin.swift` (new); `SceneDelegate.swift` (root);
+  `Info.plist` (no storyboard); `project.pbxproj` (three sources + the `AppUITests` UI-test target); `AppUITests/NativeTabBarUITests.swift`.
+- Web: `lib/native/tabBarSync.ts` (+ test), `tabBar.ts`, `nativeModal.ts` (new); `AppShell` (native bar or `BottomNav`, never both),
+  `BottomNav` (`MoreSheet` extracted, `PRIMARY_TABS` shared), `navigation.ts` (`PRIMARY_TABS`), `Sheet.tsx` (`NativeModalMarker`),
+  `InfoTip` (bottom reserve = `--shell-bottom` + bottom safe area, measured), `glass.ts` (`setSystemReduceTransparency`), `index.css`.
+
+## Found and fixed during verification
+
+- **Dark band behind the bar in the light theme** (iOS 26): the scroll-edge effect fades to the web view's background, which Capacitor sets
+  once to the dark `--bg`. The theme sent to native now also sets the web view's background.
+- **The bar's inset stayed in the safe area under the keyboard** in the first draft's reasoning; the bar now hides while the keyboard is up
+  (it is covered anyway), and the web view's bottom inset is measured at 0 then (Coach's composer 39pt above the keyboard).
+- A keyboard assertion that looked like a 200pt gap was the simulator's hardware keyboard (the software keyboard sat off-screen); the test
+  now skips in that case and the docs say to disconnect it.
+
+## Verification
+
+XCUITest 10/10 on iOS 26.3 (iPhone 17 Pro) and iOS 18.2 (iPhone SE 3rd gen); WebKit content-process kill → reload → handshake recovers;
+screenshots in both themes and with Reduce Transparency; vitest 141 (20 new); `tsc -b` clean; build ok, initial JS 204.1 KB / 250 KB
+(+1.6 KB: the sync module and plugin proxy ship in the web bundle, inert there); `test:touch` 393 passed, 10 skipped, 2 failed — the two
+mobile-webkit horizontal-overflow specs, which fail the same way on a build of the base commit (pre-existing flakiness, not this session).
+
+## Not done / limitations
+
+- **No physical iPhone:** the glass was seen in the simulator only.
+- **Android not built or run here** (no SDK/emulator); its code path is the unchanged web tab bar.
+- **iOS 15–17 not run** (no runtime). There `setTabBarHidden` doesn't exist; the bar hides with `isHidden`, which may leave its height in
+  the safe area while a sheet or the keyboard is up (extra bottom padding, nothing covered).
+- **Reload via `location.reload()`** wasn't triggered directly; the content-process crash exercises the same page-load path.
+- The Settings "Reduce transparency" switch shows only the athlete's own choice; when iOS's setting is on, glass is off regardless.
+- Increase Contrast, larger Dynamic Type and VoiceOver weren't toggled on the simulator; all three are handled by the system control.

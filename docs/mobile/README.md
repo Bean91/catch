@@ -14,7 +14,31 @@ Everything here is session 30; decisions and findings are in PLAN.md.
 | Camera / photo library | `lib/native/camera.ts` | same `resizeImage()` + endpoints as the web |
 | Offline strength logging | unchanged `gymDb.ts`/`gymSync.ts` + retry timer + resume trigger | `queryPersist.ts` replaces the service worker's read cache |
 | Haptics, lifecycle, back button, status bar, external links, share-sheet export | `lib/native/*` | no-ops on the web |
+| Native tab bar (iOS, session 38) | `ios/App/App/CatchTabBarController.swift`, `NativeTabBarPlugin.swift`, `lib/native/tabBar.ts` + `tabBarSync.ts` | the system `UITabBarController`; see below |
 | Health import (Apple Health / Health Connect) | `lib/native/health.ts`, `pages/HealthData.tsx`, `catch/sync/health_import.py` | `docs/mobile/health-data.md` |
+
+## Native tab bar (iOS, session 38)
+
+The iOS app's root view controller is `CatchTabBarController`, a plain `UITabBarController`: with Xcode 26 / the iOS 26 SDK the bar is
+the system's Liquid Glass bar; on iOS 15–25 it is that release's standard bar. **Do not add `UIDesignRequiresCompatibility` to Info.plist**
+— it would switch Liquid Glass off app-wide. Info.plist names no storyboard, so `SceneDelegate` creates the only bridge.
+
+- **Architecture.** There is one web view. Each of the five tabs has an empty `TabHostViewController`; the single `CatchBridgeViewController`
+  (and its web view) is moved into whichever host is selected. Moving a WKWebView doesn't reload it. Being a child of the tab controller
+  is what puts the bar into the web view's safe area, so `env(safe-area-inset-bottom)` clears it.
+- **Plugin `NativeTabBar`** (registered by instance in `CatchBridgeViewController.capacitorDidLoad()`; `cap sync` rewrites
+  `packageClassList`, so it must not be listed there):
+  - web → native `configure({tabs, selected, visible, theme})` — the full state, sent every time AppShell mounts — and `setState({...})`
+    with only what changed;
+  - native → web `tabSelected {id, reselected}` on a person's tap, and `accessibility {reduceTransparency}`.
+  - Programmatic selection never raises `tabSelected`, and the web side doesn't echo a tap's own tab back, so nothing loops.
+- **Lifecycle.** The bar is hidden from the start of every page load (KVO on `webView.isLoading`) until `configure` arrives; the
+  bridge drops plugin listeners on each navigation and the web side re-subscribes before configuring, so cold start, a reload, a
+  WebKit content-process crash and a sign-in all use the same handshake. The web side re-sends the full state on resume. It is hidden
+  while signed out (AppShell isn't mounted), while any dialog is open, while the keyboard is up, and in the desktop layout (≥ 64rem).
+- **React Router stays the source of truth.** A tab tap calls the router's `navigate()`; deep links and in-app links just change the
+  route, and the bar follows.
+- **Fallback.** If the plugin is missing or refuses `configure`, the web tab bar renders instead.
 
 ## Environments and ids
 
@@ -64,6 +88,23 @@ Android Auto Backup and device transfer are disabled (the Keystore-encrypted ses
 project, add the web origin (and nothing else) to the redirect allow-list — the apps use the universal link, not a custom scheme, for e-mail links.
 
 ## Testing
+
+**iOS native tab bar (XCUITest, session 38).** Build the fixtures-only bundle (no backend), sync, then run the `AppUITests` target on an iOS 26
+and an older simulator. Turn off the simulator's hardware keyboard first, or the keyboard test skips itself:
+
+```sh
+cd web && CATCH_NATIVE_ENV=development node scripts/native-config.mjs \
+  && VITE_CATCH_MOCK=1 npx vite build --mode native-development && npx cap sync ios
+defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false   # then reboot the simulator
+cd ios/App && xcodebuild test -project App.xcodeproj -scheme App -parallel-testing-enabled NO \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO CATCH_ID_SUFFIX=.dev "CATCH_APP_NAME=Catch Dev"
+```
+
+Ten tests: each tab drives the router; exactly one navigation surface; More opens the sheet and the bar steps aside; re-tapping a tab
+returns to its root; an in-app link and a deep link move the selection; background/resume; the end of a page rests above the bar;
+rotation; Coach's composer sits just above the bar and, with the keyboard up, just above the keyboard. Re-run the mock build before a
+real build — never ship a `VITE_CATCH_MOCK` bundle (`vite.config.ts` refuses it for production). The sync rules themselves are vitest
+(`src/lib/native/tabBarSync.test.ts`).
 
 See `test-report.md`. Android: `web/tests/native/android-e2e.mjs` drives the real app over its WebView with Playwright's Android driver (needs an emulator with a
 google_apis image, a local public-mode API and the throwaway Supabase stack; the script header lists the environment). iOS: simulator build/launch, `simctl push`, screenshots.

@@ -252,6 +252,13 @@ body {
   }
 }
 
+/* Session 38: in the iOS app the bottom bar is the native UITabBarController's, and UIKit already adds its footprint to the web
+   view's safe area — so env(safe-area-inset-bottom) covers it and the web reserve is zero (never both: that would pad twice).
+   lib/native/tabBar.ts sets the attribute only there. */
+html[data-native-tabbar] {
+  --shell-bottom: 0px;
+}
+
 /* Route change: a short fade-up on the page container (AppShell keys it on the pathname). */
 .page-enter {
   animation: enter 260ms var(--ease-out) both;
