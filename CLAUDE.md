@@ -818,7 +818,7 @@ unique length fit (`plan_compare.select_work_laps`; `parse_fit` laps keep distan
 `tests/tenancy/test_shared_examples.py`; Playwright `session36-followup.spec.ts`.
 
 Session 37 (mobile-only glass material system — see PLAN.md, DESIGN.md "Mobile glass (session 37)"). Frontend only, no migration.
-**All glass CSS is `web/src/styles/glass.css`, every rule inside `@media (max-width: 1023.98px)`** (AppShell's tab-bar/sidebar seam), unlayered
+**All glass CSS is `web/src/styles/glass.css`, every rule inside `@media (width < 64rem)`** (AppShell's tab-bar/sidebar seam, in rem like `lg:`), unlayered
 so it beats Tailwind utilities; a material never sets `border-color` and its `box-shadow` keeps `--tw-ring-*`/`--tw-inset-*`. Materials:
 `glass-primary` (blur; tab bar, top bar `+glass-bar`, toasts; `+glass-elevated`; `+glass-dense` = 96 %, no blur: sheets, modals, InfoTip,
 chart tooltips), `glass-secondary` (cards, no blur), `glass-subtle`, `glass-solid` (chart/map/table cards: `Card material="solid"`),

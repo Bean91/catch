@@ -1,7 +1,8 @@
 /* Mobile glass (session 37) — see DESIGN.md "Mobile glass". The phone/tablet layout's material system.
 
    Every rule in this file sits inside the one media query below: the width at which AppShell swaps the tab bar for the desktop
-   sidebar (Tailwind's `lg`, 1024px). Components carry `glass-*` classes at every width, and they do nothing on desktop, so the
+   sidebar — Tailwind's `lg`, written the same way (`width < 64rem`, so it moves with the browser's font size exactly as `lg:` does;
+   a px value would let the two disagree for someone with a larger or smaller default font). Components carry `glass-*` classes at every width, and they do nothing on desktop, so the
    desktop design can't change through this file. Never add a rule outside the media block.
 
    Why the rules are unlayered: Tailwind's utilities live in `@layer utilities`, and an unlayered rule beats any layered one, so a
@@ -12,7 +13,7 @@
 
    `@import` places this file before index.css's own unlayered rules, so overriding one of those (body) needs a more specific selector. */
 
-@media (max-width: 1023.98px) {
+@media (width < 64rem) {
   :root {
     --glass-alpha-primary: 80%;
     --glass-alpha-secondary: 78%;
@@ -207,7 +208,7 @@
 
 /* Opaque mode: the OS asked for less transparency or more contrast, or the athlete turned on "Reduce transparency" (Settings →
    Appearance, data-glass="off"). Every material becomes a plain surface; the rim stays so the layering still reads. */
-@media (max-width: 1023.98px) and (prefers-reduced-transparency: reduce), (max-width: 1023.98px) and (prefers-contrast: more) {
+@media (width < 64rem) and (prefers-reduced-transparency: reduce), (width < 64rem) and (prefers-contrast: more) {
   .glass-primary,
   .glass-secondary,
   .glass-solid {
@@ -229,7 +230,7 @@
     display: none;
   }
 }
-@media (max-width: 1023.98px) {
+@media (width < 64rem) {
   :root[data-glass="off"] .glass-primary,
   :root[data-glass="off"] .glass-secondary,
   :root[data-glass="off"] .glass-solid {
@@ -251,7 +252,7 @@
     display: none;
   }
 }
-@media (max-width: 1023.98px) and (forced-colors: active) {
+@media (width < 64rem) and (forced-colors: active) {
   .glass-primary,
   .glass-secondary,
   .glass-subtle,

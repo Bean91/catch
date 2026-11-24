@@ -10,7 +10,7 @@
 
 @import "tailwindcss";
 @import "./styles/tokens.css";
-/* Session 37: the phone/tablet glass materials. Mobile-only by construction (every rule is inside a max-width: 1023.98px block). */
+/* Session 37: the phone/tablet glass materials. Mobile-only by construction (every rule is inside a `width < 64rem` block, i.e. below lg). */
 @import "./styles/glass.css";
 
 /* `inline`: utilities reference the token variables directly (var(--surface)), so nothing here re-declares a variable in
@@ -244,7 +244,8 @@ body {
   /* Session 37: the floating tab bar is 52px tall and sits 8px above the bottom edge (DESIGN.md "Mobile glass"). */
   --shell-bottom: 60px;
 }
-@media (min-width: 1024px) {
+/* 64rem, not 1024px: the same width as Tailwind's `lg:` (which hides the bars) even when the browser's default font size isn't 16px. */
+@media (width >= 64rem) {
   :root {
     --shell-top: 0px;
     --shell-bottom: 0px;

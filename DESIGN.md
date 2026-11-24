@@ -9,8 +9,9 @@ changes are the two bug fixes at the end of this section. The session 35 section
 
 ### Where it applies
 
-- **Breakpoint:** `max-width: 1023.98px`, the width at which `AppShell` swaps the desktop sidebar for the top bar and the tab bar
-  (Tailwind's `lg`). Phones, landscape phones and portrait tablets get glass. A landscape iPad (1024px and up) already uses the desktop
+- **Breakpoint:** `width < 64rem`, the width at which `AppShell` swaps the desktop sidebar for the top bar and the tab bar
+  (Tailwind's `lg`), in rem like `lg:` so the two agree when the browser's default font size isn't 16px (`--shell-*` in `index.css`
+  uses the same 64rem). Phones, landscape phones and portrait tablets get glass. A landscape iPad (1024px and up) already uses the desktop
   layout and gets none.
 - **No JS viewport check.** The split is CSS only. (`lib/glass.ts` reads a stored preference and the device memory, never the width.)
 
@@ -20,7 +21,8 @@ changes are the two bug fixes at the end of this section. The session 35 section
   Keyframe definitions sit at the end of the file; they do nothing on their own.
 - **Components carry `glass-*` classes at every width.** Those classes are inert from lg up, so a component never needs `max-lg:`.
 - **Desktop-visible markup:** the Reduce transparency switch sits in an `lg:hidden` row.
-- **The guard:** `tests/touch/glass-desktop.spec.ts` (desktop-mouse, 1280 and 1024, both themes) fails if any element other than the
+- **The guards:** `tests/touch/glass.spec.ts` covers the phone side, including the switch and `prefers-contrast: more`.
+  `tests/touch/glass-desktop.spec.ts` (desktop-mouse, 1280 and 1024, both themes) fails if any element other than the
   pre-existing ones (sidebar, dialog overlay, chart tooltips) blurs, if a card isn't on `--surface`, or if `body` loses its session 35
   gradient. It was mutation-tested: a material rule leaked to desktop makes it fail.
 
@@ -123,8 +125,8 @@ and lights have light-theme values (`[data-theme=light]` plus the `prefers-color
 
 ### Navigation
 
-- **The tab bar is a floating capsule:** inset by `max(12px, safe area + 8px)` from the sides, `max(8px, safe-area-bottom − 12px)` from the
-  bottom, 52px tall, at most 560px wide and centred (landscape phones and tablets get a centred bar, not a stretched one).
+- **The tab bar is a floating capsule:** inset by `max(12px, safe area + 8px)` from the sides and 8px above the home indicator
+  (`safe-area-bottom + 8px`, so its footprint is exactly the `--shell-bottom` + safe area every page reserves), 52px tall, at most 560px wide and centred (landscape phones and tablets get a centred bar, not a stretched one).
 - **`--shell-bottom` is now 60px** (bar plus gap). It supersedes session 35's "52px, no taller" note: `charts.spec`, `basic.spec`, every
   `aboveNav` spec and `calendar.spec` pass at 60.
 - **Inactive tab labels** moved from tertiary to secondary text for contrast over glass.

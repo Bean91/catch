@@ -5363,7 +5363,9 @@ physical device. Not deployed: `catch db upgrade` (0013 and 0014) before `fastap
 # Session 37: mobile-only glass material system
 
 Branch `session-37-mobile-glass`.
-- **Frontend only:** no API, schema or Python change (`EXPECTED_SCHEMA_REVISION` stays "0014"), so deploying is `fastapi deploy` alone.
+- **Frontend only:** no API, schema or Python change (`EXPECTED_SCHEMA_REVISION` stays "0014"). No new migration, **but this branch
+  carries session 36, whose migrations 0013 and 0014 are not yet applied in production: run `uv run catch db upgrade` before
+  `fastapi deploy`** (session 31: new code on an older schema returned 500s).
 - **Design system:** DESIGN.md "Mobile glass (session 37)".
 
 ## Decisions (the user chose the first three)
@@ -5374,7 +5376,8 @@ Branch `session-37-mobile-glass`.
    a compositing layer per card on iOS.
 3. **A "Reduce transparency" switch:** left to me, and added. Capacitor's iOS web view doesn't pass on the system setting.
 4. **My choices:**
-   - Glass applies below `lg` (1024px), the width where AppShell already swaps the sidebar for the tab bar. Portrait tablets get glass;
+   - Glass applies below `lg` (`width < 64rem`, in rem like Tailwind's `lg:`), the width where AppShell already swaps the sidebar for the
+     tab bar. Portrait tablets get glass;
      a landscape iPad is desktop.
    - One stylesheet (`styles/glass.css`), every rule inside one media block, unlayered. Materials never set `border-color`, and their
      `box-shadow` keeps Tailwind's ring variables.
@@ -5394,8 +5397,8 @@ Branch `session-37-mobile-glass`.
 - **`lib/glass.ts` (new):** `applyGlassPreference()` runs before the first render in `main.tsx`, and `useReduceTransparency()` drives
   the switch. Low-memory Chromium devices get `lite` (half blur).
 - **Shell:**
-  - `BottomNav` is a floating capsule: 52px, at most 560px wide, inset from the edges and the home indicator, with the sliding
-    `glass-lens`. Inactive labels moved from tertiary to secondary text.
+  - `BottomNav` is a floating capsule: 52px, at most 560px wide, inset from the edges and 8px above the home indicator, with the
+    sliding `glass-lens`. Inactive labels moved from tertiary to secondary text.
   - `--shell-bottom` is 52 → 60px.
   - The top bar is `glass-primary glass-bar`. The More sheet's tiles are `glass-subtle`.
 - **Primitives:**
@@ -5425,16 +5428,18 @@ Branch `session-37-mobile-glass`.
 | Check | Result |
 |---|---|
 | Desktop regression: every element's computed background, border colours/widths, radii, box-shadow, backdrop-filter, opacity, transform, filter, position, z-index, colour, width and height, plus `body::before`. 19 page states (Today, Today with an InfoTip open, Calendar week/month, a planned-session sheet, Workout detail, Workouts, Lab, Trends, Coach, Settings, Connections, setup, Train, Library, Body, Nutrition, Plan, Training intelligence) × 1280/1024 × dark/light, production builds of `HEAD` and the branch | **0 differences**. Two baseline runs agree once sub-pixel widths and the lazy route map are filtered. The same tool at 390px finds the intended mobile changes, so a zero is meaningful |
-| `tests/touch/glass.spec.ts` (both mobile projects; dark and light) | floating, inset, blurred tab bar with the lens under the active tab; translucent cards and ≥ 95 % chart cards; a segment's ring survives; a sheet is near-opaque, unblurred and above the bar; the switch makes everything opaque and persists across a reload; 320px fits; the chart tooltip is unblurred; the InfoTip opens beside its button above the bar |
+| `tests/touch/glass.spec.ts` (both mobile projects; dark and light) | floating, inset, blurred tab bar with the lens under the active tab; translucent cards and ≥ 95 % chart cards; a segment's ring survives; a sheet is near-opaque, unblurred and above the bar; the switch makes everything opaque and persists across a reload; 320px fits; the chart tooltip is unblurred; the InfoTip opens beside its button above the bar; `prefers-contrast: more` turns glass off (the switch and the contrast preference share one rule set; Playwright can't emulate reduced transparency) |
 | `tests/touch/glass-desktop.spec.ts` (desktop-mouse) | No glass at 1280/1024 in both themes (blur allowlist, cards on `--surface`, body gradient, no switch); the InfoTip sits beside its button. Mutation-tested: a material leaked to desktop and a blurred top bar both fail it |
-| `test:touch` (3 projects, production build) | **393 passed, 10 skipped, 0 failed** (367 + 9 before; +26 new) |
-| `test:public` / `test:update` | 24 / 4 passed |
+| `test:touch` (3 projects, production build) | **395 passed, 10 skipped, 0 failed** (367 + 9 before; +28 new) |
+| `test:public` / `test:update` / `test:gym` (real backend) | 24 / 4 / 3 passed |
+| `check:build-secrets`; `vite build --mode native-development` | Clean (132 files); builds |
 | vitest | 121 passed |
 | `tsc -b`, oxlint | Clean apart from the pre-existing oxlint warnings (gymSync, useDeepLinks, health, coachRefs, android-e2e) |
 | `pytest tests/test_main_static.py` | 4 passed (no Python changed) |
 | Initial bundle | 202.5 KB of 250 KB (+0.6 KB; the materials are CSS) |
 | Contrast (composite of each fill over the brightest background light, and over a solid accent button for floating layers) | All text ≥ 4.5:1 on cards, subtle, solid and sheet surfaces in both themes. Below 4.5 only: the toast's ✕ glyph (3.8:1, a graphic, ≥ 3:1) and a tooltip's tertiary title over a *solid* series colour (4.3:1; over the real 16 % area fill it passes). Nav labels moved to secondary text (5.4:1) |
 | Chart palette | `glass-solid` (96 %) differs from `--surface` by at most 1.4/255 in any channel even under the brightest light (imperceptible), so session 35's validated pairs stand unchanged |
+| Route sweep: 42 routes at 390×844 dark and 320×640 light, full-page, read as contact sheets | 0 horizontal overflow, 0 console errors; toast and press-and-hold tooltip rendered in both themes |
 | Visual review: production and dev builds, 320/390/430 portrait, 844×390 landscape, 768 tablet, dark and light | Today, Calendar week/month and a sheet, Workout detail, Lab, Coach, Settings, More sheet, InfoTip, opaque mode. Fixes from it: the two bugs above, a stronger lens tint, higher-opacity elevated/dense overlays |
 
 **Performance** (production build, Chromium, 4× CPU throttle, 390×844, median of 3, baseline → branch):
@@ -5458,5 +5463,8 @@ bars, no blur in-flow or on anything that moves per frame).
 - **InfoTip doesn't follow the page** while it scrolls (it never did); it closes on the next tap.
 - **`<main>` still keeps its identity transform** after the route animation. InfoTip now corrects for it. Changing the animation's
   fill mode would have changed desktop computed styles, so it was left.
+- **Breakpoint in rem (review fix):** glass and `--shell-*` now use `64rem` like Tailwind's `lg:`. With a px breakpoint, a non-default
+  browser font size would have left a band where the tab bar shows without glass, or desktop gets glass. Not exercised with a changed
+  font size (Playwright can't set the default font size); the built CSS uses the exact complement of `lg`.
 - **Landscape phones:** the 60px tab-bar footprint is a larger share of a 390px-tall screen. Same layout as before, 8px more.
 

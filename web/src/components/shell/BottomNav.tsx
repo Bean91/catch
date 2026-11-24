@@ -48,11 +48,12 @@ export function BottomNav() {
   const lensIndex = moreOpen ? TAB_INDEX.more : TAB_INDEX[current];
 
   return (
-    // Session 37 (DESIGN.md "Mobile glass"): a floating glass capsule, inset from the screen edges and the home indicator, at most
-    // 560px wide so a landscape phone or a tablet gets a centred bar rather than a stretched one. --shell-bottom (60px) is its 52px
-    // height plus the 8px gap; pages pad themselves from it.
+    // Session 37 (DESIGN.md "Mobile glass"): a floating glass capsule, inset from the screen edges and 8px above the home indicator,
+    // at most 560px wide so a landscape phone or a tablet gets a centred bar rather than a stretched one. --shell-bottom (60px) is its
+    // 52px height plus the 8px gap; pages pad themselves from it plus the safe area, exactly the capsule's footprint. The bg/blur
+    // utilities are the fallback look if glass.css ever doesn't apply (the material overrides them below lg).
     <nav
-      className="glass-primary fixed bottom-[max(8px,calc(env(safe-area-inset-bottom)-12px))] left-[max(12px,calc(env(safe-area-inset-left)+8px))] right-[max(12px,calc(env(safe-area-inset-right)+8px))] z-20 mx-auto max-w-[560px] rounded-2xl border border-border/70"
+      className="glass-primary fixed bottom-[calc(env(safe-area-inset-bottom)+8px)] left-[max(12px,calc(env(safe-area-inset-left)+8px))] right-[max(12px,calc(env(safe-area-inset-right)+8px))] z-20 mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-surface/90 backdrop-blur-lg"
       aria-label="Primary"
     >
       <ul className="relative flex h-[52px] items-stretch justify-between px-1">

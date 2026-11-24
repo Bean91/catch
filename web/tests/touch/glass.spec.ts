@@ -174,3 +174,12 @@ test("an InfoTip opens next to its button, above the tab bar near the bottom of 
   expect(t.x).toBeGreaterThanOrEqual(0);
   expect(t.x + t.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 });
+
+test("the system's increased-contrast preference turns glass off the same way", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce", contrast: "more" });
+  await page.goto("/?mock=1");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  expect(await style(nav, "backdrop-filter")).toBe("none");
+  expect(alphaOf(await style(nav, "background-color"))).toBe(1);
+  expect(alphaOf(await style(page.locator(".glass-secondary").first(), "background-color"))).toBe(1);
+});
